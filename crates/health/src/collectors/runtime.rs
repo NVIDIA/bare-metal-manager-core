@@ -247,6 +247,24 @@ impl StreamMetrics {
     }
 }
 
+/// Builds collector metric labels and includes `rack_id` only when available.
+pub(crate) fn collector_metric_labels(
+    collector_type: &str,
+    endpoint_key: String,
+    endpoint: &BmcEndpoint,
+) -> HashMap<String, String> {
+    let mut labels = HashMap::from([
+        ("collector_type".to_string(), collector_type.to_string()),
+        ("endpoint_key".to_string(), endpoint_key),
+    ]);
+
+    if let Some(rack_id) = endpoint.rack_id.as_ref() {
+        labels.insert("rack_id".to_string(), rack_id.to_string());
+    }
+
+    labels
+}
+
 /// RAII guard: increments the passed IntGauge on construction, decrements on drop.
 /// Ensures every exit path from a connected stream (cancel, error, end, reconnect) dec's.
 pub(crate) struct StreamingConnectionGuard(IntGauge);
@@ -300,14 +318,8 @@ impl Collector {
 
         let mut runner = C::new_runner(bmc, endpoint.clone(), config)?;
 
-        let endpoint_key = endpoint.key();
-        let const_labels = HashMap::from([
-            (
-                "collector_type".to_string(),
-                runner.collector_type().to_string(),
-            ),
-            ("endpoint_key".to_string(), endpoint_key),
-        ]);
+        let const_labels =
+            collector_metric_labels(runner.collector_type(), endpoint.key(), &endpoint);
 
         let registry = collector_registry.registry();
 
@@ -362,7 +374,12 @@ impl Collector {
             loop {
                 tokio::select! {
                     _ = cancel_token_clone.cancelled() => {
-                        tracing::info!(endpoint = ?endpoint.addr, "collector cancelled");
+                        tracing::info!(
+                            endpoint = ?endpoint.addr,
+                            rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
+                            "collector cancelled"
+                        );
+
                         runner.stop().await;
                         break;
                     }
@@ -401,6 +418,7 @@ impl Collector {
                                     error = ?e,
                                     endpoint = ?endpoint.addr,
                                     collector_type = collector_type,
+                                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                                     "Error during collector iteration"
                                 );
                             }
@@ -442,14 +460,8 @@ impl Collector {
         let mut collector = S::new_runner(Arc::clone(&bmc), endpoint.clone(), config)?;
         let event_context = EventContext::from_endpoint(&endpoint, collector.collector_type());
 
-        let endpoint_key = endpoint.key();
-        let const_labels = HashMap::from([
-            (
-                "collector_type".to_string(),
-                collector.collector_type().to_string(),
-            ),
-            ("endpoint_key".to_string(), endpoint_key),
-        ]);
+        let const_labels =
+            collector_metric_labels(collector.collector_type(), endpoint.key(), &endpoint);
 
         let registry = collector_registry.registry();
         let metrics = StreamMetrics::new(registry, collector_registry.prefix(), const_labels)?;
@@ -463,6 +475,7 @@ impl Collector {
                 tracing::info!(
                     collector_type,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "streaming collector connecting"
                 );
 
@@ -479,6 +492,7 @@ impl Collector {
                             error = ?e,
                             collector_type,
                             endpoint = ?endpoint.addr,
+                            rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                             "streaming collector connection failed"
                         );
                         if !on_connect_result(Err(&e)) {
@@ -497,6 +511,7 @@ impl Collector {
                             error = ?error,
                             collector_type,
                             endpoint = ?endpoint.addr,
+                            rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                             "streaming collector connection failed"
                         );
 
@@ -513,6 +528,7 @@ impl Collector {
                         tracing::info!(
                             collector_type,
                             endpoint = ?endpoint.addr,
+                            rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                             "streaming collector connected"
                         );
 
@@ -522,6 +538,7 @@ impl Collector {
                                 tracing::info!(
                                     collector_type,
                                     endpoint = ?endpoint.addr,
+                                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                                     "streaming collector shutting down"
                                 );
                                 return;
@@ -539,6 +556,7 @@ impl Collector {
                                         error = ?e,
                                         collector_type,
                                         endpoint = ?endpoint.addr,
+                                        rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                                         "streaming collector stream error, reconnecting"
                                     );
                                     break;
@@ -547,6 +565,7 @@ impl Collector {
                                     tracing::info!(
                                         collector_type,
                                         endpoint = ?endpoint.addr,
+                                        rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                                         "streaming collector stream ended, reconnecting"
                                     );
                                     break;
@@ -605,6 +624,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use carbide_uuid::rack::RackId;
+
     use super::*;
     use crate::endpoint::test_support::{mac, test_endpoint};
     use crate::metrics::MetricsManager;
@@ -633,6 +654,42 @@ mod tests {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
             Ok(())
+        }
+    }
+
+    #[test]
+    fn collector_metric_labels_include_only_available_rack_id() {
+        struct TestCase {
+            name: &'static str,
+            rack_id: Option<RackId>,
+            expected_rack_id: Option<&'static str>,
+        }
+
+        let cases = [
+            TestCase {
+                name: "rack identity is available",
+                rack_id: Some(RackId::new("RACK_1")),
+                expected_rack_id: Some("RACK_1"),
+            },
+            TestCase {
+                name: "rack identity is unavailable",
+                rack_id: None,
+                expected_rack_id: None,
+            },
+        ];
+
+        for case in cases {
+            let mut endpoint = test_endpoint(mac("00:11:22:33:44:55"));
+            endpoint.rack_id = case.rack_id;
+
+            let labels = collector_metric_labels("test_collector", endpoint.key(), &endpoint);
+
+            assert_eq!(
+                labels.get("rack_id").map(String::as_str),
+                case.expected_rack_id,
+                "{}",
+                case.name
+            );
         }
     }
 

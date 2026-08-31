@@ -54,6 +54,8 @@ type Task struct {
 	// IdempotencyKey is an optional stable submission key. When set, retries
 	// return the existing task instead of creating another row.
 	IdempotencyKey string
+	TriggerType    operation.TriggerType
+	TriggerID      *uuid.UUID
 }
 
 // IsScheduled reports whether the task has been submitted to an executor.

@@ -34,6 +34,8 @@ type InstanceCreateRequest struct {
 	InstanceTypeId NullableString `json:"instanceTypeId,omitempty"`
 	// ID of of specific Machine to use for Instance. Requires Targeted Instance Creation capability enabled for Tenant
 	MachineId NullableString `json:"machineId,omitempty"`
+	// Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement.  A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. When `instanceTypeId` is supplied, NICo selects from Ready, unassigned Machines of that Instance Type that match the selector. When `machineId` is supplied, the specified Machine must match the selector or the request is rejected with 400. The selector constrains placement only; it is not persisted on the created Instance.
+	MachineLabelSelector map[string]string `json:"machineLabelSelector,omitempty"`
 	// ID of the VPC the Instance should belong to
 	VpcId string `json:"vpcId"`
 	// IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
@@ -267,6 +269,38 @@ func (o *InstanceCreateRequest) SetMachineIdNil() {
 // UnsetMachineId ensures that no value is present for MachineId, not even an explicit nil
 func (o *InstanceCreateRequest) UnsetMachineId() {
 	o.MachineId.Unset()
+}
+
+// GetMachineLabelSelector returns the MachineLabelSelector field value if set, zero value otherwise.
+func (o *InstanceCreateRequest) GetMachineLabelSelector() map[string]string {
+	if o == nil || IsNil(o.MachineLabelSelector) {
+		var ret map[string]string
+		return ret
+	}
+	return o.MachineLabelSelector
+}
+
+// GetMachineLabelSelectorOk returns a tuple with the MachineLabelSelector field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCreateRequest) GetMachineLabelSelectorOk() (map[string]string, bool) {
+	if o == nil || IsNil(o.MachineLabelSelector) {
+		return map[string]string{}, false
+	}
+	return o.MachineLabelSelector, true
+}
+
+// HasMachineLabelSelector returns a boolean if a field has been set.
+func (o *InstanceCreateRequest) HasMachineLabelSelector() bool {
+	if o != nil && !IsNil(o.MachineLabelSelector) {
+		return true
+	}
+
+	return false
+}
+
+// SetMachineLabelSelector gets a reference to the given map[string]string and assigns it to the MachineLabelSelector field.
+func (o *InstanceCreateRequest) SetMachineLabelSelector(v map[string]string) {
+	o.MachineLabelSelector = v
 }
 
 // GetVpcId returns the VpcId field value
@@ -880,6 +914,9 @@ func (o InstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.MachineId.IsSet() {
 		toSerialize["machineId"] = o.MachineId.Get()
+	}
+	if !IsNil(o.MachineLabelSelector) {
+		toSerialize["machineLabelSelector"] = o.MachineLabelSelector
 	}
 	toSerialize["vpcId"] = o.VpcId
 	if !IsNil(o.SecondaryVpcIds) {

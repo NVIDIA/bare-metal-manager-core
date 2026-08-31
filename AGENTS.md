@@ -137,6 +137,13 @@ no concrete answer, merge it into existing coverage or delete it.
 changes written by agents, the rules above for choosing cases replace its
 recommendation to enumerate every branch and input variant.
 
+For state-machine branch tests, reload persisted state after the controller
+iteration and assert the branch-owned fields or counters. An unchanged visible
+state or absence of an external action does not prove which branch ran.
+For retry tests, inject the claimed transient failure and assert that a later
+iteration retries it while preserving the expected externally visible state. A
+simulator's default unsupported response does not prove transient recovery.
+
 For user-visible CLI table changes, exercise the public command in a test and
 assert the rendered headers plus populated and empty cell values. Helper-only
 tests do not prove the table contract.

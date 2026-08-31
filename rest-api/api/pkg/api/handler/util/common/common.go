@@ -313,6 +313,10 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 
 	mcDAO := cdbm.NewMachineDAO(dbSession)
 	mcCapDAO := cdbm.NewMachineCapabilityDAO(dbSession)
+	var machineLabelSelector map[string]string
+	if apiRequest != nil {
+		machineLabelSelector = apiRequest.MachineLabelSelector
+	}
 
 	// Get all available Machines for the Instance Type
 	// Since this query is occurring outside of a lock, we will have to double check availability of Machines
@@ -320,6 +324,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 		InstanceTypeIDs: []uuid.UUID{instanceType.ID},
 		IsAssigned:      cutil.GetPtr(false),
 		Statuses:        []string{cdbm.MachineStatusReady},
+		Labels:          machineLabelSelector,
 	}
 	machines, _, err := mcDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -378,7 +383,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 			}
 
 			// Re-obtain the Machine record, to ensure that it is still available
-			umc, err := mcDAO.GetByID(ctx, tx, mc.ID, nil, false)
+			umc, err := mcDAO.GetByID(ctx, tx, mc.ID, nil, true)
 			if err != nil {
 				continue
 			}
@@ -388,6 +393,13 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, logger zerolog.Lo
 			}
 
 			if umc.IsAssigned {
+				continue
+			}
+
+			// Labels can change after the initial candidate query. Recheck the
+			// locked Machine before assigning it so the placement constraint is
+			// enforced against the latest record we observed.
+			if !umc.MatchesLabelSelector(machineLabelSelector) {
 				continue
 			}
 

@@ -18,13 +18,15 @@
 //! DPF SDK - High-level interface for DPF operations.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
+use model::dpa_interface::DpaInterface;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -2256,8 +2258,49 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
     ///
     /// This operation is idempotent - if the device already exists, it will be
     /// skipped. This handles state machine retries gracefully.
-    pub async fn register_dpu_device(&self, info: DpuDeviceInfo) -> Result<(), DpfError> {
+    pub async fn register_dpu_device(
+        &self,
+        info: DpuDeviceInfo,
+        astra_nics: Option<Vec<&DpaInterface>>,
+    ) -> Result<(), DpfError> {
         let cr_name = dpu_device_cr_name(&info.device_id);
+
+        // Values are supplied only on creation. In particular, do not require
+        // a complete Astra NIC snapshot when this is an idempotent retry for
+        // an existing DPUDevice.
+        if let Some(existing) =
+            DpuDeviceRepository::get(&*self.repo, &cr_name, &self.namespace).await?
+        {
+            if existing.metadata.deletion_timestamp.is_some() {
+                return Err(DpfError::InvalidState(format!(
+                    "DPUDevice {cr_name} is being deleted (has deletionTimestamp); \
+                     cannot re-register until the old resource is fully removed"
+                )));
+            }
+            if existing.spec.values.is_none()
+                && let Some(nics) = astra_nics.as_ref()
+            {
+                let values = astra_underlay_configuration(&cr_name, nics)?;
+                DpuDeviceRepository::patch(
+                    &*self.repo,
+                    &cr_name,
+                    &self.namespace,
+                    json!({ "spec": { "values": values } }),
+                )
+                .await?;
+                tracing::info!(device_name = %cr_name, "Backfilled Astra DPU device values");
+                return Ok(());
+            }
+            tracing::debug!(device_name = %cr_name, "DPU device already exists");
+            return Ok(());
+        }
+
+        let values = match astra_nics {
+            Some(nics) => Some(astra_underlay_configuration(&cr_name, &nics)?),
+            None => None,
+        };
+
+        tracing::info!(device_name = %cr_name, "Registering DPU device");
 
         let device = DPUDevice {
             metadata: ObjectMeta {
@@ -2284,7 +2327,7 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 bmc_credential_secret_name: None,
                 cluster: None,
                 nic_device_count: None,
-                values: None,
+                values,
             },
             status: None,
         };
@@ -2321,6 +2364,101 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
         let cr_name = dpu_device_cr_name(dpu_device_name);
         DpuDeviceRepository::delete(&*self.repo, &cr_name, &self.namespace).await
     }
+}
+
+/// Builds the Astra DPUDevice values from its eight ordered underlay NICs.
+fn astra_underlay_configuration(
+    device_name: &str,
+    astra_nics: &[&DpaInterface],
+) -> Result<BTreeMap<String, serde_json::Value>, DpfError> {
+    let underlay_ips = astra_nics
+        .iter()
+        .enumerate()
+        .map(|(index, nic)| match nic.underlay_ip {
+            Some(IpAddr::V4(ip)) => Ok(ip),
+            Some(IpAddr::V6(ip)) => Err(DpfError::ConfigError(format!(
+                "Astra underlay NIC {index} has unsupported IPv6 address {ip}; expected IPv4"
+            ))),
+            None => Err(DpfError::ConfigError(format!(
+                "Astra underlay NIC {index} has no underlay IP"
+            ))),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let values = astra_underlay_values_for_ips(&underlay_ips)?;
+    let underlay_ip_strings: Vec<String> =
+        underlay_ips.into_iter().map(|ip| ip.to_string()).collect();
+    tracing::info!(
+        "Setup DPUDevice {device_name} values for Astra with underlay_ips={} (mask=/31, routes=/16,/13)",
+        underlay_ip_strings.join(", ")
+    );
+
+    Ok(values)
+}
+
+/// Builds the per-DPU values consumed by the BF4 Astra `DPUFlavorTemplate`.
+///
+/// `underlay_ips` must contain eight unique IPv4 addresses in this order:
+/// rails 0 through 3 on switch plane 0, followed by rails 0 through 3 on
+/// switch plane 1. For each address, this creates `railX_swpY_ip` as a `/31`
+/// address, `railX_swpY_gw` as its `/31` peer, and `railX_swpY_route1` and
+/// `railX_swpY_route2` as the corresponding `/16` and `/13` route prefixes.
+/// The BF4 Astra template uses these exact values to replace its per-DPU
+/// placeholders when the `DPUDevice` is instantiated.
+fn astra_underlay_values_for_ips(
+    underlay_ips: &[Ipv4Addr],
+) -> Result<BTreeMap<String, serde_json::Value>, DpfError> {
+    const RAIL_SWITCH_PLANES: [(u8, u8); 8] = [
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (0, 1),
+        (1, 1),
+        (2, 1),
+        (3, 1),
+    ];
+
+    if underlay_ips.len() != RAIL_SWITCH_PLANES.len() {
+        tracing::error!(
+            expected_underlay_ip_count = RAIL_SWITCH_PLANES.len(),
+            actual_underlay_ip_count = underlay_ips.len(),
+            "Astra requires exactly eight underlay IPs"
+        );
+        return Err(DpfError::ConfigError(format!(
+            "Astra requires exactly {} underlay IPs, got {}",
+            RAIL_SWITCH_PLANES.len(),
+            underlay_ips.len()
+        )));
+    }
+    let unique_underlay_ip_count = underlay_ips.iter().copied().collect::<BTreeSet<_>>().len();
+    if unique_underlay_ip_count != underlay_ips.len() {
+        tracing::error!(
+            underlay_ip_count = underlay_ips.len(),
+            unique_underlay_ip_count,
+            "Astra underlay IPs must be unique"
+        );
+        return Err(DpfError::ConfigError(
+            "Astra underlay IPs must be unique".to_string(),
+        ));
+    }
+
+    let mut values = BTreeMap::new();
+    for ((rail, switch_plane), ip) in RAIL_SWITCH_PLANES.into_iter().zip(underlay_ips) {
+        let key = format!("rail{rail}_swp{switch_plane}");
+        let octets = ip.octets();
+        let gateway = Ipv4Addr::from(u32::from(*ip) ^ 1);
+        values.insert(format!("{key}_ip"), json!(format!("{ip}/31")));
+        values.insert(format!("{key}_gw"), json!(gateway.to_string()));
+        values.insert(
+            format!("{key}_route1"),
+            json!(format!("{}.{}.0.0/16", octets[0], octets[1])),
+        );
+        values.insert(
+            format!("{key}_route2"),
+            json!(format!("{}.{}.0.0/13", octets[0], octets[1] & 0b1111_1000)),
+        );
+    }
+    Ok(values)
 }
 
 impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
@@ -3006,6 +3144,12 @@ impl<R: DpuNodeRepository + DpuDeviceRepository + DpuRepository, L> DpfSdk<R, L>
                     spec_dpu_node_name: d.spec.dpu_node_name.clone(),
                     status_phase: d.status.as_ref().map(|s| format!("{:?}", s.phase)),
                     status_bfb_file: d.status.as_ref().and_then(|s| s.bfb_file.clone()),
+                    status_conditions: d.status.as_ref().and_then(|s| s.conditions.clone()),
+                    status_operational_conditions: d
+                        .status
+                        .as_ref()
+                        .and_then(|s| s.operational_conditions.clone()),
+                    status_agent_status: d.status.as_ref().and_then(|s| s.agent_status.clone()),
                 });
             }
         }
@@ -3256,7 +3400,7 @@ impl<R: DpuRepository, L: ResourceLabeler> DpfSdk<R, L> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::future::Future;
     use std::sync::{Arc, RwLock};
 
@@ -4111,6 +4255,19 @@ mod tests {
                 .get_mut(&Self::ns_key(ns, name))
                 .ok_or_else(|| DpfError::not_found("DPUDevice", name))?;
 
+            if let Some(values) = patch
+                .pointer("/spec/values")
+                .and_then(serde_json::Value::as_object)
+            {
+                device.spec.values = Some(
+                    values
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                );
+                return Ok(());
+            }
+
             let Some(node_labels) = patch
                 .pointer("/spec/cluster/nodeLabels")
                 .and_then(serde_json::Value::as_object)
@@ -4385,13 +4542,134 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
             .unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].spec.serial_number, "SN123456");
+    }
+
+    #[test]
+    fn astra_underlay_values_follow_rail_and_switch_plane_order() {
+        let underlay_ips = [
+            "100.96.0.212",
+            "100.97.0.214",
+            "100.98.0.216",
+            "100.99.0.218",
+            "100.104.0.220",
+            "100.105.0.222",
+            "100.106.0.224",
+            "100.107.0.226",
+        ]
+        .map(|ip| ip.parse::<Ipv4Addr>().unwrap());
+
+        let values = astra_underlay_values_for_ips(&underlay_ips).unwrap();
+        assert_eq!(values.len(), 32);
+        assert_eq!(values["rail0_swp0_ip"].as_str(), Some("100.96.0.212/31"));
+        assert_eq!(values["rail0_swp0_gw"].as_str(), Some("100.96.0.213"));
+        assert_eq!(values["rail0_swp0_route1"].as_str(), Some("100.96.0.0/16"));
+        assert_eq!(values["rail0_swp0_route2"].as_str(), Some("100.96.0.0/13"));
+        assert_eq!(values["rail3_swp1_ip"].as_str(), Some("100.107.0.226/31"));
+        assert_eq!(values["rail3_swp1_gw"].as_str(), Some("100.107.0.227"));
+        assert_eq!(values["rail3_swp1_route1"].as_str(), Some("100.107.0.0/16"));
+        assert_eq!(values["rail3_swp1_route2"].as_str(), Some("100.104.0.0/13"));
+        assert!(astra_underlay_values_for_ips(&underlay_ips[..7]).is_err());
+
+        let mut duplicate_ips = underlay_ips;
+        duplicate_ips[7] = duplicate_ips[0];
+        let error = astra_underlay_values_for_ips(&duplicate_ips).unwrap_err();
+        assert!(
+            matches!(error, DpfError::ConfigError(message) if message == "Astra underlay IPs must be unique")
+        );
+    }
+
+    #[test]
+    fn astra_dpu_device_values_exactly_match_flavor_template_references() {
+        let underlay_ips = [
+            "100.96.0.212",
+            "100.97.0.214",
+            "100.98.0.216",
+            "100.99.0.218",
+            "100.104.0.220",
+            "100.105.0.222",
+            "100.106.0.224",
+            "100.107.0.226",
+        ]
+        .map(|ip| ip.parse::<Ipv4Addr>().unwrap());
+        let values = astra_underlay_values_for_ips(&underlay_ips).unwrap();
+        let value_keys: BTreeSet<_> = values.keys().cloned().collect();
+
+        let template = crate::flavor::flavor_bf4_astra(
+            "astra-ns",
+            &None,
+            calculate_astra_pf_total_sf(build_astra_dpu_interfaces_vec().as_slice()).unwrap(),
+        )
+        .unwrap();
+        let reference_keys: BTreeSet<_> = template
+            .spec
+            .template
+            .split("{{ .")
+            .skip(1)
+            .map(|reference| {
+                reference
+                    .split_once(" }}")
+                    .expect("Astra template reference must be closed")
+                    .0
+                    .to_owned()
+            })
+            .collect();
+
+        assert_eq!(reference_keys, value_keys);
+
+        let mut rendered_template = template.spec.template;
+        for (key, value) in values {
+            rendered_template = rendered_template.replace(
+                &format!("{{{{ .{key} }}}}"),
+                value.as_str().expect("Astra value must be a string"),
+            );
+        }
+        let rendered: serde_yaml::Value = serde_yaml::from_str(&rendered_template).unwrap();
+        let xplane_script = rendered["spec"]["configFiles"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"].as_str() == Some("/etc/mellanox/xplane-bridge.sh"))
+            .and_then(|file| file["raw"].as_str())
+            .unwrap();
+
+        for ((rail, switch_plane), ip) in [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+        ]
+        .into_iter()
+        .zip(underlay_ips)
+        {
+            let octets = ip.octets();
+            let gateway = Ipv4Addr::from(u32::from(ip) ^ 1);
+            let bridge = format!("brcx-r{rail}swpln{switch_plane}");
+            assert!(
+                xplane_script.contains(&format!(
+                    "echo \"    {bridge}:\"\n    echo \"      addresses:\"\n    echo \"        - {ip}/31\""
+                ))
+            );
+            assert!(xplane_script.contains(&format!(
+                "echo \"        - to: {}.{}.0.0/16\"\n    echo \"          via: {gateway}\"",
+                octets[0], octets[1]
+            )));
+            assert!(xplane_script.contains(&format!(
+                "echo \"        - to: {}.{}.0.0/13\"\n    echo \"          via: {gateway}\"",
+                octets[0],
+                octets[1] & 0b1111_1000
+            )));
+        }
     }
 
     #[tokio::test]
@@ -4436,7 +4714,7 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
@@ -4529,7 +4807,7 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
@@ -4565,7 +4843,7 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
@@ -4683,7 +4961,7 @@ mod tests {
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
         };
-        sdk.register_dpu_device(device_info).await.unwrap();
+        sdk.register_dpu_device(device_info, None).await.unwrap();
 
         let dpu_name = "node-dpu-001-device-dpu-001";
         let dpu = DPU {
@@ -4884,8 +5162,8 @@ mod tests {
             is_primary: false,
         };
 
-        sdk1.register_dpu_device(info1).await.unwrap();
-        sdk2.register_dpu_device(info2).await.unwrap();
+        sdk1.register_dpu_device(info1, None).await.unwrap();
+        sdk2.register_dpu_device(info2, None).await.unwrap();
 
         let devices1 = DpuDeviceRepository::list(&mock, "namespace-1")
             .await
@@ -5362,7 +5640,7 @@ mod tests {
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
         };
-        let err = sdk.register_dpu_device(info).await.unwrap_err();
+        let err = sdk.register_dpu_device(info, None).await.unwrap_err();
         assert!(
             matches!(err, DpfError::InvalidState(_)),
             "expected InvalidState, got: {err:?}"
@@ -5394,7 +5672,7 @@ mod tests {
                 bmc_credential_secret_name: None,
                 cluster: None,
                 nic_device_count: None,
-                values: None,
+                values: Some(BTreeMap::new()),
             },
             status: None,
         };
@@ -5411,7 +5689,9 @@ mod tests {
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
         };
-        sdk.register_dpu_device(info).await.unwrap();
+        // An existing DPUDevice is left untouched, so a retry does not need a
+        // complete Astra NIC snapshot just to re-validate creation-only values.
+        sdk.register_dpu_device(info, Some(vec![])).await.unwrap();
 
         // This branch is a deliberate no-op: an existing, non-terminating device is left
         // alone. `.unwrap()` only said no error came back -- assert no second device was

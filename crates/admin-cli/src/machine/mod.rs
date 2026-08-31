@@ -19,6 +19,7 @@ mod auto_update;
 mod common;
 mod force_delete;
 mod hardware_info;
+mod health_history;
 mod health_report;
 mod metadata;
 pub(crate) mod network;
@@ -26,6 +27,9 @@ mod nvlink_info;
 mod positions;
 mod reboot;
 mod show;
+
+#[cfg(test)]
+mod tests;
 
 // Cross-module re-exports.
 pub(crate) use auto_update::args::Args as MachineAutoupdate;
@@ -83,4 +87,6 @@ pub(crate) enum Cmd {
     Positions(positions::Args),
     #[clap(subcommand, about = "Update/show NVLink info for an MNNVL machine")]
     NvlinkInfo(nvlink_info::Args),
+    #[clap(about = "Show machine health history")]
+    HealthHistory(health_history::Args),
 }

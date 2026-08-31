@@ -116,6 +116,12 @@ type RuleFilter struct {
 	Enabled   *bool
 }
 
+// IncludesOrigin reports whether the filter permits rules from origin. A nil
+// origin filter permits every origin.
+func (f RuleFilter) IncludesOrigin(origin RuleOrigin) bool {
+	return f.Origin == nil || *f.Origin == origin
+}
+
 // Matches reports whether a rule satisfies every configured filter field.
 func (f RuleFilter) Matches(rule *Rule) bool {
 	if rule == nil {
@@ -125,7 +131,7 @@ func (f RuleFilter) Matches(rule *Rule) bool {
 	if f.EventType != nil && rule.EventType != *f.EventType {
 		return false
 	}
-	if f.Origin != nil && rule.Origin != *f.Origin {
+	if !f.IncludesOrigin(rule.Origin) {
 		return false
 	}
 	if f.Enabled != nil && rule.Enabled != *f.Enabled {
@@ -217,20 +223,11 @@ type ExecutionStore interface {
 	) error
 }
 
-// ExecutionTaskStore persists the normalized one-to-many relationship between
-// executions and their rack-partitioned downstream tasks.
-type ExecutionTaskStore interface {
-	// GetExecutionTask returns the task associated with one execution and rack.
-	// A missing association returns (nil, nil).
-	GetExecutionTask(
-		ctx context.Context,
-		executionID uuid.UUID,
-		rackID uuid.UUID,
-	) (*ExecutionTask, error)
-	// CreateExecutionTask atomically creates an association or returns the
-	// existing association for the same execution and rack.
-	CreateExecutionTask(
-		ctx context.Context,
-		association ExecutionTask,
-	) (*ExecutionTask, error)
+// Store is the complete persistence boundary required by the event-rule
+// manager.
+type Store interface {
+	RuleStore
+	BindingStore
+	EventPlanStore
+	ExecutionStore
 }

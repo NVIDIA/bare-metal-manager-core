@@ -21,6 +21,16 @@ use crate::errors::CarbideCliError;
 
 pub(super) const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
+/// Maps a failed-precondition response to the operator-facing UFM command
+/// error, while preserving the standard API error mapping for other statuses.
+pub(super) fn map_ufm_credential_api_error(status: tonic::Status) -> CarbideCliError {
+    if status.code() == tonic::Code::FailedPrecondition {
+        CarbideCliError::UfmCredentialCommandUnavailable(status.message().to_string())
+    } else {
+        status.into()
+    }
+}
+
 #[derive(ValueEnum, Parser, Debug, Clone)]
 pub(super) enum BmcCredentialType {
     // Site Wide BMC Root Account Credentials

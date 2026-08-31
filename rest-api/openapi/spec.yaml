@@ -225,6 +225,11 @@ tags:
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
+  - name: DPU Machine
+    description: |-
+      A DPU (Data Processing Unit) is a programmable network device installed in a Machine that runs its own operating system, so NICo tracks each DPU as a Machine of its own alongside the host Machine it is attached to. NICo provisions the DPU and uses it to enforce network isolation and Machine trust for the host, including when that host moves between Tenants.
+
+      These endpoints are read-only and Site-scoped, reporting the DPU Machines that NICo Core discovered at the Site. A host Machine lists the DPUs attached to it in `associatedDpuMachineIds`, and `dpuNetworkConfig` is only populated when retrieving a single DPU Machine with `includeNetworkConfig` set to `true`. To re-provision a Machine's DPUs, see the DPU Reprovision tag.
   - name: Machine Validation
     description: |-
       Machine Validation is the mechanism through which a series of validation tests are executed against a Machine verify its integrity. The tests are run for each Machine on ingestion, they can also be run on-demand.
@@ -3068,7 +3073,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '409':
-          description: A VPC with the requested `id` or `name` already exists. This can also occur when inventory reconciliation completes before an ambiguous create is retried.
+          description: A VPC with the requested `id` or `name` already exists, or the requested DPS power resource-group name is already in use. This can also occur when inventory reconciliation completes before an ambiguous create is retried. Existing DPS groups are not reused, and their ownership is not disclosed.
           content:
             application/json:
               schema:
@@ -3080,6 +3085,11 @@ paths:
                     message: A Vpc with specified ID already exists
                     data:
                       id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+                power-resource-group-conflict:
+                  value:
+                    source: nico
+                    message: Power resource group already exists
+                    data: null
         '412':
           description: The latest successfully stored configuration inventory for the selected Site does not report Core support for SLAAC, the Site's `dpsPowerManagement` capability is `false` while the request specifies a non-empty power resource group, or Core rejects another create prerequisite. Site capability checks fail before REST persistence or workflow dispatch; a Core rejection occurs after dispatch and the REST transaction is rolled back.
           content:
@@ -3292,6 +3302,18 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: The requested DPS power resource-group name is already in use. Existing DPS groups are not reused, and their ownership is not disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+              examples:
+                power-resource-group-conflict:
+                  value:
+                    source: nico
+                    message: Power resource group already exists
+                    data: null
         '412':
           description: The Site's `dpsPowerManagement` capability is `false`, so a non-empty power resource group cannot be accepted.
           $ref: '#/components/responses/GenericHttpError'
@@ -3424,8 +3446,9 @@ paths:
       description: |-
         Get all VPC peerings.
         Tenant Admin can get all peerings where the tenant owns at least one VPC.
-        Provider Admin can get all peerings in a site.
-        User must have authorization role with `TENANT_ADMIN` or `PROVIDER_ADMIN` suffix.
+        Provider Admin can retrieve all multi-Tenant VPC Peerings. It should be noted that
+        only Provider Admins can create multi-Tenant Peerings. User must have authorization role
+        with `TENANT_ADMIN` or `PROVIDER_ADMIN` suffix.
       parameters:
         - schema:
             type: string
@@ -10570,6 +10593,126 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
+  '/v2/org/{org}/nico/dpu':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      operationId: get-all-dpu-machines
+      summary: Retrieve all DPU Machines
+      description: |
+        Retrieve all DPU Machines for a Site in deterministic DPU Machine ID order.
+
+        DPU network configuration is not included when listing DPU Machines, please fetch the DPU Machine by ID to get the network configuration.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix on the org that owns the Site.
+      tags:
+        - DPU Machine
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: siteId
+          required: true
+          description: ID of the Site
+        - schema:
+            $ref: '#/components/schemas/PageNumber'
+            example: 1
+            default: 1
+          in: query
+          name: pageNumber
+          description: Page number for pagination query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            example: 20
+          in: query
+          name: pageSize
+          description: Page size for pagination query
+        - schema:
+            type: string
+            enum:
+              - ID_ASC
+              - ID_DESC
+            default: ID_ASC
+          in: query
+          name: orderBy
+          description: DPU Machine ID ordering
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DpuMachineSummary'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy":"ID_ASC"}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  '/v2/org/{org}/nico/dpu/{dpuMachineId}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: dpuMachineId
+        in: path
+        required: true
+        description: ID of the DPU Machine
+    get:
+      operationId: get-dpu-machine
+      summary: Retrieve a DPU Machine
+      description: |
+        Retrieve a DPU Machine by ID. By default, DPU network configuration is not included. Set `includeNetworkConfig` query parameter to `true` to retrieve the network configuration fields.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix on the org that owns the Site.
+      tags:
+        - DPU Machine
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: siteId
+          required: true
+          description: ID of the Site
+        - schema:
+            type: boolean
+            default: false
+          in: query
+          name: includeNetworkConfig
+          description: Include network configuration fields exposed by the REST API
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DpuMachineSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   '/v2/org/{org}/nico/machine/{machineId}/dpu':
     parameters:
       - schema:
@@ -10616,6 +10759,11 @@ paths:
                       siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
                       hostMachineId: fm200hkq8xncf7tgm9plurt4smono52pqvv2gxt97pyk2398qjk2a73qjf64
                       dpuAgentVersion: 1.0.0
+                      bmcInfo: {}
+                      dmiData: {}
+                      interfaces: []
+                      softwareComponents: []
+                      health: {}
                       state: Ready
                       labels:
                         env: prod
@@ -10648,6 +10796,10 @@ paths:
                             fqdn: tenant-vm.example.com
                             vpcVni: 6000
                             isL2Segment: false
+                      lastRebooted: null
+                      placementInRack:
+                        slotNumber: 1
+                        trayIndex: 0
         '400':
           $ref: '#/components/responses/GenericHttpError'
         '403':
@@ -21621,6 +21773,8 @@ components:
           labels:
             region: portland
             env: staging
+          machineLabelSelector:
+            custom-machine-label: required-value
           interfaces:
             - subnetId: 1f232bf0-7b90-456e-b9b0-38d9fea4171a
               isPhysical: false
@@ -21741,6 +21895,12 @@ components:
             - string
             - 'null'
           description: ID of of specific Machine to use for Instance. Requires Targeted Instance Creation capability enabled for Tenant
+        machineLabelSelector:
+          $ref: '#/components/schemas/MachineLabelSelector'
+          description: |-
+            Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement.
+
+            A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. When `instanceTypeId` is supplied, NICo selects from Ready, unassigned Machines of that Instance Type that match the selector. When `machineId` is supplied, the specified Machine must match the selector or the request is rejected with 400. The selector constrains placement only; it is not persisted on the created Instance.
         vpcId:
           type: string
           format: uuid
@@ -21840,6 +22000,8 @@ components:
           labels:
             workload: training
             env: production
+          machineLabelSelector:
+            custom-machine-label: required-value
           interfaces:
             - subnetId: 1f232bf0-7b90-456e-b9b0-38d9fea4171a
               isPhysical: true
@@ -21896,6 +22058,12 @@ components:
           type: string
           format: uuid
           description: ID of the Instance Type to use for all Instances in the batch
+        machineLabelSelector:
+          $ref: '#/components/schemas/MachineLabelSelector'
+          description: |-
+            Optional exact-match selector applied to Machine labels during placement. Property names are arbitrary Machine label keys rather than predefined selector fields. Every supplied key/value pair must match (AND semantics). An omitted or empty object does not restrict placement. The selector constrains placement only; it is not persisted on the created Instances.
+
+            A non-empty object requires the Tenant to have effective `targetedInstanceCreation` capability for the selected Site; otherwise the request is rejected with 403. Selection occurs before topology optimization. When `topologyOptimized` is true, all selected Machines must both match the selector and belong to the same NVLink domain. If too few matching Machines are available, the request is rejected with 409.
         vpcId:
           type: string
           format: uuid
@@ -29179,6 +29347,22 @@ components:
       maxProperties: 10
       additionalProperties:
         type: string
+    MachineLabelSelector:
+      title: Machine Label Selector
+      type: object
+      maxProperties: 10
+      propertyNames:
+        minLength: 1
+        maxLength: 255
+        pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      additionalProperties:
+        type: string
+        maxLength: 255
+        pattern: '^[^\u0000]*$'
+      description: Property names are arbitrary Machine label keys supplied by the caller; there is no predefined set of selector fields. Every property must have a string value; an empty string is allowed, but JSON null is not. Keys must not be empty or whitespace-only. Keys and values may contain at most 255 characters and must not contain the Unicode NUL character (U+0000).
+      examples:
+        - custom-machine-label: required-value
+        - empty-value-label: ''
     MachineGPUStats:
       title: MachineGPUStats
       description: GPU summary stats for a single GPU type across machines at a site
@@ -29835,6 +30019,113 @@ components:
         - hostMachineId
         - state
         - dpuNetworkConfig
+    DpuMachineSummary:
+      title: DpuMachineSummary
+      type: object
+      description: A DPU Machine returned by a site-scoped DPU lookup. Network configuration is null unless the endpoint supports and receives an explicit request for it.
+      x-go-has-nullable-required-properties: true
+      x-go-nullable-required-properties:
+        - bmcInfo
+        - dmiData
+        - interfaces
+        - softwareComponents
+        - health
+        - labels
+        - dpuNetworkConfig
+        - lastRebooted
+        - placementInRack
+      properties:
+        id:
+          type: string
+          description: ID of the DPU Machine
+        infrastructureProviderId:
+          type: string
+          format: uuid
+          description: ID of the Infrastructure Provider that owns the host Machine
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that the host Machine belongs to
+        hostMachineId:
+          type: string
+          description: ID of the host Machine that this DPU is attached to
+        dpuAgentVersion:
+          type: string
+          description: Version of the DPU agent running on the DPU
+        bmcInfo:
+          oneOf:
+            - $ref: '#/components/schemas/MachineBMCInfo'
+            - type: 'null'
+          description: BMC (Baseboard Management Controller) information for the DPU
+        dmiData:
+          oneOf:
+            - $ref: '#/components/schemas/MachineDMIData'
+            - type: 'null'
+          description: DMI (Desktop Management Interface) data reported for the DPU
+        interfaces:
+          x-go-required-nullable: true
+          type:
+            - array
+            - 'null'
+          items:
+            $ref: '#/components/schemas/DpuMachineInterface'
+          description: Interfaces reported on the DPU
+        softwareComponents:
+          x-go-required-nullable: true
+          type:
+            - array
+            - 'null'
+          items:
+            $ref: '#/components/schemas/DpuMachineSoftwareComponent'
+          description: Software components reported on the DPU
+        health:
+          oneOf:
+            - $ref: '#/components/schemas/MachineHealth'
+            - type: 'null'
+          description: Health information for the DPU
+        labels:
+          x-go-required-nullable: true
+          type:
+            - object
+            - 'null'
+          additionalProperties:
+            type: string
+          description: Labels associated with the DPU
+        state:
+          type: string
+          description: Lifecycle state of the DPU
+        dpuNetworkConfig:
+          oneOf:
+            - $ref: '#/components/schemas/DpuNetworkConfig'
+            - type: 'null'
+          description: Network configuration fields exposed by the REST API, or null when not requested or unavailable
+        lastRebooted:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Last reboot timestamp
+        placementInRack:
+          oneOf:
+            - $ref: '#/components/schemas/PlacementInRack'
+            - type: 'null'
+          description: 'Physical placement of the DPU Machine within its Rack, when known'
+      required:
+        - id
+        - infrastructureProviderId
+        - siteId
+        - hostMachineId
+        - dpuAgentVersion
+        - bmcInfo
+        - dmiData
+        - interfaces
+        - softwareComponents
+        - health
+        - labels
+        - state
+        - dpuNetworkConfig
+        - lastRebooted
+        - placementInRack
     DpuMachineInterface:
       title: DpuMachineInterface
       type: object

@@ -409,7 +409,7 @@ async fn handle_dhcp_from_dpa(
     relay_address: String,
     desired_address: Option<IpAddr>,
 ) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
-    if !api.runtime_config.is_dpa_enabled() {
+    if !api.runtime_config.is_ewethers_enabled() {
         return Ok(None);
     }
 

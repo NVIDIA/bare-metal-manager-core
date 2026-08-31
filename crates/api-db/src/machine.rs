@@ -1607,8 +1607,24 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     )
     .await?;
 
-    // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
-    // also change.
+    // dpa_interfaces has a UNIQUE(machine_id, mac_address) constraint
+    // (unique_mid_mac). If the stable id already owns a row with the same MAC
+    // (for example, a prior partially completed rename), the cascade below would
+    // collide. Drop those stale stable-id rows first so the predicted host's
+    // freshly discovered rows win when they are renamed onto the stable id.
+    let query = "DELETE FROM dpa_interfaces \
+                 WHERE machine_id=$1 \
+                   AND mac_address IN (SELECT mac_address FROM dpa_interfaces WHERE machine_id=$2)";
+    sqlx::query(query)
+        .bind(stable_machine_id)
+        .bind(current_machine_id)
+        .execute(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    // machine_interfaces and dpa_interfaces both carry a machines(id) FK with
+    // ON UPDATE CASCADE, so their machine_id rows follow this rename
+    // automatically.
     let query = "UPDATE machines SET id=$1 WHERE id=$2 RETURNING id";
     let machine_id = sqlx::query_as(query)
         .bind(stable_machine_id)
@@ -1628,6 +1644,10 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
+
+    tracing::info!(
+        "Synced stable id {stable_machine_id} with current machine id {current_machine_id}"
+    );
 
     Ok(machine_id)
 }
@@ -3393,6 +3413,90 @@ mod test {
             pool_stats: Arc::new(Mutex::new(HashMap::new())),
             _stop_sender: stop_sender,
         }
+    }
+
+    #[crate::sqlx_test]
+    async fn syncing_stable_id_cascades_dpa_interfaces_to_stable_id(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use carbide_uuid::machine::{MachineIdSource, MachineType};
+        use mac_address::MacAddress;
+        use model::dpa_interface::{DpaInterfaceType, DpaSearchConfig, NewDpaInterface};
+
+        fn machine_id(marker: u8, machine_type: MachineType) -> MachineId {
+            let mut hardware_id = [0u8; 32];
+            hardware_id[0] = marker;
+            MachineId::new(
+                MachineIdSource::ProductBoardChassisSerial,
+                hardware_id,
+                machine_type,
+            )
+        }
+
+        let predicted_id = machine_id(1, MachineType::PredictedHost);
+        let stable_id = machine_id(1, MachineType::Host);
+
+        let mut txn = pool.begin().await?;
+
+        super::create(
+            txn.as_mut(),
+            None,
+            &predicted_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+
+        for mac in ["00:11:22:33:44:55", "00:11:22:33:44:66"] {
+            crate::dpa_interface::persist(
+                NewDpaInterface {
+                    mac_address: MacAddress::from_str(mac)?,
+                    machine_id: predicted_id,
+                    device_type: "Bluefield 3".to_string(),
+                    pci_name: "5e:00.0".to_string(),
+                    device_description: None,
+                    interface_type: DpaInterfaceType::Svpc,
+                },
+                &mut txn,
+            )
+            .await?;
+        }
+
+        // Renaming the predicted host must succeed even though dpa_interfaces
+        // rows reference the old id: the ON UPDATE CASCADE FK moves them.
+        let renamed = super::try_sync_stable_id_with_current_machine_id_for_host(
+            &mut txn,
+            &Some(predicted_id),
+            &stable_id,
+        )
+        .await?;
+        assert_eq!(renamed, stable_id);
+
+        let under_predicted = crate::dpa_interface::find_by_machine_id(
+            txn.as_mut(),
+            predicted_id,
+            DpaSearchConfig::default(),
+        )
+        .await?;
+        assert!(
+            under_predicted.is_empty(),
+            "dpa_interfaces should no longer reference the predicted id",
+        );
+
+        let under_stable = crate::dpa_interface::find_by_machine_id(
+            txn.as_mut(),
+            stable_id,
+            DpaSearchConfig::default(),
+        )
+        .await?;
+        assert_eq!(
+            under_stable.len(),
+            2,
+            "both dpa_interfaces rows should cascade to the stable id",
+        );
+
+        Ok(())
     }
 
     #[crate::sqlx_test]

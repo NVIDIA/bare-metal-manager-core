@@ -42,6 +42,11 @@ mod middleware;
 mod routes;
 mod rpc_error;
 
+/// The URL prefix the static-file directory is served under. Anything building
+/// a URL into that directory composes it from this, so the path served and the
+/// path advertised cannot drift.
+pub(crate) const STATIC_URL_PREFIX: &str = "/public";
+
 #[derive(Parser, Debug)]
 struct Args {
     #[clap(long, default_value = "false", help = "Print version number and exit")]
@@ -103,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = AppState {
         engine: Engine::from(tera),
+        static_dir: opts.static_dir.clone(),
         runtime_config,
         prometheus_handle,
         otel_registry: otel_metrics.registry.clone(),
@@ -115,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_buf_chunk_size(1024 * 1024 * 10 /* 10 MiB*/),
         )
         .nest_service(
-            "/public",
+            STATIC_URL_PREFIX,
             ServeDir::new(opts.static_dir.clone())
                 .with_buf_chunk_size(1024 * 1024 * 10 /* 10 MiB*/),
         )

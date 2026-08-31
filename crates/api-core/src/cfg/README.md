@@ -101,7 +101,7 @@ Use `site_explorer.dpu_policy` instead.
 | `bom_validation` | `BomValidationConfig` | *(see below)* | `machines` | BOM/SKU validation (see [BomValidationConfig](#bomvalidationconfig)). |
 | `bios_profiles` | `BiosProfileVendor` | *(default)* | `machines` | BIOS profiles by vendor/model for Redfish BIOS management. |
 | `selected_profile` | `BiosProfileType` | *(default)* | `machines` | Default BIOS profile type applied to machines. |
-| `dpa_config` | `Option<DpaConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
+| `ewethers_config` | `Option<EwEthersConfig>` | — | `networking` | Cluster Interconnect (east-west Ethernet) config (see [EwEthersConfig](#ewethersconfig)). Accepts the legacy `dpa_config` section name; legacy inline `mqtt_endpoint`, `mqtt_broker_port`, `hb_interval`, and `auth` keys are migrated into `svpc` at load time with a deprecation warning. |
 | `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | `integrations` | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | `networking` | Datacenter ASN used by FNN for DC-specific route targets. |
 | `nvlink_config` | `Option<NvLinkConfig>` | — | `hardware` | NvLink partitioning via NMX-C (see [NvLinkConfig](#nvlinkconfig)). |
@@ -139,9 +139,11 @@ Use `site_explorer.dpu_policy` instead.
 | `log_history` | `LogHistoryConfig` | *(default)* | `integrations` | In-memory log history for the admin web live log viewer at `/admin/logs` (see [LogHistoryConfig](#loghistoryconfig)). |
 | `tracing` | `TracingConfig` | *(default)* | `integrations` | OTLP trace export settings (see [TracingConfig](#tracingconfig)). |
 | `secrets` | `Option<SecretsConfig>` | — | `security` | Secrets backend configuration. When present, the credential reader chain and write target are operator-configured (see [SecretsConfig](#secretsconfig)). |
+| `credentials` | `CredentialsConfig` | *(default)* | `security` | Operator-managed static credential sources and the UFM read/mutation policy (see [CredentialsConfig](#credentialsconfig)). The config stores source locations, not credential values. |
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
 | `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
 | `allow_insecure_discovery` | `bool` | `false` | `machines` | Allows machines to submit discovery without enforcing the request comes from the expected IP address. Needed for *Integration tests only*, should otherwise not be used. |
+| `scout_boot_interface_correction_enabled` | `bool` | `false` | `machines` | Controls whether NICo may reconcile a boot interface selection recorded as `RedfishChassisId` or `RedfishSerialNumber` after ordering DPU-attached Admin interfaces by the `domain:bus:device.function` PCI addresses in scout's `HardwareInfo`. The setting is read at startup. NICo records available comparisons in structured logs and `carbide_scout_pci_evaluations_total` regardless of this setting. When `false`, it does not change the selection. When `true`, reconciliation requires at least two eligible interfaces, a complete and unique candidate, `ManagedHostState::Ready` or `ManagedHostState::HostInit` with `MachineState::Discovered`, no `Instance` or primary interface prediction, and no conflicting or integrated-NIC primary. If the selected MAC is already desired and primary, NICo changes only the source to `ScoutReportPci`. Otherwise it updates the desired target and primary together and enqueues the state handler. A `Ready` host enters `BootConfiguring`; `HostInit` completes its reboot handshake first. |
 | `node_auth` | `NodeAuthConfig` | *(default)* | `security` | How Scout and the DPU-agent authenticate: bearer JWTs, machine mTLS client certificates, or both during a migration (see [NodeAuthConfig](#nodeauthconfig)). |
 
 ---
@@ -732,18 +734,31 @@ override are combined, properties still unset use the effective defaults above.
 |-------|------|---------|-------------|
 | `prefix` | `IpNetwork` | **required** | IPv4 or IPv6 CIDR prefix accepted by a prefix-list policy. |
 
-### `DpaConfig`
+### `EwEthersConfig`
+
+Legacy site files may still name this section `[dpa_config]` (accepted as an
+alias) and may inline `mqtt_endpoint`, `mqtt_broker_port`, `hb_interval`, and
+`auth`; those keys are migrated into `svpc` at load time with a deprecation
+warning. Nest them under `[ewethers_config.svpc]` in new configurations.
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Enable Cluster Interconnect Network. |
-| `mqtt_endpoint` | `String` | `"mqtt.nico"` | MQTT broker host for DPA. |
-| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
+| `svpc_enabled` | `bool` | `false` | Enable the SVPC path. Not mutually exclusive with `astra_enabled`. |
+| `astra_enabled` | `bool` | `false` | Enable the Astra path. Not mutually exclusive with `svpc_enabled`. |
 | `subnet_ip` | `Ipv4Addr` | `0.0.0.0` | Base IPv4 address of the DPA subnet. |
 | `subnet_mask` | `i32` | `0` | CIDR prefix length for the DPA subnet. |
+| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
+| `svpc` | `SvpcConfig` | *(defaults)* | SVPC MQTT connection settings (see [SvpcConfig](#svpcconfig)). |
+
+### `SvpcConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `mqtt_endpoint` | `String` | `"mqtt.forge"` | MQTT broker host for the SVPC path. |
+| `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
 | `hb_interval` | `Duration` | `2m` | Heartbeat interval for DPA health checks. |
 | `auth` | `MqttAuthConfig` | *(none)* | MQTT authentication settings. |
-| `monitor_run_interval` | `Duration` | `60s` | The interval at which the DPA monitor runs. |
 
 ### `DsxExchangeEventBusConfig`
 
@@ -939,15 +954,78 @@ be propagated there by DPF.
 | `max_megabytes` | `usize` | `128` | Maximum amount of recent log history retained in memory, in MiB. Oldest lines are evicted once the budget is exceeded. |
 | `page_size` | `usize` | `500` | Number of lines sent in the initial view and in each scrollback page of the live log viewer. |
 
+### `CredentialsConfig`
+
+The optional `[credentials]` section configures non-secret locations from which
+NICo reads operator-managed credentials. Non-UFM credentials continue to read
+the local environment and file sources before the configured persistent
+backends. `ufm_source` controls the read precedence and mutation policy for UFM
+credentials.
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `ufm_source` | `UfmCredentialSource` | `local_first` | UFM credential policy. `local_first` reads environment/file entries before falling back to the persistent backend and writes to the backend. `backend` ignores local UFM entries. `local` makes environment/file entries authoritative and rejects persistent-backend UFM mutations. |
+| `file` | `Option<CredentialFileSourceConfig>` | — | Watched JSON or YAML static-credential file (see [CredentialFileSourceConfig](#credentialfilesourceconfig)). When present, it replaces the legacy file source selected by `CARBIDE_CREDENTIALS_FILE_*`; the environment source remains first when enabled. |
+
+When `ufm_source = "local"` and InfiniBand management is enabled, startup
+requires a local `ufm_auth_by_fabric` entry for every configured fabric. The
+mode is all-or-nothing: NICo does not fall back to Vault or Postgres for a
+missing fabric. When `ufm_source` is omitted, `local_first` preserves the
+pre-existing local-override behavior.
+
+#### Environment credential source
+
+The environment source is disabled by default. Set
+`CARBIDE_CREDENTIALS_ENV_ENABLED=true` on the `nico-api` process to enable it;
+the only accepted boolean values are `true` and `false`. The optional
+`CARBIDE_CREDENTIALS_ENV_PREFIX` overrides the default
+`CARBIDE_STATIC_CREDENTIAL_` prefix. Trailing underscores are removed from the
+configured prefix, then `__` separates each nested field.
+
+For example, these variables provide both fields required for the `default`
+UFM fabric using the default prefix:
+
+```bash
+export CARBIDE_CREDENTIALS_ENV_ENABLED=true
+export CARBIDE_STATIC_CREDENTIAL__UFM_AUTH_BY_FABRIC__DEFAULT__USERNAME=ignored-for-token-or-certificate-auth
+export CARBIDE_STATIC_CREDENTIAL__UFM_AUTH_BY_FABRIC__DEFAULT__PASSWORD=bearer-token-or-empty
+```
+
+Environment credentials are snapshotted at process startup. Changing them
+requires restarting `nico-api`; use the watched file source for runtime
+credential rotation. With `ufm_source = "local_first"`, an environment entry
+overrides the corresponding file and persistent-backend entries. With
+`ufm_source = "local"`, every configured fabric must be present in the enabled
+environment/file sources.
+
+### `CredentialFileSourceConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `path` | `PathBuf` | **required** | Absolute or working-directory-relative path to a JSON or YAML credential file. The file must exist and parse at startup. |
+| `poll_interval` | `Duration` | `60s` | Nonzero interval used in addition to filesystem events to detect projected-Secret replacements. Startup rejects zero. |
+
+The watcher keeps the last valid snapshot when a reload fails. A UFM-only YAML
+file has the following shape; both `username` and `password` are required. The
+password is the bearer token, while an empty password selects the default
+SPIFFE client certificate:
+
+```yaml
+ufm_auth_by_fabric:
+  default:
+    username: ignored-for-token-or-certificate-auth
+    password: bearer-token-or-empty
+```
+
 ### `SecretsConfig`
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `kms` | `KmsConfig` | **required** | KMS backend configuration (see [KmsConfig](#kmsconfig)). |
 | `routing` | `HashMap<String, String>` | **required** | Maps path prefixes to the `kek_id` that encrypts new writes under them, longest prefix winning. A `/` catch-all entry is required. Reads never consult routing — every stored row records the KEK that wrote it. |
-| `backends` | `Vec<CredentialBackend>` | `[vault]` | The credential backend read order, highest priority first (first match wins). The local-override readers (env, file) are always tried ahead of these when enabled. |
-| `writer` | `CredentialBackend` | `vault` | Where new credential writes go. Set to `postgres` to send new writes to the journal; independent of `backends`. |
-| `import_from` | `Option<ImportSource>` | — | A source backend to import secrets from at startup. Unset means a fresh site with nothing to import; unsupported values fail config parsing. |
+| `backends` | `Vec<CredentialBackend>` | `[vault]` | The persistent-backend read order, highest priority first (first match wins). Enabled local overrides are tried first for non-UFM credentials. UFM reads use these backends directly in `backend` mode and as fallback in `local_first` mode. |
+| `writer` | `CredentialBackend` | `vault` | Where new credential writes go. Set to `postgres` to send new writes to the journal; independent of `backends`. UFM mutations are rejected when `credentials.ufm_source = "local"`. |
+| `import_from` | `Option<ImportSource>` | — | A source backend to import secrets from at startup. Only `vault` is supported. When `credentials.ufm_source = "local"`, the import does not traverse or read `ufm/`; an import containing only excluded UFM entries still records completion. Unset means a fresh site with nothing to import. |
 | `import_approach` | `ImportApproach` | `missing_only` | How to treat secrets that already exist in Postgres during import. |
 
 ### `KmsConfig`

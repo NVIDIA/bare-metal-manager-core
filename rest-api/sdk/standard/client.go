@@ -63,6 +63,8 @@ type APIClient struct {
 
 	DPUExtensionServiceAPI *DPUExtensionServiceAPIService
 
+	DPUMachineAPI *DPUMachineAPIService
+
 	DPUReprovisionAPI *DPUReprovisionAPIService
 
 	ExpectedMachineAPI *ExpectedMachineAPIService
@@ -170,6 +172,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.BMCResetAPI = (*BMCResetAPIService)(&c.common)
 	c.CredentialRotationAPI = (*CredentialRotationAPIService)(&c.common)
 	c.DPUExtensionServiceAPI = (*DPUExtensionServiceAPIService)(&c.common)
+	c.DPUMachineAPI = (*DPUMachineAPIService)(&c.common)
 	c.DPUReprovisionAPI = (*DPUReprovisionAPIService)(&c.common)
 	c.ExpectedMachineAPI = (*ExpectedMachineAPIService)(&c.common)
 	c.ExpectedPowerShelfAPI = (*ExpectedPowerShelfAPIService)(&c.common)

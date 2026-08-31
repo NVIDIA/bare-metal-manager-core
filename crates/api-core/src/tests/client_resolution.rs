@@ -33,7 +33,8 @@ use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfig
 use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
-    default_os_config, default_tenant_config, single_interface_network_config,
+    advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
+    single_interface_network_config,
 };
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
@@ -465,6 +466,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
 
     // When the instance is ready, we should get tenant cloud-init instructions
     for instance_state in [InstanceState::WaitingForRebootToReady, InstanceState::Ready] {
+        let reboot_pending = instance_state == InstanceState::WaitingForRebootToReady;
         env.run_machine_state_controller_iteration_until_state_matches(
             &mh.host().id,
             10,
@@ -512,6 +514,11 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
                 .instance_id,
             instance_id.to_string()
         );
+
+        if reboot_pending {
+            env.run_machine_state_controller_iteration().await;
+            mh.host().reboot_completed().await;
+        }
     }
 }
 
@@ -592,14 +599,7 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
     // Advance to Assigned/Ready so the Instance path is taken
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        },
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
 
     let cloud_init = env
         .api
@@ -705,14 +705,7 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
     // Advance to Assigned/Ready so the Instance path is taken
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        },
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
 
     let cloud_init = env
         .api

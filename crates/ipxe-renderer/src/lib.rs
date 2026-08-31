@@ -1149,6 +1149,52 @@ mod tests {
         assert!(templates.len() >= 11);
     }
 
+    /// The host discovery templates must hand Scout its cloud-init datasource,
+    /// and the DPU template must not.
+    ///
+    /// This is the templated twin of the kernel command line that
+    /// `PxeInstructions::get_pxe_instruction_for_arch` builds by hand, and the
+    /// two have to agree: a host that boots through this path without
+    /// `ds=nocloud;s=` comes up with no datasource, so the site's discovery
+    /// snippets are silently never applied. Nothing about that failure is
+    /// visible from the outside, which is why it is pinned here. The DPU is
+    /// excluded deliberately -- it fetches a BlueField kickstart via `bfks=`
+    /// from its own route prefix and has no NoCloud datasource at all.
+    #[test]
+    fn discovery_templates_carry_the_right_cloud_init_datasource() {
+        const SCOUT_DATASOURCE: &str = "ds=nocloud;s=${scout-cloudinit-url}";
+
+        let renderer = DefaultIpxeScriptRenderer::new();
+
+        for name in ["discovery-scout-aarch64", "discovery-scout-x86_64"] {
+            let template = renderer
+                .get_template_by_name(name)
+                .unwrap_or_else(|| panic!("{name} should exist"));
+            assert!(
+                template.template.contains(SCOUT_DATASOURCE),
+                "{name} must give Scout its cloud-init datasource, or discovery \
+                 snippets silently never apply",
+            );
+        }
+
+        let dpu = renderer
+            .get_template_by_name("discovery-scout-aarch64-dpu")
+            .expect("discovery-scout-aarch64-dpu should exist");
+        assert!(
+            !dpu.template.contains("ds=nocloud"),
+            "the DPU boots a BlueField kickstart, not a NoCloud datasource",
+        );
+        assert!(
+            dpu.template.contains("bfks=${dpu-cloudinit-url}/user-data"),
+            "the DPU kickstart URL must come from the boot script's variable",
+        );
+        assert!(
+            !dpu.required_params.iter().any(|p| p == "cloudinit_url"),
+            "a stored kickstart URL goes stale when the route prefixes change; \
+             the boot script supplies it instead",
+        );
+    }
+
     #[test]
     fn test_static_ipxe_menu_uses_nico_branding() {
         const BRANDING_H: &str = include_str!("../../../pxe/ipxe/local/branding.h");

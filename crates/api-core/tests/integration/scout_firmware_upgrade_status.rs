@@ -19,7 +19,7 @@ use carbide_instrument::testing::MetricsCapture;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use model::firmware::FirmwareComponentType;
-use model::machine::{HostReprovisionState, ManagedHostState};
+use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
 use model::test_support::ManagedHostConfig;
 use tonic::Request;
 
@@ -44,19 +44,31 @@ async fn init(pool: PgPool) -> TestContext {
     TestContext { env, mh }
 }
 
+fn waiting_reprovision_state(upgrade_task_id: &str) -> HostReprovisionState {
+    HostReprovisionState::WaitingForScoutUpgrade {
+        upgrade_task_id: upgrade_task_id.to_string(),
+        firmware_type: FirmwareComponentType::Bmc,
+        final_version: "1.2.3".to_string(),
+        power_drains_needed: None,
+        started_at: chrono::Utc::now(),
+        deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
+        task_json: String::new(),
+        result: None,
+    }
+}
+
 fn waiting_state(upgrade_task_id: &str) -> ManagedHostState {
     ManagedHostState::HostReprovision {
-        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
-            upgrade_task_id: upgrade_task_id.to_string(),
-            firmware_type: FirmwareComponentType::Bmc,
-            final_version: "1.2.3".to_string(),
-            power_drains_needed: None,
-            started_at: chrono::Utc::now(),
-            deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
-            task_json: String::new(),
-            result: None,
-        },
+        reprovision_state: waiting_reprovision_state(upgrade_task_id),
         retry_count: 0,
+    }
+}
+
+fn assigned_waiting_state(upgrade_task_id: &str) -> ManagedHostState {
+    ManagedHostState::Assigned {
+        instance_state: InstanceState::HostReprovision {
+            reprovision_state: waiting_reprovision_state(upgrade_task_id),
+        },
     }
 }
 
@@ -106,6 +118,39 @@ async fn stores_successful_result(pool: PgPool) {
     assert!(result.success);
     assert_eq!(result.exit_code, 0);
     assert_eq!(result.stdout, "upgrade complete");
+}
+
+#[sqlx_test]
+async fn stores_successful_result_for_assigned_host(pool: PgPool) {
+    const UPGRADE_TASK_ID: &str = "assigned-scout-upgrade-task-id";
+
+    let TestContext { env, mh } = init(pool).await;
+    mh.advance_state(assigned_waiting_state(UPGRADE_TASK_ID))
+        .await;
+
+    env.api()
+        .report_scout_firmware_upgrade_status(Request::new(
+            rpc::forge::ScoutFirmwareUpgradeStatusRequest {
+                stdout: "assigned upgrade complete".to_string(),
+                ..status_request(&mh, UPGRADE_TASK_ID)
+            },
+        ))
+        .await
+        .unwrap();
+
+    let machine = mh.host.machine().await;
+    let ManagedHostState::Assigned {
+        instance_state: InstanceState::HostReprovision { reprovision_state },
+    } = machine.current_state()
+    else {
+        panic!("assigned host reprovision wrapper was not preserved");
+    };
+    let HostReprovisionState::WaitingForScoutUpgrade { result, .. } = reprovision_state else {
+        panic!("Not in WaitingForScoutUpgrade");
+    };
+    let result = result.as_ref().expect("result should be set");
+    assert!(result.success);
+    assert_eq!(result.stdout, "assigned upgrade complete");
 }
 
 #[sqlx_test]

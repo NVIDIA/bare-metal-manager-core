@@ -32,9 +32,8 @@ pub struct TestRack {
 }
 
 impl TestRack {
-    pub(crate) async fn create(test_harness: &TestHarness) -> Self {
+    pub(crate) async fn create(test_harness: &TestHarness, rack_profile_id: RackProfileId) -> Self {
         let id = RackId::new(uuid::Uuid::new_v4().to_string());
-        let rack_profile_id = RackProfileId::new("rack");
         let mut txn = test_harness.db_txn().await;
         db::rack::create(
             &mut txn,
@@ -196,13 +195,9 @@ pub struct TestPowerShelf {
 }
 
 impl TestPowerShelf {
-    pub(crate) async fn create(test_harness: &TestHarness) -> Self {
-        let name = format!(
-            "Test Power Shelf {}",
-            &uuid::Uuid::new_v4().to_string()[..8]
-        );
+    pub(crate) async fn create(test_harness: &TestHarness, config: PowerShelfConfig) -> Self {
         let id = power_shelf_id::from_hardware_info(
-            &name,
+            &config.name,
             "NVIDIA",
             "PowerShelf",
             PowerShelfIdSource::ProductBoardChassisSerial,
@@ -211,11 +206,7 @@ impl TestPowerShelf {
         .expect("power shelf id should be derived from test hardware info");
         let new_power_shelf = NewPowerShelf {
             id,
-            config: PowerShelfConfig {
-                name,
-                capacity: Some(100),
-                voltage: Some(240),
-            },
+            config,
             bmc_mac_address: None,
             metadata: None,
             rack_id: None,

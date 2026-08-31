@@ -154,3 +154,37 @@ func TestRuleFilterMatches(t *testing.T) {
 		})
 	}
 }
+
+func TestRuleFilter_IncludesOrigin(t *testing.T) {
+	persisted := RuleOriginPersisted
+	builtIn := RuleOriginBuiltIn
+	tests := map[string]struct {
+		filter RuleFilter
+		origin RuleOrigin
+		want   bool
+	}{
+		"nil includes persisted": {
+			origin: persisted,
+			want:   true,
+		},
+		"nil includes built-in": {
+			origin: builtIn,
+			want:   true,
+		},
+		"matching origin": {
+			filter: RuleFilter{Origin: &persisted},
+			origin: persisted,
+			want:   true,
+		},
+		"different origin": {
+			filter: RuleFilter{Origin: &persisted},
+			origin: builtIn,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, test.want, test.filter.IncludesOrigin(test.origin))
+		})
+	}
+}

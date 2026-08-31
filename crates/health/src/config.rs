@@ -473,6 +473,12 @@ pub struct SinksConfig {
     #[serde(alias = "switch_health_override")]
     pub switch_health_report: Configurable<SwitchHealthReportSinkConfig>,
 
+    /// Sends generated NMX-C domain health reports to the NICo API.
+    ///
+    /// This sink is disabled by default and cannot be combined with the NMX-C
+    /// schema override collector.
+    pub nvlink_domain_health_report: Configurable<NvLinkDomainHealthReportSinkConfig>,
+
     /// Power shelf health report sink: sends power-shelf-level health reports to the NICo API.
     #[serde(alias = "power_shelf_health_override")]
     pub power_shelf_health_report: Configurable<PowerShelfHealthReportSinkConfig>,
@@ -492,6 +498,7 @@ impl Default for SinksConfig {
             health_report: Configurable::Enabled(HealthReportSinkConfig::default()),
             rack_health_report: Configurable::Enabled(RackHealthReportSinkConfig::default()),
             switch_health_report: Configurable::Enabled(SwitchHealthReportSinkConfig::default()),
+            nvlink_domain_health_report: Configurable::Disabled,
             power_shelf_health_report: Configurable::Enabled(
                 PowerShelfHealthReportSinkConfig::default(),
             ),
@@ -884,6 +891,15 @@ impl Default for SwitchHealthReportSinkConfig {
             skip_empty_reports: true,
         }
     }
+}
+
+/// Configuration for ordered NVLink domain health report submission.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvLinkDomainHealthReportSinkConfig {
+    /// NICo API connection used to submit NVLink domain health reports.
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2202,6 +2218,14 @@ impl Config {
                     "collectors.nmxc.schema_override requires at least one OTLP target".to_string(),
                 );
             }
+
+            if nmxc.schema_override.is_some() && self.sinks.nvlink_domain_health_report.is_enabled()
+            {
+                return Err(
+                    "sinks.nvlink_domain_health_report is not supported with collectors.nmxc.schema_override"
+                        .to_string(),
+                );
+            }
         }
 
         if let Configurable::Enabled(reachability) = &self.collectors.reachability {
@@ -3017,6 +3041,31 @@ username = "root"
                 }) => FailsWith(
                     "[collectors.nmxc].grpc_port must be greater than 0".to_string()
                 ),
+
+                config_with(|config| {
+                    config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+                        schema_override: Some(NmxcSchemaOverrideConfig {
+                            descriptor_set_path: PathBuf::from("nmx_c.desc"),
+                            hello_rpc_path: default_nmxc_hello_rpc_path(),
+                            subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                            max_frame_size_bytes: DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES,
+                            subscribe_fields: Default::default(),
+                        }),
+                        ..NmxcCollectorConfig::default()
+                    });
+
+                    config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![otlp_target("http://localhost:4317")],
+                    });
+
+                    config.sinks.nvlink_domain_health_report = Configurable::Enabled(
+                        NvLinkDomainHealthReportSinkConfig::default(),
+                    );
+
+                }) => FailsWith(
+                    "sinks.nvlink_domain_health_report is not supported with collectors.nmxc.schema_override"
+                        .to_string()
+                ),
             }
 
             "GPU inventory" {
@@ -3648,6 +3697,28 @@ reload_interval = "30s"
             .extract::<Config>();
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn nvlink_domain_health_report_sink_is_opt_in() {
+        assert!(matches!(
+            SinksConfig::default().nvlink_domain_health_report,
+            Configurable::Disabled
+        ));
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(
+                r#"
+[sinks.nvlink_domain_health_report]
+"#,
+            ))
+            .extract()
+            .expect("NVLink domain health report sink config should parse");
+
+        let Configurable::Enabled(_) = config.sinks.nvlink_domain_health_report else {
+            panic!("NVLink domain health report sink should be enabled");
+        };
     }
 
     #[test]

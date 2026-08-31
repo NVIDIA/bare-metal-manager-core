@@ -81,7 +81,7 @@ func Test_InitAPIServer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			InitAPIServer(tt.args.cfg, tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp)
+			InitAPIServer(tt.args.cfg, tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp, nil)
 		})
 	}
 }
@@ -169,7 +169,7 @@ func Test_Audit(t *testing.T) {
 
 	t.Setenv("SENTRY_DSN", "https://bfe69b59461e44059a533274a6393155@glitchtip.test.com/3")
 
-	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp, nil)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/%s/org/wdksahew1rqv/%s/site", cfg.GetAPIRouteVersion(), cfg.GetAPIName()), nil)
@@ -196,7 +196,7 @@ func Test_BodyLimit(t *testing.T) {
 	tcfg, _ := cfg.GetTemporalConfig()
 	scp := sc.NewClientPool(tcfg)
 
-	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp, nil)
 
 	oversizedBody := make([]byte, 11<<20) // 11 MiB, exceeds the 10 MiB limit
 	rec := httptest.NewRecorder()
@@ -224,7 +224,7 @@ func Test_NotFoundHandler(t *testing.T) {
 	tcfg, _ := cfg.GetTemporalConfig()
 	scp := sc.NewClientPool(tcfg)
 
-	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp, nil)
 	rec := httptest.NewRecorder()
 
 	// Arbitrary path that should return 404

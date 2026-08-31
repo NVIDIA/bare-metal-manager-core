@@ -16,7 +16,7 @@ spec:
     metadata:
       labels:
         {{- include "nico-flow.labels" . | nindent 8 }}
-        {{- include "nico-flow.selectorLabels" . | nindent 8 }}
+        app: flow
       annotations:
         kubectl.kubernetes.io/default-container: flow
     spec:

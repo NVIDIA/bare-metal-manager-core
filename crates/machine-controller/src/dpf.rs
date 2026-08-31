@@ -31,6 +31,7 @@ use carbide_dpf::{
     node_id_from_dpu_node_cr_name,
 };
 use carbide_uuid::machine::MachineId;
+use model::dpa_interface::DpaInterface;
 use model::dpu_machine_update::OutdatedDpfDpu;
 use model::machine::{Machine, ManagedHostStateSnapshot};
 use model::machine_pending_action::{MachinePendingAction, MachinePendingActionKind};
@@ -62,7 +63,11 @@ pub const HOST_BMC_IP_LABEL: &str = "carbide.nvidia.com/host-bmc-ip";
 #[async_trait]
 pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Register a DPU device.
-    async fn register_dpu_device(&self, info: DpuDeviceInfo) -> Result<(), DpfError>;
+    async fn register_dpu_device<'a>(
+        &self,
+        info: DpuDeviceInfo,
+        astra_nics: Option<Vec<&'a DpaInterface>>,
+    ) -> Result<(), DpfError>;
 
     /// Register a DPU node.
     async fn register_dpu_node(&self, info: DpuNodeInfo) -> Result<(), DpfError>;
@@ -601,8 +606,12 @@ impl std::fmt::Debug for DpfSdkOps {
 /// Delegates everything to the underlying DPF SDK.
 #[async_trait]
 impl DpfOperations for DpfSdkOps {
-    async fn register_dpu_device(&self, info: DpuDeviceInfo) -> Result<(), DpfError> {
-        self.sdk.register_dpu_device(info).await
+    async fn register_dpu_device<'a>(
+        &self,
+        info: DpuDeviceInfo,
+        astra_nics: Option<Vec<&'a DpaInterface>>,
+    ) -> Result<(), DpfError> {
+        self.sdk.register_dpu_device(info, astra_nics).await
     }
 
     async fn register_dpu_node(&self, info: DpuNodeInfo) -> Result<(), DpfError> {

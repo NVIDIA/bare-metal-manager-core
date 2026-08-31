@@ -12,8 +12,11 @@ instances:
 
 title: NVIDIA Infra Controller
 
-# metadata:
-#   canonical-host: "docs.nvidia.com/infra-controller"
+announcement:
+  message: "🔔 Infra Controller's GitHub repository is moving on September 4, 2026. Refer to the [front page](https://docs.nvidia.com/infra-controller) for more information."
+
+metadata:
+  canonical-host: "docs.nvidia.com/infra-controller"
 
 check:
   rules:

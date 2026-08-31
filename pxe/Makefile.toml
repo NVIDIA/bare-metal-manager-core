@@ -82,8 +82,14 @@ script = '''
   cp -R ${REPO_ROOT}/pxe/debs/libnss-exec_0.2.0-1_arm64.deb mkosi.profiles/scout-oss-aarch64/mkosi.extra/build-output/
 '''
 
+[tasks.test-disk-imaging]
+category = "qcow-imager"
+command = "bash"
+args = ["${REPO_ROOT}/pxe/common_files/disk_imaging_test.sh"]
+
 [tasks.stage-disk_imaging-script]
 description = "Copies the disk_imaging.sh script to the qcow profile directories"
+dependencies = ["test-disk-imaging"]
 script = '''
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager/mkosi.extra/opt/forge/disk_imaging.sh
   cp ${REPO_ROOT}/pxe/common_files/disk_imaging.sh ${REPO_ROOT}/pxe/mkosi.profiles/qcow-imager-aarch64/mkosi.extra/opt/forge/disk_imaging.sh
@@ -1334,7 +1340,7 @@ script = '''
     set -e
     dhclient oob_net0
     cd /mnt/tmp/
-    curl http://carbide-pxe.forge/api/v0/cloud-init/user-data -o user_data.sh
+    curl http://carbide-pxe.forge/api/v0/cloud-init/dpu/user-data -o user_data.sh
     sed -i '/ZOF/d' user_data.sh
     source user_data.sh
     carbide_modify_os

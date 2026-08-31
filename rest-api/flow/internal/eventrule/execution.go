@@ -22,7 +22,7 @@ func (k ExecutionKey) Validate() error {
 		return fmt.Errorf("execution event id is required")
 	}
 
-	return validateIdentifier("event rule action name", k.ActionName)
+	return ValidateIdentifier("event rule action name", k.ActionName)
 }
 
 // Execution records one immutable action plan and its mutable processing
@@ -242,29 +242,4 @@ func NewExecution(
 // Key returns the execution's idempotent planning identity.
 func (e Execution) Key() ExecutionKey {
 	return ExecutionKey{EventID: e.EventID, ActionName: e.ActionName}
-}
-
-// ExecutionTask records one rack-partitioned task created for an execution.
-// An execution may have at most one associated task per rack.
-type ExecutionTask struct {
-	ExecutionID uuid.UUID
-	RackID      uuid.UUID
-	TaskID      uuid.UUID
-}
-
-// Validate checks the execution, rack, and task identities.
-func (a ExecutionTask) Validate() error {
-	if a.ExecutionID == uuid.Nil {
-		return fmt.Errorf("execution id is required")
-	}
-
-	if a.RackID == uuid.Nil {
-		return fmt.Errorf("rack id is required")
-	}
-
-	if a.TaskID == uuid.Nil {
-		return fmt.Errorf("task id is required")
-	}
-
-	return nil
 }

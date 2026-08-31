@@ -731,7 +731,7 @@ async fn run_provisioning_flow(
             dpu_machine_id: String::new(),
             is_primary: true,
         };
-        sdk.register_dpu_device(info).await?;
+        sdk.register_dpu_device(info, None).await?;
         tracing::info!(device_name = %dpu.device_name, serial = %dpu.serial_number, "Registered device");
     }
 

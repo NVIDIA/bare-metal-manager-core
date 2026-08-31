@@ -208,6 +208,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         tracing::info!(
             service_count = services.len(),
             excluded_service_count = excluded_count,
+            rack_id = self.event_context.rack_id().map(tracing::field::display),
             "Discovered distinct log services"
         );
 
@@ -224,11 +225,16 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         let mut refresh_triggered = false;
 
         if needs_refresh {
-            tracing::info!("Refreshing log services for BMC");
+            tracing::info!(
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
+                "Refreshing log services for BMC"
+            );
+
             match self.discover_log_services().await {
                 Ok(services) => {
                     tracing::info!(
                         service_count = services.len(),
+                        rack_id = self.event_context.rack_id().map(tracing::field::display),
                         "Log service discovery complete"
                     );
 
@@ -242,7 +248,12 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     refresh_triggered = true;
                 }
                 Err(e) => {
-                    tracing::error!(error=?e, "Failed to discover log services");
+                    tracing::error!(
+                        error = ?e,
+                        rack_id = self.event_context.rack_id().map(tracing::field::display),
+                        "Failed to discover log services"
+                    );
+
                     if self.state.is_none() {
                         return Err(e);
                     }
@@ -290,6 +301,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                             tracing::debug!(
                                 %service_id,
                                 ?error,
+                                rack_id = self.event_context.rack_id().map(tracing::field::display),
                                 "Failed to fetch filtered log entries, fetching all"
                             );
                             // Fallback - if filter is not supported properly
@@ -301,6 +313,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                                     tracing::warn!(
                                         %service_id,
                                         ?error,
+                                        rack_id = self.event_context.rack_id().map(tracing::field::display),
                                         "Failed to fetch log entries"
                                     );
                                     continue;
@@ -333,6 +346,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                             tracing::warn!(
                                 %service_id,
                                 ?error,
+                                rack_id = self.event_context.rack_id().map(tracing::field::display),
                                 "Failed to fetch log entries"
                             );
                             continue;
@@ -359,6 +373,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         tracing::info!(
                             %service_id,
                             anchor_id,
+                            rack_id = self.event_context.rack_id().map(tracing::field::display),
                             "skip_initial_history: anchored at current log position, \
                              skipping historical entries"
                         );
@@ -368,6 +383,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                     tracing::info!(
                         %service_id,
                         endpoint=?self.endpoint.addr,
+                        rack_id = self.event_context.rack_id().map(tracing::field::display),
                         "Last seen id is empty, fetching all entries"
                     );
                     all_entries

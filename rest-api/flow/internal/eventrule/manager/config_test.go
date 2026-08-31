@@ -18,11 +18,11 @@ func TestConfig_Validate(t *testing.T) {
 		wantErr string
 	}{
 		"valid": {},
-		"missing store backend": {
+		"missing store": {
 			mutate: func(config *Config) {
-				config.Store.Backend = ""
+				config.Store = nil
 			},
-			wantErr: "unsupported event-rule store backend",
+			wantErr: "event-rule store is required",
 		},
 		"missing scheduler instance id": {
 			mutate: func(config *Config) {

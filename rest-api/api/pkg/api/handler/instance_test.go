@@ -846,6 +846,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, alcbyid)
 	mcbyid := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mcbyid)
+	mcbyid.Labels = map[string]string{"failure-domain": "fd-a"}
+	_, err := cdbm.NewMachineDAO(dbSession).Update(ctx, nil, cdbm.MachineUpdateInput{
+		MachineID: mcbyid.ID,
+		Labels:    mcbyid.Labels,
+	})
+	assert.NoError(t, err)
 
 	// Add capability to machine
 	common.TestBuildMachineCapability(t, dbSession, &mcbyid.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cutil.GetPtr("NVIDIA"), cutil.GetPtr(4), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
@@ -2183,6 +2189,62 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "test Instance create API endpoint rejects Machine label selector when tenant is not authorized",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceCreateRequest{
+					Name:                 "Test Instance with unauthorized Machine label selector",
+					TenantID:             tn2.ID.String(),
+					InstanceTypeID:       cutil.GetPtr(ist2.ID.String()),
+					MachineLabelSelector: map[string]string{"failure-domain": "fd-a"},
+					VpcID:                vpc3.ID.String(),
+					UserData:             cutil.GetPtr(""),
+					IpxeScript:           cutil.GetPtr(common.DefaultIpxeScript),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(subnet3.ID.String())},
+					},
+					PhoneHomeEnabled: cutil.GetPtr(false),
+				},
+				reqOrg:      tnOrg2,
+				reqUser:     tnu2,
+				respCode:    http.StatusForbidden,
+				respMessage: "Tenant does not have capability to create Instances using Machine label selector",
+			},
+			wantErr: false,
+		},
+		{
+			name: "test Instance create API endpoint rejects specified Machine that does not match label selector",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceCreateRequest{
+					Name:                 "Test Instance with mismatched Machine labels",
+					TenantID:             tn1.ID.String(),
+					MachineID:            cutil.GetPtr(mcbyid.ID),
+					MachineLabelSelector: map[string]string{"failure-domain": "fd-b"},
+					VpcID:                vpc2.ID.String(),
+					UserData:             cutil.GetPtr(""),
+					IpxeScript:           cutil.GetPtr(common.DefaultIpxeScript),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{SubnetID: cutil.GetPtr(subnet2.ID.String())},
+					},
+					PhoneHomeEnabled: cutil.GetPtr(false),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu1,
+				respCode:    http.StatusBadRequest,
+				respMessage: "Machine specified in request does not match machineLabelSelector",
+			},
+			wantErr: false,
+		},
+		{
 			name: "test Instance create API endpoint success, specify a machine ID belonging to an instance type",
 			fields: fields{
 				dbSession: dbSession,
@@ -2191,12 +2253,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIInstanceCreateRequest{
-					Name:       "Test Instance with machine ID",
-					TenantID:   tn1.ID.String(),
-					MachineID:  cutil.GetPtr(mcbyid.ID),
-					VpcID:      vpc2.ID.String(),
-					UserData:   cutil.GetPtr(""),
-					IpxeScript: cutil.GetPtr(common.DefaultIpxeScript),
+					Name:                 "Test Instance with machine ID",
+					TenantID:             tn1.ID.String(),
+					MachineID:            cutil.GetPtr(mcbyid.ID),
+					MachineLabelSelector: map[string]string{"failure-domain": "fd-a"},
+					VpcID:                vpc2.ID.String(),
+					UserData:             cutil.GetPtr(""),
+					IpxeScript:           cutil.GetPtr(common.DefaultIpxeScript),
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
 							SubnetID: cutil.GetPtr(subnet2.ID.String()),
@@ -10512,6 +10575,7 @@ func TestNewCreateInstanceHandler(t *testing.T) {
 				dbSession:  dbSession,
 				tc:         tc,
 				cfg:        cfg,
+				dps:        nil,
 				scp:        scp,
 				tracerSpan: sutil.NewTracerSpan(),
 			},
@@ -10519,9 +10583,8 @@ func TestNewCreateInstanceHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewCreateInstanceHandler(tt.args.dbSession, tt.args.tc, tt.args.scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewCreateInstanceHandler() = %+v, want %+v", got, tt.want)
-			}
+			got := NewCreateInstanceHandler(tt.args.dbSession, tt.args.tc, tt.args.scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -10562,15 +10625,15 @@ func TestNewUpdateInstanceHandler(t *testing.T) {
 				tc:         tc,
 				scp:        scp,
 				cfg:        cfg,
+				dps:        nil,
 				tracerSpan: sutil.NewTracerSpan(),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewUpdateInstanceHandler(tt.args.dbSession, tt.args.tc, tt.args.scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewUpdateInstanceHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewUpdateInstanceHandler(tt.args.dbSession, tt.args.tc, tt.args.scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -10701,9 +10764,8 @@ func TestNewDeleteInstanceHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := NewDeleteInstanceHandler(tt.args.dbSession, tt.args.tc, tt.args.scp, tt.args.cfg); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewDeleteInstanceHandler() = %v, want %v", got, tt.want)
-			}
+			got := NewDeleteInstanceHandler(tt.args.dbSession, tt.args.tc, tt.args.scp, tt.args.cfg, nil)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

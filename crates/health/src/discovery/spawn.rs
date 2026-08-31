@@ -132,11 +132,10 @@ pub(super) fn collector_eligibility(
 
     let nvue = ctx.nvue_config.as_option();
 
-    // NMX-C emits log events, so spawning requires both a
-    // log-capable configured sink and the constructed sink pipeline.
+    // NMX-C starts only when an enabled sink consumes its logs or domain reports.
     let nmxc = ctx.nmxc_config.is_enabled()
         && switch_supports_nmxc_subscription(endpoint)
-        && ctx.log_event_sink_enabled
+        && (ctx.log_event_sink_enabled || ctx.nvlink_domain_health_report_sink_enabled)
         && data_sink_present;
 
     CollectorEligibility {
@@ -214,6 +213,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Discovery, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     discovery_collector_count = ctx.collectors.len(CollectorKind::Discovery),
                     "Started entity discovery for BMC endpoint"
                 );
@@ -222,6 +222,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start entity discovery collector"
                 );
             }
@@ -257,6 +258,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Sensor, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     sensor_collector_count = ctx.collectors.len(CollectorKind::Sensor),
                     "Started sensor collection for BMC endpoint"
                 );
@@ -265,6 +267,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start sensor collector"
                 );
             }
@@ -299,6 +302,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Metrics, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     entity_metrics_collector_count = ctx.collectors.len(CollectorKind::Metrics),
                     "Started entity metrics collection for BMC endpoint"
                 );
@@ -307,6 +311,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start entity metrics collector"
                 );
             }
@@ -338,6 +343,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Telemetry, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     telemetry_collector_count = ctx.collectors.len(CollectorKind::Telemetry),
                     "Started telemetry service collection for BMC endpoint"
                 );
@@ -346,6 +352,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start telemetry collector"
                 );
             }
@@ -411,7 +418,12 @@ fn spawn_generic_redfish_collectors(
                         |_| true,
                     ))
                 } else {
-                    tracing::warn!("SSE log collector requires a data sink, skipping");
+                    tracing::warn!(
+                        endpoint_key = %key,
+                        rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
+                        "SSE log collector requires a data sink, skipping"
+                    );
+
                     None
                 }
             }
@@ -431,6 +443,7 @@ fn spawn_generic_redfish_collectors(
                     let auto_cfg = logs_cfg.auto.clone().unwrap_or_default();
                     let registry = ctx.log_downgrade_registry.clone();
                     let endpoint_key: std::borrow::Cow<'static, str> = key.clone().into();
+                    let endpoint_rack_id = endpoint.rack_id.clone();
                     let mut budget = AutoFailureBudget::new(auto_cfg, Instant::now());
 
                     Some(Collector::start_streaming::<SseLogCollector<BmcClient>, _>(
@@ -454,7 +467,12 @@ fn spawn_generic_redfish_collectors(
                                 match budget.record(FailureKind::classify(e), Instant::now()) {
                                     BudgetDecision::Continue => true,
                                     BudgetDecision::Downgrade(reason) => {
-                                        registry.mark_downgraded(endpoint_key.clone(), reason);
+                                        registry.mark_downgraded(
+                                            endpoint_key.clone(),
+                                            endpoint_rack_id.as_ref(),
+                                            reason,
+                                        );
+
                                         false
                                     }
                                 }
@@ -462,7 +480,12 @@ fn spawn_generic_redfish_collectors(
                         },
                     ))
                 } else {
-                    tracing::warn!("auto-mode SSE log collector requires a data sink, skipping");
+                    tracing::warn!(
+                        endpoint_key = %key,
+                        rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
+                        "auto-mode SSE log collector requires a data sink, skipping"
+                    );
+
                     None
                 }
             }
@@ -474,6 +497,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Logs, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     mode = ?logs_cfg.mode,
                     log_collector_count = ctx.collectors.len(CollectorKind::Logs),
                     "Started logs collection for BMC endpoint"
@@ -484,6 +508,7 @@ fn spawn_generic_redfish_collectors(
                     ?error,
                     mode = ?logs_cfg.mode,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start logs collector"
                 );
             }
@@ -516,6 +541,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Firmware, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     firmware_collector_count = ctx.collectors.len(CollectorKind::Firmware),
                     "Started firmware collection for BMC endpoint"
                 );
@@ -524,6 +550,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start firmware collector"
                 )
             }
@@ -568,6 +595,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start GPU inventory collector"
                 );
             }
@@ -601,6 +629,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::LeakDetector, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     leak_detector_collector_count =
                         ctx.collectors.len(CollectorKind::LeakDetector),
                     "Started leak detector collection for BMC endpoint"
@@ -610,6 +639,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start leak detector collector"
                 )
             }
@@ -702,6 +732,7 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::Nmxt, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     nmxt_collector_count = ctx.collectors.len(CollectorKind::Nmxt),
                     "Started NMX-T collection for switch host endpoint"
                 );
@@ -710,6 +741,7 @@ fn spawn_switch_host_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start NMX-T collector for switch host"
                 )
             }
@@ -720,10 +752,11 @@ fn spawn_switch_host_collectors(
         && !ctx.collectors.contains(CollectorKind::Nmxc, &key)
         && switch_supports_nmxc_subscription(endpoint)
     {
-        if !ctx.log_event_sink_enabled {
+        if !ctx.log_event_sink_enabled && !ctx.nvlink_domain_health_report_sink_enabled {
             tracing::warn!(
                 endpoint_key = %key,
-                "NMX-C streaming collector requires an enabled tracing, log_file, or OTLP sink, skipping"
+                rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
+                "NMX-C streaming collector requires an enabled log or NVLink domain health report sink, skipping"
             );
         } else if let Some(data_sink) = data_sink.clone() {
             let collector_registry = Arc::new(
@@ -745,6 +778,7 @@ fn spawn_switch_host_collectors(
 
                     tracing::info!(
                         endpoint_key = %key,
+                        rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                         nmxc_collector_count = ctx.collectors.len(CollectorKind::Nmxc),
                         "Started NMX-C streaming collection for switch endpoint"
                     );
@@ -754,6 +788,7 @@ fn spawn_switch_host_collectors(
                     tracing::error!(
                         ?error,
                         endpoint_key = %key,
+                        rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                         "Could not start NMX-C collector for switch"
                     );
                 }
@@ -761,6 +796,7 @@ fn spawn_switch_host_collectors(
         } else {
             tracing::warn!(
                 endpoint_key = %key,
+                rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                 "NMX-C streaming collector requires a data sink, skipping"
             );
         }
@@ -798,6 +834,7 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::NvueRest, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     nvue_rest_collector_count = ctx.collectors.len(CollectorKind::NvueRest),
                     "Started NVUE REST collection for switch host endpoint"
                 );
@@ -806,6 +843,7 @@ fn spawn_switch_host_collectors(
                 tracing::error!(
                     ?error,
                     endpoint = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start NVUE REST collector for switch host"
                 )
             }
@@ -835,6 +873,7 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::NvueGnmi, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     nvue_gnmi_collector_count = ctx.collectors.len(CollectorKind::NvueGnmi),
                     "Started NVUE gNMI streaming collection for switch endpoint"
                 );
@@ -843,6 +882,7 @@ fn spawn_switch_host_collectors(
                 tracing::error!(
                     ?error,
                     endpoint_key = %key,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not start NVUE gNMI collector for switch"
                 );
             }
@@ -863,7 +903,8 @@ mod tests {
     use crate::collectors::DowngradeReason;
     use crate::config::{
         AutoModeConfig, CarbideApiConnectionConfig, Config, Configurable, LogsCollectorConfig,
-        NvueCollectorConfig, NvueGnmiConfig, PeriodicLogConfig, TracingSinkConfig,
+        NvLinkDomainHealthReportSinkConfig, NvueCollectorConfig, NvueGnmiConfig, PeriodicLogConfig,
+        TracingSinkConfig,
     };
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
@@ -1139,6 +1180,36 @@ mod tests {
             &endpoint,
             Some(Arc::new(NoopSink)),
             "test_switch_host_nmxc_enabled",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxc), 1);
+    }
+
+    #[tokio::test]
+    async fn test_switch_host_starts_nmxc_for_domain_health_report_sink() {
+        let mut config = nmxc_only_config(false);
+        config.sinks.nvlink_domain_health_report =
+            Configurable::Enabled(NvLinkDomainHealthReportSinkConfig::default());
+
+        let mut ctx = context_with_config(config, "test_switch_host_nmxc_domain_health");
+
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 17),
+            "55:66:77:88:99:f4",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                true,
+                false,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_switch_host_nmxc_domain_health",
         )
         .expect("spawn should succeed");
 
@@ -1669,8 +1740,12 @@ mod tests {
                 .expect("context should initialize");
 
         let endpoint = test_endpoint(Ipv4Addr::new(10, 0, 0, 1), "aa:bb:cc:dd:ee:01", None);
-        ctx.log_downgrade_registry
-            .mark_downgraded(endpoint.key().into(), DowngradeReason::SseNotAvailable);
+
+        ctx.log_downgrade_registry.mark_downgraded(
+            endpoint.key().into(),
+            endpoint.rack_id.as_ref(),
+            DowngradeReason::SseNotAvailable,
+        );
 
         spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test_auto_downgraded")
             .expect("spawn should succeed for downgraded auto endpoint");

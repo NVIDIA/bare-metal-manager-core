@@ -420,6 +420,8 @@ func TestGeneratedCommandInfos_ContainsConciseAliases(t *testing.T) {
 	}
 
 	assert.Equal(t, "machine-power-control-machine", operations["machine power"])
+	assert.Equal(t, "get-all-dpu-machines", operations["dpu-machine list"])
+	assert.Equal(t, "get-dpu-machine", operations["dpu-machine get"])
 	assert.Equal(t,
 		"machine-power-control-machine",
 		operations["machine power-control-machine machine-power-control-machine"],
@@ -445,18 +447,28 @@ func TestGeneratedCommandInfos_ContainsConciseAliases(t *testing.T) {
 	}
 }
 
-// TestBuildActionCommand_ReservedBodyPropertyPrefixed verifies that when a
-// request body schema has a property whose kebab-cased name collides with a
-// reserved CLI-wrapper flag (data, data-file, output, all), the generated
-// command registers the body property under a "body-" prefix instead of
-// creating a duplicate flag.
-func TestBuildActionCommand_ReservedBodyPropertyPrefixed(t *testing.T) {
+// TestBuildActionCommand_BodyPropertyFlags verifies body-property flag naming
+// for reserved names and scalar-compatible, single-item arrays.
+func TestBuildActionCommand_BodyPropertyFlags(t *testing.T) {
+	one := 1
+	two := 2
 	spec := &Spec{
 		Paths: map[string]PathItem{
 			"/v2/org/{org}/nico/widget": {
 				Post: &Operation{
 					OperationID: "create-widget",
 					Tags:        []string{"Widget"},
+					Parameters: []Parameter{
+						{
+							Name:        "legacyFilter",
+							In:          "query",
+							Deprecated:  true,
+							Description: "Legacy filter",
+							Schema: &Schema{
+								Type: "string",
+							},
+						},
+					},
 					RequestBody: &RequestBody{
 						Content: map[string]MediaType{
 							"application/json": {
@@ -468,6 +480,24 @@ func TestBuildActionCommand_ReservedBodyPropertyPrefixed(t *testing.T) {
 										"dataFile": {Type: "string"},
 										"output":   {Type: "string"},
 										"all":      {Type: "boolean"},
+										"legacyBodyParam": {
+											Type:       "boolean",
+											Deprecated: true,
+										},
+										"rackIds": {
+											Type: "array",
+											Items: &Schema{
+												Type: "string",
+											},
+											MaxItems: &one,
+										},
+										"tagIds": {
+											Type: "array",
+											Items: &Schema{
+												Type: "string",
+											},
+											MaxItems: &two,
+										},
 									},
 									Required: []string{"name"},
 								},
@@ -511,6 +541,88 @@ func TestBuildActionCommand_ReservedBodyPropertyPrefixed(t *testing.T) {
 
 	// Non-colliding body property stays unprefixed.
 	assert.Equal(t, 1, counts["name"], "--name (non-reserved body property)")
+
+	// A primitive array constrained to one item is presented as a scalar flag.
+	// Arrays that permit multiple items still require JSON input.
+	assert.Equal(t, 1, counts["rack-ids"], "--rack-ids (single-item array property)")
+	assert.Equal(t, 0, counts["tag-ids"], "multi-item arrays do not get scalar flags")
+
+	app := &cli.App{
+		Name: "nicocli",
+		Commands: []*cli.Command{
+			{
+				Name: "widget",
+				Subcommands: []*cli.Command{
+					cmd,
+				},
+			},
+		},
+	}
+	var output bytes.Buffer
+	app.Writer = &output
+	err := app.Run([]string{
+		"nicocli",
+		"widget",
+		"create",
+		"-h",
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"--legacy-body-param value legacyBodyParam (deprecated)",
+		normalizedOptionHelpLine(output.String(), "--legacy-body-param value"),
+	)
+	assert.Equal(
+		t,
+		"--legacy-filter value legacyFilter (deprecated): Legacy filter",
+		normalizedOptionHelpLine(output.String(), "--legacy-filter value"),
+	)
+	assert.Equal(
+		t,
+		"--rack-ids value rackIds",
+		normalizedOptionHelpLine(output.String(), "--rack-ids value"),
+	)
+	assert.NotContains(t, output.String(), "[ --rack-ids value ]")
+}
+
+func TestBuildRequestBody(t *testing.T) {
+	var body []byte
+	app := &cli.App{
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name: "data",
+			},
+			&cli.StringFlag{
+				Name: "data-file",
+			},
+			&cli.StringFlag{
+				Name: "resource-ids",
+			},
+		},
+		Action: func(c *cli.Context) error {
+			var err error
+			body, err = buildRequestBody(c, []bodyField{
+				{
+					jsonName: "resourceIds",
+					flagName: "resource-ids",
+					schema: &Schema{
+						Type: "array",
+					},
+					wrapInList: true,
+					itemType:   "string",
+				},
+			})
+			return err
+		},
+	}
+
+	err := app.Run([]string{
+		"test",
+		"--resource-ids",
+		"resource-1",
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"resourceIds":["resource-1"]}`, string(body))
 }
 
 // TestNewApp_DpuExtensionServiceCreate_DoesNotPanic loads the real embedded
@@ -1102,6 +1214,16 @@ func TestNewApp_MachineValidationStartExecutesRESTRequest(t *testing.T) {
 	assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/validation/run", path)
 	assert.Equal(t, "Bearer test-token", authorization)
 	assert.JSONEq(t, `{"allowedTests":["gpu_bandwidth"],"runUnverifiedTests":true}`, body)
+}
+
+func normalizedOptionHelpLine(output, option string) string {
+	for _, line := range strings.Split(output, "\n") {
+		normalized := strings.Join(strings.Fields(line), " ")
+		if strings.HasPrefix(normalized, option) {
+			return normalized
+		}
+	}
+	return ""
 }
 
 func TestNewApp_MachineValidationReadCommandsExecuteRESTRequests(t *testing.T) {

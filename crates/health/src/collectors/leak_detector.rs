@@ -110,6 +110,7 @@ where
                 Ok(detector_ids) => {
                     tracing::info!(
                         detector_count = detector_ids.len(),
+                        rack_id = self.event_context.rack_id().map(tracing::field::display),
                         "Leak detector discovery complete"
                     );
                     self.state = Some(LeakDetectorCollectorState {
@@ -119,7 +120,12 @@ where
                     refresh_triggered = true;
                 }
                 Err(error) => {
-                    tracing::error!(?error, "Failed to discover leak detectors");
+                    tracing::error!(
+                        ?error,
+                        rack_id = self.event_context.rack_id().map(tracing::field::display),
+                        "Failed to discover leak detectors"
+                    );
+
                     if self.state.is_none() {
                         return Err(error);
                     }
@@ -218,6 +224,7 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
                 detector = %target,
                 leak_detector_state = ?detector.detector_state.flatten(),
                 leak_detector_resource_state = ?resource_state,
+                rack_id = context.rack_id().map(tracing::field::display),
                 "Leak detector resource state does not permit leak classification"
             );
             continue;
@@ -238,6 +245,7 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
                 tracing::warn!(
                     detector = %target,
                     leak_detector_state = ?detector.detector_state.flatten(),
+                    rack_id = context.rack_id().map(tracing::field::display),
                     "Leak detector is not reporting an actionable leak state"
                 );
             }

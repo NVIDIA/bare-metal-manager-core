@@ -282,6 +282,9 @@ pub struct DiscoveryLoopContext {
     /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
     pub(crate) log_event_sink_enabled: bool,
 
+    /// Whether NMX-C domain health reports have an enabled consumer.
+    pub(crate) nvlink_domain_health_report_sink_enabled: bool,
+
     /// Active reachability configuration.
     ///
     /// This is absent when the collector is disabled or no metric or log sink
@@ -373,6 +376,10 @@ impl DiscoveryLoopContext {
             tls_config,
             tls_http_client_provider,
             log_event_sink_enabled: config.sinks.includes_log_events(),
+            nvlink_domain_health_report_sink_enabled: config
+                .sinks
+                .nvlink_domain_health_report
+                .is_enabled(),
             reachability_config,
             gpu_inventory_config: config.collectors.gpu_inventory.clone(),
             api_client: match &config.endpoint_sources.carbide_api {

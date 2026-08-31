@@ -388,6 +388,7 @@ impl From<IbError> for CarbideError {
             IbError::IBFabricError(msg) => Self::IBFabricError(msg),
             IbError::NotFoundError { kind, id } => Self::NotFoundError { kind, id },
             IbError::InvalidArgument(e) => Self::InvalidArgument(e),
+            IbError::CredentialConfigurationError(e) => Self::FailedPrecondition(e),
             IbError::NotImplemented => Self::NotImplemented,
             IbError::Internal { message } => Self::Internal { message },
         }

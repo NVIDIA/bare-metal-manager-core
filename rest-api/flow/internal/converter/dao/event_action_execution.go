@@ -76,7 +76,7 @@ func EventActionExecutionFrom(
 				Reason:        eventrule.ExecutionReason(cutil.GetValueOrZero(persisted.Reason)),
 				StatusMessage: cutil.GetValueOrZero(persisted.StatusMessage),
 			},
-			NextAttemptAt: cutil.GetValueOrZero(persisted.NextAttemptAt),
+			NextAttemptAt: optionalTimeFromPersistence(persisted.NextAttemptAt),
 		},
 		ID:         persisted.ID,
 		EventID:    persisted.EventID,
@@ -85,8 +85,8 @@ func EventActionExecutionFrom(
 		Attempts:   persisted.Attempts,
 		ClaimToken: cutil.GetValueOrZero(persisted.ClaimToken),
 		ClaimOwner: cutil.GetValueOrZero(persisted.ClaimOwner),
-		CreatedAt:  persisted.CreatedAt,
-		UpdatedAt:  persisted.UpdatedAt,
+		CreatedAt:  timeFromPersistence(persisted.CreatedAt),
+		UpdatedAt:  timeFromPersistence(persisted.UpdatedAt),
 	}
 
 	if err := execution.Validate(); err != nil {
