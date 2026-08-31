@@ -99,10 +99,9 @@
 #                          Same override for the nico-dhcp-server chart.
 #   NICO_DPF_OTEL_CHART_VERSION
 #                          Same override for the nico-otelcol chart.
-#   NICO_INSTALL_RMS       Install the NVIDIA Rack Manager Service (rack-manager
-#                          chart, phase 5c). Default: false — opt in with
-#                          --install-rms once the site has NGC access to the
-#                          rms-dev org. Same as --install-rms.
+#   NICO_SKIP_RMS          Skip the NVIDIA Rack Manager Service (rack-manager
+#                          chart, phase 5c), which installs by DEFAULT.
+#                          Same as --skip-rms. (NICO_INSTALL_RMS=false honored too.)
 #   NICO_RMS_VERSION       nv-rms git ref (tag, branch, or full commit SHA) to
 #                          clone the rack-manager chart from — same model as
 #                          NICO_DPF_VERSION. Default: a pinned main commit;
@@ -139,7 +138,7 @@
 #   ./setup.sh --skip-flow              # skip Phase 7h NICo Flow (REST still installs)
 #                                       #   pair with helm-prereqs/values.yaml::flow.enabled=false
 #                                       #   to skip Flow prerequisites (database / ESO) too
-#   ./setup.sh --install-rms            # also install the Rack Manager Service (phase 5c)
+#   ./setup.sh --skip-rms               # skip the Rack Manager Service (installed by default otherwise)
 #   ./setup.sh --skip-core --skip-rest  # fully non-interactive infra-only run
 #   ./setup.sh --core-values /path/to/values.yaml      # use site-specific values for Phase 6
 #   ./setup.sh --metallb-config /path/to/metallb.yaml  # use site-specific MetalLB config (file or kustomize dir)
@@ -171,11 +170,11 @@ SKIP_FLOW=false
 # use the deprecated iPXE DPU path). NICO_INSTALL_DPF=false is honored too.
 INSTALL_DPF="${NICO_INSTALL_DPF:-true}"
 [[ "${NICO_SKIP_DPF:-false}" == "true" ]] && INSTALL_DPF=false
-# RMS (Rack Manager Service) is OPT-IN for now: the rack-manager chart and
-# rms-api image live in the NGC rms-dev org, which most sites cannot pull from
-# yet, and the image tag has no safe default. Flip the default once the chart
-# is public.
-INSTALL_RMS="${NICO_INSTALL_RMS:-false}"
+# RMS (Rack Manager Service) installs by DEFAULT, mirroring DPF. Opt out with
+# --skip-rms or NICO_SKIP_RMS=true (e.g. sites without rack management, or an
+# externally managed RMS). NICO_INSTALL_RMS=false is honored too.
+INSTALL_RMS="${NICO_INSTALL_RMS:-true}"
+[[ "${NICO_SKIP_RMS:-false}" == "true" ]] && INSTALL_RMS=false
 WITH_OBSERVABILITY="${WITH_OBSERVABILITY:-false}"
 CORE_VALUES=""
 METALLB_CONFIG=""
@@ -188,8 +187,8 @@ while [[ $# -gt 0 ]]; do
         --skip-flow)    SKIP_FLOW=true ;;
         --install-dpf)  INSTALL_DPF=true ;;   # explicit; DPF is the default
         --skip-dpf)     INSTALL_DPF=false ;;
-        --install-rms)  INSTALL_RMS=true ;;
-        --skip-rms)     INSTALL_RMS=false ;;  # explicit; RMS is opt-in for now
+        --install-rms)  INSTALL_RMS=true ;;   # explicit; RMS is the default
+        --skip-rms)     INSTALL_RMS=false ;;
         --with-observability) WITH_OBSERVABILITY=true ;;
         --debug)        set -x         ;;
         --core-values)
@@ -207,7 +206,7 @@ while [[ $# -gt 0 ]]; do
             SITE_OVERLAY="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
             [[ ! -d "${SITE_OVERLAY}" ]] && { echo "Error: --site-overlay directory not found: $2"; exit 1; }
             shift ;;
-        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--skip-dpf] [--install-rms] [--with-observability] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
+        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--skip-dpf] [--skip-rms] [--with-observability] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
     esac
     shift
 done
@@ -1383,7 +1382,7 @@ if "${INSTALL_RMS}"; then
 else
     echo ""
     echo "=== [5c] RMS (Rack Manager Service) ==="
-    echo "Skipped (opt in with --install-rms once the site has NGC rms-dev access)."
+    echo "Skipped (--skip-rms flag set)."
 fi
 
 # ---------------------------------------------------------------------------

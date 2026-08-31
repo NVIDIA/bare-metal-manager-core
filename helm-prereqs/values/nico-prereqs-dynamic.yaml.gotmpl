@@ -11,7 +11,7 @@ vault:
 imagePullSecrets:
   ngcNicoPull: "{{ env "REGISTRY_PULL_SECRET" }}"
 rms:
-  # Follows setup.sh's --install-rms / NICO_INSTALL_RMS flag so the rms
+  # Follows setup.sh's --skip-rms / NICO_INSTALL_RMS flag so the rms
   # database, user, and ESO sync exist exactly when phase 5c will install
-  # the rack-manager chart.
-  enabled: {{ env "NICO_INSTALL_RMS" | default "false" }}
+  # the rack-manager chart (default on, like the phase itself).
+  enabled: {{ env "NICO_INSTALL_RMS" | default "true" }}

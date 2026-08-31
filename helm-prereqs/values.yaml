@@ -182,14 +182,14 @@ rest:
 ##   - the rms-db-eso ClusterExternalSecret that syncs the credentials into
 ##     the rack-manager namespace (eso-external-secrets.yaml)
 ##
-## The rack-manager chart itself is installed by setup.sh phase 5c, gated on
-## --install-rms / NICO_INSTALL_RMS=true. setup.sh exports that flag, and
+## The rack-manager chart itself is installed by setup.sh phase 5c, by
+## DEFAULT (opt out with --skip-rms). setup.sh exports the flag, and
 ## values/nico-prereqs-dynamic.yaml.gotmpl overrides this value from it, so
 ## the two stay in lockstep on script-driven installs. This static default
 ## only matters for direct `helmfile sync` runs.
 ## ---------------------------------------------------------------------------
 rms:
-  enabled: false
+  enabled: true
   ## Namespace the rack-manager release runs in — must match setup.sh's
   ## NICO_RMS_NAMESPACE. ESO projects the DB credentials into it.
   namespace: rack-manager

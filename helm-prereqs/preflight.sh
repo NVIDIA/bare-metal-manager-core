@@ -469,12 +469,13 @@ if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     ERRORS+=("KUBECONFIG='${KUBECONFIG}' does not exist — check the path to your cluster kubeconfig")
 fi
 
-# RMS requirements. RMS is opt-in (--install-rms / NICO_INSTALL_RMS=true).
-if [[ "${INSTALL_RMS:-false}" == "true" ]]; then
+# RMS requirements. RMS installs by default; these apply unless --skip-rms
+# (NICO_SKIP_RMS=true / NICO_INSTALL_RMS=false), which clears INSTALL_RMS.
+if [[ "${INSTALL_RMS:-true}" == "true" ]]; then
     command -v git &>/dev/null || \
         ERRORS+=("RMS requires 'git' to clone nv-rms — install it, or set NICO_RMS_CHART to a local chart path")
     [[ -z "${NICO_RMS_IMAGE_TAG:-}" ]] && \
-        ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required with --install-rms)")
+        ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required unless --skip-rms)")
     # The default rms-api image is entitlement-gated on NGC; without a key the
     # pod lands in ImagePullBackOff. A mirror override lifts the requirement.
     if [[ -z "${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" && \
