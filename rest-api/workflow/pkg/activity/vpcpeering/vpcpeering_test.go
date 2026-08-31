@@ -14,6 +14,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -588,8 +589,34 @@ func TestManageVpcPeering_CreateOrUpdateVpcPeeringFromSite(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.NoError(t, vpcPeeringDAO.Delete(f.ctx, nil, f.vpcPeeringID))
+
+				// The undelete is deferred while the delete is newer than the staleness
+				// threshold, so backdate it past that.
+				cwu.TestInventoryAgeDeletedTimestamp(f.ctx, t, f.dbSession, (*cdbm.VpcPeering)(nil), f.vpcPeeringID)
 			},
 			expectedRecovered: true,
+		},
+		{
+			// The delete is newer than the interval, so this inventory may predate it and
+			// undeleting would revive a VPC Peering the snapshot never saw removed.
+			name: "does not undelete a VPC Peering deleted within the inventory interval",
+			prepare: func(t *testing.T, f *fixture) {
+				t.Helper()
+
+				vpcPeeringDAO := cdbm.NewVpcPeeringDAO(f.dbSession)
+				_, err := vpcPeeringDAO.Create(f.ctx, nil, cdbm.VpcPeeringCreateInput{
+					VpcPeeringID: &f.vpcPeeringID,
+					Vpc1ID:       f.vpc1.ID,
+					Vpc2ID:       f.vpc2.ID,
+					SiteID:       f.site.ID,
+					TenantID:     &f.tenant.ID,
+					Status:       cdbm.VpcPeeringStatusDeleting,
+					CreatedByID:  f.site.CreatedBy,
+				})
+				require.NoError(t, err)
+				require.NoError(t, vpcPeeringDAO.Delete(f.ctx, nil, f.vpcPeeringID))
+			},
+			expectedRecovered: false,
 		},
 	}
 

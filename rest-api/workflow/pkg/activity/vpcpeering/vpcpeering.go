@@ -195,7 +195,7 @@ func (mvp ManageVpcPeering) createOrUpdateVpcPeeringFromSite(
 		return nil
 	}
 	if reportedVpcPeering.Vpc1ID == reportedVpcPeering.Vpc2ID {
-		logger.Warn().Msg("unable to create VPC Peering found on Site: VPC Peering cannot connect a VPC to itself")
+		logger.Warn().Msg("unable to create VPC Peering found on Site: vpcId and peerVpcId have the same value")
 		return nil
 	}
 
@@ -261,6 +261,14 @@ func (mvp ManageVpcPeering) createOrUpdateVpcPeeringFromSite(
 				(existingVpcPeering.Vpc1ID == vpc2.ID && existingVpcPeering.Vpc2ID == vpc1.ID)
 			if !sameVpcPair || existingVpcPeering.IsMultiTenant != isMultiTenant {
 				logger.Warn().Msgf("unable to create VPC Peering found on Site: VPC pair differs in REST cache and Site record for VPC Peering %s", controllerVpcPeeringID)
+				return nil, nil
+			}
+
+			// Deleted records when the delete happened, so a delete newer than the interval can
+			// postdate this inventory. Undeleting then would revive a VPC Peering the snapshot
+			// never saw removed. A later inventory undeletes it if the Site still reports it.
+			if site.IsTimeWithinStaleInventoryThreshold(*existingVpcPeering.Deleted) {
+				logger.Info().Msgf("not undeleting VPC Peering %s yet because it was deleted more recently than the inventory interval", controllerVpcPeeringID)
 				return nil, nil
 			}
 
