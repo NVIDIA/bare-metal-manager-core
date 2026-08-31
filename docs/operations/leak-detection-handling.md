@@ -79,9 +79,9 @@ Critical leaks are those detected by the BMS based on BMS-managed sensors. Becau
 
 #### Severe Leakage Handling
 
-When multiple trays in a rack are detected to be leaking based on in-tray NICo-managed sensors, if it goes beyond a configured threshold (default to 2 for NVL72 racks currently), the rack is considered to have a severe leakage. To prevent more trays in the rack from being impacted by the leak, NICo will immediately request BMS, via DSX Exchange, to perform electric and liquid isolation to the rack.
+If in-tray NICo-managed sensors indicate that multiple trays in a rack are leaking, and the number of leaking trays exceeds a configured threshold (the default for NVL72 racks is two leaking trays), the rack is considered to have a severe leakage. To prevent more trays in the rack from being impacted by the leak, NICo immediately requests the BMS, using DSX Exchange, to perform electric and liquid isolation for the rack.
 
-Upon receiving the isolation request, BMS will trigger the AC power breaker and shut off coolant valve, and broadcast the isolation result back DSX Exchange.
+Upon receiving the isolation request, the BMS triggers the AC power breaker and coolant shutoff valve, and broadcasts the isolation result over DSX Exchange.
 
 #### General Leakage Handling
 
