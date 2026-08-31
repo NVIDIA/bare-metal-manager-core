@@ -29,6 +29,7 @@ use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::RackId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     DpfState, DpuReprovisionStates, FailureCause, InstanceState, ManagedHostState, ReprovisionState,
@@ -418,16 +419,21 @@ async fn dpu_device_names(pool: &sqlx::PgPool, mh: &TestManagedHost) -> HashSet<
 }
 
 /// Gives a DPF test host the rack and DPU inventory that select the GB200
-/// deployment.
-async fn configure_gb200_b3240_host(pool: &sqlx::PgPool, mh: &TestManagedHost) {
+/// deployment and returns the created rack ID.
+async fn configure_gb200_b3240_host(pool: &sqlx::PgPool, mh: &TestManagedHost) -> RackId {
     let mut txn = pool.begin().await.unwrap();
-    configure_gb200_b3240_host_in_txn(txn.as_mut(), mh).await;
+    let rack_id = configure_gb200_b3240_host_in_txn(txn.as_mut(), mh).await;
     txn.commit().await.unwrap();
+
+    rack_id
 }
 
 /// Gives a DPF test host the GB200 rack and DPU inventory in an existing
-/// transaction.
-async fn configure_gb200_b3240_host_in_txn(conn: &mut sqlx::PgConnection, mh: &TestManagedHost) {
+/// transaction and returns the created rack ID.
+async fn configure_gb200_b3240_host_in_txn(
+    conn: &mut sqlx::PgConnection,
+    mh: &TestManagedHost,
+) -> RackId {
     let rack_id = TestRackDbBuilder::new()
         .with_rack_profile_id(TEST_RMS_RACK_PROFILE_ID)
         .persist(&mut *conn)
@@ -465,6 +471,8 @@ async fn configure_gb200_b3240_host_in_txn(conn: &mut sqlx::PgConnection, mh: &T
             .await
             .unwrap();
     }
+
+    rack_id
 }
 
 /// Recreates the partial DPF reprovision state that a controller without
@@ -876,7 +884,7 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment_from_report_or_rack(p
         .expect("timed out during initial provisioning");
 
     // Give the host a GB200 rack and both DPUs the supported B3240 identity.
-    configure_gb200_b3240_host(&pool, &mh).await;
+    let rack_id = configure_gb200_b3240_host(&pool, &mh).await;
 
     // Ignore initial ingestion and observe one complete host deployment selection pass.
     classified_dpus.lock().unwrap().clear();
@@ -906,7 +914,6 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment_from_report_or_rack(p
     // Site Explorer can identify a GB200 before discovery assigns its rack.
     // Repeat the same selection with only the persisted Redfish model present.
     let mut txn = pool.begin().await.unwrap();
-    let rack_id = mh.host().db_machine(&mut txn).await.rack_id.unwrap();
     sqlx::query("UPDATE machines SET rack_id = NULL WHERE id = $1")
         .bind(mh.id)
         .execute(txn.as_mut())
