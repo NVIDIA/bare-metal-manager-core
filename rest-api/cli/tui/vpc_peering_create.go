@@ -130,14 +130,9 @@ func promptVPCPeeringVPCs(s *Session, siteID string) ([]NamedItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing VPCs: %w", err)
 	}
-	siteVPCs := make([]NamedItem, 0, len(vpcs))
-	for _, vpc := range vpcs {
-		if strings.TrimSpace(vpc.Extra["siteId"]) == siteID {
-			siteVPCs = append(siteVPCs, vpc)
-		}
-	}
+	siteVPCs := readyVPCsForSite(vpcs, siteID)
 	if len(siteVPCs) < 2 {
-		return nil, fmt.Errorf("site requires at least two VPCs to create peerings")
+		return nil, fmt.Errorf("site requires at least two Ready VPCs to create peerings")
 	}
 
 	mode, err := PromptChoice(
@@ -182,6 +177,17 @@ func promptVPCPeeringVPCs(s *Session, siteID string) ([]NamedItem, error) {
 		}
 	}
 	return selected, nil
+}
+
+func readyVPCsForSite(vpcs []NamedItem, siteID string) []NamedItem {
+	ready := make([]NamedItem, 0, len(vpcs))
+	for _, vpc := range vpcs {
+		if strings.TrimSpace(vpc.Extra["siteId"]) == siteID &&
+			strings.EqualFold(strings.TrimSpace(vpc.Status), "Ready") {
+			ready = append(ready, vpc)
+		}
+	}
+	return ready
 }
 
 func fetchVPCPeeringsForSite(s *Session, siteID string) ([]NamedItem, error) {

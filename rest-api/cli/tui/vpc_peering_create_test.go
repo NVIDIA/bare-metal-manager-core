@@ -149,6 +149,16 @@ func TestPromptVPCPeeringVPCs(t *testing.T) {
 	assert.Nil(t, session.Cache.Get("vpc"))
 }
 
+func TestReadyVPCsForSite(t *testing.T) {
+	vpcs := []NamedItem{
+		{ID: "ready", Status: "Ready", Extra: map[string]string{"siteId": "site-1"}},
+		{ID: "pending", Status: "Pending", Extra: map[string]string{"siteId": "site-1"}},
+		{ID: "other-site", Status: "Ready", Extra: map[string]string{"siteId": "site-2"}},
+	}
+
+	assert.Equal(t, []NamedItem{vpcs[0]}, readyVPCsForSite(vpcs, "site-1"))
+}
+
 func testVPCPeeringItems(count int) []NamedItem {
 	items := make([]NamedItem, count)
 	for i := range count {

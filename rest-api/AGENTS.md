@@ -204,7 +204,9 @@ verification expectations.
   provider-owned and other-tenant resources.
 - When a site-wide TUI resource picker must ignore a narrower active scope,
   clear that scope and invalidate filtered caches before fetching, then restore
-  both the scope and cache state on every return path. Test the scoped case.
+  the scope and invalidate filtered caches again on every return path so
+  site-wide entries cannot be reused under the restored scope. Test the scoped
+  case.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
