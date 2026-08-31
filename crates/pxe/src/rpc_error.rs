@@ -24,6 +24,7 @@ pub(super) enum PxeRequestError {
     CarbideApiError(tonic::Status),
     MissingClientConfig,
     MissingIp(Rejection),
+    InvalidProxyHeader(String),
     InvalidBuildArch,
     MalformedBuildArch(String),
 }
@@ -57,6 +58,7 @@ impl Display for PxeRequestError {
                     "Invalid build arch specified in URI parameter buildarch".to_string(),
                 Self::MalformedBuildArch(err) => format!("Malformed build arch: {err}"),
                 Self::MissingIp(err) => format!("Source IP is missing. Error: {err:?}"),
+                Self::InvalidProxyHeader(err) => format!("invalid proxy client IP: {err}"),
             }
         )
     }
@@ -73,6 +75,7 @@ mod tests {
         MissingClientConfig,
         InvalidBuildArch,
         MalformedBuildArch,
+        InvalidProxyHeader,
     }
 
     fn error_for(case: ErrorCase) -> PxeRequestError {
@@ -81,6 +84,9 @@ mod tests {
             ErrorCase::InvalidBuildArch => PxeRequestError::InvalidBuildArch,
             ErrorCase::MalformedBuildArch => {
                 PxeRequestError::MalformedBuildArch("bad arch".to_string())
+            }
+            ErrorCase::InvalidProxyHeader => {
+                PxeRequestError::InvalidProxyHeader("bad forwarding chain".to_string())
             }
         }
     }
@@ -108,6 +114,7 @@ mod tests {
 
             "malformed inputs" {
                 ErrorCase::MalformedBuildArch => "Malformed build arch: bad arch".to_string(),
+                ErrorCase::InvalidProxyHeader => "invalid proxy client IP: bad forwarding chain".to_string(),
             }
         );
     }
@@ -119,6 +126,7 @@ mod tests {
                 ErrorCase::MissingClientConfig => true,
                 ErrorCase::InvalidBuildArch => true,
                 ErrorCase::MalformedBuildArch => true,
+                ErrorCase::InvalidProxyHeader => true,
             }
         );
     }
@@ -130,6 +138,7 @@ mod tests {
                 ErrorCase::MissingClientConfig => StatusCode::BAD_REQUEST,
                 ErrorCase::InvalidBuildArch => StatusCode::BAD_REQUEST,
                 ErrorCase::MalformedBuildArch => StatusCode::BAD_REQUEST,
+                ErrorCase::InvalidProxyHeader => StatusCode::BAD_REQUEST,
             }
         );
     }

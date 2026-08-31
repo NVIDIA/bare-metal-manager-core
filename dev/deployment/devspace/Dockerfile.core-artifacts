@@ -19,6 +19,7 @@ RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=lo
     -p carbide-api --bin carbide-api \
     -p nico-admin-cli --bin nico-admin-cli \
     -p carbide-bmc-proxy --bin carbide-bmc-proxy \
+    -p carbide-pxe --bin carbide \
     -p carbide-dhcp --lib \
     -p carbide-ssh-console --bin ssh-console \
     -p carbide-machine-a-tron --bin machine-a-tron && \
@@ -27,6 +28,7 @@ RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=lo
     /cargo-target/debug/carbide-api \
     /cargo-target/debug/nico-admin-cli \
     /cargo-target/debug/carbide-bmc-proxy \
+    /cargo-target/debug/carbide \
     /cargo-target/debug/libdhcp.so \
     /cargo-target/debug/ssh-console \
     /cargo-target/debug/machine-a-tron \

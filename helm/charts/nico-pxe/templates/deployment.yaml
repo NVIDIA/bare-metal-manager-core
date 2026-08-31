@@ -83,7 +83,7 @@ spec:
                 name: {{ include "nico-pxe.name" . }}-env-config
                 optional: {{ .Values.envFrom.pxeEnvConfig.optional | default true }}
           {{- end }}
-          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          imagePullPolicy: {{ include "nico-pxe.imagePullPolicy" . }}
           securityContext:
             capabilities:
               add:

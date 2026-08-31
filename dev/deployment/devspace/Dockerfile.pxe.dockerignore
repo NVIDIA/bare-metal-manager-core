@@ -1,0 +1,9 @@
+**
+!pxe
+!pxe/
+!pxe/templates
+!pxe/templates/
+!pxe/templates/**
+!pxe/scout-firmware-scripts
+!pxe/scout-firmware-scripts/
+!pxe/scout-firmware-scripts/**

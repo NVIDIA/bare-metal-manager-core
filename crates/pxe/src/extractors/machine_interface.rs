@@ -16,10 +16,9 @@
  */
 use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
-use axum_client_ip::ClientIp;
 use serde::{Deserialize, Serialize};
 
-use crate::common::MachineInterface;
+use crate::common::{AppState, MachineInterface};
 use crate::extractors::machine_architecture::MachineArchitecture;
 use crate::rpc_error::PxeRequestError;
 
@@ -39,13 +38,13 @@ struct MaybeMachineInterface {
     asset: Option<String>,
 }
 
-impl<S> FromRequestParts<S> for MachineInterface
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<AppState> for MachineInterface {
     type Rejection = PxeRequestError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         // A missing or malformed build architecture is a boot outcome
         // operators watch for, so both rejection shapes count as one --
         // even though the client gets a real 4xx rather than a template.
@@ -69,14 +68,7 @@ where
         let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())
             .inspect_err(|_| count_bad_architecture())?;
 
-        // Note: This does *NOT* look at X-Forwarded-For, due to security issues with the header. We
-        // don't currently have use cases for a proxy in front of carbide-pxe... if that changes
-        // someday we will need to configure a request extractor that conditionally uses
-        // X-Forwarded-For if it's present and falling back on ClientIp if it's not.
-        let client_ip = ClientIp::from_request_parts(parts, state)
-            .await
-            .map_err(PxeRequestError::MissingIp)?
-            .0;
+        let client_ip = super::client_ip::extract(parts, state).await?;
 
         Ok(MachineInterface {
             architecture: Some(build_architecture),

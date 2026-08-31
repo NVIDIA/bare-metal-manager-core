@@ -48,6 +48,14 @@ replicas: 1
 ## Soft open-file limit applied before startup. Must not exceed the runtime hard limit.
 fileDescriptorLimit: 65536
 
+## Optional component image. When repository is empty, the chart uses the
+## global image and its pull policy. When repository is set and tag is empty,
+## the component tag defaults to latest.
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
 ## Optional init containers (general-purpose pass-through)
 initContainers: []
 

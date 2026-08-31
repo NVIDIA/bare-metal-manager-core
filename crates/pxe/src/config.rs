@@ -17,6 +17,8 @@
 use std::env;
 use std::net::IpAddr;
 
+use ipnet::IpNet;
+
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeConfig {
     pub(super) internal_api_url: String,
@@ -32,6 +34,9 @@ pub(crate) struct RuntimeConfig {
     pub(super) bind_address: IpAddr,
     pub(super) bind_port: u16,
     pub(super) template_directory: String,
+    /// Proxies allowed to supply the original client address through
+    /// `X-Forwarded-For`. An empty list preserves direct-peer resolution.
+    pub(super) trusted_proxy_cidrs: Vec<IpNet>,
 }
 
 impl RuntimeConfig {
@@ -70,10 +75,26 @@ impl RuntimeConfig {
                 .map_err(|_| "not a parsable bind port for runtime config?".to_string())?,
             template_directory: env::var("CARBIDE_PXE_TEMPLATE_DIRECTORY")
                 .unwrap_or_else(|_| "/opt/carbide/pxe/templates".to_string()),
+            trusted_proxy_cidrs: parse_trusted_proxy_cidrs(
+                &env::var("PXE_TRUSTED_PROXY_CIDRS").unwrap_or_default(),
+            )?,
         };
 
         Ok(this)
     }
+}
+
+fn parse_trusted_proxy_cidrs(value: &str) -> Result<Vec<IpNet>, String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .parse::<IpNet>()
+                .map_err(|error| format!("invalid trusted proxy CIDR {value:?}: {error}"))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -99,6 +120,7 @@ mod tests {
         "PXE_BIND_ADDRESS",
         "PXE_BIND_PORT",
         "CARBIDE_PXE_TEMPLATE_DIRECTORY",
+        "PXE_TRUSTED_PROXY_CIDRS",
     ];
 
     #[derive(Debug)]
@@ -119,6 +141,7 @@ mod tests {
         bind_address: IpAddr,
         bind_port: u16,
         template_directory: String,
+        trusted_proxy_cidrs: Vec<IpNet>,
     }
 
     struct EnvSnapshot {
@@ -177,6 +200,7 @@ mod tests {
             bind_address: config.bind_address,
             bind_port: config.bind_port,
             template_directory: config.template_directory,
+            trusted_proxy_cidrs: config.trusted_proxy_cidrs,
         }
     }
 
@@ -192,6 +216,10 @@ mod tests {
     }
 
     fn config_error_kind(error: String) -> &'static str {
+        if error.starts_with("invalid trusted proxy CIDR") {
+            return "bad-trusted-proxy-cidr";
+        }
+
         match error.as_str() {
             "Could not extract FORGE_ROOT_CAFILE_PATH from environment" => "missing-root-ca",
             "Could not extract FORGE_CLIENT_CERT_PATH from environment" => "missing-client-cert",
@@ -228,6 +256,7 @@ mod tests {
                     bind_address: "0.0.0.0".parse().unwrap(),
                     bind_port: 8080,
                     template_directory: "/opt/carbide/pxe/templates".to_string(),
+                    trusted_proxy_cidrs: vec![],
                 }),
 
                 ConfigEnv {
@@ -236,6 +265,7 @@ mod tests {
                         ("FORGE_ROOT_CAFILE_PATH", "/certs/root.pem"),
                         ("FORGE_CLIENT_CERT_PATH", "/certs/client.pem"),
                         ("FORGE_CLIENT_KEY_PATH", "/certs/client.key"),
+                        ("PXE_TRUSTED_PROXY_CIDRS", ""),
                     ],
                 } => Yields(RuntimeConfigSummary {
                     internal_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079".to_string(),
@@ -249,6 +279,7 @@ mod tests {
                     bind_address: "0.0.0.0".parse().unwrap(),
                     bind_port: 8080,
                     template_directory: "/opt/carbide/pxe/templates".to_string(),
+                    trusted_proxy_cidrs: vec![],
                 }),
             }
 
@@ -266,6 +297,7 @@ mod tests {
                         ("PXE_BIND_ADDRESS", "127.0.0.1"),
                         ("PXE_BIND_PORT", "9090"),
                         ("CARBIDE_PXE_TEMPLATE_DIRECTORY", "/templates"),
+                        ("PXE_TRUSTED_PROXY_CIDRS", "127.0.0.0/8, 10.0.0.0/8"),
                     ],
                 } => Yields(RuntimeConfigSummary {
                     internal_api_url: "https://internal.example.com".to_string(),
@@ -279,6 +311,10 @@ mod tests {
                     bind_address: "127.0.0.1".parse().unwrap(),
                     bind_port: 9090,
                     template_directory: "/templates".to_string(),
+                    trusted_proxy_cidrs: vec![
+                        "127.0.0.0/8".parse().unwrap(),
+                        "10.0.0.0/8".parse().unwrap(),
+                    ],
                 }),
             }
 
@@ -312,6 +348,14 @@ mod tests {
                         ("PXE_BIND_PORT", "not a port"),
                     ],
                 } => FailsWith("bad-bind-port"),
+                ConfigEnv {
+                    vars: &[
+                        ("FORGE_ROOT_CAFILE_PATH", "/certs/root.pem"),
+                        ("FORGE_CLIENT_CERT_PATH", "/certs/client.pem"),
+                        ("FORGE_CLIENT_KEY_PATH", "/certs/client.key"),
+                        ("PXE_TRUSTED_PROXY_CIDRS", "127.0.0.0/not-a-prefix"),
+                    ],
+                } => FailsWith("bad-trusted-proxy-cidr"),
             }
         );
     }

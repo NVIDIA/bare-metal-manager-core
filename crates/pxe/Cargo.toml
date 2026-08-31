@@ -48,6 +48,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 http-body = { workspace = true }
+ipnet = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 mime = { workspace = true }
