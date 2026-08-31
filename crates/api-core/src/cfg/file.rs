@@ -2244,7 +2244,7 @@ pub struct DpfDeploymentConfig {
     /// pool. NICo does not create the matching bridge, service interfaces, service chain, IPAM, or
     /// application service CRs; an external controller must own them.
     #[serde(default)]
-    pub hbn_extra_interfaces: Vec<String>,
+    pub extra_sfs: Vec<String>,
     /// Optional per-deployment override of the mandatory Helm services. When set,
     /// these services are deployed for this deployment instead of the top-level
     /// [`DpfConfig::services`]. When absent, the top-level services are inherited.
@@ -2266,7 +2266,7 @@ impl Default for DpfDeploymentConfig {
             flavor_name: default_dpf_flavor_name(),
             deployment_name: default_dpf_deployment_name(),
             node_label_key: default_dpf_node_label_key(),
-            hbn_extra_interfaces: Vec::new(),
+            extra_sfs: Vec::new(),
             services: None,
             extra_services: BTreeMap::new(),
         }
@@ -7590,29 +7590,26 @@ helm_repo_url = "oci://registry.example.test/doca"
             flavor_name: "bf4-flavor".to_string(),
             deployment_name: "bf4-dep".to_string(),
             node_label_key: "carbide.nvidia.com/bf4".to_string(),
-            hbn_extra_interfaces: Vec::new(),
+            extra_sfs: Vec::new(),
             services: None,
             extra_services: BTreeMap::new(),
         }
     }
 
     #[test]
-    fn dpf_deployment_parses_hbn_extra_interfaces() {
+    fn dpf_deployment_parses_extra_sfs() {
         let deployment: DpfDeploymentConfig = toml::from_str(
             r#"
                 flavor_name = "dpu-flavor"
                 deployment_name = "dpu-deployment"
                 node_label_key = "carbide.nvidia.com/bf3"
 
-                hbn_extra_interfaces = ["storage_if"]
+                extra_sfs = ["storage_if"]
             "#,
         )
         .expect("HBN extra interface configuration must deserialize");
 
-        assert_eq!(
-            deployment.hbn_extra_interfaces,
-            vec!["storage_if".to_string()]
-        );
+        assert_eq!(deployment.extra_sfs, vec!["storage_if".to_string()]);
     }
 
     /// Verifies deployment selectors remain distinct from each other and NICo-owned labels.

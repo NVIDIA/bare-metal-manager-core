@@ -631,13 +631,10 @@ fn resolve_hbn_extra_sf_count(
     deployment: &crate::cfg::file::DpfDeploymentConfig,
     interfaces: &[carbide_dpf::types::DpuServiceInterfaceTemplateDefinition],
 ) -> eyre::Result<u32> {
-    crate::dpf_services::validate_hbn_extra_interfaces(
-        interfaces,
-        &deployment.hbn_extra_interfaces,
-    )
-    .map_err(|error| eyre::eyre!("invalid DPF HBN interface configuration: {error}"))?;
+    crate::dpf_services::validate_extra_sfs(interfaces, &deployment.extra_sfs)
+        .map_err(|error| eyre::eyre!("invalid DPF HBN interface configuration: {error}"))?;
 
-    Ok(deployment.hbn_extra_interfaces.len() as u32)
+    Ok(deployment.extra_sfs.len() as u32)
 }
 
 /// Initialize the DPF SDK and create all required Kubernetes CRs.
@@ -717,10 +714,10 @@ async fn initialize_dpf_sdk(
         .map_err(|error| eyre::eyre!("invalid DPF SF configuration: {error}"))?;
     }
     if let Some(deployment) = &carbide_config.dpf.deployments.bf4_astra
-        && !deployment.hbn_extra_interfaces.is_empty()
+        && !deployment.extra_sfs.is_empty()
     {
         return Err(eyre::eyre!(
-            "BF4 astra does not support dpf.deployments.bf4_astra.hbn_extra_interfaces"
+            "BF4 astra does not support dpf.deployments.bf4_astra.extra_sfs"
         ));
     }
 
@@ -785,7 +782,7 @@ async fn initialize_dpf_sdk(
                 &services,
                 &carbide_config.dpf.dpu_agent_bootstrap_ca,
                 interfaces,
-                &deployment.hbn_extra_interfaces,
+                &deployment.extra_sfs,
                 &carbide_config.node_auth,
             ),
             num_of_vfs: carbide_config.dpu_config.num_of_vfs,

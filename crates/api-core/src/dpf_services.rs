@@ -144,7 +144,7 @@ fn doca_hbn_service_interfaces(
 }
 
 /// Validates extra names against the HBN names NICo derives from the effective DPU inventory.
-pub(crate) fn validate_hbn_extra_interfaces(
+pub(crate) fn validate_extra_sfs(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     extra_interfaces: &[String],
 ) -> Result<(), String> {
@@ -896,12 +896,12 @@ pub(crate) fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
-    hbn_extra_interfaces: &[String],
+    extra_sfs: &[String],
     node_auth: &NodeAuthConfig,
 ) -> Vec<ServiceDefinition> {
     let mut service_vec = vec![
         dts_service(&resolved.base.dts),
-        doca_hbn_service(&resolved.base.doca_hbn, interfaces, hbn_extra_interfaces),
+        doca_hbn_service(&resolved.base.doca_hbn, interfaces, extra_sfs),
         dhcp_server_service(&resolved.base.dhcp_server, interfaces),
         dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
         // Not `node_auth.enabled` directly: an operator staging a disable
@@ -1020,7 +1020,7 @@ mod tests {
     fn hbn_extra_interface_validation_covers_names_and_capacity() {
         let interfaces = build_effective_dpu_interfaces(16, None);
         value_scenarios!(
-            run = |extra| validate_hbn_extra_interfaces(&interfaces, &extra).is_err();
+            run = |extra| validate_extra_sfs(&interfaces, &extra).is_err();
             "valid storage interface" {
                 vec!["storage_if".to_string()] => false,
             }

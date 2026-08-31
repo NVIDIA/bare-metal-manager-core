@@ -795,13 +795,13 @@ Per-deployment field reference:
 | `flavor_name` | yes | `carbide-dpu-flavor` | Base name for the generated `DPUFlavor` (BF3/generic BF4) or `DPUFlavorTemplate` (Astra) CR. |
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
-| `hbn_extra_interfaces` | no | `[]` | Experimental BF3 and generic-BF4 escape hatch for appending externally managed HBN interfaces. BF4 Astra rejects a non-empty list. See [Extra HBN interfaces](#extra-hbn-interfaces). |
+| `extra_sfs` | no | `[]` | Experimental BF3 and generic-BF4 escape hatch for appending externally managed HBN interfaces. BF4 Astra rejects a non-empty list. See [Extra HBN interfaces](#extra-hbn-interfaces). |
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
 | `extra_services` | no | none | Optional deployment-local field overrides for extra services. Only extras supported by this deployment type are used. |
 
 ##### Extra HBN interfaces
 
-`hbn_extra_interfaces` appends interface names to HBN's generated
+`extra_sfs` appends interface names to HBN's generated
 `DPUServiceConfiguration`, startup interface list, and `nvidia.com/bf_sf`
 request. It is supported for BF3 (including the derived GB200 deployment) and
 generic BF4. BF4 Astra rejects a non-empty list. Omission or an empty list adds
@@ -824,7 +824,7 @@ period.
 
 ```toml
 [dpf.deployments.bf3]
-hbn_extra_interfaces = ["storage_if"]
+extra_sfs = ["storage_if"]
 ```
 
 **Per-deployment services override.** By default every deployment inherits the
