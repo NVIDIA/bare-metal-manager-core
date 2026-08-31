@@ -87,7 +87,7 @@ Upon receiving the isolation request, the BMS triggers the AC power breaker and 
 
 When there are leaking trays but not enough to trigger a critical or severe leak, NICo handles the general leakage via policy-based automation.
 
-Currently, the default handling policy is to shut down all leaking trays. For a leaking tray that is still powered on, NICo will forcefully shut it down.
+The default handling policy is to shut down all leaking trays. For a leaking tray that is still powered on, NICo forcefully shuts it down.
 
 To see the handling operation task status
 `GET /nico/tray/{id}/task`
