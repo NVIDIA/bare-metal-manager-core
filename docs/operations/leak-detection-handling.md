@@ -99,7 +99,7 @@ The overall focus for the next phase of NICo leak detection and handling is to m
 
 Instead of relying on low-level APIs for health report and task, [issue #5018](https://github.com/NVIDIA/infra-controller/issues/5018) aims to provide a set of dedicated, easier-to-use leak status and leak handling status reporting API, such as
 
-```
+```http
 GET /nico/rack/{id}/leak
 GET /nico/tray/{id}/leak
 GET /nico/leak
