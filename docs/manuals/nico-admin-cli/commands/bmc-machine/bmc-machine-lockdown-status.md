@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine lockdown-status`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **lockdown-status**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **lockdown-status***
 
 ## NAME
 
@@ -23,7 +23,7 @@ ID of the machine to check lockdown status
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -48,4 +48,4 @@ nico-admin-cli bmc-machine lockdown-status --machine 12345678-1234-5678-90ab-cde
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine create-bmc-user`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **create-bmc-user**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **create-bmc-user***
 
 ## NAME
 
@@ -50,7 +50,7 @@ Role of new BMC account (default: administrator)\
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -78,4 +78,4 @@ nico-admin-cli bmc-machine create-bmc-user --machine 12345678-1234-5678-90ab-cde
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

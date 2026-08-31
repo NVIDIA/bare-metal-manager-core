@@ -1,6 +1,6 @@
 # `nico-admin-cli instance release`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **release**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **release***
 
 ## NAME
 
@@ -29,7 +29,7 @@ The value of label instance to query
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -56,4 +56,4 @@ nico-admin-cli instance release --label-key role --label-value training
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

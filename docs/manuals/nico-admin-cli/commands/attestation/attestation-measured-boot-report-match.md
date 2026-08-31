@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation measured-boot report match`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [report](./attestation-measured-boot-report.md) › **match**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [report](./attestation-measured-boot-report.md) › **match***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Match reports with the provided PCR register values.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli attestation measured-boot report match 0:abc123,7:def456
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

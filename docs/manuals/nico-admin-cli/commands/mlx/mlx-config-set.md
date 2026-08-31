@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx config set`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [config](./mlx-config.md) › **set**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [config](./mlx-config.md) › **set***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Set device configuration values
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -45,9 +45,8 @@ Carbide Machine ID
 Device ID is the PCI or mst path on the target machine
 
 \<*REGISTRY_NAME*\>  
-
 \[*ASSIGNMENTS*\]
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli credential rotation-status`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **rotation-status**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **rotation-status***
 
 ## NAME
 
@@ -20,9 +20,9 @@ Show convergence status of a site-wide credential rotation
 ## OPTIONS
 
 **--type**=*\<CREDENTIAL_TYPE\>*  
-Credential family to report on  
+Credential family to report on\
 
-  
+\
 *Possible values:*
 
 - bmc
@@ -43,14 +43,14 @@ Report on a single device by MAC instead of the whole site
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field  
+Sort output by specified field\
 
-  
+\
 *Possible values:*
 
 - primary-id: Sort by the primary ID
@@ -70,4 +70,4 @@ nico-admin-cli credential rotation-status --type=bmc --mac-address 00:11:22:33:4
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

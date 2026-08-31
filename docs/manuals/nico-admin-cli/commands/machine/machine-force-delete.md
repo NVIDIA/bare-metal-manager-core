@@ -1,6 +1,6 @@
 # `nico-admin-cli machine force-delete`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **force-delete**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **force-delete***
 
 ## NAME
 
@@ -25,13 +25,13 @@ Force delete a machine
 ## OPTIONS
 
 **--machine** *\<MACHINE\>*  
-UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete
+UUID, IPv4, MAC or hostname of the host or DPU machine to delete
 
 **-d**, **--delete-interfaces**  
-Delete interfaces. Redeploy kea after deleting machine interfaces.
+Delete interfaces.
 
 **-b**, **--delete-bmc-interfaces**  
-Delete BMC interfaces. Redeploy kea after deleting machine interfaces.
+Delete BMC interfaces.
 
 **-c**, **--delete-bmc-credentials**  
 Delete BMC credentials. Only applicable if site explorer has configured
@@ -57,7 +57,7 @@ level. This flag acknowledges that orphaned DPF resources may remain
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -84,4 +84,4 @@ nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef012345
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

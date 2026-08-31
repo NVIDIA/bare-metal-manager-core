@@ -1,6 +1,6 @@
 # `nico-admin-cli nvl-domain health-report show`
 
-_[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › [health-report](./nvl-domain-health-report.md) › **show**_
+*[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › [health-report](./nvl-domain-health-report.md) › **show***
 
 ## NAME
 
@@ -21,7 +21,7 @@ List health report sources for an NVLink domain
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -42,4 +42,4 @@ Print help (see a summary with -h)
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

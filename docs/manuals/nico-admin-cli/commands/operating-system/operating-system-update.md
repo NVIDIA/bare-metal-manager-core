@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system update`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **update**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **update***
 
 ## NAME
 
@@ -19,6 +19,10 @@ system definition.
 ## DESCRIPTION
 
 Update an existing operating system definition.
+
+For templated iPXE requirements, artifact configuration, and
+synchronization rules, see
+[Templated iPXE Operating Systems](../../../../configuration/templated-ipxe-operating-systems.md).
 
 ## OPTIONS
 
@@ -39,7 +43,8 @@ Set whether this OS definition is active.\
 - false
 
 **--allow-override** *\<ALLOW_OVERRIDE\>*  
-Set whether users can override OS parameters.\
+Set whether an Instance request can override the user data of this OS
+definition.\
 
 \
 *Possible values:*
@@ -49,13 +54,7 @@ Set whether users can override OS parameters.\
 - false
 
 **--phone-home-enabled** *\<PHONE_HOME_ENABLED\>*  
-Set whether the instance is held in a provisioning state until the booted OS
-calls back ("phones home") to NICo's metadata service, instead of being
-reported ready as soon as provisioning finishes. NICo injects the cloud-init
-`phone_home` block into your user-data for you, so your `userData` must be
-valid cloud-init YAML when this is enabled. Refer to
-[Phone-home](../../../../configuration/tenant_management.md#phone-home) for
-what it injects, the endpoint, and usage guidance.\
+Set whether phone-home on first boot is enabled.\
 
 \
 *Possible values:*
@@ -80,7 +79,7 @@ Pass without values to clear.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 

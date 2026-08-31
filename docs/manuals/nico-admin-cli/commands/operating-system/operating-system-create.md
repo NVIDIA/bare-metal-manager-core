@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system create`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **create**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **create***
 
 ## NAME
 
@@ -10,7 +10,7 @@ definition.
 ## SYNOPSIS
 
 **nico-admin-cli operating-system create** \<**-n**\|**--name**\>
-\<**-o**\|**--org**\> \[**--id**\] \[**-d**\|**--description**\]
+\[**-o**\|**--org**\] \[**--id**\] \[**-d**\|**--description**\]
 \[**--is-active**\] \[**--allow-override**\]
 \[**--phone-home-enabled**\] \[**--user-data**\] \[**--ipxe-script**\]
 \[**--ipxe-template-id**\] \[**--param**\] \[**--extended**\]
@@ -20,13 +20,21 @@ definition.
 
 Create a new operating system definition.
 
+Exactly one OS variant must be specified: --ipxe-script or
+--ipxe-template-id.
+
+For templated iPXE requirements, artifact configuration, and
+synchronization rules, see
+[Templated iPXE Operating Systems](../../../../configuration/templated-ipxe-operating-systems.md).
+
 ## OPTIONS
 
 **-n**, **--name** *\<NAME\>*  
 Name of the operating system definition.
 
 **-o**, **--org** *\<ORG\>*  
-Organization identifier for this OS definition.
+Optional tenant organization identifier for this OS definition. Omit for
+a provider-owned definition. An explicitly empty value is invalid.
 
 **--id** *\<ID\>*  
 Optional UUID for the new OS definition (default: server-generated).
@@ -45,16 +53,11 @@ Whether this OS definition is active (default: true).\
 - false
 
 **--allow-override**  
-Allow users to override OS parameters.
+Allow an Instance request to override the user data of this OS
+definition.
 
 **--phone-home-enabled**  
-Hold the instance in a provisioning state until the booted OS calls back
-("phones home") to NICo's metadata service, instead of reporting it ready as
-soon as provisioning finishes. NICo injects the cloud-init `phone_home` block
-into your user-data for you, so your `userData` must be valid cloud-init YAML
-when this is enabled. Refer to
-[Phone-home](../../../../configuration/tenant_management.md#phone-home) for
-what it injects, the endpoint, and usage guidance.
+Enable phone-home on first boot.
 
 **--user-data** *\<USER_DATA\>*  
 Optional cloud-init / user-data script.
@@ -71,7 +74,7 @@ iPXE parameter in KEY=VALUE format. May be repeated.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -91,8 +94,9 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a
-nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a --description "Ubuntu 22.04 base" --is-active false --allow-override
+nico-admin-cli operating-system create --name provider-ubuntu-22.04 --ipxe-template-id 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli operating-system create --name tenant-ubuntu-22.04 --org fds34511233a --ipxe-template-id 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli operating-system create --name tenant-ubuntu-22.04 --org fds34511233a --description "Ubuntu 22.04 base" --is-active false --allow-override --ipxe-template-id 12345678-1234-5678-90ab-cdef01234567
 ```
 
 ---

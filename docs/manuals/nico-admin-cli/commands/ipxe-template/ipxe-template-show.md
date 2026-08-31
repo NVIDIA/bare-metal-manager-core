@@ -1,11 +1,11 @@
 # `nico-admin-cli ipxe-template show`
 
-_[Tenant commands](../../tenant.md) › [ipxe-template](./ipxe-template.md) › **show**_
+*[Tenant commands](../../tenant.md) › [ipxe-template](./ipxe-template.md) › **show***
 
 ## NAME
 
 nico-admin-cli-ipxe-template-show - Show iPXE templates (all, or one by
-name).
+ID).
 
 ## SYNOPSIS
 
@@ -14,14 +14,18 @@ name).
 
 ## DESCRIPTION
 
-Show iPXE templates (all, or one by name).
+Show iPXE templates (all, or one by ID).
+
+For the relationship between templates, Operating System definitions,
+Sites, and Instances, see
+[Templated iPXE Operating Systems](../../../../configuration/templated-ipxe-operating-systems.md).
 
 ## OPTIONS
 
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -50,4 +54,4 @@ nico-admin-cli ipxe-template show 12345678-1234-5678-90ab-cdef01234567
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

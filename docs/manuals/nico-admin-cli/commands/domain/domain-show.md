@@ -1,6 +1,6 @@
 # `nico-admin-cli domain show`
 
-_[Network commands](../../network.md) › [domain](./domain.md) › **show**_
+*[Network commands](../../network.md) › [domain](./domain.md) › **show***
 
 ## NAME
 
@@ -23,7 +23,7 @@ Show all domains (DEPRECATED)
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -52,4 +52,4 @@ nico-admin-cli domain show 12345678-1234-5678-90ab-cdef01234567
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

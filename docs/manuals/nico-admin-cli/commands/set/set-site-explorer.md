@@ -1,6 +1,6 @@
 # `nico-admin-cli set site-explorer`
 
-_[Hardware commands](../../hardware.md) › [set](./set.md) › **site-explorer**_
+*[Hardware commands](../../hardware.md) › [set](./set.md) › **site-explorer***
 
 ## NAME
 
@@ -26,7 +26,7 @@ Disable site-explorer
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -52,4 +52,4 @@ nico-admin-cli set site-explorer --disable
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

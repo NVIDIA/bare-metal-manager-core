@@ -1,6 +1,6 @@
 # `nico-admin-cli tpm-ca add`
 
-_[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **add**_
+*[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **add***
 
 ## NAME
 
@@ -24,7 +24,7 @@ File name containing certificate in DER format
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli tpm-ca add --filename /path/to/tpm-ca.der
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

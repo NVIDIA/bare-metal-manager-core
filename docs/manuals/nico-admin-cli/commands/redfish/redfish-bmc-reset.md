@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish bmc-reset`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bmc-reset**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bmc-reset***
 
 ## NAME
 
@@ -8,8 +8,8 @@ nico-admin-cli-redfish-bmc-reset - Reboot the BMC itself
 
 ## SYNOPSIS
 
-**nico-admin-cli redfish bmc-reset** \[**--extended**\]
-\[**--sort-by**\] \[**-h**\|**--help**\]
+**nico-admin-cli redfish bmc-reset** \[**--reset-type**\]
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
@@ -17,10 +17,20 @@ Reboot the BMC itself
 
 ## OPTIONS
 
+**--reset-type** *\<RESET_TYPE\>*  
+Redfish Manager.Reset type. Omit for the vendor default\
+
+\
+*Possible values:*
+
+- graceful
+
+- force
+
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -39,4 +49,4 @@ Print help (see a summary with -h)
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

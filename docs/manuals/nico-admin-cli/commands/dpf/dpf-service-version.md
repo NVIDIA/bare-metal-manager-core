@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf service-version`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **service-version**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **service-version***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Compare configured vs deployed DPF service versions
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -47,4 +47,4 @@ nico-admin-cli dpf sv
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

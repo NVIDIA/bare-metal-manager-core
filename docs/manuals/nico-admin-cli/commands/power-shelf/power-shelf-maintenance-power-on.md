@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf maintenance power-on`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [maintenance](./power-shelf-maintenance.md) › **power-on**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [maintenance](./power-shelf-maintenance.md) › **power-on***
 
 ## NAME
 
@@ -28,7 +28,7 @@ URL of reference (ticket, issue, etc) for this maintenance request
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -54,4 +54,4 @@ nico-admin-cli power-shelf maintenance power-on --power-shelf-id 12345678-1234-5
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf metadata from-expected-power-shelf`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **from-expected-power-shelf**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **from-expected-power-shelf***
 
 ## NAME
 
@@ -34,7 +34,7 @@ on the Power Shelf will be overridden.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -63,4 +63,4 @@ nico-admin-cli power-shelf metadata from-expected-power-shelf 12345678-1234-5678
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

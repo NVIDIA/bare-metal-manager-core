@@ -1,6 +1,6 @@
 # `nico-admin-cli route-server add`
 
-_[Network commands](../../network.md) › [route-server](./route-server.md) › **add**_
+*[Network commands](../../network.md) › [route-server](./route-server.md) › **add***
 
 ## NAME
 
@@ -30,7 +30,7 @@ The source_type to use for the target addresses. Defaults to admin_api.\
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli route-server add 10.0.0.1 --source-type config_file
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

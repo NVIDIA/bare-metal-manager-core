@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-power-shelf add`
 
-_[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **add**_
+*[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **add***
 
 ## NAME
 
@@ -70,7 +70,7 @@ factory-default credentials in Vault as-is\
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -97,4 +97,4 @@ nico-admin-cli expected-power-shelf add --bmc-mac-address 00:11:22:33:44:55 --bm
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

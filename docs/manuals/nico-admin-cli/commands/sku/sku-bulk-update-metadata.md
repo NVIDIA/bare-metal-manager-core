@@ -1,6 +1,6 @@
 # `nico-admin-cli sku bulk-update-metadata`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **bulk-update-metadata**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **bulk-update-metadata***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Update multiple SKUs metadata from a file
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli sku bulk-update-metadata ./sku-metadata.csv
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

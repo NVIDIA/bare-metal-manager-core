@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager get-firmware-update-status`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **get-firmware-update-status**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **get-firmware-update-status***
 
 ## NAME
 
@@ -22,7 +22,7 @@ Get component firmware update status
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli component-manager get-firmware-update-status rack --rack-id 12345
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer copy-bfb-to-dpu-rshim`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **copy-bfb-to-dpu-rshim**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **copy-bfb-to-dpu-rshim***
 
 ## NAME
 
@@ -30,7 +30,7 @@ DPU BMC.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli site-explorer copy-bfb-to-dpu-rshim 192.0.2.10 --host-bmc-ip 192.
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

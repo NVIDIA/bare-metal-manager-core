@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-validation external-config`
 
-_[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › **external-config**_
+*[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › **external-config***
 
 ## NAME
 
@@ -20,7 +20,7 @@ External config
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -55,4 +55,4 @@ nico-admin-cli machine-validation external-config remove --name my-config
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

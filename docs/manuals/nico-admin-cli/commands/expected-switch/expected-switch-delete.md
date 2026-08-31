@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-switch delete`
 
-_[Tenant commands](../../tenant.md) › [expected-switch](./expected-switch.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [expected-switch](./expected-switch.md) › **delete***
 
 ## NAME
 
@@ -24,7 +24,7 @@ ID (UUID) of the expected switch to delete.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -53,4 +53,4 @@ nico-admin-cli expected-switch delete --id 12345678-1234-5678-90ab-cdef01234567
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

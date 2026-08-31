@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish boot-once-hdd`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-once-hdd**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-once-hdd***
 
 ## NAME
 
@@ -21,7 +21,7 @@ On next boot only, boot from hard drive
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -40,4 +40,4 @@ Print help (see a summary with -h)
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

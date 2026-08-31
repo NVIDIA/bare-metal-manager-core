@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu reprovision set`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **set**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **set***
 
 ## NAME
 
@@ -29,7 +29,7 @@ If set, a HostUpdateInProgress health alert will be applied to the host
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -56,4 +56,4 @@ nico-admin-cli dpu reprovision set --id 12345678-1234-5678-90ab-cdef01234567 --u
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

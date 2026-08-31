@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu-remediation show`
 
-_[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **show**_
+*[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **show***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Display remediation information
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -51,4 +51,4 @@ nico-admin-cli dpu-remediation show 12345678-1234-5678-90ab-cdef01234567 --displ
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

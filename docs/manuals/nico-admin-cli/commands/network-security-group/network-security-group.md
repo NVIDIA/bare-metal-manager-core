@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group`
 
-_[Network commands](../../network.md) › **network-security-group**_
+*[Network commands](../../network.md) › **network-security-group***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Network security group management
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -52,4 +52,4 @@ Print help (see a summary with -h)
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

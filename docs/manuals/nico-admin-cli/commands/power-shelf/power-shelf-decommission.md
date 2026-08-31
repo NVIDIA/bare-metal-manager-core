@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf decommission`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **decommission**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **decommission***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Start decommissioning a managed power shelf
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli power-shelf decommission ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7j
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish bmc-reset-to-defaults`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bmc-reset-to-defaults**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bmc-reset-to-defaults***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Reset BMC to factory defaults
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -40,4 +40,4 @@ Print help (see a summary with -h)
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

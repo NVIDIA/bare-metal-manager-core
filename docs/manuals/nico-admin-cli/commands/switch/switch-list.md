@@ -1,6 +1,6 @@
 # `nico-admin-cli switch list`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › **list**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › **list***
 
 ## NAME
 
@@ -42,7 +42,7 @@ Filter by NVOS MAC address
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -70,4 +70,4 @@ nico-admin-cli switch list --bmc-mac 00:11:22:33:44:55
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

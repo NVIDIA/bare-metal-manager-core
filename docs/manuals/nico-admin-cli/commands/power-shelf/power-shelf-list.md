@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf list`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **list**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **list***
 
 ## NAME
 
@@ -39,7 +39,7 @@ Filter by BMC MAC address
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -67,4 +67,4 @@ nico-admin-cli power-shelf list --bmc-mac 00:11:22:33:44:55
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,10 +1,11 @@
 # `nico-admin-cli bmc-machine probe-vendor`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **probe-vendor**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **probe-vendor***
 
 ## NAME
 
-nico-admin-cli-bmc-machine-probe-vendor - Resolve a BMC's Redfish vendor
+nico-admin-cli-bmc-machine-probe-vendor - Resolve the Redfish vendor for
+a BMC
 
 ## SYNOPSIS
 
@@ -14,7 +15,7 @@ nico-admin-cli-bmc-machine-probe-vendor - Resolve a BMC's Redfish vendor
 
 ## DESCRIPTION
 
-Resolve a BMC's Redfish vendor
+Resolve the Redfish vendor for a BMC
 
 ## OPTIONS
 
@@ -30,7 +31,7 @@ ID of the machine whose BMC vendor to probe
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -57,4 +58,4 @@ nico-admin-cli bmc-machine probe-vendor --mac-address 00:11:22:33:44:55
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

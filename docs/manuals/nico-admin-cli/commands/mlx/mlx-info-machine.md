@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx info machine`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [info](./mlx-info.md) › **machine**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [info](./mlx-info.md) › **machine***
 
 ## NAME
 
@@ -20,7 +20,7 @@ Get an MlxDeviceReport for a machine
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -42,4 +42,4 @@ Carbide Machine ID
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

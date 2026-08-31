@@ -1,6 +1,6 @@
 # `nico-admin-cli network-device show`
 
-_[Network commands](../../network.md) › [network-device](./network-device.md) › **show**_
+*[Network commands](../../network.md) › [network-device](./network-device.md) › **show***
 
 ## NAME
 
@@ -23,7 +23,7 @@ Show all network devices (DEPRECATED)
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -53,4 +53,4 @@ nico-admin-cli network-device show mac=00:11:22:33:44:55
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

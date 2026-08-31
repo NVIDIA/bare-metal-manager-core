@@ -1,6 +1,6 @@
 # `nico-admin-cli boot-interface set`
 
-_[Hardware commands](../../hardware.md) › [boot-interface](./boot-interface.md) › **set**_
+*[Hardware commands](../../hardware.md) › [boot-interface](./boot-interface.md) › **set***
 
 ## NAME
 
@@ -26,26 +26,26 @@ interface must also be on the Admin segment.
 
 ## OPTIONS
 
-**--force-reconcile**\
+**--force-reconcile**  
 Request a fresh machine-controller reconciliation even when this
 interface is already selected. Sends only force_reconcile=true; servers
 without force_reconcile support ignore it, while supporting servers
 leave any required restart to machine-controller
 
-**--reboot**\
+**--reboot**  
 Deprecated compatibility option for servers without force_reconcile
 support. Sends reboot=true and force_reconcile=true; supporting servers
 treat it as reconciliation, while older servers force-restart the host
 after changing the target
 
-**--extended**\
+**--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
-**--sort-by** *\<SORT_BY\>* \[default: primary-id\]\
+**--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
 Sort output by specified field\
 
 \
@@ -55,13 +55,13 @@ Sort output by specified field\
 
 - state: Sort by state
 
-**-h**, **--help**\
+**-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*MACHINE*\>\
+\<*MACHINE*\>  
 The managed host for which to set the boot interface
 
-\<*INTERFACE*\>\
+\<*INTERFACE*\>  
 The interface to boot from -- a machine-interface UUID or a MAC address
 
 ## Examples
@@ -74,4 +74,4 @@ nico-admin-cli boot-interface set 12345678-1234-5678-90ab-cdef01234567 00:11:22:
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)
