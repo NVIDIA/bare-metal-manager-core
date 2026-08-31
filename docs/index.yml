@@ -206,8 +206,10 @@ navigation:
           path: manuals/machine_identity_signing_key_rotation.md
         - page: NVLink Partitioning
           path: manuals/nvlink_partitioning.md
-        - page: Rack-Level Administration (RLA)
+        - page: Rack-Level Administration
           path: manuals/rack_level_admin.md
+        - page: Leak Detection & Handling
+          path: operations/leak-detection-handling.md
         - section: Managing VPCs
           contents:
             - page: VPC Routing Profiles

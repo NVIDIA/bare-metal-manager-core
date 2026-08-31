@@ -300,12 +300,14 @@ func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Cli
 	return e
 }
 
-func InitMetricsServer(e *echo.Echo, cfg *config.Config) *echo.Echo {
+func InitMetricsServer(e *echo.Echo, namespace string) *echo.Echo {
 	ep := echo.New()
 	ep.HideBanner = true
 
 	conf := echoPrometheus.MiddlewareConfig{
-		Subsystem: fmt.Sprintf("%s_api", cfg.GetAPIName()),
+		// The prefix has to go in Subsystem, since echoprometheus substitutes
+		// its own "echo" for an empty one.
+		Subsystem: namespace,
 		Skipper:   api.MetricsURLSkipper,
 	}
 

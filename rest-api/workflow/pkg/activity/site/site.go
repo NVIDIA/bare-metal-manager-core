@@ -30,6 +30,7 @@ import (
 	csm "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
 
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
@@ -67,10 +68,11 @@ func getSiteFabricIPBlockLockID(dbSite *cdbm.Site) uint64 {
 // ManageSite is an activity wrapper for managing Site lifecycle that allows
 // injecting DB access
 type ManageSite struct {
-	dbSession      *cdb.Session
-	siteClientPool *sc.ClientPool
-	tc             client.Client
-	cfg            *config.Config
+	dbSession         *cdb.Session
+	siteClientPool    *sc.ClientPool
+	tc                client.Client
+	cfg               *config.Config
+	siteHealthMetrics *cwm.SiteHealthMetrics
 }
 
 // Activity functions
@@ -613,14 +615,44 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 	// Get all Sites
 	siteDAO := cdbm.NewSiteDAO(mst.dbSession)
 
-	sites, _, err := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{Statuses: []string{string(cdbm.SiteStatusRegistered)}}, cdbp.PageInput{Limit: ccu.GetPtr(cdbp.TotalLimit)}, nil)
+	// Error Sites are included alongside Registered ones because the check below
+	// moves a disconnected Site to Error. Querying Registered alone would drop it
+	// from the gauges on the very next cycle, resolving the alert three minutes
+	// into an outage that is still going.
+	sites, _, err := siteDAO.GetAll(
+		ctx,
+		nil,
+		cdbm.SiteFilterInput{Statuses: []string{cdbm.SiteStatusRegistered, cdbm.SiteStatusError}},
+		cdbp.PageInput{Limit: ccu.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Sites from DB")
 		return err
 	}
 
+	// Publish health before the checks below, so the gauges reflect every
+	// monitored Site even when a later status update fails.
+	reports := make([]cwm.SiteHealthReport, 0, len(sites))
+	for _, site := range sites {
+		reports = append(reports, cwm.SiteHealthReport{
+			SiteID:            site.ID,
+			SiteName:          site.Name,
+			InventoryReceived: site.InventoryReceived,
+			AgentCertExpiry:   site.AgentCertExpiry,
+		})
+	}
+	mst.siteHealthMetrics.SetSiteHealth(reports)
+
 	// Loop through Sites
 	for _, site := range sites {
+		// Only a Registered Site can trip into Error. An Error Site is already
+		// reported, so re-running this would repeat the Slack message and add a
+		// StatusDetail row on every cycle for as long as the outage lasts.
+		if site.Status != cdbm.SiteStatusRegistered {
+			continue
+		}
+
 		// Get Site's last inventory receipt
 		if site.InventoryReceived == nil {
 			logger.Warn().Str("Site ID", site.ID.String()).Msg("Site has Registered status but hasn't received inventory yet")
@@ -640,29 +672,6 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 				err := sc.SendSlackNotification(sm)
 				if err != nil {
 					logger.Error().Err(err).Msg("failed to send Slack notification for Site down event")
-				}
-			}
-
-			if mst.cfg.GetNotificationsPagerDutyEnabled() {
-				// Send PagerDuty notification
-				pc := util.NewPagerDutyClient(mst.cfg.GetNotificationsPagerDutyIntegrationKey())
-				customDetails := map[string]string{
-					"site_id":             site.ID.String(),
-					"site_name":           site.Name,
-					"threshold_minutes":   fmt.Sprintf("%.0f", SiteInventoryReceiptThreshold.Minutes()),
-					"last_inventory_time": site.InventoryReceived.Format(time.RFC3339),
-					"time_since_last":     time.Since(*site.InventoryReceived).String(),
-					"description":         fmt.Sprintf("Site hasn't received Machine inventory for longer than threshold period of: %v minutes", SiteInventoryReceiptThreshold.Minutes()),
-				}
-				err := pc.SendPagerDutyAlertWithDedupeKey(
-					ctx,
-					fmt.Sprintf("Site Disconnection Detected: %s", site.Name),
-					"cloud-workflow-monitor",
-					fmt.Sprintf("site-disconnection-%s", site.ID.String()),
-					customDetails,
-				)
-				if err != nil {
-					logger.Error().Err(err).Msg("failed to send PagerDuty notification for Site down event")
 				}
 			}
 
@@ -1076,11 +1085,12 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 }
 
 // NewManageSite returns a new ManageSite activity
-func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc client.Client, cfg *config.Config) ManageSite {
+func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc client.Client, cfg *config.Config, siteHealthMetrics *cwm.SiteHealthMetrics) ManageSite {
 	return ManageSite{
-		dbSession:      dbSession,
-		siteClientPool: siteClientPool,
-		tc:             tc,
-		cfg:            cfg,
+		dbSession:         dbSession,
+		siteClientPool:    siteClientPool,
+		tc:                tc,
+		cfg:               cfg,
+		siteHealthMetrics: siteHealthMetrics,
 	}
 }
