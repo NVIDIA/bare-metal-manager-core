@@ -1,4 +1,4 @@
-# Component Manager RMS Backends (Day 1) <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# Component Manager RMS Backends (Day 1) <Badge intent="info">v2.0</Badge>
 
 Operator guide for configuring **Rack Manager Service (RMS)** backends in the
 `[component_manager]` section of `nico-api` site config, and the **rack profile**

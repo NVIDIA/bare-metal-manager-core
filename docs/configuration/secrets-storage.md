@@ -1,4 +1,4 @@
-# Secrets Storage <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# Secrets Storage <Badge intent="info">v2.0</Badge>
 
 NICo keeps the credentials it manages (BMC logins, switch and UFM accounts, factory defaults, and so on) in a credentials store. Vault is the historical and default backend. NICo can also store credentials in Postgres, encrypted per credential with envelope encryption, and can read both backends side by side; that combination is what makes a gradual, reversible migration off Vault possible.
 

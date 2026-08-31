@@ -1,4 +1,4 @@
-# DNS <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# DNS <Badge intent="info">v2.0</Badge>
 
 NICo answers DNS for everything it manages. Records are never authored by hand: they derive from the machine, BMC, and instance inventory in the `nico-api` database, appear when an interface or instance gains an address, and disappear when it loses one. This page covers the names NICo serves, how the site zone and per-segment subdomains are configured, and how reverse (PTR) resolution works. For the deployment side - the `nico-dns` service, the recursive resolver in front of it, and the fixed infrastructure service names - refer to [IP and Network Configuration](../provisioning/ip-and-network-configuration.md#3-dns-configuration).
 

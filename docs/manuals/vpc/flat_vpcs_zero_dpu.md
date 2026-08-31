@@ -1,4 +1,4 @@
-# Flat VPCs and Zero-DPU Hosts <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# Flat VPCs and Zero-DPU Hosts <Badge intent="info">v2.0</Badge>
 
 `Flat` is a VPC virtualization type for tenant instances that run on hosts
 **without a NICo-managed DPU** — either hosts with no DPU hardware at all, or
