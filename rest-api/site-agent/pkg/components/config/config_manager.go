@@ -204,11 +204,6 @@ func NewElektraConfig(utMode bool) *conftypes.Config {
 	if conf.MetricsPort == "" {
 		log.Fatal().Msg("error loading config, invalid metrics port")
 	}
-	// Unset is the normal case, and an empty prefix would expose bare names like
-	// "version" that collide with any other exporter scraped alongside this one.
-	if conf.MetricsNamespace == "" {
-		conf.MetricsNamespace = conftypes.DefaultMetricsNamespace
-	}
 	if conf.Temporal.Host == "" {
 		log.Fatal().Msg("error loading config, Temporal host must be specified")
 	}
@@ -320,6 +315,12 @@ func NewElektraConfig(utMode bool) *conftypes.Config {
 
 	log.Info().Interface("config", conf).Msg("Config Manager: Config loaded")
 	flag.Parse()
+
+	// Set default metrics namespace if not specified
+	if conf.MetricsNamespace == "" {
+		conf.MetricsNamespace = conftypes.DefaultMetricsNamespace
+	}
+
 	return conf
 }
 
