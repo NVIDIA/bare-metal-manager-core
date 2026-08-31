@@ -758,6 +758,9 @@ async fn initialize_dpf_sdk(
                 },
                 interfaces: interfaces.clone(),
                 proxy: carbide_config.dpf.proxy.clone(),
+                extra_bfcfg_parameters: carbide_config
+                    .dpf
+                    .resolved_bfcfg_parameters_for(deployment),
                 deployment_type,
             }
         };

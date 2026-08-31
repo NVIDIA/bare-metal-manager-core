@@ -391,6 +391,34 @@ fn get_bf4_astra_ovs_defaults() -> String {
     .to_string()
 }
 
+/// Rejects bf.cfg parameters carrying the Go template opening delimiter.
+///
+/// Astra serializes its flavor spec into a `DPUFlavorTemplate` whose body DPF renders as a Go
+/// template before creating each DPU's flavor, so a `{{` there is an action rather than literal
+/// text: it interpolates device values, or fails the render when it names a key the device does
+/// not have. Escaping is not reliably expressible, because the Go escape `{{ "{{" }}` carries
+/// quotes that YAML serialization escapes in turn.
+///
+/// BF3 and generic BF4 write a DPUFlavor directly and would pass `{{` through untouched, but they
+/// are held to the same restriction so the configuration contract does not vary by deployment
+/// type. A parameter that works on one deployment and silently breaks on another is a worse trap
+/// than a rule that applies everywhere.
+fn reject_template_delimiters(parameters: &[String]) -> Result<(), crate::error::DpfError> {
+    // Report the position, never the value: a parameter may carry a password hash.
+    if let Some((index, _)) = parameters
+        .iter()
+        .enumerate()
+        .find(|(_, parameter)| parameter.contains("{{"))
+    {
+        return Err(crate::error::DpfError::ConfigError(format!(
+            "resolved bf.cfg parameter {index} contains the Go template delimiter `{{{{`, which \
+             cannot reach bf.cfg verbatim: BF4 Astra renders its DPUFlavorTemplate body as a Go \
+             template, so the value would be interpreted instead"
+        )));
+    }
+    Ok(())
+}
+
 /// Rejects proxy strings containing characters that would break a systemd `Environment="..."` line:
 /// double-quotes (break the quoting), newlines / carriage returns (break the unit-file line), and
 /// any other ASCII control character (< 0x20 or DEL 0x7f).
@@ -441,10 +469,19 @@ pub fn default_flavor_for(
         pf_total_sf,
         None,
         None,
+        &[],
     )
 }
 
 /// Builds a platform flavor from validated VF, SF, topology, and effective-inventory inputs.
+///
+/// `extra_bfcfg_parameters` are operator-supplied bf.cfg lines appended verbatim to the built-in
+/// `bfcfgParameters` of every deployment type.
+///
+/// WARNING: Every argument here feeds the flavor hash. Changing one will generate a new
+/// DPUFlavor, reprovisioning the deployment's DPUs.
+// Each argument is an independent site input; a struct would move the same list one level out.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn default_flavor_for_with_topology(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
@@ -453,6 +490,7 @@ pub(crate) fn default_flavor_for_with_topology(
     pf_total_sf: u32,
     intercept_bridging: Option<&DpfInterceptBridging>,
     dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
+    extra_bfcfg_parameters: &[String],
 ) -> Result<DPUFlavor, crate::error::DpfError> {
     match deployment_type {
         DpuDeploymentType::Bf4Generic => flavor_bf4_with_topology(
@@ -462,6 +500,7 @@ pub(crate) fn default_flavor_for_with_topology(
             pf_total_sf,
             intercept_bridging,
             dhcp_acl_interfaces,
+            extra_bfcfg_parameters,
         ),
         DpuDeploymentType::Bf4Astra => Err(crate::error::DpfError::ConfigError(
             "BF4 Astra uses DPUFlavorTemplate; call flavor_bf4_astra() instead".to_string(),
@@ -474,6 +513,7 @@ pub(crate) fn default_flavor_for_with_topology(
             pf_total_sf,
             intercept_bridging,
             dhcp_acl_interfaces,
+            extra_bfcfg_parameters,
         ),
     }
 }
@@ -498,6 +538,7 @@ pub fn flavor_bf4(
         DEFAULT_PF_TOTAL_SF_RESERVED,
         None,
         None,
+        &[],
     )
 }
 
@@ -509,12 +550,15 @@ fn flavor_bf4_with_topology(
     pf_total_sf: u32,
     intercept_bridging: Option<&DpfInterceptBridging>,
     dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
+    extra_bfcfg_parameters: &[String],
 ) -> Result<DPUFlavor, crate::error::DpfError> {
-    let bfcfg_parameters = vec![
+    reject_template_delimiters(extra_bfcfg_parameters)?;
+    let mut bfcfg_parameters = vec![
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
         "WITH_NIC_FW_UPDATE=yes".to_string(),
     ];
+    bfcfg_parameters.extend_from_slice(extra_bfcfg_parameters);
     Ok(DPUFlavor {
         metadata: ObjectMeta {
             name: None,
@@ -553,13 +597,20 @@ fn flavor_bf4_with_topology(
 /// Builds the BF4 Astra DPUFlavorTemplate.
 ///
 /// The DPF operator renders this template for each DPU and creates the resulting DPUFlavor.
+///
+/// Astra declares no built-in `bfcfgParameters`, so the field stays absent unless the operator
+/// configures some. Keeping it absent holds the template hash of existing Astra sites unchanged,
+/// which is what stops an upgrade from reprovisioning Astra DPUs on its own.
 pub fn flavor_bf4_astra(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
     pf_total_sf: u32,
+    extra_bfcfg_parameters: &[String],
 ) -> Result<DPUFlavorTemplate, crate::error::DpfError> {
+    reject_template_delimiters(extra_bfcfg_parameters)?;
     let flavor_spec = DpuFlavorSpec {
-        bfcfg_parameters: None,
+        bfcfg_parameters: (!extra_bfcfg_parameters.is_empty())
+            .then(|| extra_bfcfg_parameters.to_vec()),
         config_files: Some(get_bf4_astra_config_files(proxy)?),
         containerd_config: Some(DpuFlavorContainerdConfig {
             registry_endpoint: None,
@@ -755,10 +806,13 @@ pub fn default_flavor(
         DEFAULT_PF_TOTAL_SF_RESERVED,
         None,
         None,
+        &[],
     )
 }
 
 /// Builds BF3 flavor state from the validated site VF count and intercept-bridging topology.
+// Each argument is an independent site input; a struct would move the same list one level out.
+#[allow(clippy::too_many_arguments)]
 fn default_flavor_with_topology(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
@@ -767,12 +821,15 @@ fn default_flavor_with_topology(
     pf_total_sf: u32,
     intercept_bridging: Option<&DpfInterceptBridging>,
     dhcp_acl_interfaces: Option<&[DpuServiceInterfaceTemplateDefinition]>,
+    extra_bfcfg_parameters: &[String],
 ) -> Result<DPUFlavor, crate::error::DpfError> {
-    let bfcfg_parameters = vec![
+    reject_template_delimiters(extra_bfcfg_parameters)?;
+    let mut bfcfg_parameters = vec![
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
         "WITH_NIC_FW_UPDATE=yes".to_string(),
     ];
+    bfcfg_parameters.extend_from_slice(extra_bfcfg_parameters);
     Ok(DPUFlavor {
         metadata: ObjectMeta {
             name: None,
@@ -1633,7 +1690,7 @@ mod tests {
     fn astra_flavor_spec(proxy: &Option<DpfProxyDetails>) -> DpuFlavorSpec {
         let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
         let pf_total_sf = crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice()).unwrap();
-        let template = flavor_bf4_astra("astra-ns", proxy, pf_total_sf).unwrap();
+        let template = flavor_bf4_astra("astra-ns", proxy, pf_total_sf, &[]).unwrap();
         flavor_spec_from_template(&template)
     }
 
@@ -1866,13 +1923,22 @@ mod tests {
 
         // BF3 and generic BF4 consume the validated site value.
         let bf3 = parameters(
-            default_flavor_with_topology("ns", &None, DpuDeploymentType::Bf3, 3, 61, None, None)
-                .unwrap(),
+            default_flavor_with_topology(
+                "ns",
+                &None,
+                DpuDeploymentType::Bf3,
+                3,
+                61,
+                None,
+                None,
+                &[],
+            )
+            .unwrap(),
         );
         assert!(bf3.contains(&"NUM_OF_VFS=3".to_string()));
         assert!(bf3.contains(&"PF_TOTAL_SF=61".to_string()));
         let generic_bf4 =
-            parameters(flavor_bf4_with_topology("ns", &None, 5, 63, None, None).unwrap());
+            parameters(flavor_bf4_with_topology("ns", &None, 5, 63, None, None, &[]).unwrap());
         assert!(generic_bf4.contains(&"NUM_OF_VFS=5".to_string()));
         assert!(generic_bf4.contains(&"PF_TOTAL_SF=63".to_string()));
 
@@ -1924,6 +1990,204 @@ mod tests {
         assert!(!gb200.contains(&"PCI_SWITCH0_UPSTREAM_PORT_PEX=0".to_string()));
     }
 
+    /// Builds a flavor from operator-supplied bf.cfg parameters and returns the field they land in.
+    fn bfcfg_parameters(deployment_type: DpuDeploymentType, extra: &[&str]) -> Option<Vec<String>> {
+        let extra: Vec<String> = extra.iter().map(|p| (*p).to_string()).collect();
+        // Astra is a DPUFlavorTemplate, so its spec comes back through the rendered body.
+        if matches!(deployment_type, DpuDeploymentType::Bf4Astra) {
+            let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+            let pf_total_sf =
+                crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice()).unwrap();
+            let template = flavor_bf4_astra("ns", &None, pf_total_sf, &extra).unwrap();
+            return flavor_spec_from_template(&template).bfcfg_parameters;
+        }
+        default_flavor_for_with_topology(
+            "ns",
+            &None,
+            deployment_type,
+            DEFAULT_DPU_NUM_OF_VFS,
+            DEFAULT_PF_TOTAL_SF_RESERVED,
+            None,
+            None,
+            &extra,
+        )
+        .unwrap()
+        .spec
+        .bfcfg_parameters
+    }
+
+    /// A password line: a crypt(3) hash with `$` sections and operator-supplied shell quoting,
+    /// both of which must survive unchanged.
+    const PASSWORD_PARAMETER: &str = "ubuntu_PASSWORD='$6$rounds=5000$sa.lt$h/a.sh'";
+
+    #[test]
+    fn extra_bfcfg_parameters_are_appended_verbatim() {
+        // BF3 and generic BF4 append operator input after their built-ins. Astra has no built-ins
+        // and carries the operator's entries alone, leaving the field absent when there are none.
+        // Spelled out rather than read back from the builders, so a changed built-in fails here.
+        let built_ins = || {
+            vec![
+                "UPDATE_ATF_UEFI=yes".to_string(),
+                "UPDATE_DPU_OS=yes".to_string(),
+                "WITH_NIC_FW_UPDATE=yes".to_string(),
+            ]
+        };
+        let with_extras = |extras: &[&str]| {
+            let mut parameters = built_ins();
+            parameters.extend(extras.iter().map(|p| (*p).to_string()));
+            Some(parameters)
+        };
+
+        value_scenarios!(
+            run = |(deployment_type, extra): (DpuDeploymentType, &[&str])| {
+                bfcfg_parameters(deployment_type, extra)
+            };
+
+            "BF3 without extras keeps only its built-ins" {
+                (DpuDeploymentType::Bf3, &[][..]) => Some(built_ins()),
+            }
+
+            "BF3 appends the password after its built-ins" {
+                (DpuDeploymentType::Bf3, &[PASSWORD_PARAMETER][..])
+                    => with_extras(&[PASSWORD_PARAMETER]),
+            }
+
+            "generic BF4 appends the password after its built-ins" {
+                (DpuDeploymentType::Bf4Generic, &[PASSWORD_PARAMETER][..])
+                    => with_extras(&[PASSWORD_PARAMETER]),
+            }
+
+            "multiple parameters retain configured order" {
+                (DpuDeploymentType::Bf3, &["FIRST=1", "SECOND=2"][..])
+                    => with_extras(&["FIRST=1", "SECOND=2"]),
+            }
+
+            "Astra without extras leaves bfcfgParameters absent" {
+                // Absent, not empty: Astra has no built-ins, and emitting a list would change its
+                // template hash and reprovision every Astra DPU with no operator change.
+                (DpuDeploymentType::Bf4Astra, &[][..]) => None,
+            }
+
+            "Astra carries the operator's parameters alone" {
+                (DpuDeploymentType::Bf4Astra, &[PASSWORD_PARAMETER][..])
+                    => Some(vec![PASSWORD_PARAMETER.to_string()]),
+            }
+
+            "a value NICo would have to quote is passed through byte for byte" {
+                (DpuDeploymentType::Bf3, &["RAW=\"$un touched'\\\""][..])
+                    => with_extras(&["RAW=\"$un touched'\\\""]),
+            }
+        );
+    }
+
+    /// Builds a flavor for `deployment_type`, discarding the value, so error cases can be checked
+    /// uniformly across the DPUFlavor and DPUFlavorTemplate variants.
+    fn build_flavor(deployment_type: DpuDeploymentType, extra: &[&str]) -> Result<(), ()> {
+        let extra: Vec<String> = extra.iter().map(|p| (*p).to_string()).collect();
+        if matches!(deployment_type, DpuDeploymentType::Bf4Astra) {
+            let interfaces = crate::sdk::build_astra_dpu_interfaces_vec();
+            let pf_total_sf =
+                crate::sdk::calculate_astra_pf_total_sf(interfaces.as_slice()).unwrap();
+            return flavor_bf4_astra("ns", &None, pf_total_sf, &extra)
+                .map(drop)
+                .map_err(drop);
+        }
+        default_flavor_for_with_topology(
+            "ns",
+            &None,
+            deployment_type,
+            DEFAULT_DPU_NUM_OF_VFS,
+            DEFAULT_PF_TOTAL_SF_RESERVED,
+            None,
+            None,
+            &extra,
+        )
+        .map(drop)
+        .map_err(drop)
+    }
+
+    #[test]
+    fn go_template_delimiters_are_rejected_for_every_deployment_type() {
+        // Astra's spec becomes a Go-rendered DPUFlavorTemplate body, so `{{` cannot survive there
+        // as literal text. BF3 and generic BF4 would pass it through, but are held to the same
+        // rule so the configuration contract does not vary by deployment type.
+        scenarios!(
+            run = |(deployment_type, parameter): (DpuDeploymentType, &str)| {
+                build_flavor(deployment_type, &[parameter])
+            };
+
+            "BF3 rejects a Go action" {
+                (DpuDeploymentType::Bf3, "SOME_KEY={{ .underlayIp }}") => Fails,
+            }
+
+            "generic BF4 rejects a Go action" {
+                (DpuDeploymentType::Bf4Generic, "SOME_KEY={{ .underlayIp }}") => Fails,
+            }
+
+            "Astra rejects a Go action" {
+                (DpuDeploymentType::Bf4Astra, "SOME_KEY={{ .underlayIp }}") => Fails,
+            }
+
+            "an unspaced Go action is rejected too" {
+                (DpuDeploymentType::Bf4Astra, "SOME_KEY={{.underlayIp}}") => Fails,
+            }
+
+            "a password hash is accepted" {
+                (DpuDeploymentType::Bf4Astra, PASSWORD_PARAMETER) => Yields(()),
+            }
+
+            "a lone closing delimiter is literal to the renderer and stays allowed" {
+                (DpuDeploymentType::Bf4Astra, "SOME_KEY=a}}b") => Yields(()),
+            }
+
+            "a single brace is not a delimiter" {
+                (DpuDeploymentType::Bf3, "SOME_KEY={value}") => Yields(()),
+            }
+        );
+    }
+
+    #[test]
+    fn extra_bfcfg_parameters_change_the_flavor_name() {
+        // The parameters are part of the hashed spec. A rename is what makes MachineUpdateManager
+        // reprovision, which is the only path by which a changed value reaches an installed DPU.
+        let name = |extra: &[&str]| {
+            let extra: Vec<String> = extra.iter().map(|p| (*p).to_string()).collect();
+            default_flavor_for_with_topology(
+                "ns",
+                &None,
+                DpuDeploymentType::Bf3,
+                DEFAULT_DPU_NUM_OF_VFS,
+                DEFAULT_PF_TOTAL_SF_RESERVED,
+                None,
+                None,
+                &extra,
+            )
+            .unwrap()
+            .unique_name(DEFAULT_FLAVOR_NAME)
+            .unwrap()
+        };
+
+        value_scenarios!(
+            run = |(left, right): (&[&str], &[&str])| name(left) == name(right);
+
+            "identical parameters keep the name stable" {
+                (&[PASSWORD_PARAMETER][..], &[PASSWORD_PARAMETER][..]) => true,
+            }
+
+            "setting a parameter renames the flavor" {
+                (&[][..], &[PASSWORD_PARAMETER][..]) => false,
+            }
+
+            "rotating the password renames the flavor" {
+                (&[PASSWORD_PARAMETER][..], &["ubuntu_PASSWORD='$6$other'"][..]) => false,
+            }
+
+            "reordering renames the flavor, since order is preserved not normalized" {
+                (&["FIRST=1", "SECOND=2"][..], &["SECOND=2", "FIRST=1"][..]) => false,
+            }
+        );
+    }
+
     /// Verifies normalized input order cannot change rendered flavor identity.
     #[test]
     fn intercept_bridging_input_order_does_not_change_flavor_hash() {
@@ -1944,6 +2208,7 @@ mod tests {
                 DEFAULT_PF_TOTAL_SF_RESERVED + 7,
                 Some(topology),
                 Some(&interfaces),
+                &[],
             )
             .unwrap()
             .unique_name(DEFAULT_FLAVOR_NAME)
@@ -2331,6 +2596,7 @@ mod tests {
                 crate::sdk::build_astra_dpu_interfaces_vec().as_slice(),
             )
             .unwrap(),
+            &[],
         )
         .unwrap();
         let template_body: serde_yaml::Value =

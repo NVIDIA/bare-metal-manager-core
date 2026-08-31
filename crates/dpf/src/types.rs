@@ -110,6 +110,15 @@ pub struct InitDpfResourcesConfig {
     pub interfaces: Vec<DpuServiceInterfaceTemplateDefinition>,
 
     pub proxy: Option<DpfProxyDetails>,
+    /// Operator-supplied bf.cfg lines appended to the flavor's built-in `bfcfgParameters`.
+    ///
+    /// Passed through verbatim; the SDK applies no quoting or interpretation. Entries containing
+    /// the Go template delimiter `{{` are rejected, since BF4 Astra renders its
+    /// DPUFlavorTemplate body and could not pass them through.
+    ///
+    /// WARNING: Changing this will generate a new DPUFlavor, reprovisioning the deployment's
+    /// DPUs.
+    pub extra_bfcfg_parameters: Vec<String>,
     /// Deployment type — determines which DPUFlavor spec to build.
     pub deployment_type: DpuDeploymentType,
 }
@@ -140,6 +149,7 @@ impl Default for InitDpfResourcesConfig {
             intercept_bridging: None,
             interfaces: Vec::new(),
             proxy: None,
+            extra_bfcfg_parameters: Vec::new(),
             deployment_type: DpuDeploymentType::Bf3,
         }
     }

@@ -712,6 +712,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
             .intercept_bridging
             .as_ref()
             .map(|_| resolved.interfaces.as_ref()),
+        &config.extra_bfcfg_parameters,
     )?;
     let name = flavor.unique_name(&config.flavor_name)?;
     flavor.metadata.name = Some(name.clone());
@@ -753,8 +754,12 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
     config: &InitDpfResourcesConfig,
     resolved: &ResolvedInitialization<'_>,
 ) -> Result<String, DpfError> {
-    let mut template =
-        crate::flavor::flavor_bf4_astra(namespace, &config.proxy, resolved.pf_total_sf)?;
+    let mut template = crate::flavor::flavor_bf4_astra(
+        namespace,
+        &config.proxy,
+        resolved.pf_total_sf,
+        &config.extra_bfcfg_parameters,
+    )?;
     let name = template.unique_name(&config.flavor_name)?;
     template.metadata.name = Some(name.clone());
 
@@ -4605,6 +4610,7 @@ mod tests {
             "astra-ns",
             &None,
             calculate_astra_pf_total_sf(build_astra_dpu_interfaces_vec().as_slice()).unwrap(),
+            &[],
         )
         .unwrap();
         let reference_keys: BTreeSet<_> = template

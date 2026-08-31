@@ -859,6 +859,50 @@ The proxy is part of the flavor spec — changing or adding `[dpf.proxy]` produc
 new flavor name (hash-derived) and triggers a full DPU reprovisioning. Set it before
 the first NICo startup with DPF enabled if possible.
 
+`extra_bfcfg_parameters` sets additional `bf.cfg` parameters on every DPU, most commonly
+a login password for the DPU's `ubuntu` user:
+
+```toml
+[dpf]
+extra_bfcfg_parameters = ["ubuntu_PASSWORD='$6$sa.lt$ha.sh'"]
+```
+
+Each string is appended verbatim to the `bfcfgParameters` of every deployment's
+`DPUFlavor`. NICo does not interpret or quote them, so the shell quoting `bf.cfg`
+requires is yours to supply: the BFB installer sources `bf.cfg` as a shell script, so a
+crypt(3) hash must be single-quoted or its `$` sections are expanded. Generate the hash
+with `openssl passwd -6`, never a plaintext password.
+
+The one value that cannot be passed through is the Go template opening delimiter,
+`{{`. BF4 Astra ships its flavor as a `DPUFlavorTemplate` whose body DPF renders as a
+Go template, so a `{{` there would be interpreted rather than reach `bf.cfg`. A
+parameter containing it is rejected at startup for every deployment type, so the same
+configuration stays valid across all of them. A lone `}}` is unaffected.
+
+Parameters that apply to one DPU generation but not the others go on that deployment
+instead. Each `[dpf.deployments.<name>]` entry owns exactly one `DPUFlavor`, so a
+per-deployment list is a per-flavor list:
+
+```toml
+[dpf.deployments.bf4_generic]
+extra_bfcfg_parameters = ["SOME_BF4_ONLY_PARAMETER=1"]
+```
+
+A deployment's list **appends to** the site-wide one rather than replacing it — unlike
+`[dpf.deployments.<name>.services]`, which replaces `[dpf.services]`. Site-wide entries
+come first, followed by the deployment's own. A site-wide password therefore stays
+declared once even for a deployment that adds parameters of its own, and only deployments
+whose resolved list changed are reprovisioned.
+
+> **Warning:** Changing, adding, reordering, or removing an entry generates a new
+> `DPUFlavor` and reprovisions that deployment's DPUs. Because `bf.cfg` is applied at
+> install time, that reprovision is also the only way a changed value reaches DPUs that
+> are already installed.
+
+These values are stored in the `DPUFlavor` CR in plain text, readable by anything that can
+read `dpuflavors` in `dpf-operator-system`; a `$6$` hash is not plaintext, but it is
+offline-crackable, so treat it as site-sensitive.
+
 Field reference (all under `[dpf]`):
 
 | TOML key | Type | Default | Meaning |
@@ -875,6 +919,8 @@ Field reference (all under `[dpf]`):
 | `deployments.<name>.extra_services.<svc>` | table | none | Deployment-local field overrides for one deployment-specific service. Supported keys are `doca_weave_dhcp_agent`, `doca_weave_flow_controller`, and `doca_xplane`; unsupported services are ignored for that deployment type. |
 | `proxy.https_proxy` | string | — | HTTPS proxy URL for DPU image pulls (see section 3.5). |
 | `proxy.no_proxy` | list of strings | `[]` | Hosts/CIDRs that must bypass the proxy. |
+| `extra_bfcfg_parameters` | list of strings | `[]` | `bf.cfg` lines appended verbatim to every deployment's `DPUFlavor` `bfcfgParameters`. Not interpreted or quoted by NICo; entries containing `{{` are rejected at startup. Changing the list renames every flavor and reprovisions the site's DPUs. |
+| `deployments.<name>.extra_bfcfg_parameters` | list of strings | `[]` | `bf.cfg` lines for this deployment's `DPUFlavor` only. Appends to the site-wide `extra_bfcfg_parameters`; does not replace it. |
 
 Notes:
 
@@ -1242,7 +1288,8 @@ Astra deployments), using that deployment's own `bfb_url`, `flavor_name`, and
 - A `DPUFlavor` CR (BF3/generic BF4) or `DPUFlavorTemplate` CR (Astra) named
   `<flavor_name>-<spec-hash>`. The 16-character hex suffix is a SHA-256 digest
   of the flavor spec or template; changing it, including adding or changing
-  `[dpf.proxy]`, produces a new name and triggers reprovisioning.
+  `[dpf.proxy]` or `[dpf].extra_bfcfg_parameters`, produces a new name and
+  triggers reprovisioning.
 - A set of `DPUServiceInterface`, `DPUServiceTemplate`,
   `DPUServiceConfiguration`, and `DPUServiceNAD` CRs, one per mandatory
   DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
@@ -1260,8 +1307,8 @@ enabling DPF for the first time, changing a deployment's BFB URL, renaming a
 `DPUDeployment`/flavor resource, adding or removing BF4 deployment tables,
 pinning a different chart/image version under `[dpf.services.*]` or a
 deployment's `[dpf.deployments.<name>.services]`, or adding/changing
-`[dpf.proxy]` — **requires a carbide-api restart** for the new configuration to
-take effect.
+`[dpf.proxy]` or `[dpf].extra_bfcfg_parameters` — **requires a carbide-api
+restart** for the new configuration to take effect.
 
 ---
 
