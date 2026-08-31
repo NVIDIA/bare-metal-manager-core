@@ -54,7 +54,7 @@ This list outlines platforms that are under development and have not undergone f
 
 | Host Machine | BMC/Management Firmware Version | BIOS/UEFI Version | Provisioning Manager Version |
 | ------------ | ------------------------------- | ----------------- | ---------------------------- |
-|  |  |  |  |
+| N/A |  |  |  |
 
 ## DPUs
 
