@@ -19,8 +19,8 @@
 //! with the site-wide flag enabled, a staged target drives a Ready
 //! power shelf through `PowerShelfControllerState::RotatingBmc` and back to
 //! Ready, converging the device and persisting the rotated per-device secret.
-//! Mirrors the switch-controller integration test
-//! `ready_switch_converges_bmc_to_site_target`.
+//! The scenarios cover passive rotation, forced convergence, quarantine, and
+//! recovery when the hardware changes before the credential store catches up.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,6 +32,7 @@ use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter, Credentials,
 };
+use carbide_test_harness::prelude::*;
 use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -44,14 +45,13 @@ use db::power_shelf as db_power_shelf;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::bmc_suppression::BmcSuppressionSubsystem;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use model::power_shelf::{PowerShelfConfig, PowerShelfControllerState};
+use model::test_support::power_shelf_config;
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
 
-use super::fixtures::power_shelf::set_power_shelf_controller_state;
-use crate::tests::common;
-use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
+use crate::common::{ControllerEnv, load_power_shelf, set_power_shelf_controller_state};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
@@ -61,7 +61,7 @@ const BMC: CredentialRotationType = CredentialRotationType::Bmc;
 /// barrier the rotation gate waits on before changing a credential. This test
 /// drives only the power-shelf controller, so it plays the site-explorer ack
 /// pass itself.
-async fn ack_all_site_explorer_suppressions(pool: &sqlx::PgPool) {
+async fn ack_all_site_explorer_suppressions(pool: &PgPool) {
     let mut conn = pool.acquire().await.expect("acquire connection");
     let macs: Vec<MacAddress> = db::bmc_suppression::find_all_by_subsystem(
         &mut *conn,
@@ -107,15 +107,15 @@ fn creds(username: &str, password: &str) -> Credentials {
 /// and reaches the BMC gate. A fresh [`RotationGate`] refreshes its cached
 /// aggregate live on first use each iteration.
 fn power_shelf_services(
-    env: &TestEnv,
-    pool: &sqlx::PgPool,
+    env: &ControllerEnv,
+    pool: &PgPool,
     bmc_rotation_enabled: bool,
 ) -> PowerShelfStateHandlerServices {
     PowerShelfStateHandlerServices {
         db_pool: pool.clone(),
         component_manager: None,
-        credential_manager: env.test_credential_manager.clone(),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        credential_manager: env.credential_manager.clone(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         rack_firmware_reprovisioning_enabled: false,
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_rotation_gate: RotationGate::new_for_family(CredentialRotationType::Bmc),
@@ -126,7 +126,7 @@ fn power_shelf_services(
 /// Run a single power-shelf-controller iteration with a fresh controller (and a
 /// fresh rotation gate), mirroring `run_switch_controller_with_services`.
 async fn run_power_shelf_controller_with_services(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     work_lock_manager_handle: db::work_lock_manager::WorkLockManagerHandle,
     services: PowerShelfStateHandlerServices,
 ) {
@@ -149,10 +149,7 @@ async fn run_power_shelf_controller_with_services(
 /// Link a `Bmc` machine_interface (with a MAC and IP) back to the power shelf so
 /// the shelf load query resolves `bmc_info`, giving the controller an
 /// addressable PMC endpoint to rotate. Returns the PMC MAC.
-async fn seed_pmc_endpoint(
-    pool: &sqlx::PgPool,
-    power_shelf_id: PowerShelfId,
-) -> TestResult<MacAddress> {
+async fn seed_pmc_endpoint(pool: &PgPool, power_shelf_id: PowerShelfId) -> TestResult<MacAddress> {
     let mut txn = pool.begin().await?;
 
     let segment_id: NetworkSegmentId = sqlx::query_scalar(
@@ -190,21 +187,14 @@ async fn seed_pmc_endpoint(
     Ok(pmc_mac.parse()?)
 }
 
-async fn load_power_shelf(pool: &sqlx::PgPool, id: &PowerShelfId) -> TestResult<PowerShelf> {
-    let mut conn = pool.acquire().await?;
-    Ok(db_power_shelf::find_by_id(&mut conn, id)
-        .await?
-        .expect("power shelf should exist"))
-}
-
 /// Stage a PMC that lags a freshly published site-wide target v1: seed the PMC's
 /// "old" per-device secret, record it converged at the v0 baseline, advance the
 /// target to v1, and write the rotate-to secret `RotateCredential` would have
 /// staged. After this the device's rotation row lags the target, so the passive
 /// gate (or a force request) will drive a rotation that converges it to "new".
-async fn stage_lagging_pmc(env: &TestEnv, pool: &sqlx::PgPool, pmc_mac: MacAddress) -> TestResult {
+async fn stage_lagging_pmc(env: &ControllerEnv, pool: &PgPool, pmc_mac: MacAddress) -> TestResult {
     env.redfish_sim.seed_user("root", "old");
-    env.test_credential_manager
+    env.credential_manager
         .set_credentials(&per_device_key(pmc_mac), &creds("root", "old"))
         .await
         .expect("staging the per-device secret should succeed");
@@ -215,7 +205,7 @@ async fn stage_lagging_pmc(env: &TestEnv, pool: &sqlx::PgPool, pmc_mac: MacAddre
             .await?
             .expect("target must advance from version 0");
     }
-    env.test_credential_manager
+    env.credential_manager
         .set_credentials(&rotate_to_key(1), &creds("root", "new"))
         .await
         .expect("staging the rotate-to secret should succeed");
@@ -224,7 +214,17 @@ async fn stage_lagging_pmc(env: &TestEnv, pool: &sqlx::PgPool, pmc_mac: MacAddre
 
 /// Move a power shelf directly to `Ready` so the BMC-rotation gate is the only
 /// pending work when the controller next sweeps it.
-async fn move_to_ready(pool: &sqlx::PgPool, power_shelf_id: &PowerShelfId) -> TestResult {
+async fn create_power_shelf(env: &ControllerEnv, name: &str) -> PowerShelfId {
+    env.harness
+        .create_power_shelf(PowerShelfConfig {
+            capacity: Some(5000),
+            ..power_shelf_config(name)
+        })
+        .await
+        .id
+}
+
+async fn move_to_ready(pool: &PgPool, power_shelf_id: &PowerShelfId) -> TestResult {
     let mut txn = pool.begin().await?;
     set_power_shelf_controller_state(
         txn.as_mut(),
@@ -242,33 +242,17 @@ async fn move_to_ready(pool: &sqlx::PgPool, power_shelf_id: &PowerShelfId) -> Te
 /// in `Ready` rather than hot-looping Ready -> RotatingBmc every sweep. The
 /// bounded transient-retry budget is unit-tested separately on `advance`; this
 /// covers the device-fault (quarantine) arm end-to-end.
-#[crate::sqlx_test]
-async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: PgPool) -> TestResult {
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("BMC Rotation Failure Test Power Shelf".to_string()),
-        Some(5000),
-        Some(240),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
+    let power_shelf_id = create_power_shelf(&env, "BMC Rotation Failure Test Power Shelf").await;
     let pmc_mac = seed_pmc_endpoint(&pool, power_shelf_id).await?;
 
-    {
-        let mut txn = pool.begin().await?;
-        set_power_shelf_controller_state(
-            txn.as_mut(),
-            &power_shelf_id,
-            PowerShelfControllerState::Ready,
-        )
-        .await?;
-        txn.commit().await?;
-    }
+    move_to_ready(&pool, &power_shelf_id).await?;
 
     env.redfish_sim.seed_user("root", "old");
-    env.test_credential_manager
+    env.credential_manager
         .set_credentials(&per_device_key(pmc_mac), &creds("root", "old"))
         .await
         .expect("staging the per-device secret should succeed");
@@ -288,11 +272,11 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
     // Iteration 1: Ready observes the lag and enters RotatingBmc.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -307,11 +291,11 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
     // attempted.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -326,11 +310,11 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
     // and the handler settles back to Ready (RotatingBmc is not terminal).
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -362,11 +346,11 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
     for _ in 0..3 {
         run_power_shelf_controller_with_services(
             pool.clone(),
-            env.api.work_lock_manager_handle.clone(),
+            env.harness.api().work_lock_manager_handle(),
             power_shelf_services(&env, &pool, true),
         )
         .await;
-        let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+        let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
         assert!(
             matches!(
                 power_shelf.controller_state.value,
@@ -384,18 +368,12 @@ async fn failing_pmc_rotation_returns_to_ready_and_quarantines(pool: sqlx::PgPoo
 /// shelf whose PMC lags the staged target must NOT rotate on its own: the
 /// passive gate is the fleet kill-switch, so the shelf stays in `Ready`. Mirrors
 /// the machine-controller `feature_flag_off_suppresses_passive_rotation`.
-#[crate::sqlx_test]
-async fn feature_flag_off_suppresses_pmc_rotation(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn feature_flag_off_suppresses_pmc_rotation(pool: PgPool) -> TestResult {
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("BMC Rotation Kill-Switch Test Power Shelf".to_string()),
-        Some(5000),
-        Some(240),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
+    let power_shelf_id =
+        create_power_shelf(&env, "BMC Rotation Kill-Switch Test Power Shelf").await;
     let pmc_mac = seed_pmc_endpoint(&pool, power_shelf_id).await?;
     move_to_ready(&pool, &power_shelf_id).await?;
     stage_lagging_pmc(&env, &pool, pmc_mac).await?;
@@ -403,11 +381,11 @@ async fn feature_flag_off_suppresses_pmc_rotation(pool: sqlx::PgPool) -> TestRes
     // A full sweep with the flag OFF must leave the lagging shelf in Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, false),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -434,18 +412,11 @@ async fn feature_flag_off_suppresses_pmc_rotation(pool: sqlx::PgPool) -> TestRes
 /// (off here) and the device's active backoff quarantine: the targeted PMC is
 /// rotated on the next sweep and the one-shot request is cleared afterward.
 /// Mirrors the machine-controller `force_request_converges_quarantined_bmc_when_disabled`.
-#[crate::sqlx_test]
-async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn force_request_converges_quarantined_pmc_when_disabled(pool: PgPool) -> TestResult {
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("BMC Rotation Force Test Power Shelf".to_string()),
-        Some(5000),
-        Some(240),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
+    let power_shelf_id = create_power_shelf(&env, "BMC Rotation Force Test Power Shelf").await;
     let pmc_mac = seed_pmc_endpoint(&pool, power_shelf_id).await?;
     move_to_ready(&pool, &power_shelf_id).await?;
     stage_lagging_pmc(&env, &pool, pmc_mac).await?;
@@ -469,11 +440,11 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
     // disabled site-wide flag.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, false),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -487,11 +458,11 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
     // waits in RotatingBmc until the suppression is acknowledged.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, false),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -506,11 +477,11 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
     // returns to Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, false),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -545,20 +516,11 @@ async fn force_request_converges_quarantined_pmc_when_disabled(pool: sqlx::PgPoo
 /// hold in `RotatingBmc` (keeping the site-explorer suppression) rather than
 /// settling to Ready with a stale stored secret, and keep retrying until the
 /// store reconciles.
-#[crate::sqlx_test]
-async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
-    pool: sqlx::PgPool,
-) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+#[sqlx_test]
+async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(pool: PgPool) -> TestResult {
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("BMC Rotation Store-Lag Test Power Shelf".to_string()),
-        Some(5000),
-        Some(240),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
+    let power_shelf_id = create_power_shelf(&env, "BMC Rotation Store-Lag Test Power Shelf").await;
     let pmc_mac = seed_pmc_endpoint(&pool, power_shelf_id).await?;
     move_to_ready(&pool, &power_shelf_id).await?;
     stage_lagging_pmc(&env, &pool, pmc_mac).await?;
@@ -566,13 +528,13 @@ async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
     // Enter RotatingBmc, let the gate record the suppression, and acknowledge it.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await; // Ready -> RotatingBmc
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await; // gate records the suppression and waits
@@ -580,18 +542,17 @@ async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
 
     // The store write now fails: the hardware change will land but the persist
     // will not, leaving the PMC ahead of the store.
-    env.test_credential_manager
-        .set_set_credentials_failure(true);
+    env.credential_manager.set_set_credentials_failure(true);
 
     // The password change succeeds on the hardware but the persist fails, so the
     // shelf holds in RotatingBmc instead of returning to Ready.
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -625,7 +586,7 @@ async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
         "the hardware change must have landed even though the persist failed"
     );
     assert_eq!(
-        env.test_credential_manager
+        env.credential_manager
             .get_credentials(&per_device_key(pmc_mac))
             .await
             .expect("reading the per-device secret should succeed")
@@ -636,15 +597,14 @@ async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
 
     // The store becomes writable again: the next tick reconciles and returns to
     // Ready.
-    env.test_credential_manager
-        .set_set_credentials_failure(false);
+    env.credential_manager.set_set_credentials_failure(false);
     run_power_shelf_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.harness.api().work_lock_manager_handle(),
         power_shelf_services(&env, &pool, true),
     )
     .await;
-    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await?;
+    let power_shelf = load_power_shelf(&pool, &power_shelf_id).await;
     assert!(
         matches!(
             power_shelf.controller_state.value,
@@ -670,7 +630,7 @@ async fn store_persist_failure_holds_in_rotating_bmc_until_reconciled(
         assert_eq!(status.current_version, Some(1));
     }
     assert_eq!(
-        env.test_credential_manager
+        env.credential_manager
             .get_credentials(&per_device_key(pmc_mac))
             .await
             .expect("reading the per-device secret should succeed")
