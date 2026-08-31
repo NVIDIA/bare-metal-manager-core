@@ -91,7 +91,7 @@ The default handling policy is to shut down all leaking trays. For a leaking tra
 
 Use the `GET /nico/tray/{id}/task` [REST API endpoint](api:GET/v2/org/:org/nico/tray/:id/task) to see the handling operation task status
 
-## Next phase: API-manageable, customizable, full-lifecycle leak detection and handling
+## Future work: API-manageable, customizable, full-lifecycle leak detection and handling
 
 The overall focus for the next phase of NICo leak detection and handling is to make the feature manageable from API, supporting customized polices, and cover the full lifecycle of liquid-cooled hardware.
 
