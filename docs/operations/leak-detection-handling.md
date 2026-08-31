@@ -26,7 +26,7 @@ Health report with leakage warnings or alerts are generated for the leaking tray
 
 ### BMS leak-event integration
 
-NICo also supports a BMS leak event (based on BMS-managed sensors such as CDU, rope, dripping pan, etc.) path through the `nico-dsx-exchange-consumer` service.
+NICo also supports a BMS leak event path (based on BMS-managed sensors such as CDU, rope, dripping pan, and others) through the `nico-dsx-exchange-consumer` service.
 
 ```text
 BMS detects / clears a leak condition
