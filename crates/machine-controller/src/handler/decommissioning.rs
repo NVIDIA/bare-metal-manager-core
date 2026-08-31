@@ -750,19 +750,28 @@ pub(super) async fn handle_powering_on_host(
         .create_redfish_client_from_machine(host)
         .await?;
     let power_state = super::host_power_state(redfish_client.as_ref()).await?;
-    if power_state != PowerState::On && power_state != PowerState::PoweringOn {
-        tracing::info!(
-            machine_id = %host.id,
-            %power_state,
-            "Host not On after decommissioning power cycle; powering on"
-        );
-        host_power_control(redfish_client.as_ref(), host, SystemPowerControl::On, ctx)
-            .await
-            .map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to power on host after decommissioning power cycle: {error}"
-                ))
-            })?;
+    match power_state {
+        PowerState::On | PowerState::PoweringOn => {}
+        PowerState::PoweringOff => {
+            return Ok(StateHandlerOutcome::wait(format!(
+                "waiting for {host_id} to finish powering off before powering on; current power state: {power_state}",
+                host_id = host.id,
+            )));
+        }
+        _ => {
+            tracing::info!(
+                machine_id = %host.id,
+                %power_state,
+                "Host not On after decommissioning power cycle; powering on"
+            );
+            host_power_control(redfish_client.as_ref(), host, SystemPowerControl::On, ctx)
+                .await
+                .map_err(|error| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "failed to power on host after decommissioning power cycle: {error}"
+                    ))
+                })?;
+        }
     }
 
     Ok(StateHandlerOutcome::transition(
