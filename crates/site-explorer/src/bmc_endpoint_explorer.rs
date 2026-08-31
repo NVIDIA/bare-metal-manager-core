@@ -24,7 +24,7 @@ use std::time::Duration;
 use bmc_explorer::Product;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::BmcCredentialOps;
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
@@ -92,8 +92,11 @@ pub struct BmcEndpointExplorer {
 }
 
 impl BmcEndpointExplorer {
+    /// `redfish_client_pool` is the direct pool's credential-operations
+    /// handle ([`BmcCredentialOps`]): exploration sets BMC root passwords
+    /// and probes vendors on the endpoint itself.
     pub fn new(
-        redfish_client_pool: Arc<dyn RedfishClientPool>,
+        redfish_client_pool: Arc<dyn BmcCredentialOps>,
         nv_redfish_client_pool: Arc<NvRedfishClientPool>,
         ipmi_tool: Arc<dyn IPMITool>,
         credential_manager: Arc<dyn CredentialManager>,

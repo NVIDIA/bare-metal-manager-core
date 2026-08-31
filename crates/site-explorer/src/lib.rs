@@ -101,7 +101,7 @@ pub mod errors;
 use std::sync::atomic::AtomicBool;
 
 use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::BmcCredentialOps;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
@@ -145,8 +145,11 @@ fn should_scan_host_inband_interface_for_redfish(
             && expected_host_bmc_macs.contains(&interface.mac_address))
 }
 
+/// `redfish_client_pool` is the direct pool's credential-operations handle
+/// ([`BmcCredentialOps`]): exploration sets BMC root passwords and probes
+/// vendors on the endpoint itself.
 pub fn new_bmc_explorer(
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    redfish_client_pool: Arc<dyn BmcCredentialOps>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
     ipmi_tool: Arc<dyn IPMITool>,
     credential_manager: Arc<dyn CredentialManager>,

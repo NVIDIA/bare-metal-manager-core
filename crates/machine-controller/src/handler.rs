@@ -4973,12 +4973,24 @@ impl DpuMachineStateHandler {
 
                 let dpf_managed_bf4 = is_dpf_managed_bf4(state, dpu_snapshot)?;
 
-                let dpu_redfish_client = match ctx
-                    .services
-                    .create_redfish_client_from_machine(dpu_snapshot)
-                    .await
-                {
-                    Ok(client) => client,
+                // One access-info lookup serves both the general client
+                // and the credential op below.
+                let client_result = async {
+                    let access = ctx
+                        .services
+                        .bmc_access_info_for_machine(dpu_snapshot)
+                        .await?;
+                    let client = ctx
+                        .services
+                        .redfish_client_pool
+                        .client_by_info(&access)
+                        .await
+                        .map_err(StateHandlerError::from)?;
+                    Ok::<_, StateHandlerError>((access, client))
+                }
+                .await;
+                let (dpu_bmc_access, dpu_redfish_client) = match client_result {
+                    Ok(v) => v,
                     Err(e) => {
                         let msg = format!(
                             "failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}",
@@ -5063,14 +5075,14 @@ impl DpuMachineStateHandler {
 
                 let dpu_uefi_credentials = resolve_site_uefi_credentials(
                     &ctx.services.db_pool,
-                    ctx.services.redfish_client_pool.credential_reader(),
+                    ctx.services.bmc_credential_ops.credential_reader(),
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 )
                 .await?;
                 let credentials_updated = match ctx
                     .services
-                    .redfish_client_pool
-                    .uefi_setup(dpu_redfish_client.as_ref(), true, dpu_uefi_credentials)
+                    .bmc_credential_ops
+                    .uefi_setup(&dpu_bmc_access, true, dpu_uefi_credentials)
                     .await
                 {
                     Err(e) => {
@@ -7443,14 +7455,13 @@ async fn handle_host_uefi_setup(
                 missing: "bmc_mac",
             })?;
 
-    let redfish_client = ctx
-        .services
-        .create_redfish_client_from_machine(&state.host_snapshot)
-        .await?;
-
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
             if state.host_snapshot.needs_bmc_unlock_for_uefi_setup() {
+                let redfish_client = ctx
+                    .services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
@@ -7471,14 +7482,18 @@ async fn handle_host_uefi_setup(
         UefiSetupState::SetUefiPassword => {
             let host_uefi_credentials = resolve_site_uefi_credentials(
                 &ctx.services.db_pool,
-                ctx.services.redfish_client_pool.credential_reader(),
+                ctx.services.bmc_credential_ops.credential_reader(),
                 db::credential_rotation::CredentialRotationType::HostUefi,
             )
             .await?;
+            let host_bmc_access = ctx
+                .services
+                .bmc_access_info_for_machine(&state.host_snapshot)
+                .await?;
             match ctx
                 .services
-                .redfish_client_pool
-                .uefi_setup(redfish_client.as_ref(), false, host_uefi_credentials)
+                .bmc_credential_ops
+                .uefi_setup(&host_bmc_access, false, host_uefi_credentials)
                 .await
             {
                 Ok(job_id) => Ok(StateHandlerOutcome::transition(
@@ -7491,6 +7506,13 @@ async fn handle_host_uefi_setup(
                         },
                     },
                 )),
+                // Client creation failed (credential store, TCP, or the
+                // vendor probe): return Err so the framework retries.
+                // Falling through to the untested-vendor arm below would
+                // permanently skip setting the BIOS password over a blip.
+                Err(carbide_redfish::libredfish::CredentialOpError::ClientCreation(e)) => {
+                    Err(e.into())
+                }
                 Err(e) => {
                     let msg = format!(
                         "failed to set the BIOS password on {} ({}): {}",
@@ -7526,6 +7548,10 @@ async fn handle_host_uefi_setup(
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
+                let redfish_client = ctx
+                    .services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 let job_state = redfish_client
                     .get_job_state(job_id)
                     .await

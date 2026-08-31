@@ -34,7 +34,7 @@ use carbide_ib_fabric::ib::IBFabricManager;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_rack::bms_client::BmsDsxExchangeHandle;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::{BmcCredentialOps, RedfishClientPool};
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
@@ -69,6 +69,11 @@ pub struct Api {
     pub(crate) credential_manager: Arc<dyn CredentialManager>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
+    /// Credential-lifecycle operations (password set/rotate/clear, candidate
+    /// validation). A sealed trait implemented only by the direct pool, so
+    /// handing these to a wrapper pool is a compile error (a wrong-pool
+    /// guard, not a wire-path guarantee -- see [`BmcCredentialOps`]).
+    pub(crate) bmc_credential_ops: Arc<dyn BmcCredentialOps>,
     pub(crate) bmc_session_manager: Arc<crate::credentials::BmcSessionManager>,
     pub(crate) eth_data: EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,

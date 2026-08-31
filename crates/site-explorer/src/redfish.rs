@@ -25,7 +25,7 @@ use carbide_network::deserialize_input_mac_to_address;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{IntoModel, bmc_vendor};
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
-use carbide_redfish::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+use carbide_redfish::libredfish::{BmcCredentialOps, RedfishAuth, RedfishClientCreationError};
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::credentials::Credentials;
 use libredfish::model::ODataId;
@@ -50,13 +50,13 @@ const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
 // Eventually, this file should only have code related to generating the site exploration report.
 pub(super) struct RedfishClient {
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    redfish_client_pool: Arc<dyn BmcCredentialOps>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
 }
 
 impl RedfishClient {
     pub(super) fn new(
-        redfish_client_pool: Arc<dyn RedfishClientPool>,
+        redfish_client_pool: Arc<dyn BmcCredentialOps>,
         nv_redfish_client_pool: Arc<NvRedfishClientPool>,
     ) -> Self {
         Self {
