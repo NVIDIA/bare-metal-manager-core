@@ -48,7 +48,7 @@ For an active supported BMS event, NICo creates a rack health report with a leak
 
 ### Deployment requirements for BMS event integration
 
-The BMS event path is not enabled automatically in every NICo deployment. To use it, a deployment must have all of the following:
+The BMS event path is not enabled automatically in every NICo deployment. To use the BMS event path, a deployment must have all of the following:
 
 1. `nico-dsx-exchange-consumer` enabled. This Helm subchart is disabled by default.
 2. Connectivity and configuration for the BMS MQTT broker and event topics.
