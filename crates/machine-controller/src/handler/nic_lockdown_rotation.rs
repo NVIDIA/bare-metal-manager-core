@@ -39,7 +39,7 @@
 //! bookkeeping the other families use, keyed by each card's **NIC MAC**.
 
 use eyre::eyre;
-use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType};
+use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState, DpaInterfaceType};
 use model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -83,7 +83,7 @@ pub(crate) async fn should_enter_nic_lockdown_rotation(
     // staged site-wide target and is not quarantined. A host can carry several
     // SVPC cards, so any lagging card is enough to enter; the aggregate check
     // inside the gate is cached, so the extra per-card lookups are cheap.
-    for mac in svpc_nic_macs(mh) {
+    for mac in svpc_interfaces(mh).map(|iface| iface.mac_address) {
         if services
             .nic_lockdown_rotation_gate
             .rotation_needed(&services.db_pool, mac)
@@ -98,13 +98,13 @@ pub(crate) async fn should_enter_nic_lockdown_rotation(
     Ok(false)
 }
 
-/// The NIC MACs of the host's SuperNIC (SVPC) interfaces, which key the
-/// `lockdown_ikm` rotation bookkeeping.
-fn svpc_nic_macs(mh: &ManagedHostStateSnapshot) -> impl Iterator<Item = mac_address::MacAddress> + '_ {
+/// The host's SuperNIC (SVPC) DPA interfaces. Shared by the entry guard and the
+/// state body so the SVPC predicate lives in one place; each card's NIC MAC keys
+/// its `lockdown_ikm` rotation bookkeeping.
+fn svpc_interfaces(mh: &ManagedHostStateSnapshot) -> impl Iterator<Item = &DpaInterface> + '_ {
     mh.dpa_interface_snapshots
         .iter()
         .filter(|iface| iface.interface_type == DpaInterfaceType::Svpc)
-        .map(|iface| iface.mac_address)
 }
 
 /// Drive the host's SuperNIC cards through a tenant-free rekey to the site-wide
@@ -133,7 +133,9 @@ pub(crate) async fn handle_rotating_nic_lockdown(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     use db::credential_rotation::CredentialRotationType::LockdownIkm;
 
-    let force = state.host_snapshot.lockdown_ikm_credential_rotation_requested;
+    let force = state
+        .host_snapshot
+        .lockdown_ikm_credential_rotation_requested;
 
     let mut txn = ctx.services.db_pool.begin().await?;
 
@@ -151,11 +153,7 @@ pub(crate) async fn handle_rotating_nic_lockdown(
 
     // Collect SVPC interfaces up front so the borrow of `state` does not overlap
     // the mutable `txn` borrow inside the loop.
-    let svpc: Vec<_> = state
-        .dpa_interface_snapshots
-        .iter()
-        .filter(|iface| iface.interface_type == DpaInterfaceType::Svpc)
-        .collect();
+    let svpc: Vec<_> = svpc_interfaces(state).collect();
 
     // Whether at least one card is still actively converging (kicked this tick or
     // mid-rekey within its step budget). While true the host waits; once false
@@ -164,11 +162,14 @@ pub(crate) async fn handle_rotating_nic_lockdown(
 
     for iface in svpc {
         let nic_mac = iface.mac_address;
-        let status = db::credential_rotation::device_rotation_status(txn.as_mut(), LockdownIkm, nic_mac)
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!("read lockdown_ikm status for {nic_mac}: {e}"))
-            })?;
+        let status =
+            db::credential_rotation::device_rotation_status(txn.as_mut(), LockdownIkm, nic_mac)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "read lockdown_ikm status for {nic_mac}: {e}"
+                    ))
+                })?;
 
         // Untracked card (never locked / no bookkeeping row): not a rekey
         // candidate. Nothing to converge and nothing to quarantine.
@@ -201,9 +202,7 @@ pub(crate) async fn handle_rotating_nic_lockdown(
                 )
                 .await
                 .map_err(|e| {
-                    StateHandlerError::GenericError(eyre!(
-                        "kick rekey for {nic_mac}: {e}"
-                    ))
+                    StateHandlerError::GenericError(eyre!("kick rekey for {nic_mac}: {e}"))
                 })?;
                 if applied {
                     tracing::info!(
@@ -219,6 +218,9 @@ pub(crate) async fn handle_rotating_nic_lockdown(
             | DpaInterfaceControllerState::RotateKeyLocking => {
                 let elapsed = chrono::Utc::now()
                     .signed_duration_since(iface.controller_state.version.timestamp());
+
+                // In the happy path, a card returns to Ready via the DPA state machine
+                // This handles the failure path where the card is unreachable
                 if elapsed > chrono::Duration::minutes(REKEY_STEP_TIMEOUT_MINUTES) {
                     // The card has not reported the expected lock mode within the
                     // step budget: treat it as unreachable, quarantine with

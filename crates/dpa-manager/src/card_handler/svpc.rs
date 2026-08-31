@@ -647,12 +647,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         };
 
         if cs.lockmode == Some(Unlocked) {
-            let mut txn = monitor
-                .db_services
-                .db_pool
-                .begin()
-                .await
-                .map_err(|e| db::AnnotatedSqlxError::new("handle_rotate_key_unlocking begin txn", e))?;
+            let mut txn = monitor.db_services.db_pool.begin().await.map_err(|e| {
+                db::AnnotatedSqlxError::new("handle_rotate_key_unlocking begin txn", e)
+            })?;
             db::credential_rotation::record_device_unlocked(
                 txn.as_mut(),
                 dpa_interface.mac_address,
@@ -710,12 +707,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         };
 
         if cs.lockmode == Some(Locked) {
-            let mut txn = monitor
-                .db_services
-                .db_pool
-                .begin()
-                .await
-                .map_err(|e| db::AnnotatedSqlxError::new("handle_rotate_key_locking begin txn", e))?;
+            let mut txn = monitor.db_services.db_pool.begin().await.map_err(|e| {
+                db::AnnotatedSqlxError::new("handle_rotate_key_locking begin txn", e)
+            })?;
             record_lock_convergence(txn.as_mut(), dpa_interface.id, dpa_interface.mac_address)
                 .await?;
 

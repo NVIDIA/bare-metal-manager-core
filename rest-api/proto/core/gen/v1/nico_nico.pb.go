@@ -34846,13 +34846,9 @@ func (x *UefiCredentialRotationRequest) GetBmcMac() string {
 }
 
 type NicLockdownCredentialRotationRequest struct {
-	state protoimpl.MessageState                    `protogen:"open.v1"`
-	Mode  NicLockdownCredentialRotationRequest_Mode `protobuf:"varint,1,opt,name=mode,proto3,enum=forge.NicLockdownCredentialRotationRequest_Mode" json:"mode,omitempty"`
-	// The host machine that owns the SuperNIC (SVPC) cards to rekey. The rekey
-	// cycle is host-level (it rekeys every lagging SVPC card on the host), so the
-	// one-shot force flag lives on the host machine row and its id uniquely names
-	// the target. Required (enforced server-side).
-	MachineId     *MachineId `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3,oneof" json:"machine_id,omitempty"`
+	state         protoimpl.MessageState                    `protogen:"open.v1"`
+	Mode          NicLockdownCredentialRotationRequest_Mode `protobuf:"varint,1,opt,name=mode,proto3,enum=forge.NicLockdownCredentialRotationRequest_Mode" json:"mode,omitempty"`
+	MachineId     *MachineId                                `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -67859,16 +67855,15 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x05Clear\x10\x02B\r\n" +
 	"\v_machine_idB\n" +
 	"\n" +
-	"\b_bmc_mac\"\xdf\x01\n" +
+	"\b_bmc_mac\"\xcb\x01\n" +
 	"$NicLockdownCredentialRotationRequest\x12D\n" +
-	"\x04mode\x18\x01 \x01(\x0e20.forge.NicLockdownCredentialRotationRequest.ModeR\x04mode\x125\n" +
+	"\x04mode\x18\x01 \x01(\x0e20.forge.NicLockdownCredentialRotationRequest.ModeR\x04mode\x120\n" +
 	"\n" +
-	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdH\x00R\tmachineId\x88\x01\x01\"+\n" +
+	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdR\tmachineId\"+\n" +
 	"\x04Mode\x12\x0f\n" +
 	"\vUnspecified\x10\x00\x12\a\n" +
 	"\x03Set\x10\x01\x12\t\n" +
-	"\x05Clear\x10\x02B\r\n" +
-	"\v_machine_id\"\x1f\n" +
+	"\x05Clear\x10\x02\"\x1f\n" +
 	"\x1dHostReprovisioningListRequest\"\xb8\x03\n" +
 	"\x1eHostReprovisioningListResponse\x12V\n" +
 	"\x05hosts\x18\x01 \x03(\v2@.forge.HostReprovisioningListResponse.HostReprovisioningListItemR\x05hosts\x1a\xbd\x02\n" +
@@ -75143,7 +75138,6 @@ func file_nico_nico_proto_init() {
 	}
 	file_nico_nico_proto_msgTypes[435].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[436].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[437].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[441].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[442].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[443].OneofWrappers = []any{}

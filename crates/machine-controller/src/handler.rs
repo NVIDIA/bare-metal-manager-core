@@ -1272,7 +1272,7 @@ impl MachineStateHandler {
                 }
 
                 // Same lowest-precedence idle-only rule again, for the host's
-                // SuperNIC lockdown keys. A rekey unlocks and relocks each SVPC
+                // NIC lockdown keys. A rekey unlocks and relocks each SVPC
                 // card via the DPA state machine + scout, so it must never run
                 // under active tenancy; the site flag / force-converge override
                 // live in `nic_lockdown_rotation::should_enter_nic_lockdown_rotation`.

@@ -844,19 +844,11 @@ type ForgeClient interface {
 	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
 	// credential that a prior sweep already rotated.
 	TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	// Operator "force-converge this host's SuperNIC lockdown keys now" escape hatch
+	// Operator "force-converge this host's NIC lockdown keys now" escape hatch
 	// for a single host. This is asynchronous: the handler only persists (Set) or
 	// removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
 	// flag and returns; it performs no rekey itself. A later machine-controller
-	// sweep observes a set flag and, once the host is otherwise idle, rekeys every
-	// lagging SuperNIC (SVPC) card to the site-wide target IKM (unlock at the
-	// current IKM, relock at the target via scout), bypassing the passive site-wide
-	// gate and each card's backoff quarantine, then clears the flag once the host
-	// settles. Unlike the BMC/UEFI hatches, a lockdown rekey never runs under active
-	// tenancy (a card is never unlocked under a tenant): a request against a host
-	// that currently has an instance is recorded and honored on the host's next
-	// idle window, not immediately. Clear only withdraws a not-yet-consumed request
-	// -- it does not undo or reset any card that a prior sweep already rekeyed.
+	// sweep observes a set flag and facilitates rotation.
 	TriggerNicLockdownCredentialRotation(ctx context.Context, in *NicLockdownCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
@@ -6621,19 +6613,11 @@ type ForgeServer interface {
 	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
 	// credential that a prior sweep already rotated.
 	TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error)
-	// Operator "force-converge this host's SuperNIC lockdown keys now" escape hatch
+	// Operator "force-converge this host's NIC lockdown keys now" escape hatch
 	// for a single host. This is asynchronous: the handler only persists (Set) or
 	// removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
 	// flag and returns; it performs no rekey itself. A later machine-controller
-	// sweep observes a set flag and, once the host is otherwise idle, rekeys every
-	// lagging SuperNIC (SVPC) card to the site-wide target IKM (unlock at the
-	// current IKM, relock at the target via scout), bypassing the passive site-wide
-	// gate and each card's backoff quarantine, then clears the flag once the host
-	// settles. Unlike the BMC/UEFI hatches, a lockdown rekey never runs under active
-	// tenancy (a card is never unlocked under a tenant): a request against a host
-	// that currently has an instance is recorded and honored on the host's next
-	// idle window, not immediately. Clear only withdraws a not-yet-consumed request
-	// -- it does not undo or reset any card that a prior sweep already rekeyed.
+	// sweep observes a set flag and facilitates rotation.
 	TriggerNicLockdownCredentialRotation(context.Context, *NicLockdownCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade

@@ -320,7 +320,9 @@ impl DpaMonitor {
                     .await
             }
             DpaInterfaceControllerState::RotateKeyLocking => {
-                handler.handle_rotate_key_locking(self, mh, idx, metrics).await
+                handler
+                    .handle_rotate_key_locking(self, mh, idx, metrics)
+                    .await
             }
         }
     }

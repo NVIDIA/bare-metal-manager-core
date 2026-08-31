@@ -1486,7 +1486,7 @@ async fn initialize_and_start_controllers<'a>(
                 dpu_bmc_service_rotation_gate:
                     carbide_credential_rotation::RotationGate::new_for_family(
                         db::credential_rotation::CredentialRotationType::DpuBmcService,
-                ),
+                    ),
                 nic_lockdown_rotation_gate:
                     carbide_credential_rotation::RotationGate::new_for_family(
                         db::credential_rotation::CredentialRotationType::LockdownIkm,

@@ -87,8 +87,7 @@ pub enum DpaInterfaceControllerState {
     /// firmware/profile assignment pipeline.
     RotateKeyUnlocking,
     /// Tenant-free NIC lockdown input-key-material (IKM) rotation flow, phase 2: lock the NIC with the most recent
-    /// site-wide target IKM version, completing the rekey and returning the card
-    /// to `Ready`.
+    /// site-wide target IKM version, completing the rekey and returning the card to `Ready`.
     RotateKeyLocking,
 }
 

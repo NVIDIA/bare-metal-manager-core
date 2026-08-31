@@ -398,14 +398,8 @@ pub(super) async fn handle_deconfiguring_host(
                     "waiting for all SuperNICs to report unlocked".to_string(),
                 ));
             }
-            // Every SVPC card is now unlocked. Record the unlock against each
-            // card's NIC-MAC-keyed lockdown_ikm row so the truth column reflects
-            // an unlocked card (NULL `current_version`, cleared `rotating_to_version`).
-            // This closes the decommission race where a card force-flipped from
-            // `Locking` to `Unlocking` was left with a stale `current_version` and
-            // a dangling `rotating_to_version` that dpa-manager never promoted.
-            // The row itself is torn down in the later cleanup step; this keeps
-            // the invariant honest in the window before that.
+            // Every NIC is now unlocked. Record the unlock against each
+            // card's NIC-MAC-keyed lockdown_ikm row.
             let mut txn = ctx.services.db_pool.begin().await?;
             for interface in state
                 .dpa_interface_snapshots
@@ -425,14 +419,14 @@ pub(super) async fn handle_deconfiguring_host(
                     ))
                 })?;
             }
-            Ok(StateHandlerOutcome::transition(
-                ManagedHostState::Decommissioning {
+            Ok(
+                StateHandlerOutcome::transition(ManagedHostState::Decommissioning {
                     decommissioning_state: DecommissioningState::DeconfiguringHost {
                         deconfiguring_state: DeconfiguringHostState::ResetUefiSettings,
                     },
-                },
+                })
+                .with_txn(txn),
             )
-            .with_txn(txn))
         }
         DeconfiguringHostState::ResetUefiSettings => {
             let redfish_client = ctx
@@ -929,11 +923,8 @@ pub(super) async fn handle_deleting_managed_credentials(
         }
     }
 
-    // SuperNIC lockdown_ikm rows are keyed by the card's NIC MAC, not a BMC MAC,
-    // so the per-machine loop above never reaches them. Tear down each SVPC
-    // card's row here, including the decommission-race case where the row still
-    // carries a dangling `rotating_to_version` (`delete_device_converged` is
-    // idempotent, so an absent row is a no-op).
+    // NIC lockdown_ikm rows are keyed by the card's NIC MAC, not a BMC MAC,
+    // so the per-machine loop above never reaches them.
     for interface in state
         .dpa_interface_snapshots
         .iter()

@@ -415,19 +415,11 @@ service Forge {
   // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
   // credential that a prior sweep already rotated.
   rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
-  // Operator "force-converge this host's SuperNIC lockdown keys now" escape hatch
+  // Operator "force-converge this host's NIC lockdown keys now" escape hatch
   // for a single host. This is asynchronous: the handler only persists (Set) or
   // removes (Clear) the host machine's `lockdown_ikm_credential_rotation_requested`
   // flag and returns; it performs no rekey itself. A later machine-controller
-  // sweep observes a set flag and, once the host is otherwise idle, rekeys every
-  // lagging SuperNIC (SVPC) card to the site-wide target IKM (unlock at the
-  // current IKM, relock at the target via scout), bypassing the passive site-wide
-  // gate and each card's backoff quarantine, then clears the flag once the host
-  // settles. Unlike the BMC/UEFI hatches, a lockdown rekey never runs under active
-  // tenancy (a card is never unlocked under a tenant): a request against a host
-  // that currently has an instance is recorded and honored on the host's next
-  // idle window, not immediately. Clear only withdraws a not-yet-consumed request
-  // -- it does not undo or reset any card that a prior sweep already rekeyed.
+  // sweep observes a set flag and facilitates rotation.
   rpc TriggerNicLockdownCredentialRotation(NicLockdownCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
@@ -6405,11 +6397,7 @@ message NicLockdownCredentialRotationRequest {
     Clear = 2;
   }
   Mode mode = 1;
-  // The host machine that owns the SuperNIC (SVPC) cards to rekey. The rekey
-  // cycle is host-level (it rekeys every lagging SVPC card on the host), so the
-  // one-shot force flag lives on the host machine row and its id uniquely names
-  // the target. Required (enforced server-side).
-  optional common.MachineId machine_id = 2;
+  common.MachineId machine_id = 2;
 }
 
 message HostReprovisioningListRequest {

@@ -272,7 +272,7 @@ pub async fn promote_rotating_to_current(
 /// Records that `device_mac` is now *unlocked* for `credential_type`: NULLs
 /// `current_version` (the truth column's "no credential established" value, per
 /// the `lockdown_ikm` unlock contract) and clears the in-flight `rotating_to_version`
-/// marker plus all failure bookkeeping. 
+/// marker plus all failure bookkeeping.
 // Only applicable for NIC lockdown input-key-material rotation today (other rotations dont unlock the device).
 pub async fn record_device_unlocked(
     conn: &mut PgConnection,
@@ -1093,10 +1093,10 @@ mod tests {
         BACKOFF_CAP_SECS, CredentialRotationType, backoff_until, current_target_version,
         delete_device_converged, device_rotation_operation_state, device_rotation_status,
         increment_rotate_attempt, mark_device_rotating_to_version, promote_rotating_to_current,
-        record_device_converged, record_device_rotation_failed, record_device_unlocked,
+        record_device_converged, record_device_rotation_failed,
         record_device_rotation_retry_started, record_device_rotation_started,
-        record_device_rotation_submitted, record_device_rotation_succeeded, rotation_status,
-        set_initial_target_version, set_next_target_version,
+        record_device_rotation_submitted, record_device_rotation_succeeded, record_device_unlocked,
+        rotation_status, set_initial_target_version, set_next_target_version,
     };
 
     // Inserts a device convergence row with an explicit current_version (and no
@@ -1546,11 +1546,15 @@ mod tests {
         let again = record_device_unlocked(&mut conn, mac, CredentialRotationType::LockdownIkm)
             .await
             .unwrap();
-        assert!(again, "a re-observed unlock still reports the row as present");
+        assert!(
+            again,
+            "a re-observed unlock still reports the row as present"
+        );
         let missing: MacAddress = "02:00:00:00:00:ff".parse().unwrap();
-        let absent = record_device_unlocked(&mut conn, missing, CredentialRotationType::LockdownIkm)
-            .await
-            .unwrap();
+        let absent =
+            record_device_unlocked(&mut conn, missing, CredentialRotationType::LockdownIkm)
+                .await
+                .unwrap();
         assert!(!absent, "a missing row reports as not updated");
     }
 

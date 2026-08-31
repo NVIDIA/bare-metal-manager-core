@@ -874,7 +874,7 @@ pub struct Machine {
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub uefi_credential_rotation_requested: bool,
 
-    /// Force the rotation of the NIC lockdown keys on this host. 
+    /// Force the rotation of the NIC lockdown keys on this host.
     /// Bypasses the site-config flag for NIC lockdown rotation.
     pub lockdown_ikm_credential_rotation_requested: bool,
 
@@ -1380,20 +1380,10 @@ pub enum ManagedHostState {
         dpu_machine_id: MachineId,
     },
 
-    /// The host is rekeying its SuperNIC (SVPC) lockdown keys to the staged
-    /// site-wide `lockdown_ikm` target. A pool-only, top-level state on the same
-    /// lowest-precedence, idle-only footing as `RotatingBmc` / `RotatingHostUefi`:
-    /// it blocks instance creation (which requires exact `Ready`) for the bounded
-    /// duration of the rekey, so a card is never rekeyed under active tenancy.
-    ///
-    /// Unlike the host/DPU credentials, a SuperNIC lockdown key is applied by the
-    /// DPA interface state machine (unlock at the current IKM, relock at the
-    /// target IKM via scout), not by a Redfish/BIOS job. This host state therefore
-    /// drives the cards through a tenant-free `RotateKeyUnlocking -> RotateKeyLocking`
-    /// cycle and waits for them to converge, rather than carrying its own
-    /// multi-tick sub-state; per-card backoff/quarantine is the rotation engine's
-    /// `device_credential_rotation` bookkeeping keyed by each card's NIC MAC.
-    /// Every terminal path returns the host to `Ready`, so it never wedges here.
+    /// The host is rekeying its NIC lockdown keys to the staged
+    /// site-wide `lockdown_ikm` target. This host state drives the
+    /// cards through a tenant-free `RotateKeyUnlocking -> RotateKeyLocking`
+    /// cycle and waits for them to converge.
     RotatingNicLockdown,
 
     /// State used to indicate the API is currently waiting on the

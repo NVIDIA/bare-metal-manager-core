@@ -2830,8 +2830,8 @@ pub async fn clear_uefi_credential_rotation_requested(
     Ok(())
 }
 
-/// Record that an operator has requested rotating the NIC lockdown keys for a host 
-/// (bypasses the site-config flag for NIC lockdown rotation) 
+/// Record that an operator has requested rotating the NIC lockdown keys for a host
+/// (bypasses the site-config flag for NIC lockdown rotation)
 pub async fn set_lockdown_ikm_credential_rotation_requested(
     txn: &mut PgConnection,
     machine_id: MachineId,
@@ -2884,8 +2884,7 @@ pub async fn get_lockdown_ikm_credential_rotation_requested(
     conn: &mut PgConnection,
     machine_id: MachineId,
 ) -> DatabaseResult<bool> {
-    let query =
-        "SELECT lockdown_ikm_credential_rotation_requested FROM machines WHERE id = $1";
+    let query = "SELECT lockdown_ikm_credential_rotation_requested FROM machines WHERE id = $1";
     sqlx::query_scalar::<_, bool>(query)
         .bind(machine_id)
         .fetch_one(conn)

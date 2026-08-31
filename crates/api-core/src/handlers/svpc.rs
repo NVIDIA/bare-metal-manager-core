@@ -77,19 +77,11 @@ pub(super) async fn process_scout_req(
         return Ok(fac::Action::noop());
     }
 
-    // Decide, once for the host, whether a lock issued this pass should migrate
-    // the card to the site-wide target. The site-wide flag is the lazy-migration
-    // gate; the per-host force flag overrides it so an operator can converge one
-    // host even while the gate is off. This drives the tenant-allocation
-    // `Locking` arm; the idle `RotateKeyLocking` arm always migrates (see below).
-    let migrate_on_lock = {
-        let mut conn = api.database_connection.acquire().await.map_err(|e| {
-            CarbideError::GenericErrorFromReport(eyre!(
-                "failed to acquire connection to read nic lockdown force flag: {e}"
-            ))
-        })?;
-        db::machine::get_lockdown_ikm_credential_rotation_requested(&mut conn, machine_id).await?
-    } || api.runtime_config.nic_lockdown_ikm_rotation_enabled;
+    // Whether a tenant-allocation lock this pass should migrate the card to the
+    // site-wide target. It is host-scoped (the same for every card) and needed
+    // only if some card actually reaches `Locking`, so it is resolved lazily and
+    // cached here -- at most one read per pass, and none when no card locks.
+    let mut rotate_lockdown_key: Option<bool> = None;
 
     let mut device_actions = Vec::new();
 
@@ -120,10 +112,19 @@ pub(super) async fn process_scout_req(
                 build_apply_profile_command(api, sn, machine_id, pci_name)?
             }
             DpaInterfaceControllerState::Locking => {
-                // Lazy tenant-allocation lock: migrate to the site-wide target
-                // when the gate is on or this host is force-flagged, otherwise
-                // re-lock at the card's current version.
-                build_lock_command(api, sn, machine_id, pci_name, migrate_on_lock).await?
+                // Tenant-allocation lock: migrate to the site-wide target when the
+                // gate is on or this host is force-flagged, otherwise re-lock at
+                // the card's current version. Resolve+cache the host-scoped
+                // decision on the first `Locking` card of the pass.
+                let rotate = match rotate_lockdown_key {
+                    Some(v) => v,
+                    None => {
+                        let v = resolve_rotate_lockdown_key(api, machine_id).await?;
+                        rotate_lockdown_key = Some(v);
+                        v
+                    }
+                };
+                build_lock_command(api, sn, machine_id, pci_name, rotate).await?
             }
             DpaInterfaceControllerState::RotateKeyUnlocking => {
                 // Tenant-free lockdown rotation in progress: unlock nic
@@ -154,6 +155,29 @@ pub(super) async fn process_scout_req(
     }
 
     Ok(fac::Action::MlxAction(fac::MlxAction { device_actions }))
+}
+
+/// Decide whether a tenant-allocation lock should migrate the host's cards to
+/// the site-wide lockdown IKM target this pass.
+///
+/// The site-wide `nic_lockdown_ikm_rotation_enabled` gate is the lazy-migration
+/// switch: when on, cards migrate to the new IKM as tenants cycle. The per-host
+/// `lockdown_ikm_credential_rotation_requested` force flag overrides it so an
+/// operator can converge a single host while the site-wide gate is still off.
+///
+/// The gate is checked first so the host-scoped DB read is skipped whenever the
+/// gate is on (the answer is already `true`); the force flag is only consulted
+/// when the gate is off.
+async fn resolve_rotate_lockdown_key(api: &Api, machine_id: MachineId) -> CarbideResult<bool> {
+    if api.runtime_config.nic_lockdown_ikm_rotation_enabled {
+        return Ok(true);
+    }
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to acquire connection to read nic lockdown force flag: {e}"
+        ))
+    })?;
+    Ok(db::machine::get_lockdown_ikm_credential_rotation_requested(&mut conn, machine_id).await?)
 }
 
 /// Resolve the lockdown IKM version to *lock* a card under.
