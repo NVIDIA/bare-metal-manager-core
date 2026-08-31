@@ -39,3 +39,9 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'fileDescriptorLimit must be a positive integer'
+  - it: rejects zero at render time instead of falling back to the default
+    set:
+      fileDescriptorLimit: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: 'fileDescriptorLimit must be a positive integer'
