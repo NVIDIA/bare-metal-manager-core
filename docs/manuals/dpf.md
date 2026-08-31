@@ -803,9 +803,8 @@ Per-deployment field reference:
 
 `extra_sfs` appends interface names to HBN's generated
 `DPUServiceConfiguration`, startup interface list, and `nvidia.com/bf_sf`
-request. It is supported for BF3 (including the derived GB200 deployment) and
-generic BF4. BF4 Astra rejects a non-empty list. Omission or an empty list adds
-no interfaces.
+request. It is supported for BF3 and generic BF4. BF4 Astra rejects a non-empty
+list. Omission or an empty list adds no interfaces.
 
 Each name must contain 1–15 bytes, start with a lowercase ASCII letter, and use
 only lowercase ASCII letters, digits, hyphens, or underscores. Names must be
@@ -816,11 +815,11 @@ reprovisioning. Without intercept bridging, the flavor retains the legacy
 `pf_total_sf_reserved` total; all generated and extra endpoints must fit in
 that pool or carbide-api rejects the configuration at startup.
 
-NICo does not create a bridge, `DPUServiceInterface`, service chain, IPAM, or
-application-service CR for these names. An external controller must own those
-resources. The value is read when carbide-api starts, so restart the API after
-changing it. This experimental field may be removed without a compatibility
-period.
+NICo does not create a bridge for now, or a `DPUServiceInterface`, service
+chain, IPAM, or application-service CR for these names. An external controller
+must own those resources. The value is read when carbide-api starts, so restart
+the API after changing it. This experimental field may be removed without a
+compatibility period.
 
 ```toml
 [dpf.deployments.bf3]
