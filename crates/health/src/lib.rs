@@ -51,14 +51,14 @@ use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{BmcLatencyMetrics, MetricsManager, run_metrics_server};
 use crate::processor::{
     BmcIntrusionEventProcessor, EventProcessingPipeline, EventProcessor, HealthReportProcessor,
-    LeakEventProcessor, RackLeakProcessor,
+    LeakEventProcessor, NmxcDomainStateProcessor, RackLeakProcessor,
 };
 use crate::sharding::ShardManager;
 use crate::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
 use crate::sink::{
-    CompositeDataSink, DataSink, HealthReportSink, LogFileSink, OtlpSink,
-    PowerShelfHealthReportSink, PrometheusSink, RackHealthReportSink, SwitchHealthReportSink,
-    TracingSink,
+    CompositeDataSink, DataSink, HealthReportSink, LogFileSink, NvLinkDomainHealthReportSink,
+    OtlpSink, PowerShelfHealthReportSink, PrometheusSink, RackHealthReportSink,
+    SwitchHealthReportSink, TracingSink,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -249,6 +249,10 @@ fn build_data_sink(
         processors.push(Arc::new(BmcIntrusionEventProcessor::new()));
     }
 
+    if config.sinks.nvlink_domain_health_report.is_enabled() {
+        processors.push(Arc::new(NmxcDomainStateProcessor::new()));
+    }
+
     if let Configurable::Enabled(ref leak_detection_cfg) = config.processors.leak_detection {
         processors.push(Arc::new(LeakEventProcessor::new(
             leak_detection_cfg.minimum_alerts_per_report,
@@ -277,6 +281,10 @@ fn build_data_sink(
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.switch_health_report {
         sinks.push(Arc::new(SwitchHealthReportSink::new(sink_cfg)?));
+    }
+
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.nvlink_domain_health_report {
+        sinks.push(Arc::new(NvLinkDomainHealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.power_shelf_health_report {

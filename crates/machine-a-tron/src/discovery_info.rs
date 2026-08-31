@@ -302,14 +302,14 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
         network_interfaces: vec![
             generic_nic(
                 dpus[0].host_mac_address,
-                0x0006_0003,
+                0x0016_0003,
                 "Mellanox Technologies",
                 "BlueField-3 SmartNIC Main Card",
                 Some("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
             ),
             generic_nic(
                 dpus[1].host_mac_address,
-                0x0016_0003,
+                0x0006_0003,
                 "Mellanox Technologies",
                 "BlueField-3 SmartNIC Main Card",
                 Some("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
@@ -1043,15 +1043,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 (
-                    "0006:03:00.0",
-                    "/devices/pci0006:00/0006:00:00.0/0006:03:00.0/net/enp6s3np0",
-                ),
-                (
                     "0016:03:00.0",
                     "/devices/pci0016:00/0016:00:00.0/0016:03:00.0/net/enp22s3np0",
                 ),
+                (
+                    "0006:03:00.0",
+                    "/devices/pci0006:00/0006:00:00.0/0006:03:00.0/net/enp6s3np0",
+                ),
             ],
-            "Wiwynn DPUs must report distinct, internally consistent PCI locations",
+            "Wiwynn DPUs must report their distinct expected PCI locations",
         );
     }
 

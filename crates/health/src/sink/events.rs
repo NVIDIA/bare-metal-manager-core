@@ -37,6 +37,10 @@ use crate::metrics::MetricLabel;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, carbide_instrument::LabelValue)]
 pub enum HealthReportTarget {
     Machine,
+
+    /// NVLink domain identified by the event context.
+    NvLinkDomain,
+
     PowerShelf,
     Rack,
     Switch,
@@ -46,6 +50,7 @@ impl HealthReportTarget {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Machine => "machine",
+            Self::NvLinkDomain => "nvlink-domain",
             Self::PowerShelf => "power-shelf",
             Self::Rack => "rack",
             Self::Switch => "switch",
@@ -456,6 +461,10 @@ pub enum ReportSource {
     BmcSensors,
     BmcEvents,
     BmcLeakDetectors,
+
+    /// NMX-C `DomainStateInfo` health observations.
+    NmxcDomainState,
+
     TrayLeakDetection,
     RackLeakDetection,
     NvueLeakage,
@@ -468,6 +477,7 @@ impl ReportSource {
             Self::BmcSensors => "bmc-sensors",
             Self::BmcEvents => "bmc-events",
             Self::BmcLeakDetectors => "bmc-leak-detectors",
+            Self::NmxcDomainState => "nmxc-domain-state",
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
             Self::NvueLeakage => "nvue-leakage",
@@ -481,6 +491,10 @@ pub enum Probe {
     Sensor,
     IntrusionSensorTriggered,
     LeakDetection,
+
+    /// Health state reported by the NMX-C controller.
+    NmxControllerHealth,
+
     NvueLeakage,
     GpuInventory,
 }
@@ -491,6 +505,7 @@ impl Probe {
             Self::Sensor => "BmcSensor",
             Self::IntrusionSensorTriggered => "IntrusionSensorTriggered",
             Self::LeakDetection => "BmcLeakDetection",
+            Self::NmxControllerHealth => "NmxControllerHealth",
             Self::NvueLeakage => "NvueLeakage",
             // Reuse the existing shared "SkuValidation" probe id so OOB GPU-count
             // alerts dedup with the machine-controller's in-band SKU alerts.
@@ -915,6 +930,10 @@ mod tests {
                 ReportSource::BmcLeakDetectors => "bmc-leak-detectors",
             }
 
+            "NMX-C domain state" {
+                ReportSource::NmxcDomainState => "nmxc-domain-state",
+            }
+
             "tray leak detection" {
                 ReportSource::TrayLeakDetection => "tray-leak-detection",
             }
@@ -939,6 +958,10 @@ mod tests {
             run = HealthReportTarget::as_str;
             "machine" {
                 HealthReportTarget::Machine => "machine",
+            }
+
+            "NVLink domain" {
+                HealthReportTarget::NvLinkDomain => "nvlink-domain",
             }
 
             "power shelf" {
@@ -983,6 +1006,13 @@ mod tests {
                 Probe::LeakDetection => ProbeSummary {
                     as_str: "BmcLeakDetection",
                     health_report_id: "BmcLeakDetection".to_string(),
+                },
+            }
+
+            "NMX-C controller health" {
+                Probe::NmxControllerHealth => ProbeSummary {
+                    as_str: "NmxControllerHealth",
+                    health_report_id: "NmxControllerHealth".to_string(),
                 },
             }
 

@@ -16,6 +16,7 @@ import (
 
 func TestEventActionExecutionRoundTrip(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	local := time.FixedZone("PDT", -7*60*60)
 	base, err := eventrule.NewExecution(uuid.New(), "notify", &eventrule.NoopPlan{Reason: "test"}, now)
 	require.NoError(t, err)
 
@@ -72,6 +73,12 @@ func TestEventActionExecutionRoundTrip(t *testing.T) {
 
 			persisted, err := EventActionExecutionTo(&execution)
 			require.NoError(t, err)
+			persisted.CreatedAt = persisted.CreatedAt.In(local)
+			persisted.UpdatedAt = persisted.UpdatedAt.In(local)
+			if persisted.NextAttemptAt != nil {
+				nextAttemptAt := persisted.NextAttemptAt.In(local)
+				persisted.NextAttemptAt = &nextAttemptAt
+			}
 			if test.activeClaim {
 				require.NotNil(t, persisted.ClaimToken)
 				require.Equal(t, token, *persisted.ClaimToken)

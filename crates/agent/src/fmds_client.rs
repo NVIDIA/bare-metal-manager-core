@@ -16,16 +16,17 @@
  */
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_host_support::agent_config::MachineIdentityConfig;
-use eyre::eyre;
+use eyre::{WrapErr, eyre};
 use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
 use rpc::fmds::fmds_config_service_client::FmdsConfigServiceClient;
 use rpc::fmds::{
     FmdsConfigUpdate, FmdsMachineIdentityConfig, IbDevice, IbInstance, UpdateConfigRequest,
 };
 use rpc::forge::ManagedHostNetworkConfigResponse;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
 use crate::instrumentation::FmdsPush;
@@ -42,7 +43,11 @@ pub(super) enum FmdsUpdater {
     /// External will send FMDS updates to an FMDS server,
     /// which is colocated on the same DPU, possibly in its
     /// own container.
-    External(Box<FmdsGrpcClient>),
+    External {
+        address: String,
+        machine_identity: MachineIdentityConfig,
+        connect_timeout: Duration,
+    },
 }
 
 impl FmdsUpdater {
@@ -52,20 +57,36 @@ impl FmdsUpdater {
         network_config: Option<Arc<ManagedHostNetworkConfigResponse>>,
     ) {
         match self {
-            FmdsUpdater::Embedded(state) => {
-                state.update_instance_data(instance_data);
-                state.update_network_configuration(network_config);
-            }
-            FmdsUpdater::External(client) => {
-                let result = client.update_config(&instance_data, &network_config).await;
-                match &result {
+            FmdsUpdater::External {
+                address,
+                machine_identity,
+                connect_timeout,
+            } => {
+                let result = match FmdsGrpcClient::connect(
+                    address,
+                    machine_identity.clone(),
+                    *connect_timeout,
+                )
+                .await
+                {
+                    Ok(mut client) => client.update_config(&instance_data, &network_config).await,
+                    Err(err) => Err(err),
+                };
+
+                // A failed push is dropped: the next main-loop iteration
+                // reconnects and pushes again.
+                match result {
                     Ok(()) => FmdsPush::Succeeded.emit(),
                     Err(err) => FmdsPush::Failed {
                         error: format!("{err:#}"),
-                        fmds_address: client.address.clone(),
+                        fmds_address: address.clone(),
                     }
                     .emit(),
                 }
+            }
+            FmdsUpdater::Embedded(state) => {
+                state.update_instance_data(instance_data);
+                state.update_network_configuration(network_config);
             }
         }
     }
@@ -81,10 +102,17 @@ impl FmdsGrpcClient {
     pub(super) async fn connect(
         address: &str,
         machine_identity: MachineIdentityConfig,
+        connect_timeout: Duration,
     ) -> eyre::Result<Self> {
-        let client = FmdsConfigServiceClient::connect(address.to_string()).await?;
+        let channel = Endpoint::from_shared(address.to_string())
+            .wrap_err_with(|| format!("invalid FMDS address {address}"))?
+            .connect_timeout(connect_timeout)
+            .connect()
+            .await
+            .wrap_err_with(|| format!("failed to connect to FMDS at {address}"))?;
+
         Ok(Self {
-            client,
+            client: FmdsConfigServiceClient::new(channel),
             address: address.to_string(),
             machine_identity,
         })
@@ -165,5 +193,164 @@ impl FmdsGrpcClient {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+
+    use config_version::ConfigVersion;
+    use rpc::fmds::UpdateConfigResponse;
+    use rpc::fmds::fmds_config_service_server::{FmdsConfigService, FmdsConfigServiceServer};
+    use tokio::sync::mpsc;
+    use tokio::task::JoinHandle;
+    use tonic::{Request, Response, Status};
+
+    use super::*;
+    use crate::periodic_config_fetcher::PublicAddresses;
+
+    /// Minimal FMDS server that records the updates it is sent.
+    struct RecordingFmdsServer {
+        updates: mpsc::UnboundedSender<FmdsConfigUpdate>,
+    }
+
+    #[tonic::async_trait]
+    impl FmdsConfigService for RecordingFmdsServer {
+        async fn update_config(
+            &self,
+            request: Request<UpdateConfigRequest>,
+        ) -> Result<Response<UpdateConfigResponse>, Status> {
+            let update = request
+                .into_inner()
+                .config_update
+                .ok_or_else(|| Status::invalid_argument("missing config_update"))?;
+            let _ = self.updates.send(update);
+            Ok(Response::new(UpdateConfigResponse {}))
+        }
+    }
+
+    /// Serves [`RecordingFmdsServer`] on `addr`. The caller owns the returned
+    /// handle and aborts it at the end of the test.
+    fn serve_fmds(addr: SocketAddr) -> (JoinHandle<()>, mpsc::UnboundedReceiver<FmdsConfigUpdate>) {
+        let (updates, received) = mpsc::unbounded_channel();
+        let handle = tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(FmdsConfigServiceServer::new(RecordingFmdsServer {
+                    updates,
+                }))
+                .serve(addr)
+                .await
+                .expect("FMDS test server");
+        });
+        (handle, received)
+    }
+
+    /// Picks a free port. The listener is dropped, so the port is unbound when
+    /// this returns and the caller can serve on it.
+    fn free_addr() -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+        let addr = listener.local_addr().expect("local_addr");
+        drop(listener);
+        addr
+    }
+
+    /// [`serve_fmds`] binds on a spawned task, so it is not necessarily
+    /// listening when it returns. Waits until it is.
+    async fn wait_until_listening(addr: SocketAddr) {
+        for _ in 0..100 {
+            if tokio::net::TcpStream::connect(addr).await.is_ok() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("FMDS test server never started listening on {addr}");
+    }
+
+    fn test_instance_metadata() -> InstanceMetadata {
+        InstanceMetadata {
+            public_addresses: PublicAddresses {
+                ipv4: Some(Ipv4Addr::new(192, 168, 1, 1)),
+                ipv6: None,
+            },
+            hostname: "test-host".to_string(),
+            instance_name: Some("test-instance".to_string()),
+            sitename: Some("test-site".to_string()),
+            instance_id: None,
+            machine_id: None,
+            user_data: "test-user-data".to_string(),
+            ib_devices: None,
+            config_version: ConfigVersion::initial(),
+            network_config_version: ConfigVersion::initial(),
+            extension_service_version: ConfigVersion::initial(),
+        }
+    }
+
+    fn test_external_updater(address: String) -> FmdsUpdater {
+        FmdsUpdater::External {
+            address,
+            machine_identity: MachineIdentityConfig::default(),
+            connect_timeout: Duration::from_millis(500),
+        }
+    }
+
+    /// The happy path through [`FmdsUpdater::update`]: it dials the external
+    /// FMDS on every call and the update lands on the server.
+    #[tokio::test]
+    async fn external_updater_connects_and_pushes_every_update() {
+        let addr = free_addr();
+        let (server, mut received) = serve_fmds(addr);
+        wait_until_listening(addr).await;
+
+        let mut updater = test_external_updater(format!("http://{addr}"));
+
+        updater
+            .update(Some(Arc::new(test_instance_metadata())), None)
+            .await;
+
+        let update = received.recv().await.expect("server received an update");
+        assert_eq!(update.hostname, "test-host");
+        assert_eq!(update.address, "192.168.1.1");
+        assert!(update.machine_identity.is_some());
+
+        // A second iteration reconnects and pushes again.
+        updater
+            .update(Some(Arc::new(test_instance_metadata())), None)
+            .await;
+
+        let update = received
+            .recv()
+            .await
+            .expect("server received the second update");
+        assert_eq!(update.hostname, "test-host");
+
+        server.abort();
+    }
+
+    /// The recovery this change exists for: an FMDS that is down when the agent
+    /// starts is picked up by a later iteration, instead of the agent degrading
+    /// for its whole lifetime.
+    #[tokio::test]
+    async fn external_updater_recovers_once_fmds_comes_up() {
+        let addr = free_addr();
+        let mut updater = test_external_updater(format!("http://{addr}"));
+
+        // Nothing is listening yet. The push fails and is dropped, but the
+        // updater stays usable rather than latching onto a degraded mode.
+        updater
+            .update(Some(Arc::new(test_instance_metadata())), None)
+            .await;
+
+        // FMDS shows up, and the next iteration reaches it.
+        let (server, mut received) = serve_fmds(addr);
+        wait_until_listening(addr).await;
+        updater
+            .update(Some(Arc::new(test_instance_metadata())), None)
+            .await;
+
+        let update = received.recv().await.expect("server received an update");
+        assert_eq!(update.hostname, "test-host");
+
+        server.abort();
     }
 }

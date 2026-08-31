@@ -348,6 +348,24 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub allow_insecure_discovery: bool,
 
+    /// Controls whether NICo may reconcile a boot interface selection recorded as
+    /// `RedfishChassisId` or `RedfishSerialNumber` after ordering DPU-attached Admin interfaces
+    /// by the `domain:bus:device.function` PCI addresses in scout's `HardwareInfo`.
+    ///
+    /// The setting is read at startup and defaults to `false`. NICo records available comparisons
+    /// in structured logs and `carbide_scout_pci_evaluations_total` regardless of this setting.
+    /// When `false`, it does not change the selection. When `true`, reconciliation requires at
+    /// least two eligible interfaces, a complete and unique candidate, `ManagedHostState::Ready`
+    /// or `ManagedHostState::HostInit` with `MachineState::Discovered`, no `Instance` or primary
+    /// interface prediction, and no conflicting or integrated-NIC primary.
+    ///
+    /// If the selected MAC is already desired and primary, NICo changes only the source to
+    /// `ScoutReportPci`. Otherwise it updates the desired target and primary together and enqueues
+    /// the state handler. A `Ready` host enters `BootConfiguring`; `HostInit` completes its reboot
+    /// handshake first.
+    #[serde(default)]
+    pub scout_boot_interface_correction_enabled: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -903,6 +921,15 @@ pub struct CarbideConfig {
     /// env -> file -> vault behavior as when it is absent); see `SecretsConfig`.
     pub secrets: Option<SecretsConfig>,
 
+    /// Operator-managed static credential sources. These settings contain
+    /// only source locations and reload policy; credential values stay in the
+    /// referenced file or process environment. When a file is configured, the
+    /// local environment/file chain is read first for non-UFM credentials.
+    /// `credentials.ufm_source` exclusively selects local or persistent
+    /// backend ownership for all UFM credentials.
+    #[serde(default)]
+    pub credentials: CredentialsConfig,
+
     /// IP cleanup on lease expiry
     #[serde(default)]
     pub dhcp_lease_expiry_handling: bool,
@@ -1045,6 +1072,75 @@ pub struct CertificatesConfig {
     /// `backend = "dedicated_vault"`, ignored otherwise.
     #[serde(default)]
     pub dedicated_vault: Option<DedicatedVaultSettings>,
+}
+
+/// Non-secret sources for operator-managed credentials.
+///
+/// The file source is optional. When present, it takes precedence over the
+/// legacy environment-selected file source and is read before credential
+/// backends such as Vault or Postgres. `ufm_source` controls whether UFM reads
+/// preserve that local-first order or use one authoritative source.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialsConfig {
+    /// Selects the read precedence and mutation policy for UFM credentials.
+    /// Defaults to local-first reads with persistent-backend fallback.
+    #[serde(default)]
+    pub ufm_source: UfmCredentialSource,
+
+    /// A watched file containing static credentials. Its contents are never
+    /// embedded in `CarbideConfig`.
+    #[serde(default)]
+    pub file: Option<CredentialFileSourceConfig>,
+}
+
+/// Configuration for the watched static-credentials file.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialFileSourceConfig {
+    /// Absolute or working-directory-relative path to the JSON or YAML file
+    /// containing static credentials.
+    pub path: PathBuf,
+
+    /// Nonzero interval used to detect projected-Secret replacements that do
+    /// not emit a filesystem watch event. Defaults to 60 seconds.
+    #[serde(
+        default = "CredentialFileSourceConfig::default_poll_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub poll_interval: std::time::Duration,
+}
+
+/// Read precedence and mutation policy for site UFM credentials.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UfmCredentialSource {
+    /// Preserve the existing local-first behavior: read environment/file UFM
+    /// entries before the persistent backend and mutate the backend.
+    #[default]
+    LocalFirst,
+    /// Read and mutate UFM credentials in the configured persistent backend.
+    /// Local environment/file UFM entries are ignored.
+    Backend,
+    /// Read UFM credentials only from the local environment/file sources.
+    /// Every configured fabric must be present when IB management starts, and
+    /// persistent backend mutation is disabled.
+    Local,
+}
+
+impl CredentialFileSourceConfig {
+    /// Returns the polling interval used when `poll_interval` is omitted.
+    pub const fn default_poll_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+}
+
+impl CredentialsConfig {
+    /// Returns whether local sources authoritatively own UFM credentials.
+    pub fn uses_authoritative_local_ufm_credentials(&self) -> bool {
+        self.ufm_source == UfmCredentialSource::Local
+    }
 }
 
 /// Tag selecting the certificate backend. The matching settings (if any) live
@@ -1386,11 +1482,12 @@ pub struct SecretsConfig {
     pub routing: std::collections::HashMap<String, String>,
 
     /// The credential *backend* read order, highest priority first (first match
-    /// wins). The local-override readers (env, file) are always tried ahead of
-    /// these, when their `[credentials.*]` section is enabled; this list only
-    /// orders the backends behind them. Order is the operator's choice -- list
-    /// the backends you want, in the priority you want. Defaults to `["vault"]`
-    /// -- with the local overrides, that is the env -> file -> vault chain.
+    /// wins). Enabled local-override readers (env, file) are normally tried
+    /// ahead of these; `credentials.ufm_source` can suppress local UFM entries
+    /// or make them authoritative. This list only orders the persistent
+    /// backends. Order is the operator's choice -- list the backends you want,
+    /// in the priority you want. Defaults to `["vault"]` -- with the local
+    /// overrides, that is the env -> file -> vault chain.
     ///
     /// For example, to roll Postgres in gradually, walk this list:
     ///
@@ -1415,7 +1512,8 @@ pub struct SecretsConfig {
     /// fresh site with nothing to import; unsupported values fail config
     /// parsing rather than silently skipping the import. Independent of
     /// `backends`/`writer` -- importing from vault is orthogonal to where
-    /// reads and writes flow.
+    /// reads and writes flow. When `credentials.ufm_source = "local"`, UFM
+    /// paths are excluded so the import preserves local ownership.
     pub import_from: Option<ImportSource>,
 
     /// How to treat secrets that already exist in Postgres during import.
@@ -4477,6 +4575,72 @@ mod tests {
         assert!(error.to_string().contains("unknown field `audience`"));
     }
 
+    #[test]
+    fn credentials_file_config_contract() {
+        scenarios!(
+            run = |config: &str| toml::from_str::<CredentialsConfig>(config).map_err(drop);
+            "optional source" {
+                "" => Yields(CredentialsConfig::default()),
+            }
+
+            "valid file source" {
+                r#"
+ufm_source = "local"
+
+[file]
+path = "/var/run/secrets/nico/ufm/credentials.yaml"
+poll_interval = "17s"
+"# => Yields(CredentialsConfig {
+                    ufm_source: UfmCredentialSource::Local,
+                    file: Some(CredentialFileSourceConfig {
+                        path: PathBuf::from("/var/run/secrets/nico/ufm/credentials.yaml"),
+                        poll_interval: std::time::Duration::from_secs(17),
+                    }),
+                }),
+            }
+
+            "file source default poll interval" {
+                r#"
+[file]
+path = "credentials.yaml"
+"# => Yields(CredentialsConfig {
+                    ufm_source: UfmCredentialSource::LocalFirst,
+                    file: Some(CredentialFileSourceConfig {
+                        path: PathBuf::from("credentials.yaml"),
+                        poll_interval: std::time::Duration::from_secs(60),
+                    }),
+                }),
+            }
+
+            "missing file path" {
+                "[file]\npoll_interval = \"17s\"" => Fails,
+            }
+
+            "unknown field" {
+                "[file]\npath = \"credentials.yaml\"\ntoken = \"not-a-secret-here\"" => Fails,
+            }
+
+            "unknown UFM source" {
+                "ufm_source = \"fallback\"" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn ufm_source_contract() {
+        value_scenarios!(
+            run = |ufm_source| CredentialsConfig {
+                ufm_source,
+                file: None,
+            }.uses_authoritative_local_ufm_credentials();
+            "credential source modes" {
+                UfmCredentialSource::LocalFirst => false,
+                UfmCredentialSource::Backend => false,
+                UfmCredentialSource::Local => true,
+            }
+        );
+    }
+
     /// A cap below the clients' fixed 300 s lifetime is accepted-looking and
     /// fatal: every token the fleet mints exceeds it, so all of them are
     /// rejected. Startup has to refuse rather than let the fleet discover it.
@@ -5568,12 +5732,14 @@ mod tests {
         );
         assert!(config.dhcp_servers.is_empty());
         assert!(!config.allow_insecure_discovery);
+        assert!(!config.scout_boot_interface_correction_enabled);
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
+        assert_eq!(config.credentials, CredentialsConfig::default());
         assert_eq!(
             config.bmc_session_lockout_threshold,
             default_bmc_session_lockout_threshold()
@@ -5680,6 +5846,18 @@ mod tests {
             (
                 r#"{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}"#,
                 "nico-system",
+            ),
+            (
+                r#"{{ printf "%s/credentials.yaml" (required "nico-api.credentials.file.mountPath is required when credentials.file.existingSecret.name is set" .Values.credentials.file.mountPath) | quote }}"#,
+                r#""/var/run/secrets/nico/ufm/credentials.yaml""#,
+            ),
+            (
+                r#"{{ required "nico-api.credentials.file.pollInterval is required when credentials.file.existingSecret.name is set" .Values.credentials.file.pollInterval | quote }}"#,
+                r#""60s""#,
+            ),
+            (
+                "{{ .Values.credentials.ufmSource | quote }}",
+                r#""local_first""#,
             ),
             (
                 "{{ range $i, $cn := .Values.auth.additionalIssuerCns }}{{ if $i }}, {{ end }}{{ $cn | quote }}{{ end }}",
@@ -5814,6 +5992,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("CARBIDE_API_DATABASE_URL", "postgres://othersql");
             jail.set_env("CARBIDE_API_ASN", 777);
+            jail.set_env("CARBIDE_API_SCOUT_BOOT_INTERFACE_CORRECTION_ENABLED", true);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
                 "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
@@ -5833,6 +6012,17 @@ mod tests {
             assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
             assert_eq!(config.database_url, "postgres://othersql".to_string());
             assert_eq!(config.asn, 777);
+            assert!(config.scout_boot_interface_correction_enabled);
+            assert_eq!(
+                config.credentials,
+                CredentialsConfig {
+                    ufm_source: UfmCredentialSource::Backend,
+                    file: Some(CredentialFileSourceConfig {
+                        path: PathBuf::from("/var/run/secrets/nico/ufm/credentials.yaml"),
+                        poll_interval: std::time::Duration::from_secs(17),
+                    }),
+                }
+            );
             assert_eq!(
                 config.dhcp_servers,
                 vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]

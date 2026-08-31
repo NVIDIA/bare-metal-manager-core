@@ -113,3 +113,15 @@ pub(crate) async fn process_scout_req_for_test(
 ) -> crate::CarbideResult<rpc::forge_agent_control_response::Action> {
     svpc::process_scout_req(api, machine_id).await
 }
+
+/// Exposes the private scout update path to crate-level database race tests.
+#[cfg(test)]
+pub(crate) async fn update_primary_interface_from_scout_for_test(
+    api: &crate::Api,
+    machine_id: carbide_uuid::machine::StableHostMachineId,
+    hardware_info: &model::hardware_info::HardwareInfo,
+) -> crate::CarbideResult<bool> {
+    primary_interface::update_primary_interface_from_scout(api, machine_id, hardware_info)
+        .await
+        .map(|update| update.reconciliation_needed)
+}

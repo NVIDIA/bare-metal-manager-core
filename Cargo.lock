@@ -1118,6 +1118,7 @@ dependencies = [
  "spancounter",
  "sqlx",
  "sqlx-query-tracing",
+ "tempfile",
  "tokio",
  "tokio-util",
  "trace-propagation",
@@ -1812,6 +1813,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "carbide-api-model",
  "carbide-libmlx-model",
  "carbide-test-support",
  "carbide-utils",

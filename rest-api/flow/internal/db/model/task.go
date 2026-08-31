@@ -52,7 +52,9 @@ type Task struct {
 	// Promoter will discard the task instead of promoting it.
 	QueueExpiresAt *time.Time `bun:"queue_expires_at"`
 
-	IdempotencyKey string `bun:"idempotency_key,nullzero"`
+	IdempotencyKey string     `bun:"idempotency_key,nullzero"`
+	TriggerType    string     `bun:"trigger_type,nullzero"`
+	TriggerID      *uuid.UUID `bun:"trigger_id,type:uuid"`
 }
 
 func (t *Task) HasIdempotencyKey() bool {

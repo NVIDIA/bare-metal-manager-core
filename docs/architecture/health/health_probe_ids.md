@@ -1,7 +1,7 @@
 # Health probe IDs
 
-This page provides a list of health probes provided by NVIDIA Infra Controller (NICo), along with their IDs.
-Health reports will contain these IDs in the `alerts` section in case the associated check or validation has failed.
+NICo health reports identify each check with a stable probe ID. Failed checks
+appear in `alerts`; successful checks can appear in `successes`.
 
 ## Machine validation health probe identifiers
 
@@ -76,6 +76,14 @@ Example:
 ```text
 power_supply 'PSU0_OutputPower': Critical - reading 1320.00W (power), valid range: 0.0 to 1500.0, caution: 1200.0 to 1300.0, critical: 0.0 to 1310.0
 ```
+
+## NVLink domain health probe identifiers
+
+### `NmxControllerHealth`
+
+Indicates that NMX-C reported `Unhealthy` or `UnhealthyDbCorrupted` controller
+health for an NVLink domain. A `Healthy` report clears the probe. `Degraded` and
+`Unknown` do not generate a domain health report.
 
 ## DPU related health probe identifiers
 

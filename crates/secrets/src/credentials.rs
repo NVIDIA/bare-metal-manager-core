@@ -237,6 +237,62 @@ impl<T: CredentialWriter + ?Sized> CredentialWriter for Arc<T> {
     }
 }
 
+/// Blocks persistent UFM credential mutations while local sources own all UFM
+/// credentials, and delegates every other writer operation.
+pub struct UfmCredentialMutationBlocker {
+    writer: Arc<dyn CredentialWriter>,
+}
+
+impl UfmCredentialMutationBlocker {
+    /// Wraps a writer with the policy that rejects UFM mutations and delegates
+    /// every other credential operation.
+    pub fn new(writer: Arc<dyn CredentialWriter>) -> Self {
+        Self { writer }
+    }
+
+    fn ensure_mutation_allowed(key: &CredentialKey) -> Result<(), SecretsError> {
+        let CredentialKey::UfmAuth { fabric } = key else {
+            return Ok(());
+        };
+        Err(SecretsError::UfmCredentialMutationBlocked {
+            fabric: fabric.clone(),
+        })
+    }
+}
+
+#[async_trait]
+impl CredentialWriter for UfmCredentialMutationBlocker {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        self.writer.get_credentials_from_writer(key).await
+    }
+
+    async fn set_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        Self::ensure_mutation_allowed(key)?;
+        self.writer.set_credentials(key, credentials).await
+    }
+
+    async fn create_credentials(
+        &self,
+        key: &CredentialKey,
+        credentials: &Credentials,
+    ) -> Result<(), SecretsError> {
+        Self::ensure_mutation_allowed(key)?;
+        self.writer.create_credentials(key, credentials).await
+    }
+
+    async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
+        Self::ensure_mutation_allowed(key)?;
+        self.writer.delete_credentials(key).await
+    }
+}
+
 pub trait CredentialManager: CredentialReader + CredentialWriter {}
 
 pub struct CompositeCredentialManager<R, W> {
@@ -1004,6 +1060,65 @@ mod tests {
             .expect("writer readback");
 
         assert_eq!(writer_readback, Some(write_cred));
+    }
+
+    #[tokio::test]
+    async fn ufm_mutation_blocker_rejects_every_writer_mutation() {
+        let backend: Arc<dyn CredentialWriter> = Arc::new(TestCredentialManager::default());
+        let key = CredentialKey::UfmAuth {
+            fabric: "test-fabric".to_string(),
+        };
+        let credentials = Credentials::UsernamePassword {
+            username: "ufm-user".to_string(),
+            password: "ufm-password".to_string(),
+        };
+        let blocker = UfmCredentialMutationBlocker::new(backend);
+
+        let results = [
+            blocker.set_credentials(&key, &credentials).await,
+            blocker.create_credentials(&key, &credentials).await,
+            blocker.delete_credentials(&key).await,
+        ];
+
+        for result in results {
+            assert!(matches!(
+                result,
+                Err(SecretsError::UfmCredentialMutationBlocked { .. })
+            ));
+        }
+        assert_eq!(
+            blocker
+                .get_credentials_from_writer(&key)
+                .await
+                .expect("read writer after blocked mutations"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn ufm_mutation_blocker_delegates_non_ufm_mutations() {
+        let backend = Arc::new(TestCredentialManager::default());
+        let blocker = UfmCredentialMutationBlocker::new(backend.clone());
+        let key = CredentialKey::DpuUefi {
+            credential_type: CredentialType::SiteDefault,
+        };
+        let credentials = Credentials::UsernamePassword {
+            username: "dpu-user".to_string(),
+            password: "dpu-password".to_string(),
+        };
+
+        blocker
+            .set_credentials(&key, &credentials)
+            .await
+            .expect("write non-UFM credential");
+
+        assert_eq!(
+            backend
+                .get_credentials_from_writer(&key)
+                .await
+                .expect("read delegated credential"),
+            Some(credentials)
+        );
     }
 
     #[tokio::test]

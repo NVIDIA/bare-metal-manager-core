@@ -47,6 +47,7 @@ tokio-stream = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 
+carbide-api-model = { path = "../api-model", default-features = false }
 carbide-libmlx-model = { path = "../libmlx-model" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }

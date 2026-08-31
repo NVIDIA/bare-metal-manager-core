@@ -25,6 +25,7 @@ import (
 	eventingestion "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/ingestion"
 	eventrulemanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
 	eventrulescheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
+	eventrulestore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/postgres"
 	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
 	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
@@ -161,9 +162,7 @@ func New(ctx context.Context, c Config) (*Service, error) {
 
 	// 5. Create EventRuleManager (Business Logic Layer)
 	eventRuleManager, err := eventrulemanager.New(eventrulemanager.Config{
-		Store: eventrulemanager.StoreConfig{
-			Backend: eventrulemanager.StoreBackendMemory,
-		},
+		Store: eventrulestore.New(session),
 		Scheduler: eventrulemanager.SchedulerConfig{
 			InstanceID: "flow-" + uuid.NewString(),
 			Runtime:    eventrulescheduler.DefaultRuntimeConfig(),

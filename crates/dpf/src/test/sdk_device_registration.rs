@@ -248,7 +248,7 @@ async fn test_register_devices_node_and_force_delete() {
             dpu_machine_id: format!("dpu-{}-id", i),
             is_primary: true,
         };
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
     }
 
     // Register node

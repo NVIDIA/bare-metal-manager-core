@@ -22,7 +22,6 @@ type Store struct {
 	eventsByKey     map[eventrule.EventKey]uuid.UUID
 	executions      map[uuid.UUID]*memoryExecution
 	executionsByKey map[eventrule.ExecutionKey]uuid.UUID
-	executionTasks  map[executionTaskKey]eventrule.ExecutionTask
 	now             func() time.Time
 }
 
@@ -44,15 +43,8 @@ func NewWithClock(now func() time.Time) *Store {
 		eventsByKey:     make(map[eventrule.EventKey]uuid.UUID),
 		executions:      make(map[uuid.UUID]*memoryExecution),
 		executionsByKey: make(map[eventrule.ExecutionKey]uuid.UUID),
-		executionTasks:  make(map[executionTaskKey]eventrule.ExecutionTask),
 		now:             now,
 	}
 }
 
-var (
-	_ eventrule.RuleStore          = (*Store)(nil)
-	_ eventrule.BindingStore       = (*Store)(nil)
-	_ eventrule.EventPlanStore     = (*Store)(nil)
-	_ eventrule.ExecutionStore     = (*Store)(nil)
-	_ eventrule.ExecutionTaskStore = (*Store)(nil)
-)
+var _ eventrule.Store = (*Store)(nil)

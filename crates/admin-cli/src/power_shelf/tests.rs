@@ -31,15 +31,8 @@ use clap::CommandFactory;
 use super::*;
 use crate::test_support::parse_leaf;
 
-/// Sample power-shelf id used in CLI parse tests. Must round-trip through
-/// `PowerShelfId::from_str`, which `clap` uses to coerce identifier arguments.
 const SAMPLE_PS_ID_1: &str = "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 
-// verify_cmd_structure runs a baseline clap debug_assert()
-// to do basic command configuration checking and validation,
-// ensuring things like unique argument definitions, group
-// configurations, argument references, etc. Things that would
-// otherwise be missed until runtime.
 #[test]
 fn verify_cmd_structure() {
     Cmd::command().debug_assert();
@@ -60,6 +53,22 @@ fn parse_decommission_lifecycle_commands() {
             &["power-shelf", "decommission", SAMPLE_PS_ID_1][..] =>
                 Yields(("decommission".to_string(), SAMPLE_PS_ID_1.to_string())),
         }
+    );
+}
+
+#[test]
+fn parse_health_history_command() {
+    let matches = parse_leaf::<Cmd>(
+        &["power-shelf", "health-history", SAMPLE_PS_ID_1],
+        &["health-history"],
+    )
+    .expect("health-history should parse");
+    let power_shelf_id = matches
+        .get_one::<PowerShelfId>("power_shelf_id")
+        .expect("power shelf ID is required");
+    assert_eq!(
+        power_shelf_id,
+        &SAMPLE_PS_ID_1.parse::<PowerShelfId>().unwrap()
     );
 }
 

@@ -638,6 +638,86 @@ impl ApiClient {
             .unwrap_or_default())
     }
 
+    pub(crate) async fn get_switch_health_history(
+        &self,
+        switch_id: SwitchId,
+    ) -> CarbideCliResult<Vec<rpc::HealthHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_switch_health_histories(rpc::SwitchHealthHistoriesRequest {
+                switch_ids: vec![switch_id],
+                start_time: None,
+                end_time: None,
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&switch_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
+    pub(crate) async fn get_power_shelf_health_history(
+        &self,
+        power_shelf_id: PowerShelfId,
+    ) -> CarbideCliResult<Vec<rpc::HealthHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_power_shelf_health_histories(rpc::PowerShelfHealthHistoriesRequest {
+                power_shelf_ids: vec![power_shelf_id],
+                start_time: None,
+                end_time: None,
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&power_shelf_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
+    pub(crate) async fn get_rack_health_history(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<Vec<rpc::HealthHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_rack_health_histories(rpc::RackHealthHistoriesRequest {
+                rack_ids: vec![rack_id.clone()],
+                start_time: None,
+                end_time: None,
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&rack_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
+    pub(crate) async fn get_machine_health_history(
+        &self,
+        machine_id: MachineId,
+    ) -> CarbideCliResult<Vec<rpc::HealthHistoryRecord>> {
+        let mut result = self
+            .0
+            .find_machine_health_histories(rpc::MachineHealthHistoriesRequest {
+                machine_ids: vec![machine_id],
+                start_time: None,
+                end_time: None,
+            })
+            .await?;
+
+        Ok(result
+            .histories
+            .remove(&machine_id.to_string())
+            .map(|h| h.records)
+            .unwrap_or_default())
+    }
+
     pub(crate) async fn get_segment_state_history(
         &self,
         segment_id: NetworkSegmentId,

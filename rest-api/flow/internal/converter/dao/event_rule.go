@@ -66,8 +66,8 @@ func EventRuleFrom(dbRule *dbmodel.EventRule) (*eventrule.Rule, error) {
 		Enabled:     dbRule.Enabled,
 		EventType:   eventrule.Type(dbRule.EventType),
 		Policy:      policy,
-		CreatedAt:   dbRule.CreatedAt,
-		UpdatedAt:   dbRule.UpdatedAt,
+		CreatedAt:   timeFromPersistence(dbRule.CreatedAt),
+		UpdatedAt:   timeFromPersistence(dbRule.UpdatedAt),
 	}
 
 	if err := rule.Validate(); err != nil {

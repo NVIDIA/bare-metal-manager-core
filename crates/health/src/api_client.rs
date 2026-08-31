@@ -138,6 +138,33 @@ impl ApiClientWrapper {
         Ok(())
     }
 
+    /// Replaces one source's NVLink domain report using merge semantics.
+    ///
+    /// A success for a probe clears an alert from the same report source and
+    /// probe identifier.
+    pub async fn submit_nvlink_domain_health_report(
+        &self,
+        domain_id: &NvLinkDomainId,
+        report: health_report::HealthReport,
+    ) -> Result<(), HealthError> {
+        let ovrd = rpc::forge::HealthReportEntry {
+            report: Some(report.into()),
+            mode: rpc::forge::HealthReportApplyMode::Merge.into(),
+        };
+
+        let request = rpc::forge::InsertNvLinkDomainHealthReportRequest {
+            domain_id: Some(*domain_id),
+            health_report_entry: Some(ovrd),
+        };
+
+        self.client
+            .insert_nv_link_domain_health_report(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(())
+    }
+
     pub async fn submit_power_shelf_health_report(
         &self,
         power_shelf_id: &carbide_uuid::power_shelf::PowerShelfId,

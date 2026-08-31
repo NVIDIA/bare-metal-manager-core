@@ -278,11 +278,11 @@ async fn test_integration() -> eyre::Result<()> {
         r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_serial_number"}"#,
     )
     .await?;
-    // MaT exercises a host with multiple DPUs whose lowest Scout PCI slot
-    // matches its stored boot interface.
+    // The Wiwynn mock deliberately gives the `RedfishChassisId` selection the higher
+    // scout PCI slot so the integration path exercises automatic reconciliation.
     metrics::wait_for_metric_line(
         &test_env.carbide_metrics_addrs,
-        r#"carbide_scout_pci_evaluations_total{result="agreement"}"#,
+        r#"carbide_scout_pci_evaluations_total{result="differs_from_stored"}"#,
     )
     .await?;
 
@@ -297,7 +297,7 @@ async fn test_integration() -> eyre::Result<()> {
         metric_infos
             .iter()
             .any(|metric| metric.name == "carbide_scout_pci_evaluations_total"),
-        "the MaT Scout path must exercise PCI evaluation observability",
+        "the MaT scout path must exercise PCI comparison observability",
     );
     generate_core_metric_docs(&test_env.carbide_metrics_addrs);
 
@@ -657,11 +657,11 @@ async fn test_machine_a_tron_multidpu(
                 let dpu = machine_handle
                     .host_info()
                     .dpus
-                    .first()
-                    .expect("Wiwynn GB200 host should contain its Slot1 DPU");
+                    .get(1)
+                    .expect("Wiwynn GB200 host should contain its DPU with the lower scout PCI slot");
                 (
                     dpu.host_mac_address,
-                    BootInterfaceSelectionSource::RedfishChassisId,
+                    BootInterfaceSelectionSource::ScoutReportPci,
                 )
             });
             async move {
@@ -682,7 +682,7 @@ async fn test_machine_a_tron_multidpu(
                     .await?;
                     assert_eq!(
                         selection, expected_selection,
-                        "GB200's Slot1 chassis selection must survive the full ingestion handoff",
+                        "the Wiwynn mock must replace its RedfishChassisId selection with the lower scout PCI slot",
                     );
                 }
                 tracing::info!(

@@ -437,12 +437,20 @@ impl ManagedHostStateSnapshot {
     }
 
     // We are examining the dpa_interface_snapshots of the MH to see if has
-    // any NICs of type Astra. This function cannot be used during machine ingestion
-    // when the dpa_interfaces table does not yet have any entries for the host.
+    // any NICs of type Astra.
     pub fn has_astra_nics(&self) -> bool {
         self.dpa_interface_snapshots
             .iter()
             .any(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
+    }
+
+    // Returns the Astra NICs found in the MH's dpa_interface_snapshots. Only
+    // interfaces whose interface_type is Astra are returned.
+    pub fn astra_nics(&self) -> Vec<&DpaInterface> {
+        self.dpa_interface_snapshots
+            .iter()
+            .filter(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
+            .collect()
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.

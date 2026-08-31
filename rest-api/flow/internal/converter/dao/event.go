@@ -61,8 +61,8 @@ func EventFrom(persisted *dbmodel.Event) (*eventrule.Event, error) {
 		EffectivePolicy: policy,
 		Summary:         persisted.Summary,
 		Observations:    persisted.Observations,
-		CreatedAt:       persisted.CreatedAt,
-		LastObservedAt:  persisted.LastObservedAt,
+		CreatedAt:       timeFromPersistence(persisted.CreatedAt),
+		LastObservedAt:  timeFromPersistence(persisted.LastObservedAt),
 	}
 
 	if err := event.Validate(); err != nil {

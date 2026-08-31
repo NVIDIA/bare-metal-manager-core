@@ -46,6 +46,7 @@ Print help (see a summary with -h)
 | [`force-delete`](./switch-force-delete.md) | Force delete a switch and optionally its interfaces |
 | [`metadata`](./switch-metadata.md) | Manage Switch Metadata |
 | [`health-report`](./switch-health-report.md) | Manage health report sources |
+| [`health-history`](./switch-health-history.md) | Show switch health history |
 
 ---
 

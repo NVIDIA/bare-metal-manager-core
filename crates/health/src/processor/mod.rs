@@ -23,10 +23,12 @@ use std::time::Instant;
 mod health_report;
 mod intrusion_events;
 mod leak_events;
+mod nmxc_domain_state;
 mod rack_leak;
 pub use health_report::HealthReportProcessor;
 pub use intrusion_events::BmcIntrusionEventProcessor;
 pub use leak_events::LeakEventProcessor;
+pub use nmxc_domain_state::NmxcDomainStateProcessor;
 pub use rack_leak::RackLeakProcessor;
 
 use crate::HealthError;
