@@ -102,7 +102,7 @@ func TestExecuteVPCPeeringPlan(t *testing.T) {
 	assert.Contains(t, output.String(), "Summary: created 1, skipped 1, failed 1")
 }
 
-func TestFetchVPCPeeringsForSiteIgnoresActiveVPCScope(t *testing.T) {
+func TestFetchVPCPeeringsForSite(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
 		require.Equal(t, "/v2/org/acme/nico/vpc-peering", r.URL.Path)
