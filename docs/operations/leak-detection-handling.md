@@ -89,8 +89,7 @@ When there are leaking trays but not enough to trigger a critical or severe leak
 
 The default handling policy is to shut down all leaking trays. For a leaking tray that is still powered on, NICo forcefully shuts it down.
 
-To see the handling operation task status
-`GET /nico/tray/{id}/task`
+Use the `GET /nico/tray/{id}/task` [REST API endpoint](api:GET/v2/org/:org/nico/tray/:id/task) to see the handling operation task status
 
 ## Next phase: API-manageable, customizable, full-lifecycle leak detection and handling
 
