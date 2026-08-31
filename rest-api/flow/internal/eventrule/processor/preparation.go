@@ -17,16 +17,15 @@ type RuleResolver interface {
 	GetEffective(context.Context, eventrule.Type, uuid.UUID) (*eventrule.Rule, error)
 }
 
-// preparedEvent contains the durable event definition and the transient
-// resolved resource needed by creator-owned planning.
+// preparedEvent contains the event definition and transient resolved resource
+// needed to construct its complete durable plan.
 type preparedEvent struct {
 	Event    eventrule.Event
 	Resource eventrule.ResolvedResource
 }
 
-// prepare admits a creator-owned event for planning. It deduplicates before
-// performing preparation work, enriches the resource, resolves and evaluates
-// the effective rule, and persists the event. A duplicate or absent rule is an
+// prepare deduplicates before expensive work, enriches the resource, and
+// resolves and evaluates the effective rule. A duplicate or absent rule is an
 // accepted no-op represented by (nil, nil).
 func (p *Processor) prepare(
 	ctx context.Context,
@@ -38,11 +37,11 @@ func (p *Processor) prepare(
 
 	// ObserveEvent is the duplicate fast path before resource enrichment and
 	// rule resolution. It records the duplicate observation while avoiding the
-	// preparation cost. Recovery of unplanned events is follow-on work.
-	observed, err := p.events.ObserveEvent(ctx, envelope.Key)
+	// preparation cost.
+	observed, err := p.store.ObserveEvent(ctx, envelope.Key)
 	if err != nil || observed != nil {
-		// Propagate lookup errors; a successfully observed duplicate stops here
-		// because its creator retains responsibility for planning and dispatch.
+		// Propagate lookup errors; a successfully observed duplicate already has a
+		// complete durable plan and stops here.
 		return nil, err
 	}
 
@@ -67,9 +66,9 @@ func (p *Processor) prepare(
 		}
 	}
 
-	// Persist an empty effective policy to record that the rule was evaluated
-	// and no action applied. This keeps duplicate handling stable and lets the
-	// planning checkpoint distinguish an intentional no-op from interrupted work.
+	// Persisting an empty effective policy records that the rule was evaluated
+	// and no action applied. The atomic commit creates the event with no
+	// executions.
 	definition := eventrule.Event{
 		Key:           envelope.Key,
 		Type:          envelope.Type,
@@ -86,12 +85,5 @@ func (p *Processor) prepare(
 		),
 	}
 
-	created, err := p.events.CreateEvent(ctx, definition)
-	if err != nil || created == nil {
-		// A nil event means another processor created it between ObserveEvent and
-		// CreateEvent. The store recorded this delivery as a duplicate, so stop here.
-		return nil, err
-	}
-
-	return &preparedEvent{Event: *created, Resource: resource}, nil
+	return &preparedEvent{Event: definition, Resource: resource}, nil
 }

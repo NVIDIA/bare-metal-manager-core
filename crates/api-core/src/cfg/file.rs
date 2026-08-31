@@ -91,6 +91,14 @@ const RESERVED_DPF_DEPLOYMENT_NODE_LABELS: [(&str, &str); 2] = [
     ),
 ];
 
+const DPF_DEPLOYMENT_NAME_MAX_LENGTH: usize = 20;
+const DPF_FLAVOR_HASH_SUFFIX_LENGTH: usize = 17;
+const KUBERNETES_LABEL_NAME_MAX_LENGTH: usize = 63;
+const GB200_RESOURCE_SUFFIX: &str = "-gb200";
+// The DPUDeployment CRD allows only 20 characters. The default BF3 name already
+// uses 18, so `-g` is the longest suffix that preserves it without truncation.
+const GB200_DEPLOYMENT_SUFFIX: &str = "-g";
+
 /// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
 /// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
 /// its own Option variant -- we do NOT use the deprecated function.
@@ -340,6 +348,24 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub allow_insecure_discovery: bool,
 
+    /// Controls whether NICo may reconcile a boot interface selection recorded as
+    /// `RedfishChassisId` or `RedfishSerialNumber` after ordering DPU-attached Admin interfaces
+    /// by the `domain:bus:device.function` PCI addresses in scout's `HardwareInfo`.
+    ///
+    /// The setting is read at startup and defaults to `false`. NICo records available comparisons
+    /// in structured logs and `carbide_scout_pci_evaluations_total` regardless of this setting.
+    /// When `false`, it does not change the selection. When `true`, reconciliation requires at
+    /// least two eligible interfaces, a complete and unique candidate, `ManagedHostState::Ready`
+    /// or `ManagedHostState::HostInit` with `MachineState::Discovered`, no `Instance` or primary
+    /// interface prediction, and no conflicting or integrated-NIC primary.
+    ///
+    /// If the selected MAC is already desired and primary, NICo changes only the source to
+    /// `ScoutReportPci`. Otherwise it updates the desired target and primary together and enqueues
+    /// the state handler. A `Ready` host enters `BootConfiguring`; `HostInit` completes its reboot
+    /// handshake first.
+    #[serde(default)]
+    pub scout_boot_interface_correction_enabled: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -420,6 +446,19 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub uefi_rotation_enabled: bool,
 
+    /// Site-wide enable for NIC lockdown IKM rotation. When `false` (the
+    /// default), the SuperNIC lock/unlock flow keeps deriving keys from (and
+    /// re-locking cards at) their current tracked IKM version, so a staged
+    /// `RotateCredential(lockdown_ikm)` bumps the site-wide target without any
+    /// card migrating -- the deliberate cutover flip. When `true`, the
+    /// assignment-cycle lock derives from the staged site-wide target, so cards
+    /// migrate to the new IKM as tenants cycle. Unlock always derives from the
+    /// version a card is actually locked under regardless of this flag, so
+    /// flipping it off never bricks an already-migrated card. This is the fleet
+    /// kill-switch for rolling the feature out site-by-site.
+    #[serde(default)]
+    pub lockdown_ikm_rotation_enabled: bool,
+
     /// Site-wide enable for factory-resetting the host BMC during tenant
     /// release. When `false` (the default), tenant release skips the BMC
     /// factory-reset sub-flow entirely and proceeds directly to `PowerCycle`.
@@ -448,6 +487,10 @@ pub struct CarbideConfig {
     /// VpcPrefixStateController related configuration parameter
     #[serde(default)]
     pub vpc_prefix_state_controller: VpcPrefixStateControllerConfig,
+
+    /// ExtensionServiceStateController related configuration parameter
+    #[serde(default)]
+    pub extension_service_state_controller: ExtensionServiceStateControllerConfig,
 
     /// IbPartitionStateController related configuration parameter
     #[serde(default)]
@@ -619,10 +662,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub oem_manager_profiles: libredfish::BiosProfileVendor,
 
-    /// DpaConfig refers to East West Ethernet (aka
+    /// EwEthersConfig refers to East West Ethernet (aka
     /// Cluster Interconnect Network) configuration
     #[serde(default)]
-    pub dpa_config: Option<DpaConfig>,
+    pub ewethers_config: Option<EwEthersConfig>,
 
     /// DSX Exchange Event Bus configuration. Publishes
     /// `ManagedHostState` transitions, BMS rack leak/isolation
@@ -878,6 +921,15 @@ pub struct CarbideConfig {
     /// env -> file -> vault behavior as when it is absent); see `SecretsConfig`.
     pub secrets: Option<SecretsConfig>,
 
+    /// Operator-managed static credential sources. These settings contain
+    /// only source locations and reload policy; credential values stay in the
+    /// referenced file or process environment. When a file is configured, the
+    /// local environment/file chain is read first for non-UFM credentials.
+    /// `credentials.ufm_source` exclusively selects local or persistent
+    /// backend ownership for all UFM credentials.
+    #[serde(default)]
+    pub credentials: CredentialsConfig,
+
     /// IP cleanup on lease expiry
     #[serde(default)]
     pub dhcp_lease_expiry_handling: bool,
@@ -1022,6 +1074,75 @@ pub struct CertificatesConfig {
     pub dedicated_vault: Option<DedicatedVaultSettings>,
 }
 
+/// Non-secret sources for operator-managed credentials.
+///
+/// The file source is optional. When present, it takes precedence over the
+/// legacy environment-selected file source and is read before credential
+/// backends such as Vault or Postgres. `ufm_source` controls whether UFM reads
+/// preserve that local-first order or use one authoritative source.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialsConfig {
+    /// Selects the read precedence and mutation policy for UFM credentials.
+    /// Defaults to local-first reads with persistent-backend fallback.
+    #[serde(default)]
+    pub ufm_source: UfmCredentialSource,
+
+    /// A watched file containing static credentials. Its contents are never
+    /// embedded in `CarbideConfig`.
+    #[serde(default)]
+    pub file: Option<CredentialFileSourceConfig>,
+}
+
+/// Configuration for the watched static-credentials file.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialFileSourceConfig {
+    /// Absolute or working-directory-relative path to the JSON or YAML file
+    /// containing static credentials.
+    pub path: PathBuf,
+
+    /// Nonzero interval used to detect projected-Secret replacements that do
+    /// not emit a filesystem watch event. Defaults to 60 seconds.
+    #[serde(
+        default = "CredentialFileSourceConfig::default_poll_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub poll_interval: std::time::Duration,
+}
+
+/// Read precedence and mutation policy for site UFM credentials.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UfmCredentialSource {
+    /// Preserve the existing local-first behavior: read environment/file UFM
+    /// entries before the persistent backend and mutate the backend.
+    #[default]
+    LocalFirst,
+    /// Read and mutate UFM credentials in the configured persistent backend.
+    /// Local environment/file UFM entries are ignored.
+    Backend,
+    /// Read UFM credentials only from the local environment/file sources.
+    /// Every configured fabric must be present when IB management starts, and
+    /// persistent backend mutation is disabled.
+    Local,
+}
+
+impl CredentialFileSourceConfig {
+    /// Returns the polling interval used when `poll_interval` is omitted.
+    pub const fn default_poll_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+}
+
+impl CredentialsConfig {
+    /// Returns whether local sources authoritatively own UFM credentials.
+    pub fn uses_authoritative_local_ufm_credentials(&self) -> bool {
+        self.ufm_source == UfmCredentialSource::Local
+    }
+}
+
 /// Tag selecting the certificate backend. The matching settings (if any) live
 /// in their own sub-table, so the choice is explicit rather than inferred.
 // The shared `Vault` suffix is intentional: both current backends are Vault
@@ -1059,6 +1180,10 @@ pub struct DedicatedVaultSettings {
     /// root / `VAULT_CACERT`.
     #[serde(default)]
     pub vault_cacert: Option<String>,
+    /// Optional Vault Enterprise or HCP Vault Dedicated namespace for this
+    /// dedicated certificate client. Takes precedence over `VAULT_NAMESPACE`.
+    #[serde(default)]
+    pub namespace: Option<String>,
 }
 
 // Hand-rolled so the root `token` is never printed verbatim in logs or errors;
@@ -1073,6 +1198,7 @@ impl std::fmt::Debug for DedicatedVaultSettings {
             .field("pki_role_name", &self.pki_role_name)
             .field("token", &self.token.as_ref().map(|_| "<redacted>"))
             .field("vault_cacert", &self.vault_cacert)
+            .field("namespace", &self.namespace)
             .finish()
     }
 }
@@ -1097,6 +1223,7 @@ impl CertificatesConfig {
                         pki_role_name: dedicated.pki_role_name.clone(),
                         token: dedicated.token.clone(),
                         vault_cacert: dedicated.vault_cacert.clone(),
+                        namespace: dedicated.namespace.clone(),
                     },
                 )
             }
@@ -1136,12 +1263,14 @@ impl CarbideConfig {
             firmware_global: self.firmware_global.clone(),
             machine_state_controller: self.machine_state_controller.clone(),
             host_health: self.host_health,
+            rack_profiles: self.rack_profiles.clone(),
 
             selected_profile: self.selected_profile,
             bios_profiles: self.bios_profiles.clone(),
             oem_manager_profiles: self.oem_manager_profiles.clone(),
 
-            dpa_enabled: self.is_dpa_enabled(),
+            ewethers_enabled: self.is_ewethers_enabled(),
+            astra_enabled: self.is_astra_enabled(),
             dpf_enabled: self.dpf.enabled,
             dpu_service_sync_enabled: self.dpf.dpu_service_sync_enabled,
             spdm_enabled: self.spdm.enabled,
@@ -1353,11 +1482,12 @@ pub struct SecretsConfig {
     pub routing: std::collections::HashMap<String, String>,
 
     /// The credential *backend* read order, highest priority first (first match
-    /// wins). The local-override readers (env, file) are always tried ahead of
-    /// these, when their `[credentials.*]` section is enabled; this list only
-    /// orders the backends behind them. Order is the operator's choice -- list
-    /// the backends you want, in the priority you want. Defaults to `["vault"]`
-    /// -- with the local overrides, that is the env -> file -> vault chain.
+    /// wins). Enabled local-override readers (env, file) are normally tried
+    /// ahead of these; `credentials.ufm_source` can suppress local UFM entries
+    /// or make them authoritative. This list only orders the persistent
+    /// backends. Order is the operator's choice -- list the backends you want,
+    /// in the priority you want. Defaults to `["vault"]` -- with the local
+    /// overrides, that is the env -> file -> vault chain.
     ///
     /// For example, to roll Postgres in gradually, walk this list:
     ///
@@ -1382,7 +1512,8 @@ pub struct SecretsConfig {
     /// fresh site with nothing to import; unsupported values fail config
     /// parsing rather than silently skipping the import. Independent of
     /// `backends`/`writer` -- importing from vault is orthogonal to where
-    /// reads and writes flow.
+    /// reads and writes flow. When `credentials.ufm_source = "local"`, UFM
+    /// paths are excluded so the import preserves local ownership.
     pub import_from: Option<ImportSource>,
 
     /// How to treat secrets that already exist in Postgres during import.
@@ -1563,6 +1694,19 @@ fn is_valid_kubernetes_data_key(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn is_valid_kubernetes_label_key(value: &str) -> bool {
+    let (prefix, name) = value
+        .split_once('/')
+        .map_or((None, value), |(prefix, name)| (Some(prefix), name));
+    let bytes = name.as_bytes();
+
+    prefix.is_none_or(is_valid_kubernetes_object_name)
+        && name.len() <= KUBERNETES_LABEL_NAME_MAX_LENGTH
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        && is_valid_kubernetes_data_key(name)
 }
 
 /// Kubernetes object kinds supported as DPF DPU-agent trust-anchor sources.
@@ -1862,7 +2006,7 @@ const BF4_ASTRA_EXTRA_SERVICES: &[DpfExtraService] = &[
 
 fn extra_service_types(deployment_type: DpuDeploymentType) -> &'static [DpfExtraService] {
     match deployment_type {
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &[],
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => &[],
         DpuDeploymentType::Bf4Astra => BF4_ASTRA_EXTRA_SERVICES,
     }
 }
@@ -2111,6 +2255,61 @@ impl Default for DpfDeploymentConfig {
     }
 }
 
+impl DpfDeploymentConfig {
+    /// Derives the GB200 BF3 deployment from the configured BF3 source and services.
+    pub(crate) fn bf3_gb200(&self) -> Self {
+        Self {
+            flavor_name: append_bounded_identifier_suffix(
+                &self.flavor_name,
+                GB200_RESOURCE_SUFFIX,
+                KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH - DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+            ),
+            deployment_name: append_bounded_identifier_suffix(
+                &self.deployment_name,
+                GB200_DEPLOYMENT_SUFFIX,
+                DPF_DEPLOYMENT_NAME_MAX_LENGTH,
+            ),
+            node_label_key: append_gb200_label_suffix(&self.node_label_key),
+            ..self.clone()
+        }
+    }
+}
+
+/// Appends `suffix` while reserving its bytes inside `max_len`.
+///
+/// Kubernetes identifiers are ASCII. If truncation lands on a separator,
+/// remove it so the suffix still ends a valid segment. Startup validation
+/// checks both the configured and derived identifiers after this step.
+fn append_bounded_identifier_suffix(value: &str, suffix: &str, max_len: usize) -> String {
+    let max_prefix_len = max_len.saturating_sub(suffix.len());
+    let prefix = value
+        .char_indices()
+        .take_while(|(index, ch)| index + ch.len_utf8() <= max_prefix_len)
+        .map(|(_, ch)| ch)
+        .collect::<String>();
+    let prefix = prefix.trim_end_matches(['-', '.', '_']);
+
+    format!("{prefix}{suffix}")
+}
+
+/// Adds the GB200 suffix to the name segment of a Kubernetes label key.
+fn append_gb200_label_suffix(label_key: &str) -> String {
+    let Some((prefix, name)) = label_key.rsplit_once('/') else {
+        return append_bounded_identifier_suffix(
+            label_key,
+            GB200_RESOURCE_SUFFIX,
+            KUBERNETES_LABEL_NAME_MAX_LENGTH,
+        );
+    };
+    let name = append_bounded_identifier_suffix(
+        name,
+        GB200_RESOURCE_SUFFIX,
+        KUBERNETES_LABEL_NAME_MAX_LENGTH,
+    );
+
+    format!("{prefix}/{name}")
+}
+
 /// BlueFieldSoftware spec for BF4-class DPU provisioning. Mirrors the `spec` of
 /// the `provisioning.dpu.nvidia.com/v1alpha1` `BlueFieldSoftware` CR.
 ///
@@ -2163,10 +2362,12 @@ impl DpfDeploymentsConfig {
         v
     }
 
-    /// Validates that identifiers are unique and deployment label keys are not reserved.
-    /// Returns every conflict so the operator can fix them all in one pass.
+    /// Validates the final Kubernetes identifiers, their uniqueness, and reserved labels.
+    /// Returns every error so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
-        let deployments = self.all();
+        let bf3_gb200 = self.bf3.bf3_gb200();
+        let mut deployments = self.all();
+        deployments.push(("bf3_gb200", &bf3_gb200));
         let mut errors: Vec<String> = Vec::new();
 
         let name_vals: Vec<(&str, &str)> = deployments
@@ -2197,9 +2398,33 @@ impl DpfDeploymentsConfig {
             }
         }
 
+        for (deployment, name) in &name_vals {
+            if name.len() > DPF_DEPLOYMENT_NAME_MAX_LENGTH || !is_valid_kubernetes_object_name(name)
+            {
+                errors.push(format!(
+                    "deployment_name {name:?} for deployment {deployment:?} is not a valid DPUDeployment name"
+                ));
+            }
+        }
+
+        for (deployment, name) in &flavor_vals {
+            if name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH > KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+                || !is_valid_kubernetes_object_name(name)
+            {
+                errors.push(format!(
+                    "flavor_name {name:?} for deployment {deployment:?} cannot form a valid hash-suffixed DPUFlavor name"
+                ));
+            }
+        }
+
         // This is intentionally a local configuration check. Querying current DPUNode labels
         // cannot establish safety: these keys have fixed NICo semantics before any node exists.
         for (deployment, label_key) in &label_vals {
+            if !is_valid_kubernetes_label_key(label_key) {
+                errors.push(format!(
+                    "node_label_key {label_key:?} for deployment {deployment:?} is not a valid Kubernetes label key"
+                ));
+            }
             if let Some((_, purpose)) = RESERVED_DPF_DEPLOYMENT_NODE_LABELS
                 .iter()
                 .find(|(reserved, _)| label_key == reserved)
@@ -2953,16 +3178,32 @@ impl CarbideConfig {
         }
     }
 
-    pub fn is_dpa_enabled(&self) -> bool {
-        let Some(conf) = &self.dpa_config else {
+    pub fn is_ewethers_enabled(&self) -> bool {
+        let Some(conf) = &self.ewethers_config else {
             return false;
         };
 
         conf.enabled
     }
 
+    pub fn is_svpc_enabled(&self) -> bool {
+        let Some(conf) = &self.ewethers_config else {
+            return false;
+        };
+
+        conf.svpc_enabled
+    }
+
+    pub fn is_astra_enabled(&self) -> bool {
+        let Some(conf) = &self.ewethers_config else {
+            return false;
+        };
+
+        conf.astra_enabled
+    }
+
     pub fn get_dpa_subnet_ip(&self) -> Result<Ipv4Addr, eyre::Report> {
-        let Some(conf) = &self.dpa_config else {
+        let Some(conf) = &self.ewethers_config else {
             tracing::error!("get_dpa_subnet_ip: DPA config missing");
             return Err(eyre::eyre!("get_dpa_subnet_ip: DPA config missing"));
         };
@@ -2971,7 +3212,7 @@ impl CarbideConfig {
     }
 
     pub fn get_dpa_subnet_mask(&self) -> Result<i32, eyre::Report> {
-        let Some(conf) = &self.dpa_config else {
+        let Some(conf) = &self.ewethers_config else {
             tracing::error!("get_dpa_subnet_mask: DPA config missing");
             return Err(eyre::eyre!("get_dpa_subnet_mask: DPA config missing"));
         };
@@ -2980,17 +3221,21 @@ impl CarbideConfig {
     }
 
     pub fn mqtt_broker_host(&self) -> Option<String> {
-        self.dpa_config
+        self.ewethers_config
             .as_ref()
-            .map(|conf| conf.mqtt_endpoint.clone())
+            .map(|conf| conf.svpc.mqtt_endpoint.clone())
     }
 
     pub fn mqtt_broker_port(&self) -> Option<u16> {
-        self.dpa_config.as_ref().map(|conf| conf.mqtt_broker_port)
+        self.ewethers_config
+            .as_ref()
+            .map(|conf| conf.svpc.mqtt_broker_port)
     }
 
     pub fn get_hb_interval(&self) -> Option<chrono::TimeDelta> {
-        self.dpa_config.as_ref().map(|conf| conf.hb_interval)
+        self.ewethers_config
+            .as_ref()
+            .map(|conf| conf.svpc.hb_interval)
     }
 
     /// Returns true if the DSX Exchange Event Bus is enabled.
@@ -3139,6 +3384,14 @@ impl Default for VpcPrefixStateControllerConfig {
             vpc_prefix_drain_time: Self::vpc_prefix_drain_time_default(),
         }
     }
+}
+
+/// Extension-service state-controller configuration.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExtensionServiceStateControllerConfig {
+    /// Common state-controller configuration.
+    #[serde(default = "StateControllerConfig::default")]
+    pub controller: StateControllerConfig,
 }
 
 /// IbPartitionStateController related config
@@ -3922,17 +4175,34 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .bom_validation
                 .allow_allocation_on_validation_failure,
             dpu_nic_firmware_update_versions: value.dpu_config.dpu_nic_firmware_update_versions,
-            dpa_enabled: value.dpa_config.clone().unwrap_or_default().enabled,
-            mqtt_endpoint: value.dpa_config.clone().unwrap_or_default().mqtt_endpoint,
-            mqtt_broker_port: value
-                .dpa_config
+            ewethers_enabled: value.ewethers_config.clone().unwrap_or_default().enabled,
+            svpc_enabled: value
+                .ewethers_config
                 .clone()
                 .unwrap_or_default()
+                .svpc_enabled,
+            astra_enabled: value
+                .ewethers_config
+                .clone()
+                .unwrap_or_default()
+                .astra_enabled,
+            mqtt_endpoint: value
+                .ewethers_config
+                .clone()
+                .unwrap_or_default()
+                .svpc
+                .mqtt_endpoint,
+            mqtt_broker_port: value
+                .ewethers_config
+                .clone()
+                .unwrap_or_default()
+                .svpc
                 .mqtt_broker_port as i32,
             mqtt_hb_interval: value
-                .dpa_config
+                .ewethers_config
                 .clone()
                 .unwrap_or_default()
+                .svpc
                 .hb_interval
                 .to_string(),
             bom_validation_auto_generate_missing_sku: value
@@ -3944,12 +4214,12 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .as_secs(),
             dpu_secure_boot_enabled: value.dpu_config.dpu_enable_secure_boot,
             dpa_subnet_ip: value
-                .dpa_config
+                .ewethers_config
                 .clone()
                 .unwrap_or_default()
                 .subnet_ip
                 .to_string(),
-            dpa_subnet_mask: value.dpa_config.unwrap_or_default().subnet_mask,
+            dpa_subnet_mask: value.ewethers_config.unwrap_or_default().subnet_mask,
             dpf_enabled: value.dpf.enabled,
             compile_time_helm_version: crate::dpf_services::COMPILE_TIME_HELM_VERSION.to_string(),
             compile_time_docker_version: crate::dpf_services::COMPILE_TIME_IMAGE_TAG.to_string(),
@@ -3968,7 +4238,7 @@ fn default_mqtt_broker_port() -> u16 {
     1884
 }
 
-pub use carbide_dpa_manager::config::{DpaConfig, MqttAuthConfig, MqttAuthMode};
+pub use carbide_dpa_manager::config::{EwEthersConfig, MqttAuthConfig, MqttAuthMode, SvpcConfig};
 use model::vpc::VpcDefinition;
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
@@ -4303,6 +4573,72 @@ mod tests {
         let error = toml::from_str::<NodeAuthConfig>("audience = \"nico-api-eu\"")
             .expect_err("the node-auth audience is fixed");
         assert!(error.to_string().contains("unknown field `audience`"));
+    }
+
+    #[test]
+    fn credentials_file_config_contract() {
+        scenarios!(
+            run = |config: &str| toml::from_str::<CredentialsConfig>(config).map_err(drop);
+            "optional source" {
+                "" => Yields(CredentialsConfig::default()),
+            }
+
+            "valid file source" {
+                r#"
+ufm_source = "local"
+
+[file]
+path = "/var/run/secrets/nico/ufm/credentials.yaml"
+poll_interval = "17s"
+"# => Yields(CredentialsConfig {
+                    ufm_source: UfmCredentialSource::Local,
+                    file: Some(CredentialFileSourceConfig {
+                        path: PathBuf::from("/var/run/secrets/nico/ufm/credentials.yaml"),
+                        poll_interval: std::time::Duration::from_secs(17),
+                    }),
+                }),
+            }
+
+            "file source default poll interval" {
+                r#"
+[file]
+path = "credentials.yaml"
+"# => Yields(CredentialsConfig {
+                    ufm_source: UfmCredentialSource::LocalFirst,
+                    file: Some(CredentialFileSourceConfig {
+                        path: PathBuf::from("credentials.yaml"),
+                        poll_interval: std::time::Duration::from_secs(60),
+                    }),
+                }),
+            }
+
+            "missing file path" {
+                "[file]\npoll_interval = \"17s\"" => Fails,
+            }
+
+            "unknown field" {
+                "[file]\npath = \"credentials.yaml\"\ntoken = \"not-a-secret-here\"" => Fails,
+            }
+
+            "unknown UFM source" {
+                "ufm_source = \"fallback\"" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn ufm_source_contract() {
+        value_scenarios!(
+            run = |ufm_source| CredentialsConfig {
+                ufm_source,
+                file: None,
+            }.uses_authoritative_local_ufm_credentials();
+            "credential source modes" {
+                UfmCredentialSource::LocalFirst => false,
+                UfmCredentialSource::Backend => false,
+                UfmCredentialSource::Local => true,
+            }
+        );
     }
 
     /// A cap below the clients' fixed 300 s lifetime is accepted-looking and
@@ -4831,6 +5167,7 @@ mod tests {
                 pki_role_name: &'static str,
                 token: Option<&'static str>,
                 vault_cacert: Option<&'static str>,
+                namespace: Option<&'static str>,
             },
         }
 
@@ -4858,6 +5195,7 @@ mod tests {
                     pki_role_name = "machine"
                     token = "s.abc123"
                     vault_cacert = "/etc/ssl/certs/vault-ca.pem"
+                    namespace = "admin/certificates"
                 "#,
                 Expect::Dedicated {
                     address: "https://vault-certs.example:8200",
@@ -4865,6 +5203,7 @@ mod tests {
                     pki_role_name: "machine",
                     token: Some("s.abc123"),
                     vault_cacert: Some("/etc/ssl/certs/vault-ca.pem"),
+                    namespace: Some("admin/certificates"),
                 },
             ),
             (
@@ -4926,6 +5265,7 @@ mod tests {
                     pki_role_name,
                     token,
                     vault_cacert,
+                    namespace,
                 } => {
                     let cfg = parsed
                         .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
@@ -4943,6 +5283,7 @@ mod tests {
                                 *vault_cacert,
                                 "{name}: vault_cacert"
                             );
+                            assert_eq!(d.namespace.as_deref(), *namespace, "{name}: namespace");
                         }
                         other => panic!("{name}: expected dedicated vault backend, got {other:?}"),
                     }
@@ -5333,6 +5674,7 @@ mod tests {
             pki_role_name: "leaf".to_string(),
             token: Some("s.super-secret-root-token".to_string()),
             vault_cacert: None,
+            namespace: None,
         });
         let redacted = config.redacted();
         assert_eq!(
@@ -5390,12 +5732,14 @@ mod tests {
         );
         assert!(config.dhcp_servers.is_empty());
         assert!(!config.allow_insecure_discovery);
+        assert!(!config.scout_boot_interface_correction_enabled);
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
+        assert_eq!(config.credentials, CredentialsConfig::default());
         assert_eq!(
             config.bmc_session_lockout_threshold,
             default_bmc_session_lockout_threshold()
@@ -5431,6 +5775,10 @@ mod tests {
         assert_eq!(
             config.vpc_prefix_state_controller,
             VpcPrefixStateControllerConfig::default()
+        );
+        assert_eq!(
+            config.extension_service_state_controller,
+            ExtensionServiceStateControllerConfig::default()
         );
         assert_eq!(
             config.ib_partition_state_controller,
@@ -5498,6 +5846,18 @@ mod tests {
             (
                 r#"{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}"#,
                 "nico-system",
+            ),
+            (
+                r#"{{ printf "%s/credentials.yaml" (required "nico-api.credentials.file.mountPath is required when credentials.file.existingSecret.name is set" .Values.credentials.file.mountPath) | quote }}"#,
+                r#""/var/run/secrets/nico/ufm/credentials.yaml""#,
+            ),
+            (
+                r#"{{ required "nico-api.credentials.file.pollInterval is required when credentials.file.existingSecret.name is set" .Values.credentials.file.pollInterval | quote }}"#,
+                r#""60s""#,
+            ),
+            (
+                "{{ .Values.credentials.ufmSource | quote }}",
+                r#""local_first""#,
             ),
             (
                 "{{ range $i, $cn := .Values.auth.additionalIssuerCns }}{{ if $i }}, {{ end }}{{ $cn | quote }}{{ end }}",
@@ -5632,6 +5992,7 @@ mod tests {
         figment::Jail::expect_with(|jail| {
             jail.set_env("CARBIDE_API_DATABASE_URL", "postgres://othersql");
             jail.set_env("CARBIDE_API_ASN", 777);
+            jail.set_env("CARBIDE_API_SCOUT_BOOT_INTERFACE_CORRECTION_ENABLED", true);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
                 "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
@@ -5651,6 +6012,17 @@ mod tests {
             assert_eq!(config.metrics_endpoint, Some("[::]:1080".parse().unwrap()));
             assert_eq!(config.database_url, "postgres://othersql".to_string());
             assert_eq!(config.asn, 777);
+            assert!(config.scout_boot_interface_correction_enabled);
+            assert_eq!(
+                config.credentials,
+                CredentialsConfig {
+                    ufm_source: UfmCredentialSource::Backend,
+                    file: Some(CredentialFileSourceConfig {
+                        path: PathBuf::from("/var/run/secrets/nico/ufm/credentials.yaml"),
+                        poll_interval: std::time::Duration::from_secs(17),
+                    }),
+                }
+            );
             assert_eq!(
                 config.dhcp_servers,
                 vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
@@ -6090,22 +6462,30 @@ enabled = true
     fn deserialize_dpa_config() {
         let toml = r#"
 enabled=true
+svpc_enabled=true
+
+[svpc]
 mqtt_endpoint = "mqtt.forge"
         "#;
 
-        let dpa_config: DpaConfig = Figment::new().merge(Toml::string(toml)).extract().unwrap();
+        let dpa_config: EwEthersConfig =
+            Figment::new().merge(Toml::string(toml)).extract().unwrap();
 
         assert_eq!(
             dpa_config,
-            DpaConfig {
+            EwEthersConfig {
                 enabled: true,
-                mqtt_endpoint: "mqtt.forge".to_string(),
-                mqtt_broker_port: 1884,
-                hb_interval: chrono::TimeDelta::minutes(2),
+                svpc_enabled: true,
+                astra_enabled: false,
                 monitor_run_interval: std::time::Duration::from_secs(60),
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
-                auth: MqttAuthConfig::default(),
+                svpc: SvpcConfig {
+                    mqtt_endpoint: "mqtt.forge".to_string(),
+                    mqtt_broker_port: 1884,
+                    hb_interval: chrono::TimeDelta::minutes(2),
+                    auth: MqttAuthConfig::default(),
+                },
             }
         );
     }
@@ -6648,7 +7028,11 @@ helm_repo_url = "oci://registry.example.test/doca"
         .unwrap();
 
         let deployment = DpfDeploymentConfig::default();
-        for deployment_type in [DpuDeploymentType::Bf3, DpuDeploymentType::Bf4Generic] {
+        for deployment_type in [
+            DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3Gb200,
+            DpuDeploymentType::Bf4Generic,
+        ] {
             assert!(
                 config
                     .resolved_services_for(&deployment, deployment_type)
@@ -7236,6 +7620,55 @@ helm_repo_url = "oci://registry.example.test/doca"
                 ) => false,
             }
         );
+    }
+
+    #[test]
+    fn gb200_bf3_deployment_derives_distinct_identifiers_and_reuses_bf3_inputs() {
+        let bf3 = DpfDeploymentConfig {
+            bfb_url: Some("https://example.com/custom.bfb".to_string()),
+            flavor_name: "site-bf3-flavor".to_string(),
+            deployment_name: "site-bf3-deploy".to_string(),
+            node_label_key: "carbide.nvidia.com/site-bf3".to_string(),
+            ..Default::default()
+        };
+
+        let gb200 = bf3.bf3_gb200();
+        assert_eq!(gb200.bfb_url, bf3.bfb_url);
+        assert_eq!(gb200.flavor_name, "site-bf3-flavor-gb200");
+        assert_eq!(gb200.deployment_name, "site-bf3-deploy-g");
+        assert_eq!(gb200.node_label_key, "carbide.nvidia.com/site-bf3-gb200");
+    }
+
+    #[test]
+    fn gb200_bf3_derived_identifiers_stay_within_kubernetes_limits() {
+        let bf3 = DpfDeploymentConfig {
+            flavor_name: "f"
+                .repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH - DPF_FLAVOR_HASH_SUFFIX_LENGTH),
+            deployment_name: "d".repeat(DPF_DEPLOYMENT_NAME_MAX_LENGTH),
+            node_label_key: format!(
+                "carbide.nvidia.com/{}",
+                "n".repeat(KUBERNETES_LABEL_NAME_MAX_LENGTH)
+            ),
+            ..Default::default()
+        };
+
+        let gb200 = bf3.bf3_gb200();
+        let label_name = gb200.node_label_key.rsplit_once('/').unwrap().1;
+
+        assert_eq!(gb200.deployment_name.len(), DPF_DEPLOYMENT_NAME_MAX_LENGTH);
+        assert_eq!(
+            gb200.flavor_name.len() + DPF_FLAVOR_HASH_SUFFIX_LENGTH,
+            KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        );
+        assert_eq!(label_name.len(), KUBERNETES_LABEL_NAME_MAX_LENGTH);
+        assert!(is_valid_kubernetes_label_key(&gb200.node_label_key));
+
+        let deployments = DpfDeploymentsConfig {
+            bf3,
+            bf4_generic: None,
+            bf4_astra: None,
+        };
+        assert!(deployments.validate_unique_identifiers().is_ok());
     }
 
     #[test]

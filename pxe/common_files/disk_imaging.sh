@@ -217,22 +217,157 @@ function resolve_esp_partition() {
 	fi
 }
 
+function device_is_on_disk() {
+	local device=$1
+	local disk=$2
+	local disk_maj_min
+	local ancestor_output
+	local -a physical_disks
+
+	disk_maj_min=$(lsblk -dnro MAJ:MIN "$disk") || return 1
+	if [ -z "$disk_maj_min" ]; then
+		return 1
+	fi
+
+	ancestor_output=$(lsblk -snro MAJ:MIN,TYPE "$device") || return 1
+	mapfile -t physical_disks < <(
+		printf '%s\n' "$ancestor_output" |
+			awk '$2 == "disk" { print $1 }' |
+			sort -u
+	)
+
+	[ "${#physical_disks[@]}" -eq 1 ] &&
+		[ "${physical_disks[0]}" == "$disk_maj_min" ]
+}
+
+function find_devices_by_identifier() {
+	local identifier_type=$1
+	local identifier=$2
+	local -n devices_out=$3
+	local blkid_diagnostics
+	local blkid_output
+	local blkid_status
+	local blkid_stderr_file
+
+	case "$identifier_type" in
+		UUID|LABEL)
+			;;
+		*)
+			echo "Unsupported block device identifier type: $identifier_type" | tee "$log_output" >&2
+			return 1
+			;;
+	esac
+
+	devices_out=()
+	blkid_stderr_file=$(mktemp) || return 1
+	blkid_output=$(blkid -c /dev/null -t "$identifier_type=$identifier" -o device 2>"$blkid_stderr_file")
+	blkid_status=$?
+	blkid_diagnostics=$(<"$blkid_stderr_file")
+	rm -f "$blkid_stderr_file"
+
+	case "$blkid_status" in
+		0)
+			if [ -z "$blkid_output" ]; then
+				echo "blkid returned success without a device for $identifier_type=$identifier" | tee "$log_output" >&2
+				return 1
+			fi
+			if [ ! -z "$blkid_diagnostics" ]; then
+				echo "blkid warning while looking up $identifier_type=$identifier: $blkid_diagnostics" | tee "$log_output" >&2
+			fi
+			mapfile -t devices_out <<< "$blkid_output"
+			;;
+		2)
+			# blkid uses status 2 for a token that was not found. Only accept
+			# the silent, empty form as an expected no-match result.
+			if [ ! -z "$blkid_output" ] || [ ! -z "$blkid_diagnostics" ]; then
+				echo "blkid failed while looking up $identifier_type=$identifier: stdout=${blkid_output:-<empty>}; stderr=${blkid_diagnostics:-<empty>}" | tee "$log_output" >&2
+				return 1
+			fi
+			;;
+		*)
+			echo "blkid failed while looking up $identifier_type=$identifier with status $blkid_status: stdout=${blkid_output:-<empty>}; stderr=${blkid_diagnostics:-<empty>}" | tee "$log_output" >&2
+			return 1
+			;;
+	esac
+}
+
+function check_identifier_conflicts() {
+	local identifier_type=$1
+	local identifier=$2
+	local disk=$3
+	local -a matching_devices
+	local match_device
+
+	find_devices_by_identifier "$identifier_type" "$identifier" matching_devices || return 1
+	for match_device in "${matching_devices[@]}"; do
+		if ! device_is_on_disk "$match_device" "$disk"; then
+			echo "Device $match_device with $identifier_type=$identifier is not exclusively backed by image disk $disk" | tee "$log_output" >&2
+			return 1
+		fi
+	done
+
+	return 0
+}
+
+function precheck_image_identifiers() {
+	if [ ! -z "$rootfs_uuid" ]; then
+		check_identifier_conflicts UUID "$rootfs_uuid" "$image_disk" || return 1
+	elif [ ! -z "$rootfs_label" ]; then
+		check_identifier_conflicts LABEL "$rootfs_label" "$image_disk" || return 1
+	fi
+	if [ ! -z "$bootfs_uuid" ]; then
+		check_identifier_conflicts UUID "$bootfs_uuid" "$image_disk" || return 1
+	fi
+	if [ ! -z "$efifs_uuid" ]; then
+		check_identifier_conflicts UUID "$efifs_uuid" "$image_disk" || return 1
+	fi
+}
+
+function resolve_device_on_disk() {
+	local identifier_type=$1
+	local identifier=$2
+	local disk=$3
+	local -a matching_devices
+	local match_count
+	local match_device
+
+	find_devices_by_identifier "$identifier_type" "$identifier" matching_devices || return 1
+	match_count=${#matching_devices[@]}
+	if [ "$match_count" -eq 0 ]; then
+		echo "No device found with $identifier_type=$identifier" | tee "$log_output" >&2
+		return 1
+	fi
+	if [ "$match_count" -ne 1 ]; then
+		echo "Expected exactly one device with $identifier_type=$identifier, found $match_count: ${matching_devices[*]}" | tee "$log_output" >&2
+		return 1
+	fi
+
+	match_device=${matching_devices[0]}
+	if ! device_is_on_disk "$match_device" "$disk"; then
+		echo "Device $match_device with $identifier_type=$identifier is not exclusively backed by image disk $disk" | tee "$log_output" >&2
+		return 1
+	fi
+
+	echo "$match_device"
+}
+
 function get_root_dev() {
 	if [ ! -z "$rootfs_uuid" ]; then
-		root_dev=$(blkid -U $rootfs_uuid)
+		root_dev=$(resolve_device_on_disk UUID "$rootfs_uuid" "$image_disk") || return 1
 	elif [ ! -z "$rootfs_label" ]; then
-		root_dev=$(blkid -L $rootfs_label)
+		root_dev=$(resolve_device_on_disk LABEL "$rootfs_label" "$image_disk") || return 1
 	else
-		echo "rootfs_uuid not specified and rootfs_label not determined" | tee $log_output
-		echo "skipping root device changes" | tee $log_output
+		echo "rootfs_uuid not specified and rootfs_label not determined" | tee "$log_output"
+		echo "skipping root device changes" | tee "$log_output"
 	fi
 	if [ ! -z "$efi_label" ]; then
-		efi_dev=$(blkid -L $efi_label)
+		efi_dev=$(resolve_device_on_disk LABEL "$efi_label" "$image_disk") || efi_dev=
 	fi
 	if [ -z "$efi_dev" ] && [ ! -z "$image_disk" ]; then
-		echo "EFI partition not found by label [$efi_label]; falling back to GPT partition type EF00 (EFI System Partition) on $image_disk" | tee $log_output
+		echo "EFI partition not found by label [$efi_label]; falling back to GPT partition type EF00 (EFI System Partition) on $image_disk" | tee "$log_output"
 		efi_dev=$(resolve_esp_partition "$image_disk")
 	fi
+	return 0
 }
 
 function is_port_in_list() {
@@ -303,11 +438,14 @@ function get_serial_port() {
 }
 
 function modify_grub_cfg() {
+	local efi_status
+	local grub_cfg_status
+
 	efi_mounted=
 	if [ ! -d "/mnt/boot/grub" ]; then
 		boot_part=
 		if [ ! -z "$bootfs_uuid" ]; then
-			boot_part=$(blkid -U $bootfs_uuid)
+			boot_part=$(resolve_device_on_disk UUID "$bootfs_uuid" "$image_disk") || return 1
 		fi
 		is_nvme=$(echo $image_disk | grep nvme)
 		if [ -z "$boot_part" ]; then
@@ -325,7 +463,12 @@ function modify_grub_cfg() {
 			mount "$boot_part" /mnt/boot
 		fi
 		# we want to mount efi now as it can contain uefi grub.cfg
-		mount_efi
+		if ! mount_efi; then
+			if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
+				umount /mnt/boot
+			fi
+			return 1
+		fi
 		efi_mounted=true
 		grub_cfg=
 		if [ -f "/mnt/boot/grub/grub.cfg" ]; then
@@ -349,7 +492,15 @@ function modify_grub_cfg() {
 	echo "Updating grub configuration" | tee $log_output
 	# if we skipped grub mount before we want to mount efi now
 	if [ -z "$efi_mounted" ]; then
-		mount_efi
+		if ! mount_efi; then
+			umount /mnt/sys
+			umount /mnt/proc
+			umount /mnt/dev
+			if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
+				umount /mnt/boot
+			fi
+			return 1
+		fi
 	fi
 	# Check if grub2-mkconfig exists, means we are in rhel distro, falback to update-grub if not found
 	if [ -f "/mnt/usr/sbin/grub2-mkconfig" ]; then
@@ -359,11 +510,17 @@ function modify_grub_cfg() {
 			grub_bls_cmd="--update-bls-cmdline"
 		fi
 		chroot /mnt /bin/sh -c "grub2-mkconfig $grub_bls_cmd -o ${grub_cfg#'/mnt'}" 2>&1 | tee $log_output
+		grub_cfg_status=${PIPESTATUS[0]}
 	else
 		chroot /mnt /bin/sh -c update-grub 2>&1 | tee $log_output
+		grub_cfg_status=${PIPESTATUS[0]}
 	fi
 	create_efi_boot_entry
-	set_boot_order
+	efi_status=$?
+	if [ "$efi_status" -eq 0 ]; then
+		set_boot_order
+		efi_status=$?
+	fi
 	umount /mnt/boot/efi 2>&1 | tee $log_output
 	umount /mnt/sys
 	umount /mnt/proc
@@ -371,6 +528,10 @@ function modify_grub_cfg() {
 	if [[ $(grep '\/mnt\/boot' /proc/mounts) ]]; then
 		umount /mnt/boot
 	fi
+	if [ "$grub_cfg_status" -ne 0 ]; then
+		return "$grub_cfg_status"
+	fi
+	return "$efi_status"
 }
 
 function get_part_num() {
@@ -415,6 +576,9 @@ function efi_entry_label() {
 }
 
 function create_efi_boot_entry() {
+	local efi_create_status
+	local efi_list_status
+
 	if ! command -v efibootmgr >/dev/null 2>&1; then
 		echo "efibootmgr not available, skipping EFI boot entry creation" | tee $log_output
 		return 0
@@ -574,7 +738,11 @@ function create_efi_boot_entry() {
 	fi
 
 	echo "Creating EFI boot entry for $label ($loader_path on $image_disk part $esp_part_num)" | tee $log_output
-	efibootmgr --create --disk "$image_disk" --part "$esp_part_num" --label "$label" --loader "$loader_path" 2>&1 | tee $log_output
+	efibootmgr --create --disk "$image_disk" --part "$esp_part_num" --label "$label" --loader "$loader_path" 2>&1 | tee "$log_output"
+	efi_create_status=${PIPESTATUS[0]}
+	if [ "$efi_create_status" -ne 0 ]; then
+		return "$efi_create_status"
+	fi
 
 	# Resolve the number efibootmgr assigned, so set_boot_order() can rank
 	# this specific entry. It is not echoed in a parseable form, so find it by
@@ -587,7 +755,12 @@ function create_efi_boot_entry() {
 	# delete-by-label is unavailable (efibootmgr <= 17) or fails for any other
 	# reason, and picking a leftover then reintroduces exactly the bug this is
 	# meant to fix. Ordering holds either way.
-	efi_list=$(efibootmgr -v)
+	efi_list=$(efibootmgr -v 2>&1)
+	efi_list_status=$?
+	if [ "$efi_list_status" -ne 0 ]; then
+		echo "Failed to read EFI boot entries after creating $label: $efi_list" | tee "$log_output"
+		return "$efi_list_status"
+	fi
 	installed_os_bootnum=
 	label_matches=0
 	IFS=',' read -r -a created_order <<< "$(echo "$efi_list" | grep '^BootOrder:' | sed -E 's/^BootOrder:[[:space:]]*//')"
@@ -613,11 +786,19 @@ function create_efi_boot_entry() {
 }
 
 function set_boot_order() {
+	local boot_order_status
+	local efi_list_status
+
 	if ! command -v efibootmgr >/dev/null 2>&1; then
 		return 0
 	fi
 
-	efi_list=$(efibootmgr -v)
+	efi_list=$(efibootmgr -v 2>&1)
+	efi_list_status=$?
+	if [ "$efi_list_status" -ne 0 ]; then
+		echo "Could not read current EFI boot entries" | tee "$log_output"
+		return "$efi_list_status"
+	fi
 	current_order_line=$(echo "$efi_list" | grep '^BootOrder:')
 	if [ -z "$current_order_line" ]; then
 		echo "Could not read current BootOrder, skipping reorder" | tee $log_output
@@ -665,19 +846,26 @@ function set_boot_order() {
 	fi
 
 	echo "Setting boot order to: $new_order_csv" | tee $log_output
-	efibootmgr -o "$new_order_csv" 2>&1 | tee $log_output
+	efibootmgr -o "$new_order_csv" 2>&1 | tee "$log_output"
+	boot_order_status=${PIPESTATUS[0]}
+	return "$boot_order_status"
 }
 
 function mount_efi() {
+	local mount_status
+
 	if [ ! -z "$efifs_uuid" ]; then
-		efi_dev=$(blkid -U $efifs_uuid)
+		efi_dev=$(resolve_device_on_disk UUID "$efifs_uuid" "$image_disk") || return 1
 	fi
 	if [ ! -z "$efi_dev" ]; then
 		mkdir -p /mnt/boot/efi
 		mount $efi_dev /mnt/boot/efi 2>&1 | tee $log_output
+		mount_status=${PIPESTATUS[0]}
 	else
 		chroot /mnt /bin/sh -c 'mount /boot/efi' 2>&1 | tee $log_output
+		mount_status=${PIPESTATUS[0]}
 	fi
+	return "$mount_status"
 }
 
 function add_testing_user() {
@@ -818,7 +1006,7 @@ function main() {
 		if [ ! -z "$line" ]; then
 			distro_release=$(echo $line|cut -d'=' -f2)
 		fi
-		line=$(echo $i|grep 'ds=nocloud-net;s')
+		line=$(echo $i|grep 'ds=nocloud')
 		if [ ! -z "$line" ]; then
 			cloud_init_url=$(echo $line|cut -d'=' -f3)
 		fi
@@ -835,8 +1023,6 @@ function main() {
 		line=$(echo $i|grep 'rootfs_label')
 		if [ ! -z "$line" ]; then
 			rootfs_label=$(echo $line|cut -d'=' -f2)
-		else
-			rootfs_label="cloudimg-rootfs" #default rootfs name for cloud images
 		fi
 		line=$(echo $i|grep 'bootfs_uuid')
 		if [ ! -z "$line" ]; then
@@ -856,6 +1042,9 @@ function main() {
 		fi
 
 	done
+	if [ -z "$rootfs_uuid" ] && [ -z "$rootfs_label" ]; then
+		rootfs_label="cloudimg-rootfs" #default rootfs name for cloud images
+	fi
 
 	if [ ! -z "$distro_name" ]; then
 		get_distro_image
@@ -890,6 +1079,18 @@ function main() {
 	if [ -z "$image_disk" -o "$image_disk" == "smallest" ]; then
 		find_bootdisk
 	fi
+	resolved_image_disk=$(readlink -e -- "$image_disk")
+	if [ -z "$resolved_image_disk" ] || [ ! -b "$resolved_image_disk" ]; then
+		echo "Image disk $image_disk does not exist or is not a block device" | tee "$log_output"
+		return 1;
+	fi
+	image_disk_type=$(lsblk -dnro TYPE "$resolved_image_disk")
+	if [ "$image_disk_type" != "disk" ]; then
+		echo "Image disk $image_disk is not a whole-disk block device" | tee "$log_output"
+		return 1;
+	fi
+	image_disk=$resolved_image_disk
+	precheck_image_identifiers || return 1
 
 	echo "Imaging $file to $image_disk" | tee $log_output
 	qemu-img convert -p -O raw -S 0 $file $image_disk 2>&1 | tee $log_output
@@ -908,7 +1109,7 @@ function main() {
 	done
 	if [ ! -z "$rootfs_uuid" -o ! -z "$rootfs_label" ]; then
 		# find the root partition/volume
-		get_root_dev
+		get_root_dev || return 1
 		echo "Root device [$root_dev]" | tee $log_output
 		if [ -b "$root_dev" ]; then
 			mount "$root_dev" /mnt 2>&1 | tee $log_output
@@ -918,7 +1119,10 @@ function main() {
 			fi
 			if [ "${update_grub_cfg}" == "yes" ]; then
 				echo "Updating grub cfg" | tee $log_output
-				modify_grub_cfg
+				if ! modify_grub_cfg; then
+					umount /mnt 2>&1 | tee "$log_output"
+					return 1
+				fi
 			fi
 			if [ ! -z "$cloud_init_url" ]; then
 				add_cloud_init
@@ -930,6 +1134,8 @@ function main() {
 	fi
 }
 
-main
-echo "Rebooting" | tee $log_output
-systemctl reboot | tee $log_output
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+	main
+	echo "Rebooting" | tee $log_output
+	systemctl reboot | tee $log_output
+fi

@@ -250,6 +250,7 @@ fn extract_manager_devices(
         let (Some(hostname), Some(bmc_ip_str)) = (hostname, bmc_ip_str) else {
             tracing::debug!(
                 item_keys = ?item.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()),
+                rack_id = rack.as_deref().map(tracing::field::display),
                 "Cluster manager device entry missing hostname or BMC IP; skipping. \
                  Update field paths in extract_manager_devices once head node is probed."
             );
@@ -262,6 +263,7 @@ fn extract_manager_devices(
                 tracing::warn!(
                     hostname,
                     bmc_ip_address = bmc_ip_str,
+                    rack_id = rack.as_deref().map(tracing::field::display),
                     error = %e,
                     "Invalid BMC IP; skipping"
                 );
@@ -427,11 +429,15 @@ fn build_endpoints(
     bmc_latency_metrics: Option<Arc<BmcLatencyMetrics>>,
 ) -> Vec<Arc<BmcEndpoint>> {
     let mut endpoints = Vec::with_capacity(nodes.len());
+
     for node in nodes {
+        let rack_id = node.rack.as_deref().map(RackId::new);
+
         let IpAddr::V4(v4) = node.bmc_ip else {
             tracing::warn!(
                 hostname = %node.hostname,
                 bmc_ip_address = %node.bmc_ip,
+                rack_id = rack_id.as_ref().map(tracing::field::display),
                 "cluster endpoint has non-IPv4 BMC address; skipping"
             );
             continue;
@@ -447,7 +453,7 @@ fn build_endpoints(
             port,
             mac,
         };
-        let rack_id = node.rack.as_deref().map(RackId::new);
+
         let bmc_latency_instrumentation = bmc_latency_metrics.clone().map(|metrics| {
             BmcLatencyInstrumentation::new(
                 metrics,
@@ -473,6 +479,7 @@ fn build_endpoints(
                 tracing::warn!(
                     error = ?e,
                     hostname = %node.hostname,
+                    rack_id = rack_id.as_ref().map(tracing::field::display),
                     "Failed to construct BmcClient for cluster endpoint; skipping"
                 );
                 continue;

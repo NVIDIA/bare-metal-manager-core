@@ -70,7 +70,7 @@ simulate_boot() {
   curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/pxe/boot?uuid=${MACHINE_INTERFACE_ID}&buildarch=arm64"
 
   echo "Sending cloud-init request"
-  curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/user-data"
+  curl -H "X-Forwarded-For: ${REAL_IP}" "http://$PXE_SERVER_HOST:$PXE_SERVER_PORT/api/v0/cloud-init/dpu/user-data"
 
   echo "Sending DiscoverMachine"
   # Simulate the Machine discovery request of a DPU

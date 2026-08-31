@@ -33,7 +33,6 @@ use crate::power_shelf_simulator::PowerShelfActor;
 use crate::simulator_registry::SimulatorRegistry;
 use crate::status::DeviceKind;
 use crate::switch_simulator::SwitchActor;
-use crate::tui::UiUpdate;
 
 pub struct MachineATron {
     app_context: Arc<MachineATronContext>,
@@ -353,7 +352,6 @@ impl MachineATron {
     pub async fn run(
         &mut self,
         simulators: SimulatorRegistry,
-        tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
         mut stop_rx: mpsc::Receiver<()>,
     ) -> eyre::Result<()> {
         if let Some(host_str) = self
@@ -379,7 +377,6 @@ impl MachineATron {
         }
 
         for simulator in simulators.devices() {
-            simulator.attach_to_tui(tui_event_tx.clone())?;
             simulator.resume()?;
         }
 

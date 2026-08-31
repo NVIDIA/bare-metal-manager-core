@@ -4,13 +4,47 @@
 package model
 
 import (
+	"cmp"
 	"time"
 
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 	"github.com/google/uuid"
 
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
+
+// APIGetAllDpuMachineRequest binds query parameters for GET /dpu.
+type APIGetAllDpuMachineRequest struct {
+	SiteID string `query:"siteId"`
+}
+
+// Validate checks the DPU list query shape.
+func (r *APIGetAllDpuMachineRequest) Validate() error {
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID,
+			validation.Required.Error(validationErrorValueRequired),
+			validationis.UUID.Error(validationErrorInvalidUUID),
+		),
+	)
+}
+
+// APIGetDpuMachineRequest binds query parameters for GET /dpu/:id.
+type APIGetDpuMachineRequest struct {
+	SiteID               string `query:"siteId"`
+	IncludeNetworkConfig bool   `query:"includeNetworkConfig"`
+}
+
+// Validate checks the DPU retrieval query shape.
+func (r *APIGetDpuMachineRequest) Validate() error {
+	return validation.ValidateStruct(r,
+		validation.Field(&r.SiteID,
+			validation.Required.Error(validationErrorValueRequired),
+			validationis.UUID.Error(validationErrorInvalidUUID),
+		),
+	)
+}
 
 // APIDpuNetworkConfig represents the network configuration fields exposed by the REST API for a DPU.
 // Internal-only and sensitive Core fields are omitted; this is not the complete Core configuration.
@@ -383,8 +417,10 @@ func (admif *APIDpuMachineInterface) FromProto(protoInterface *corev1.MachineInt
 		admif.LastDhcp = &lastDhcp
 	}
 
-	if protoInterface.IsBmc != nil {
-		admif.IsBmc = *protoInterface.IsBmc
+	if protoInterface.InterfaceType != nil {
+		admif.IsBmc = protoInterface.GetInterfaceType() == corev1.InterfaceType_INTERFACE_TYPE_BMC
+	} else {
+		admif.IsBmc = protoInterface.GetIsBmc() //nolint:staticcheck // Preserve compatibility with Core responses that predate interface_type.
 	}
 }
 
@@ -416,7 +452,7 @@ type APIDpuMachine struct {
 	State string `json:"state"`
 	// DpuNetworkConfig contains the network configuration fields exposed by the REST API for the DPU.
 	// Internal-only and sensitive Core fields are omitted; the REST response retains its public JSON shape.
-	DpuNetworkConfig APIDpuNetworkConfig `json:"dpuNetworkConfig"`
+	DpuNetworkConfig *APIDpuNetworkConfig `json:"dpuNetworkConfig"`
 	// LastRebooted is the last reboot timestamp reported by NICo Core
 	LastRebooted *time.Time `json:"lastRebooted"`
 	// PlacementInRack is the physical placement of the DPU Machine within its Rack
@@ -444,6 +480,7 @@ func NewAPIDpuMachines(protoDpuMachines []*corev1.DpuMachine, ctx APIDpuMachineP
 		}
 		apiDpuMachine := APIDpuMachine{}
 		apiDpuMachine.FromProto(protoDpuMachine, ctx)
+		apiDpuMachine.DpuNetworkConfig = cmp.Or(apiDpuMachine.DpuNetworkConfig, &APIDpuNetworkConfig{})
 		apiDpuMachines = append(apiDpuMachines, apiDpuMachine)
 	}
 	return apiDpuMachines
@@ -516,7 +553,7 @@ func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APID
 	apd.State = protoMachine.State
 
 	if protoDpuMachine.DpuNetworkConfig != nil {
-		apd.DpuNetworkConfig = APIDpuNetworkConfig{}
+		apd.DpuNetworkConfig = &APIDpuNetworkConfig{}
 		apd.DpuNetworkConfig.FromProto(protoDpuMachine.DpuNetworkConfig)
 	}
 

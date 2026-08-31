@@ -25,7 +25,6 @@ func TestNewEvent(t *testing.T) {
 	require.Equal(t, 1, event.Observations)
 	require.Equal(t, now, event.CreatedAt)
 	require.Equal(t, now, event.LastObservedAt)
-	require.Nil(t, event.PlannedAt)
 	require.NoError(t, event.Validate())
 }
 
@@ -93,11 +92,14 @@ func TestParseSeverity(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			actual, err := ParseSeverity(test.value)
+
 			if test.wantErr {
 				require.Error(t, err)
 				require.Equal(t, SeverityUnspecified, actual)
+
 				return
 			}
+
 			require.NoError(t, err)
 			require.Equal(t, test.expected, actual)
 		})
@@ -127,10 +129,13 @@ func TestEventKey_Validate(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			err := test.key.Validate()
+
 			if test.wantErr == "" {
 				require.NoError(t, err)
+
 				return
 			}
+
 			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
@@ -160,6 +165,7 @@ func TestEnvelopeValidatePayload(t *testing.T) {
 			}
 
 			err := envelope.Validate()
+
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 			} else {
@@ -176,28 +182,34 @@ func TestEnvelopeAllowsUnspecifiedSeverity(t *testing.T) {
 		Severity: SeverityUnspecified,
 		Resource: Resource{Kind: ResourceKindRack},
 	}
+
 	require.NoError(t, envelope.Validate())
 }
 
 func TestEnvelope_Clone(t *testing.T) {
 	original := Envelope{Payload: json.RawMessage(`{"value":42}`)}
+
 	cloned := original.Clone()
 	cloned.Payload[2] = 'x'
+
 	require.NotEqual(t, original.Payload, cloned.Payload)
 }
 
 func TestResourceIDMayBeUnresolved(t *testing.T) {
 	resource := Resource{Kind: ResourceKindRack}
+
 	require.Equal(t, uuid.Nil, resource.ID)
 	require.NoError(t, resource.Validate())
 
 	resource.ID = uuid.New()
+
 	require.NoError(t, resource.Validate())
 }
 
 func TestResolvedResource_Validate(t *testing.T) {
 	componentID := uuid.New()
 	rackID := uuid.New()
+
 	tests := []struct {
 		name     string
 		resource ResolvedResource
@@ -277,10 +289,13 @@ func TestResolvedResource_Validate(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.resource.Validate()
+
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
+
 				return
 			}
+
 			require.NoError(t, err)
 		})
 	}

@@ -16,10 +16,12 @@
  */
 
 use common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_managed_host, create_managed_host_with_config,
-    create_test_env, create_test_env_with_overrides,
+    TEST_RMS_RACK_PROFILE_ID, TestEnv, TestEnvOverrides, create_managed_host,
+    create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
+    get_config_with_rack_profiles,
 };
 use ipnetwork::IpNetwork;
+use model::expected_machine::ExpectedMachineData;
 use model::machine::{InstanceState, ManagedHostState, SpdmMeasuringState};
 use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
@@ -27,16 +29,18 @@ use tonic::{Code, IntoRequest};
 
 use crate::CarbideError;
 use crate::handlers::resolve_machine_interface_for_test;
-use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
-    default_os_config, default_tenant_config, single_interface_network_config,
+    advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
+    single_interface_network_config,
 };
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
     create_host_inband_network_segment,
 };
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 
 /// Verifies that neither PXE resolution nor cloud-init can select tenant data
 /// when the observed address does not identify one client.
@@ -462,6 +466,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
 
     // When the instance is ready, we should get tenant cloud-init instructions
     for instance_state in [InstanceState::WaitingForRebootToReady, InstanceState::Ready] {
+        let reboot_pending = instance_state == InstanceState::WaitingForRebootToReady;
         env.run_machine_state_controller_iteration_until_state_matches(
             &mh.host().id,
             10,
@@ -509,6 +514,11 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
                 .instance_id,
             instance_id.to_string()
         );
+
+        if reboot_pending {
+            env.run_machine_state_controller_iteration().await;
+            mh.host().reboot_completed().await;
+        }
     }
 }
 
@@ -589,14 +599,7 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
     // Advance to Assigned/Ready so the Instance path is taken
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        },
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
 
     let cloud_init = env
         .api
@@ -702,14 +705,7 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
     // Advance to Assigned/Ready so the Instance path is taken
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        },
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
 
     let cloud_init = env
         .api
@@ -730,4 +726,85 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
         meta.local_hostname, None,
         "local_hostname must be omitted when the instance name is not a legal DNS hostname"
     );
+}
+
+#[crate::sqlx_test]
+async fn dpu_nvconfig_profile_resolution_follows_host_rack_and_dpu_identity(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(get_config_with_rack_profiles()),
+    )
+    .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let rack_id = TestRackDbBuilder::new()
+        .with_rack_profile_id(TEST_RMS_RACK_PROFILE_ID)
+        .persist(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let managed_host = create_managed_host_with_config(
+        &env,
+        ManagedHostConfig::default().with_expected_machine_data(ExpectedMachineData {
+            rack_id: Some(rack_id.clone()),
+            ..Default::default()
+        }),
+    )
+    .await;
+    let dpu = managed_host.dpu();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_machine = dpu.db_machine(&mut txn).await;
+    let mut hardware_info = dpu_machine
+        .status
+        .hardware_info
+        .expect("fixture DPU should have hardware information");
+    hardware_info
+        .dpu_info
+        .as_mut()
+        .expect("fixture DPU should have DPU information")
+        .part_number = "900-9D3B6-00CN-PA0".to_string();
+    // The topology helper only replaces existing inventory after this flag is
+    // set, matching the production discovery update contract.
+    db::machine_topology::set_topology_update_needed(txn.as_mut(), &dpu.id, true)
+        .await
+        .unwrap();
+    db::machine_topology::create_or_update(txn.as_mut(), &dpu.id, &hardware_info)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[dpu.id])
+        .await
+        .unwrap();
+    let dpu_interface = dpu_interfaces
+        .get(&dpu.id)
+        .and_then(|interfaces| interfaces.first())
+        .expect("fixture DPU should have a non-BMC interface");
+    let dpu_interface_ip = dpu_interface
+        .addresses
+        .first()
+        .expect("fixture DPU interface should have an address")
+        .to_string();
+    txn.rollback().await.unwrap();
+
+    let cloud_init = env
+        .api
+        .get_cloud_init_instructions(
+            rpc::forge::CloudInitInstructionsRequest {
+                ip: dpu_interface_ip,
+            }
+            .into_request(),
+        )
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner();
+    let profile = cloud_init
+        .discovery_instructions
+        .expect("DPU should receive discovery instructions")
+        .dpu_nvconfig_profile;
+
+    assert_eq!(profile, rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,);
 }

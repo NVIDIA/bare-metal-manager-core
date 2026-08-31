@@ -59,6 +59,12 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
                   key: VAULT_SERVICE
+            - name: VAULT_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: VAULT_NAMESPACE
+                  optional: true
             - name: VAULT_KV_MOUNT_LOCATION
               valueFrom:
                 configMapKeyRef:

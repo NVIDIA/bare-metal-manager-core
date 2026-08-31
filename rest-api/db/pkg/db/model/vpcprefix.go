@@ -215,6 +215,13 @@ type VpcPrefixUpdateInput struct {
 	IsMissingOnSite *bool
 }
 
+// VpcPrefixClearInput input parameters for Clear method
+type VpcPrefixClearInput struct {
+	VpcPrefixID uuid.UUID
+	// Deleted clears the soft-delete timestamp (undelete).
+	Deleted bool
+}
+
 // VpcPrefixFilterInput input parameters for Filter method
 type VpcPrefixFilterInput struct {
 	VpcPrefixIDs  []uuid.UUID
@@ -228,6 +235,8 @@ type VpcPrefixFilterInput struct {
 	SearchQuery   *string
 	Prefixes      []string
 	PrefixLengths []int
+	// IncludeDeleted returns soft-deleted rows in addition to active ones.
+	IncludeDeleted bool
 }
 
 var _ bun.BeforeAppendModelHook = (*VpcPrefix)(nil)
@@ -265,6 +274,8 @@ type VpcPrefixDAO interface {
 	GetAll(ctx context.Context, tx *db.Tx, filter VpcPrefixFilterInput, page paginator.PageInput, includeRelations []string) ([]VpcPrefix, int, error)
 	//
 	Update(ctx context.Context, tx *db.Tx, input VpcPrefixUpdateInput) (*VpcPrefix, error)
+	//
+	Clear(ctx context.Context, tx *db.Tx, input VpcPrefixClearInput) (*VpcPrefix, error)
 	//
 	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
 	//
@@ -368,6 +379,10 @@ func (vpsd VpcPrefixSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter VpcPre
 	vps := []VpcPrefix{}
 
 	query := db.GetIDB(tx, vpsd.dbSession).NewSelect().Model(&vps)
+	// Soft-deleted rows are excluded by default.
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
+	}
 	if filter.VpcPrefixIDs != nil {
 		query = query.Where("vp.id IN (?)", bun.In(filter.VpcPrefixIDs))
 		vpsd.tracerSpan.SetAttribute(vpDAOSpan, "vpc_prefix_ids", filter.VpcPrefixIDs)
@@ -513,6 +528,46 @@ func (vpsd VpcPrefixSQLDAO) Update(ctx context.Context, tx *db.Tx, input VpcPref
 
 	nvp, err := vpsd.GetByID(ctx, tx, vp.ID, nil)
 
+	if err != nil {
+		return nil, err
+	}
+	return nvp, nil
+}
+
+// Clear clears VpcPrefix attributes based on provided arguments
+func (vpsd VpcPrefixSQLDAO) Clear(ctx context.Context, tx *db.Tx, input VpcPrefixClearInput) (*VpcPrefix, error) {
+	ctx, vpDAOSpan := vpsd.tracerSpan.CreateChildInCurrentContext(ctx, "VpcPrefixDAO.Clear")
+	if vpDAOSpan != nil {
+		defer vpDAOSpan.End()
+
+		vpsd.tracerSpan.SetAttribute(vpDAOSpan, "id", input.VpcPrefixID.String())
+	}
+
+	vp := &VpcPrefix{
+		ID: input.VpcPrefixID,
+	}
+	updatedFields := []string{}
+
+	if input.Deleted {
+		vp.Deleted = nil
+		updatedFields = append(updatedFields, "deleted")
+	}
+
+	if len(updatedFields) > 0 {
+		updatedFields = append(updatedFields, "updated")
+
+		query := db.GetIDB(tx, vpsd.dbSession).NewUpdate().Model(vp).Column(updatedFields...).Where("id = ?", input.VpcPrefixID)
+		// Soft-deleted rows are excluded by default; include them when undeleting.
+		if input.Deleted {
+			query = query.WhereAllWithDeleted()
+		}
+		_, err := query.Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	nvp, err := vpsd.GetByID(ctx, tx, vp.ID, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,7 @@ import (
 // while processing events.
 type ruleResolver struct {
 	builtIns *builtInRegistry
-	store    eventRuleStore
+	store    eventrule.Store
 }
 
 // GetEffective returns the effective processing rule or (nil, nil) when no

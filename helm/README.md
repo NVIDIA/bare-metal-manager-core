@@ -466,6 +466,28 @@ This is also available as a ready-to-use overlay at
   rather than the new default `nico-api`. Without this, those services build a URL pointing at
   a Service that does not exist.
 
+## Testing
+
+This chart includes unit tests using the [helm-unittest](https://github.com/helm-unittest/helm-unittest) plugin.
+
+### Running tests locally
+
+```bash
+# Install the plugin (once)
+helm plugin install https://github.com/helm-unittest/helm-unittest.git
+
+# Run all tests
+helm unittest helm --with-subchart
+
+# Disabled-by-default subcharts must be tested separately
+helm unittest helm/charts/nico-flow
+helm unittest helm/charts/nico-machine-a-tron
+helm unittest helm/charts/nico-machine-a-tron/charts/mat-k8s-controller
+helm unittest helm/charts/unbound
+```
+
+Test files live in `tests/` directories within each chart. CI runs these tests automatically on every PR.
+
 ## Uninstalling
 
 ```bash

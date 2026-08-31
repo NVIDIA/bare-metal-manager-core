@@ -651,7 +651,7 @@ pub extern "C" fn machine_get_interface_subnet_mask(ctx: *mut Machine) -> u32 {
 }
 
 /// Extract MTU from Machine object. We got it in the grpc response in discovery_fetch_machine.
-/// https://jirasw.nvidia.com/browse/FORGE-2443
+/// https://github.com/NVIDIA/infra-controller/issues/5559
 #[unsafe(no_mangle)]
 pub extern "C" fn machine_get_interface_mtu(ctx: *mut Machine) -> u16 {
     // SAFETY: Initial lint enablement: this C ABI contract needs owner review.

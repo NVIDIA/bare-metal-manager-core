@@ -34,6 +34,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
@@ -117,7 +118,7 @@ func InitTemporalClients(tcfg *cconfig.TemporalConfig, tracingEnabled bool) (tsd
 	return tc, tnc, err
 }
 
-func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Client, tnc tsdkClient.NamespaceClient, scp *sc.ClientPool) *echo.Echo {
+func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Client, tnc tsdkClient.NamespaceClient, scp *sc.ClientPool, dps dpsclient.PowerProvisioner) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.HTTPErrorHandler = cerr.DefaultHTTPErrorHandler
@@ -279,7 +280,7 @@ func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Cli
 	authMiddleware := authn.Auth(dbSession, tc, jwtOriginConfig, payloadEncryptionConfig, keycloakConfig)
 	routeGroup.Use(authMiddleware)
 
-	apiRoutes := api.NewAPIRoutes(dbSession, tc, tnc, scp, cfg)
+	apiRoutes := api.NewAPIRoutes(dbSession, tc, tnc, scp, cfg, dps)
 	for _, apiRoute := range apiRoutes {
 		routeGroup.Add(apiRoute.Method, apiRoute.Path, apiRoute.Handler.Handle)
 	}

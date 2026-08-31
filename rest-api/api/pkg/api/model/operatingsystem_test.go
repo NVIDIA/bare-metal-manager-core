@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -534,6 +535,23 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 		CreatedBy:        uuid.New(),
 	}
 
+	// Phone-home is enabled and the stored user-data has a phone-home URL,
+	// but it is not the default one.
+	existingPhoneHomeEnabledOSStaleURL := &cdbm.OperatingSystem{
+		ID:         uuid.New(),
+		Name:       "ab",
+		IpxeScript: cutil.GetPtr("original ipxe"),
+		UserData: cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+  url: http://169.254.169.254:7777/latest/meta-data/phone_home
+  post: all`),
+		PhoneHomeEnabled: true,
+		Status:           cdbm.OperatingSystemStatusReady,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		CreatedBy:        uuid.New(),
+	}
+
 	existingPhoneHomeEnabledOSUserdataNil := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
@@ -589,10 +607,33 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 		CreatedBy:        uuid.New(),
 	}
 
+	// Phone-home was enabled and the stored user-data carries a stale URL,
+	// but the request replaces user-data with a phone-home block of its own.
+	callerPhoneHomeUserData := cutil.GetPtr(`#cloud-config
+package_update: true
+phone_home:
+    post: all
+    url: https://collector.example.com/hook
+`)
+
+	// Phone-home was never enabled, so the stored phone-home block is the
+	// caller's, not NICo's.
+	existingForeignPhoneHomeOS := &cdbm.OperatingSystem{
+		ID:               uuid.New(),
+		Name:             "ab",
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         callerPhoneHomeUserData,
+		PhoneHomeEnabled: false,
+		Status:           cdbm.OperatingSystemStatusReady,
+		Type:             cdbm.OperatingSystemTypeIPXE,
+		CreatedBy:        uuid.New(),
+	}
+
 	tests := []struct {
 		name                     string
 		fields                   fields
 		phoneHomeUrl             string
+		userDataSearches         []string
 		userDataNegativeSearches []string
 		wantErr                  bool
 		existingOS               *cdbm.OperatingSystem
@@ -609,6 +650,57 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
 			existingOS:   existingPhoneHomeEnabledOS,
+		},
+		{
+			name: "test valid Operating System PhoneHome disabled update request when existing OS has enabled and its stored phone-home URL is stale",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeEnabledOSStaleURL.ID.String()),
+				UserData:          nil,
+				PhoneHomeEnabled:  cutil.GetPtr(false),
+			},
+			wantErr:      false,
+			phoneHomeUrl: config.DefaultSitePhoneHomeUrl,
+			// NICo authored the block, so it is removed by key without
+			// matching the URL: neither the key nor the stale URL survives,
+			// while the rest of the document is preserved.
+			userDataSearches:         []string{"package_update"},
+			userDataNegativeSearches: []string{"phone_home", "169.254.169.254:7777"},
+			existingOS:               existingPhoneHomeEnabledOSStaleURL,
+		},
+		{
+			name: "test valid PhoneHome disabled update request with caller-supplied userData when existing OS has enabled with a stale stored URL",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingPhoneHomeEnabledOSStaleURL.ID.String()),
+				UserData:          callerPhoneHomeUserData,
+				PhoneHomeEnabled:  cutil.GetPtr(false),
+			},
+			wantErr:      false,
+			phoneHomeUrl: config.DefaultSitePhoneHomeUrl,
+			// The stored blob is NICo's, but the document being edited is the
+			// caller's, so removal stays URL-matched and their hook survives.
+			userDataSearches:         []string{"collector.example.com", "package_update"},
+			userDataNegativeSearches: []string{"169.254.169.254"},
+			existingOS:               existingPhoneHomeEnabledOSStaleURL,
+		},
+		{
+			name: "test valid PhoneHome disabled update request with caller-supplied userData when existing OS never had phone-home enabled",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(existingForeignPhoneHomeOS.ID.String()),
+				UserData:          callerPhoneHomeUserData,
+				PhoneHomeEnabled:  cutil.GetPtr(false),
+			},
+			wantErr:      false,
+			phoneHomeUrl: config.DefaultSitePhoneHomeUrl,
+			// Nothing here is NICo's, so the URL filter applies both before
+			// and after the ownership fix and the caller's block survives.
+			userDataSearches: []string{"collector.example.com", "package_update"},
+			existingOS:       existingForeignPhoneHomeOS,
 		},
 		{
 			name: "test valid PhoneHome enabled, request userData is nil, existing OS userdata is nil, and existing OS has phonehome enabled",
@@ -796,6 +888,13 @@ func TestAPIOperatingSystemUpdateRequest_ValidateAndSetUserData(t *testing.T) {
 				return
 			} else {
 				require.NoError(t, err)
+			}
+
+			if len(tt.userDataSearches) > 0 {
+				require.NotNil(t, osur.UserData)
+				for _, search := range tt.userDataSearches {
+					assert.Contains(t, *osur.UserData, search)
+				}
 			}
 
 			if len(tt.userDataNegativeSearches) > 0 {

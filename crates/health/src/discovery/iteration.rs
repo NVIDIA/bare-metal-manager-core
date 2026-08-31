@@ -100,6 +100,7 @@ pub async fn run_discovery_iteration(
                 tracing::warn!(
                     ?error,
                     bmc_address = ?endpoint.addr,
+                    rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                     "Could not resolve primary ComputerSystem UUID; continuing without it"
                 );
             }
@@ -141,6 +142,7 @@ pub async fn run_discovery_iteration(
             tracing::error!(
                 ?error,
                 %endpoint_key,
+                rack_id = endpoint.rack_id.as_ref().map(tracing::field::display),
                 "Could not spawn collectors for endpoint"
             );
 

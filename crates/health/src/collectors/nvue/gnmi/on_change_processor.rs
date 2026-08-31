@@ -122,6 +122,7 @@ impl GnmiOnChangeProcessor {
                     grpc_status_code = e.code,
                     error = %e.message,
                     stream = %self.collector_name,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "nvue_gnmi ON_CHANGE: server error in stream"
                 );
                 return;
@@ -258,6 +259,7 @@ impl GnmiOnChangeProcessor {
             instance_id,
             severity,
             text,
+            rack_id = self.event_context.rack_id().map(tracing::field::display),
             "nvue_gnmi ON_CHANGE: row received"
         );
 

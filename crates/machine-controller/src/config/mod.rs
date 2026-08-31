@@ -38,12 +38,17 @@ pub struct MachineStateHandlerSiteConfig {
     pub firmware_global: FirmwareGlobal,
     pub machine_state_controller: MachineStateControllerConfig,
     pub host_health: HostHealthConfig,
+    /// Rack profiles used to refine DPF deployment selection from the host's rack identity.
+    pub rack_profiles: model::rack_type::RackProfileConfig,
 
     pub selected_profile: libredfish::BiosProfileType,
     pub bios_profiles: libredfish::BiosProfileVendor,
     pub oem_manager_profiles: libredfish::BiosProfileVendor,
 
-    pub dpa_enabled: bool,
+    pub ewethers_enabled: bool,
+    /// Site-wide enable for the Astra (East-West CX NIC) path. When `false`,
+    /// host ingestion skips enabling Astra on declared CX9 NICs.
+    pub astra_enabled: bool,
     pub dpf_enabled: bool,
     /// Site-wide enable for releasing the DPF maintenance hold so a changed
     /// DPUService rolls out. When `false`, a host that DPF has parked in the
@@ -80,10 +85,12 @@ impl MachineStateHandlerSiteConfig {
             firmware_global: FirmwareGlobal::test_default(),
             machine_state_controller: MachineStateControllerConfig::test_default(),
             host_health: HostHealthConfig::default(),
+            rack_profiles: model::rack_type::RackProfileConfig::default(),
             selected_profile: libredfish::BiosProfileType::Performance,
             bios_profiles: HashMap::new(),
             oem_manager_profiles: HashMap::new(),
-            dpa_enabled: true,
+            ewethers_enabled: true,
+            astra_enabled: false,
             dpf_enabled: false,
             dpu_service_sync_enabled: true,
             spdm_enabled: false,

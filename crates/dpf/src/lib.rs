@@ -86,9 +86,9 @@ pub use types::{
     DetachedDpuServiceDefinition, DetachedHelmChart, DpfInterceptBridge, DpfInterceptBridging,
     DpfInterfaceIdentity, DpuDeploymentType, DpuDeviceInfo, DpuErrorEvent, DpuEvent, DpuMismatch,
     DpuNodeInfo, DpuPhase, DpuReadyEvent, DpuServiceHelmChartObservation, DpuServiceObservation,
-    DpuServiceVersion, InitDpfResourcesConfig, MaintenanceEvent, RebootRequiredEvent,
-    ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
-    ServiceInterface, ServiceNAD, ServiceNADResourceType,
+    DpuServiceVersion, InitDpfResourcesConfig, MaintenanceEvent, PF_TOTAL_SF_BF4_ASTRA_FUDGE,
+    RebootRequiredEvent, ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 pub use watcher::{DpuWatcher, DpuWatcherBuilder};
 

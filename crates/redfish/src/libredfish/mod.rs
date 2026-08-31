@@ -560,6 +560,63 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         }
     }
 
+    /// Whether the BF4 DPU `service` account authenticates with
+    /// `service_password`, without changing anything.
+    ///
+    /// [`set_bf4_dpu_service_password`] is a single root-authenticated change, so
+    /// a crash after the hardware password changed but before the rotation was
+    /// recorded leaves the `service` account already at the rotate-to value.
+    /// Re-applying that change is a same-value change some BMCs reject with a
+    /// password-reuse policy error, which would falsely quarantine a device that
+    /// is in fact converged. The `dpu_bmc_service` engine calls this on the
+    /// PATCH-failure path to tell that benign rejection from a real failure:
+    /// authenticating as `service` with the rotate-to password proves the
+    /// hardware already carries it.
+    ///
+    /// Reads the account collection (`AccountService/Accounts`) through an
+    /// uninitialized `Unknown` client. Unlike [`bmc_credentials_valid`] -- which
+    /// probes the fully privileged `root` account and so treats any 401/403 as a
+    /// failed login -- a `403` here counts as **authenticated**: the `service`
+    /// role may be forbidden from listing accounts, but a `403` still proves the
+    /// password was accepted. Only a `401` (or a non-`Direct` credential) means
+    /// the password was rejected.
+    ///
+    /// Returns `Ok(true)` when the password authenticates (`2xx` or `403`),
+    /// `Ok(false)` on `401`, and `Err` for a transport or other failure the
+    /// caller should treat as a transient tick error.
+    ///
+    /// [`set_bf4_dpu_service_password`]: RedfishClientPool::set_bf4_dpu_service_password
+    /// [`bmc_credentials_valid`]: RedfishClientPool::bmc_credentials_valid
+    async fn bf4_dpu_service_credentials_valid(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        service_password: String,
+    ) -> Result<bool, RedfishClientCreationError> {
+        let client = self
+            .create_client(
+                host,
+                port,
+                RedfishAuth::Direct("service".to_string(), service_password),
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        match client.get_accounts().await {
+            Ok(_) => Ok(true),
+            // Authenticated but not authorized to list accounts: the password is
+            // correct, which is all this probe asks. Must precede the 401 arm
+            // because `is_unauthorized` also matches 403.
+            Err(libredfish::RedfishError::HTTPErrorCode { status_code, .. })
+                if status_code == http::StatusCode::FORBIDDEN =>
+            {
+                Ok(true)
+            }
+            Err(err) if err.is_unauthorized() => Ok(false),
+            Err(err) => Err(RedfishClientCreationError::RedfishError(err)),
+        }
+    }
+
     /// Resolve the precise `RedfishVendor` of a BMC, for callers (e.g.
     /// credential rotation) that need the exact dispatch vendor
     /// `set_bmc_root_password` branches on but have nowhere to read it from.

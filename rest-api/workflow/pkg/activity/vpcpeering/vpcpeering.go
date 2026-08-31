@@ -6,7 +6,6 @@ package vpcpeering
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -138,7 +137,7 @@ func (mvp ManageVpcPeering) UpdateVpcPeeringsInDB(
 				// inventory, so make sure the object has existed for at least as
 				// long as our inventory interval with a little buffer to make
 				// sure we aren't in lock-step.
-				if time.Since(vpcPeering.Created) < cwutil.InventoryReceiptInterval {
+				if site.IsTimeWithinStaleInventoryThreshold(vpcPeering.Created) {
 					slogger.Info().Msg("not going to delete yet because VPC Peering is newer than the inventory interval")
 					continue
 				}

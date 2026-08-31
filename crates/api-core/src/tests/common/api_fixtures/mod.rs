@@ -24,6 +24,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use carbide_extension_service_controller::context::ExtensionServiceStateHandlerServices;
+use carbide_extension_service_controller::handler::ExtensionServiceStateHandler;
+use carbide_extension_service_controller::io::ExtensionServiceStateControllerIO;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::IBFabricManagerImpl;
 use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
@@ -100,15 +103,12 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group;
-use model::rack_type::{
-    RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
-};
+use model::rack_type::{RackProfile, RackProfileConfig};
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
 use model::test_support::dpu::{DPU_BF3_INFO_JSON, DPU_BF4_INFO_JSON};
-use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
+use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig, rms_rack_profiles};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -282,6 +282,7 @@ pub(crate) struct TestEnv {
     pub(in crate::tests) machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     vpc_prefix_controller: Arc<Mutex<StateController<VpcPrefixStateControllerIO>>>,
+    extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
@@ -349,6 +350,10 @@ impl TestEnv {
             dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                 db::credential_rotation::CredentialRotationType::DpuUefi,
             ),
+            dpu_bmc_service_rotation_gate:
+                carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuBmcService,
+                ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
         }
@@ -455,6 +460,7 @@ impl TestEnv {
                 retry_count,
             },
             ManagedHostState::DPUReprovision { .. } => state.clone(),
+            ManagedHostState::ConfigureAstra { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
@@ -599,6 +605,17 @@ impl TestEnv {
     /// in this test environment.
     pub(in crate::tests) async fn run_vpc_prefix_controller_iteration(&self) {
         self.vpc_prefix_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .boxed()
+            .await;
+    }
+
+    /// Runs one periodic-scan and processor iteration of the extension-service
+    /// state controller with the services in this test environment.
+    pub(in crate::tests) async fn run_extension_service_controller_iteration(&self) {
+        self.extension_service_controller
             .lock()
             .await
             .run_single_iteration()
@@ -1042,41 +1059,12 @@ pub(in crate::tests) fn get_config() -> CarbideConfig {
     default_config::get()
 }
 
-/// Rack profile ID used by RMS-ready test fixtures.
-pub(in crate::tests) const TEST_RMS_RACK_PROFILE_ID: &str = "NVL72";
+pub(in crate::tests) use model::test_support::TEST_RMS_RACK_PROFILE_ID;
 
 /// Returns the default test config plus an RMS-ready NVL72 rack profile.
 pub(in crate::tests) fn get_config_with_rack_profiles() -> CarbideConfig {
     let mut config = get_config();
-    config.rack_profiles = RackProfileConfig {
-        rack_profiles: [(
-            TEST_RMS_RACK_PROFILE_ID.to_string(),
-            RackProfile {
-                product_family: Some(RackProductFamily::Gb200),
-                rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
-                rack_capabilities: RackCapabilitiesSet {
-                    compute: RackCapabilityCompute {
-                        count: 18,
-                        vendor: Some("NVIDIA".to_string()),
-                        ..Default::default()
-                    },
-                    switch: RackCapabilitySwitch {
-                        count: 9,
-                        vendor: Some("NVIDIA".to_string()),
-                        ..Default::default()
-                    },
-                    power_shelf: RackCapabilityPowerShelf {
-                        count: 8,
-                        vendor: Some("LiteOn".to_string()),
-                        ..Default::default()
-                    },
-                },
-                ..Default::default()
-            },
-        )]
-        .into_iter()
-        .collect(),
-    };
+    config.rack_profiles = rms_rack_profiles();
 
     config
 }
@@ -1558,6 +1546,10 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                 dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 ),
+                dpu_bmc_service_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::DpuBmcService,
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,
             }
@@ -1654,6 +1646,21 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .state_handler(Arc::new(vpc_prefix_swap.clone()))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build VpcPrefixStateController");
+
+    let extension_service_controller = StateController::builder()
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
+        .meter("carbide_extension_services", test_meter.meter())
+        .processor_id(state_controller_id.clone())
+        .services(
+            ExtensionServiceStateHandlerServices {
+                db_pool: db_pool.clone(),
+                dpf_sdk: api.dpf_sdk.clone(),
+            }
+            .into(),
+        )
+        .state_handler(Arc::new(ExtensionServiceStateHandler))
+        .build_for_manual_iterations(cancel_token.clone())
+        .expect("Unable to build ExtensionServiceStateController");
 
     let power_shelf_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
@@ -1852,6 +1859,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
+        extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),
         power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
         rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,

@@ -18,6 +18,7 @@
 use std::borrow::Cow;
 use std::time::Instant;
 
+use carbide_uuid::rack::RackId;
 use dashmap::DashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +56,16 @@ impl LogDowngradeRegistry {
         self.downgraded.contains_key(key)
     }
 
-    // first call for a key inserts + warns; subsequent calls are no-ops
-    pub fn mark_downgraded(&self, key: Cow<'static, str>, reason: DowngradeReason) {
+    /// Records the first downgrade for `key` and emits one warning.
+    ///
+    /// The warning includes `rack_id` when the endpoint has a rack identity.
+    /// Later calls for the same `key` do not change the recorded downgrade.
+    pub fn mark_downgraded(
+        &self,
+        key: Cow<'static, str>,
+        rack_id: Option<&RackId>,
+        reason: DowngradeReason,
+    ) {
         use dashmap::Entry;
         match self.downgraded.entry(key.clone()) {
             Entry::Vacant(slot) => {
@@ -66,6 +75,7 @@ impl LogDowngradeRegistry {
                 });
                 tracing::warn!(
                     endpoint_key = %key,
+                    rack_id = rack_id.map(tracing::field::display),
                     reason = reason.as_label(),
                     "SSE log collector downgraded to periodic polling; restart the \
                      health service to retry SSE once the underlying issue is resolved"
@@ -100,7 +110,12 @@ mod tests {
     #[test]
     fn test_mark_downgraded_records_key_and_reason() {
         let registry = LogDowngradeRegistry::new();
-        registry.mark_downgraded(Cow::Borrowed("bmc-1"), DowngradeReason::SseNotAvailable);
+
+        registry.mark_downgraded(
+            Cow::Borrowed("bmc-1"),
+            None,
+            DowngradeReason::SseNotAvailable,
+        );
 
         assert!(registry.is_downgraded("bmc-1"));
         assert_eq!(registry.len(), 1);
@@ -113,7 +128,13 @@ mod tests {
     #[test]
     fn test_mark_downgraded_is_idempotent_for_same_key() {
         let registry = LogDowngradeRegistry::new();
-        registry.mark_downgraded(Cow::Borrowed("bmc-1"), DowngradeReason::SseNotAvailable);
+
+        registry.mark_downgraded(
+            Cow::Borrowed("bmc-1"),
+            None,
+            DowngradeReason::SseNotAvailable,
+        );
+
         let first = registry
             .event_for("bmc-1")
             .expect("first mark should record");
@@ -122,6 +143,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(2));
         registry.mark_downgraded(
             Cow::Borrowed("bmc-1"),
+            None,
             DowngradeReason::ConnectFailureBudgetExhausted,
         );
         let second = registry
@@ -136,9 +158,16 @@ mod tests {
     #[test]
     fn test_mark_downgraded_tracks_multiple_endpoints_independently() {
         let registry = LogDowngradeRegistry::new();
-        registry.mark_downgraded(Cow::Borrowed("bmc-1"), DowngradeReason::SseNotAvailable);
+
+        registry.mark_downgraded(
+            Cow::Borrowed("bmc-1"),
+            None,
+            DowngradeReason::SseNotAvailable,
+        );
+
         registry.mark_downgraded(
             Cow::Borrowed("bmc-2"),
+            None,
             DowngradeReason::ConnectFailureBudgetExhausted,
         );
 

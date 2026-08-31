@@ -40,7 +40,7 @@ use strum_macros::EnumIter;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::StateSla;
 use super::instance::snapshot::InstanceSnapshot;
-use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
+use super::instance::status::extension_service::InstanceExtensionServiceStatusObservationByType;
 use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
@@ -200,7 +200,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             instance.observations.network =
                 InstanceNetworkStatusObservation::aggregate_instance_observation(&dpu_snapshots);
             instance.observations.extension_services =
-                InstanceExtensionServiceStatusObservation::aggregate_instance_observation(
+                InstanceExtensionServiceStatusObservationByType::aggregate_instance_observation(
                     &dpu_snapshots,
                 );
         }
@@ -437,12 +437,20 @@ impl ManagedHostStateSnapshot {
     }
 
     // We are examining the dpa_interface_snapshots of the MH to see if has
-    // any NICs of type Astra. This function cannot be used during machine ingestion
-    // when the dpa_interfaces table does not yet have any entries for the host.
+    // any NICs of type Astra.
     pub fn has_astra_nics(&self) -> bool {
         self.dpa_interface_snapshots
             .iter()
             .any(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
+    }
+
+    // Returns the Astra NICs found in the MH's dpa_interface_snapshots. Only
+    // interfaces whose interface_type is Astra are returned.
+    pub fn astra_nics(&self) -> Vec<&DpaInterface> {
+        self.dpa_interface_snapshots
+            .iter()
+            .filter(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
+            .collect()
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
@@ -1289,6 +1297,12 @@ pub enum ManagedHostState {
     /// created.
     Created,
 
+    /// Enable Astra on CX9 NICs if necessary
+    ConfigureAstra {
+        #[serde(default)]
+        configure_astra_state: ConfigureAstraState,
+    },
+
     /// Machine moved to failed state. Recovery will be based on FailedCause
     Failed {
         details: FailureDetails,
@@ -1521,6 +1535,27 @@ pub enum ReadyBootConfigPostLockAction {
         machine_id: MachineId,
         details: FailureDetails,
     },
+}
+
+/// Progress while a newly ingested host enables Astra (EastWestControl) on
+/// its CX9 NICs and waits for the required AC power cycle to take effect.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum ConfigureAstraState {
+    /// PATCH Oem.Nvidia.EastWestControlEnabled on each declared CX9 NIC.
+    #[default]
+    EnableNics,
+    /// Wait for the host AC power cycle issued after enabling CX9 NICs.
+    WaitingForPowercycle,
+}
+
+impl Display for ConfigureAstraState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EnableNics => write!(f, "EnableNics"),
+            Self::WaitingForPowercycle => write!(f, "WaitingForPowercycle"),
+        }
+    }
 }
 
 /// `ReadyBootConfigState` persists progress while an unassigned Ready host
@@ -2726,6 +2761,11 @@ impl Display for DecommissioningState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => {
+                write!(f, "ConfigureAstra/{configure_astra_state}")
+            }
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -2844,6 +2884,9 @@ impl Display for ManagedHostState {
 impl ManagedHostState {
     pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
         match self {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => format!("ConfigureAstra/{configure_astra_state}"),
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_id)
@@ -3035,6 +3078,9 @@ pub fn state_sla(
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
+        ManagedHostState::ConfigureAstra { .. } => {
+            StateSla::with_sla(slas::CONFIGURE_ASTRA, time_in_state)
+        }
         ManagedHostState::DpuDiscoveringState { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
             // because of this.
@@ -3510,6 +3556,30 @@ pub fn dpf_based_dpu_provisioning_possible(
         return false;
     }
 
+    // Flipping a host to DPF also flips the extension-service delivery path
+    // from the DPU agent to DPUDevice placement labels. Attachments admitted
+    // against the agent path cannot follow that flip -- only a detach moves
+    // them -- so keep such a host on the legacy path rather than stranding
+    // services the new path will never reconcile. Any service attached to a
+    // host that is not yet DPF-managed is agent-delivered by admission, so no
+    // service-type lookup is needed here.
+    if reprovisioning_case
+        && !state.host_snapshot.config.dpf.used_for_ingestion
+        && state.instance.as_ref().is_some_and(|instance| {
+            !instance
+                .config
+                .extension_services
+                .service_configs
+                .is_empty()
+        })
+    {
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU reprovisioning is not possible for host because its instance has attached extension services; detach them before migrating the host to DPF.",
+        );
+        return false;
+    }
+
     // All DPUs should not be Bluefield 2.
     if state.dpu_snapshots.iter().any(|dpu| {
         dpu.status
@@ -3759,6 +3829,30 @@ mod tests {
                 "state": "lockhost",
                 "terminal_failure": { "kind": "return_to_prepare" },
             }),
+        );
+    }
+
+    #[test]
+    fn configure_astra_defaults_survive_persisted_state_loading() {
+        scenarios!(
+            run = |json| serde_json::from_str::<ManagedHostState>(json).map_err(drop);
+            "legacy unit-shaped ConfigureAstra starts at EnableNics" {
+                r#"{"state":"configureastra"}"# => Yields(ManagedHostState::ConfigureAstra {
+                    configure_astra_state: ConfigureAstraState::EnableNics,
+                }),
+            }
+            "explicit EnableNics substate round-trips" {
+                r#"{"state":"configureastra","configure_astra_state":{"state":"enablenics"}}"# =>
+                    Yields(ManagedHostState::ConfigureAstra {
+                        configure_astra_state: ConfigureAstraState::EnableNics,
+                    }),
+            }
+            "WaitingForPowercycle substate round-trips" {
+                r#"{"state":"configureastra","configure_astra_state":{"state":"waitingforpowercycle"}}"# =>
+                    Yields(ManagedHostState::ConfigureAstra {
+                        configure_astra_state: ConfigureAstraState::WaitingForPowercycle,
+                    }),
+            }
         );
     }
 

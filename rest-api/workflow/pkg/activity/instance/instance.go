@@ -55,6 +55,16 @@ func resolvedVpcPrefixIDs(prefixes *corev1.InstanceInterfaceResolvedVpcPrefixes)
 	return prefixes.Ipv6VpcPrefixId, nil
 }
 
+func getDevicelessInterfaceKey(networkResourceID string, isPhysical bool, virtualFunctionID *int) string {
+	if isPhysical {
+		return networkResourceID + "-physical"
+	}
+	if virtualFunctionID == nil {
+		return networkResourceID + "-virtual"
+	}
+	return fmt.Sprintf("%s-virtual-%d", networkResourceID, *virtualFunctionID)
+}
+
 // Activity functions
 
 // UpdateInstancesInDB is a Temporal activity that takes a collection of Instance data pushed by Site Agent and updates the DB
@@ -177,7 +187,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// We'll add a 5 second buffer to account for a little clock skew/drift.
 		// The only thing that might be safe to perform is propagation status clearing,
 		// but only if we never allow multiple inventory processes to run concurrently.
-		if time.Since(instance.Updated) < cwutil.InventoryReceiptInterval+(time.Second*5) {
+		if site.IsTimeWithinStaleInventoryThreshold(instance.Updated) {
 			slogger.Warn().Msg("instance updated more recently than inventory received time, skipping processing")
 			continue
 		}
@@ -404,8 +414,10 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 						}
 						interfaceMap[deviceInstanceId] = &curIfc
 					} else if ifc.VpcID == nil && ifc.VpcPrefixID != nil {
-						// FNN interface
-						interfaceMap[ifc.VpcPrefixID.String()] = &curIfc
+						// Device-less FNN interfaces may share a VPC Prefix, so include
+						// the function identity in the reconciliation key.
+						key := getDevicelessInterfaceKey(ifc.VpcPrefixID.String(), ifc.IsPhysical, ifc.VirtualFunctionID)
+						interfaceMap[key] = &curIfc
 					}
 
 					if ifc.SubnetID != nil && ifc.Status != cdbm.InterfaceStatusDeleting {
@@ -446,8 +458,15 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 							// Multi DPU interface
 							ifc, ok = interfaceMap[deviceInstanceId]
 						} else {
-							// FNN interface
-							ifc, ok = interfaceMap[networkDetails.VpcPrefixId.Value]
+							// Device-less FNN interface
+							var virtualFunctionID *int
+							if interfaceConfig.VirtualFunctionId != nil {
+								value := int(*interfaceConfig.VirtualFunctionId)
+								virtualFunctionID = &value
+							}
+							isPhysical := interfaceConfig.FunctionType == corev1.InterfaceFunctionType_PHYSICAL_FUNCTION
+							key := getDevicelessInterfaceKey(networkDetails.VpcPrefixId.Value, isPhysical, virtualFunctionID)
+							ifc, ok = interfaceMap[key]
 						}
 					case *corev1.InstanceInterfaceConfig_SegmentId:
 						ifc, ok = interfaceMap[networkDetails.SegmentId.Value]
@@ -697,7 +716,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// Determine which InfiniBand Interfaces in Deleting state can be deleted
 		if isInfiniBandConfigStatusEmpty || isInfiniBandConfigSynced {
 			for _, ibifc := range deletingInfiniBandInterfaces {
-				if util.IsTimeWithinStaleInventoryThreshold(ibifc.Updated) {
+				if site.IsTimeWithinStaleInventoryThreshold(ibifc.Updated) {
 					// If the InfiniBand Interface was modified within stale inventory threshold, defer to next inventory update
 					continue
 				}
@@ -774,7 +793,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 			if !exists {
 				// If the DPU Extension Service Deployment was modified within stale inventory threshold, defer to next inventory update
-				if util.IsTimeWithinStaleInventoryThreshold(desd.Updated) {
+				if site.IsTimeWithinStaleInventoryThreshold(desd.Updated) {
 					continue
 				}
 
@@ -910,7 +929,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// Delete NVLink Interfaces that are not present in the controller Instance
 		if isNVLinkConfigStatusEmpty || isNVLinkConfigSynced {
 			for _, nvlifc := range deletingNVLinkInterfaces {
-				if util.IsTimeWithinStaleInventoryThreshold(nvlifc.Updated) {
+				if site.IsTimeWithinStaleInventoryThreshold(nvlifc.Updated) {
 					// If the NVLink Interface was modified within stale inventory threshold, defer to next inventory update
 					continue
 				}
@@ -1018,7 +1037,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			}
 		} else if instance.ControllerInstanceID != nil {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
-			if time.Since(instance.Created) < cwutil.InventoryReceiptInterval {
+			if site.IsTimeWithinStaleInventoryThreshold(instance.Created) {
 				continue
 			}
 

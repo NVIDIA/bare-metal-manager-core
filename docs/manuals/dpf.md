@@ -454,6 +454,9 @@ rules:
     resources: ["dpuflavors"]
     verbs: ["get", "create"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["dpuflavortemplates"]
+    verbs: ["get", "create"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpusets"]
     verbs: ["get"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
@@ -476,7 +479,7 @@ rules:
     verbs: ["get", "create", "patch"]
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["create"]
+    verbs: ["get", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -741,13 +744,20 @@ Each DPU generation is provisioned by its own `DPUDeployment`, configured under
 `[dpf.deployments.<name>]`. **BF3** is always present with built-in defaults;
 **BF4 (generic)** and **BF4 Astra** are opt-in and are activated by
 `[dpf.deployments.bf4_generic]` and `[dpf.deployments.bf4_astra]`,
-respectively. Active deployments run side-by-side, each with its own
-`DPUFlavor` and `DPUDeployment`. BF3 uses a BFB URL (`bfb_url`), while BF4
-uses a `[bluefield_software]` block instead of a BFB.
+respectively. Active deployments run side-by-side, each with its own flavor
+resource and `DPUDeployment`: BF3 and generic BF4 use `DPUFlavor`, while Astra
+uses `DPUFlavorTemplate`. BF3 uses a BFB URL (`bfb_url`), while BF4 uses a
+`[bluefield_software]` block instead of a BFB.
 
 Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
 and `node_label_key`; carbide-api validates this at startup and refuses to start
 if any deployments collide.
+
+#### BF4 Astra Spectrum-X runtime ConfigMap
+
+BF4 Astra requires a `ra2.2-runtime` ConfigMap in the DPF operator namespace
+(normally `dpf-operator-system`) containing an `RA2.2-runtime.yaml` key.
+Create it before enabling `[dpf.deployments.bf4_astra]`.
 
 ```toml
 # BF3 is present by default. Override only if any change is needed.
@@ -782,7 +792,7 @@ Per-deployment field reference:
 | `bfb_url` | no | BF3 bf-bundle URL | BlueField firmware bundle (BFB) used to provision the DPU. Mutually exclusive with `bluefield_software`. |
 | `bluefield_software.os_iso` | BF4 only | — | OS ISO URL used by BF4 deployments in place of a BFB. Required when `bluefield_software` is set. |
 | `bluefield_software.pldm_fw_bundle` | BF4 only | — | Map of PSID → PLDM firmware bundle URL. Currently exactly one entry is supported. |
-| `flavor_name` | yes | `carbide-dpu-flavor` | `DPUFlavor` CR name for this deployment. |
+| `flavor_name` | yes | `carbide-dpu-flavor` | Base name for the generated `DPUFlavor` (BF3/generic BF4) or `DPUFlavorTemplate` (Astra) CR. |
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
@@ -1222,14 +1232,17 @@ DPF initialization objects are created in the host cluster.
 
 On startup with `[dpf].enabled = true`, carbide-api creates the following
 objects in the `dpf-operator-system` namespace. It does this **once for each active
-deployment** in `[dpf.deployments.*]` (BF3 always, plus `bf4_generic` when
-that table is present), using that deployment's own `bfb_url`, `flavor_name`,
-and `deployment_name`:
+deployment** in `[dpf.deployments.*]` (BF3 always, plus enabled BF4 generic or
+Astra deployments), using that deployment's own `bfb_url`, `flavor_name`, and
+`deployment_name`:
 
 - A `Secret` (`bmc-shared-password`) holding the shared BMC password (shared
   across deployments)
 - A `BFB` CR named `bf-bundle-<sha256(bfb_url)>`, from the deployment's `bfb_url`
-- A `DPUFlavor` CR named `<flavor_name>-<spec-hash>`. (The 16-character hex suffix is a SHA-256 digest of the spec. Any change to the flavor, including adding or changing `[dpf.proxy]`, produces a new name and triggers reprovisioning of that deployment's DPUs.)
+- A `DPUFlavor` CR (BF3/generic BF4) or `DPUFlavorTemplate` CR (Astra) named
+  `<flavor_name>-<spec-hash>`. The 16-character hex suffix is a SHA-256 digest
+  of the flavor spec or template; changing it, including adding or changing
+  `[dpf.proxy]`, produces a new name and triggers reprovisioning.
 - A set of `DPUServiceInterface`, `DPUServiceTemplate`,
   `DPUServiceConfiguration`, and `DPUServiceNAD` CRs, one per mandatory
   DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
@@ -1237,13 +1250,14 @@ and `deployment_name`:
   resolved services -- either its `[dpf.deployments.<name>.services]` override if
   set, otherwise the top-level `[dpf.services]`.
 - A `DPUDeployment` CR named after the deployment's `deployment_name`, which
-  references the BFB, the DPUFlavor, and the service templates above, and which
-  the DPF operator then reconciles into actual `DPUService` and per-DPU
-  resources.
+  references the BFB, its flavor resource, and the service templates above. For
+  Astra, it uses `flavorTemplate`, which the DPF operator renders into a
+  per-DPU `DPUFlavor`; otherwise it uses `flavor`. The operator then reconciles
+  these into actual `DPUService` and per-DPU resources.
 
 Because this path runs only at process start, **any change to `[dpf]`** —
 enabling DPF for the first time, changing a deployment's BFB URL, renaming a
-`DPUDeployment`/`DPUFlavor`, adding or removing `[dpf.deployments.bf4_generic]`,
+`DPUDeployment`/flavor resource, adding or removing BF4 deployment tables,
 pinning a different chart/image version under `[dpf.services.*]` or a
 deployment's `[dpf.deployments.<name>.services]`, or adding/changing
 `[dpf.proxy]` — **requires a carbide-api restart** for the new configuration to

@@ -162,8 +162,12 @@ impl TestHarness {
             .machines
     }
 
-    pub async fn create_rack(&self) -> TestRack {
-        TestRack::create(self).await
+    /// Creates a randomly identified rack with the supplied profile and default config.
+    pub async fn create_rack(
+        &self,
+        rack_profile_id: carbide_uuid::rack::RackProfileId,
+    ) -> TestRack {
+        TestRack::create(self, rack_profile_id).await
     }
 
     pub async fn create_switch(&self, slot_number: i32, tray_index: i32) -> TestSwitch {
@@ -178,8 +182,15 @@ impl TestHarness {
         TestExpectedSwitch::create(self, expected_switch).await
     }
 
-    pub async fn create_power_shelf(&self) -> TestPowerShelf {
-        TestPowerShelf::create(self).await
+    /// Creates a power shelf directly in the database with the supplied config.
+    ///
+    /// The ID is derived from `config.name`, so repeated names collide in the
+    /// same database. BMC MAC, metadata, and rack association are left unset.
+    pub async fn create_power_shelf(
+        &self,
+        config: model::power_shelf::PowerShelfConfig,
+    ) -> TestPowerShelf {
+        TestPowerShelf::create(self, config).await
     }
 }
 

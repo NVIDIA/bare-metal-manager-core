@@ -128,6 +128,12 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
                   key: VAULT_SERVICE
+            - name: VAULT_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: VAULT_NAMESPACE
+                  optional: true
             - name: VAULT_KV_MOUNT_LOCATION
               valueFrom:
                 configMapKeyRef:
@@ -232,6 +238,11 @@ spec:
               mountPath: /etc/forge/carbide-api/site
             - name: {{ include "nico-api.name" . }}-site-config-files
               mountPath: /etc/nico/nico-api/site
+            {{- if .Values.credentials.file.existingSecret.name }}
+            - name: credentials-file
+              mountPath: {{ required "nico-api.credentials.file.mountPath is required when credentials.file.existingSecret.name is set" .Values.credentials.file.mountPath | quote }}
+              readOnly: true
+            {{- end }}
             - name: persistence
               mountPath: /mnt/persistence
             - name: spiffe
@@ -267,6 +278,14 @@ spec:
         - name: {{ include "nico-api.name" . }}-site-config-files
           configMap:
             name: {{ include "nico-api.name" . }}-site-config-files
+        {{- if .Values.credentials.file.existingSecret.name }}
+        - name: credentials-file
+          secret:
+            secretName: {{ .Values.credentials.file.existingSecret.name | quote }}
+            items:
+              - key: {{ required "nico-api.credentials.file.existingSecret.key is required when credentials.file.existingSecret.name is set" .Values.credentials.file.existingSecret.key | quote }}
+                path: credentials.yaml
+        {{- end }}
         - name: persistence
           emptyDir: {}
         - name: spiffe

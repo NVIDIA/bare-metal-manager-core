@@ -17,6 +17,7 @@
 
 use carbide_test_harness::prelude::*;
 use carbide_uuid::power_shelf::PowerShelfId;
+use model::test_support::power_shelf_config;
 use rpc::forge::PowerShelfQuery;
 
 use crate::power_shelf::create_custom_power_shelf;
@@ -26,8 +27,12 @@ async fn test_find_power_shelf_ids_and_by_ids(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
-    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id1 } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf 1"))
+        .await;
+    let TestPowerShelf { id: ps_id2 } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf 2"))
+        .await;
 
     // FindPowerShelfIds should return both power shelves
     let power_shelf_ids = env
@@ -76,8 +81,12 @@ async fn test_find_power_shelf_ids_excludes_deleted(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
-    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id1 } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf 1"))
+        .await;
+    let TestPowerShelf { id: ps_id2 } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf 2"))
+        .await;
 
     // Delete ps2
     env.api()
@@ -106,8 +115,12 @@ async fn test_find_power_shelf_ids_deleted_only(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
-    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id1 } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf 1"))
+        .await;
+    let TestPowerShelf { id: ps_id2 } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf 2"))
+        .await;
 
     env.api()
         .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
@@ -149,7 +162,9 @@ async fn test_find_power_shelf_ids_by_controller_state(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let TestPowerShelf { id: ps_id } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf"))
+        .await;
 
     // New power shelves start in "initializing" state
     let power_shelf_ids = env
@@ -183,7 +198,9 @@ async fn test_find_power_shelves_by_ids_response_fields(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let TestPowerShelf { id: ps_id } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id } = env
+        .create_power_shelf(power_shelf_config("Test Power Shelf"))
+        .await;
 
     let power_shelves = env
         .api()
