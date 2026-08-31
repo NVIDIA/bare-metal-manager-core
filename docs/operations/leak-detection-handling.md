@@ -118,13 +118,14 @@ These endpoints should report:
 
 ### Customizable leak handling policies
 
-The current default general leak handling is built on top of NICo policy and automation engine. [issue #2076](https://github.com/NVIDIA/infra-controller/issues/2076) aims to provide a set of API to allow easy creation and management of customized general leakage handling policies at runtime. This is critical for fine-tuning for site-specific needs, especially as hardware become denser and more complex.
+NICo's current default general leak handling uses the NICo policy and automation engine. [Issue #2076](https://github.com/NVIDIA/infra-controller/issues/2076) aims to provide a set of APIs to allow you to create and manage customized general leakage-handling policies at runtime. This is critical for fine-tuning for site-specific needs, especially as hardware becomes denser and more complex.
 
-Examples of potential customized policies in the future:
-- Preventively turn off all trays beneath any leaking trays (rack topology)
+The following are examples of _potential_ customized future policies:
+
+- Preemptively turn off all trays located below a leaking tray (based on rack topology)
 - Turn off a rack if trays are leaking and flapping rapidly (time series)
-- Turn off a rack based on combination of BMS sensor metrics + NICo tray detection (more sensitive yet robust detection)
-- Turn off racks in a coolant loop with 2+ leaking racks (site topology)
+- Turn off a rack based on a combination of BMS sensor metrics and NICo tray detection (more sensitive yet robust detection)
+- Turn off racks in a coolant loop with two or more leaking racks (based on site topology)
 
 ### Full-lifecycle leak detection and handling
 
