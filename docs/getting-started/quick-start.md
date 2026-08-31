@@ -97,6 +97,11 @@ export NICO_DPF_DPU_CLUSTER_VIP=<free-routable-ip>    # DPU cluster control-plan
 # up within 60 s). Prompt to keep it out of shell history:
 read -r -s -p "Site-wide BMC root password (leave blank to set later): " NICO_DPF_BMC_ROOT_PASSWORD; echo
 export NICO_DPF_BMC_ROOT_PASSWORD
+
+# RMS (Rack Manager Service) is OPT-IN: pass --install-rms to setup.sh on
+# rack-management sites and set the image tag (there is no safe default):
+# export NICO_RMS_IMAGE_TAG=<rms-api image tag>
+# export NICO_RMS_IMAGE_REPO=<registry>/rms-api   # only for a mirror/self-built image
 ```
 
 `NICO_IMAGE_REGISTRY` is used for both NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup. DPF operator/DOCA images pull anonymously from public NGC by default; to mirror or self-build them into your registry, see [helm-prereqs → DPF images and registries](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/README.md#dpf-images-and-registries).
