@@ -46,6 +46,7 @@ mod power_shelf;
 mod power_shelf_decommission;
 mod power_shelf_delete;
 mod power_shelf_find;
+mod power_shelf_health;
 mod power_shelf_maintenance;
 mod rack_find;
 mod rack_profile;

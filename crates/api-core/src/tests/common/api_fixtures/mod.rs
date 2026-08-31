@@ -48,9 +48,6 @@ use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
 use carbide_nvlink_manager::{
     NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
 };
-use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
-use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
-use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_rack::rms_client::test_support::RmsSim;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
@@ -284,7 +281,6 @@ pub(crate) struct TestEnv {
     vpc_prefix_controller: Arc<Mutex<StateController<VpcPrefixStateControllerIO>>>,
     extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
-    power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
     switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub(in crate::tests) reachability_params: ReachabilityParams,
@@ -658,17 +654,6 @@ impl TestEnv {
             .await
             .run_single_iteration()
             .boxed()
-            .await;
-    }
-
-    /// Runs one iteration of the power shelf state controller handler with the services
-    /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
-    pub(in crate::tests) async fn run_power_shelf_controller_iteration(&self) {
-        self.power_shelf_controller
-            .lock()
-            .await
-            .run_single_iteration()
             .await;
     }
 
@@ -1670,29 +1655,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build ExtensionServiceStateController");
 
-    let power_shelf_controller = StateController::builder()
-        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
-        .meter("carbide_power_shelves", test_meter.meter())
-        .processor_id(state_controller_id.clone())
-        .services(
-            PowerShelfStateHandlerServices {
-                db_pool: db_pool.clone(),
-                component_manager: test_component_manager.clone(),
-                credential_manager: credential_manager.clone(),
-                per_object_metrics_registry: per_object_metrics_registry.clone(),
-                rack_firmware_reprovisioning_enabled: false,
-                redfish_client_pool: redfish_sim.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
-                    db::credential_rotation::CredentialRotationType::Bmc,
-                ),
-                bmc_rotation_enabled: false,
-            }
-            .into(),
-        )
-        .state_handler(Arc::new(PowerShelfStateHandler::default()))
-        .build_for_manual_iterations(cancel_token.clone())
-        .expect("Unable to build PowerShelfStateController");
-
     let switch_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_switches", test_meter.meter())
@@ -1868,7 +1830,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
         extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),
-        power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
         rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,
         attestation_enabled,

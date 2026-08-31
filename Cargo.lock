@@ -2718,6 +2718,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-controller",
+ "tokio",
  "tokio-util",
  "tonic",
  "tracing",
