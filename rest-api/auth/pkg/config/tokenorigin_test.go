@@ -89,6 +89,21 @@ func TestNewTokenOriginConfig(t *testing.T) {
 	}
 }
 
+func TestTokenOriginConfig_UpdateAllJWKS_AllUnavailable(t *testing.T) {
+	testServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		res.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer testServer.Close()
+
+	config := NewTokenOriginConfig()
+	config.AddConfig("keycloak", "test-issuer", testServer.URL, TokenOriginKeycloak, false, nil, nil)
+
+	err := config.UpdateAllJWKS()
+	require.EqualError(t, err, "all JWKS updates failed (1 issuers)")
+	assert.NotNil(t, config.GetConfig("test-issuer"))
+	assert.Nil(t, config.GetConfig("test-issuer").GetJWKS())
+}
+
 // TestJWTOptionalKID_GoJose tests JWT validation with tokens created using the actual go-jose library
 func TestJWTOptionalKID_GoJose(t *testing.T) {
 	// Generate RSA key pair for signing
