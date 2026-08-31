@@ -22,7 +22,7 @@ NICo hardware-health service
 NICo tray health report
 ```
 
-Health report with leakage warnings or alerts are generated for the leaking trays. The alert classification and operational effect for this path depend on the site's health-processor configuration.
+NICo generates health reports with leakage warnings or alerts for the leaking trays. The alert classification and operational effect for this path depend on the site's health-processor configuration.
 
 ### BMS leak-event integration
 
