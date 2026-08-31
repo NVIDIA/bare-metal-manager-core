@@ -1,5 +1,20 @@
 # Build Guide
 
+## Native Linux ARM64 Builds
+
+The repository's [Cargo configuration](../../.cargo/config.toml) selects Clang
+with mold when building the `aarch64-unknown-linux-gnu` target. Before running
+Cargo directly on a Linux ARM64 host, ensure that the `clang` and `mold`
+executables are on `PATH`. On Debian or Ubuntu, install both packages with:
+
+```bash
+sudo apt-get install -y clang mold
+```
+
+Without either executable, Cargo fails during linking. Containerized ARM64
+builds install both tools in their build images and do not require them on the
+host.
+
 ## Updating Pinned Dependencies
 
 ### Git submodules
