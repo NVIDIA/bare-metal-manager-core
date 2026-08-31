@@ -751,13 +751,15 @@ pub(super) async fn handle_powering_on_host(
         .await?;
     let power_state = super::host_power_state(redfish_client.as_ref()).await?;
     match power_state {
-        PowerState::On | PowerState::PoweringOn => {}
-        PowerState::PoweringOff => {
-            return Ok(StateHandlerOutcome::wait(format!(
-                "waiting for {host_id} to finish powering off before powering on; current power state: {power_state}",
-                host_id = host.id,
-            )));
-        }
+        PowerState::On | PowerState::PoweringOn => Ok(StateHandlerOutcome::transition(
+            ManagedHostState::Decommissioning {
+                decommissioning_state: DecommissioningState::WaitingForOobDhcpAcknowledgement,
+            },
+        )),
+        PowerState::PoweringOff => Ok(StateHandlerOutcome::wait(format!(
+            "waiting for {host_id} to finish powering off before powering on; current power state: {power_state}",
+            host_id = host.id,
+        ))),
         _ => {
             tracing::info!(
                 machine_id = %host.id,
@@ -771,14 +773,12 @@ pub(super) async fn handle_powering_on_host(
                         "failed to power on host after decommissioning power cycle: {error}"
                     ))
                 })?;
+            Ok(StateHandlerOutcome::wait(format!(
+                "waiting for {host_id} to power on after decommissioning power cycle; current power state: {power_state}",
+                host_id = host.id,
+            )))
         }
     }
-
-    Ok(StateHandlerOutcome::transition(
-        ManagedHostState::Decommissioning {
-            decommissioning_state: DecommissioningState::WaitingForOobDhcpAcknowledgement,
-        },
-    ))
 }
 
 pub(super) async fn handle_waiting_for_oob_dhcp_acknowledgement(
