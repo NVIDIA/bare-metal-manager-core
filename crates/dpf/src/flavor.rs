@@ -1089,6 +1089,48 @@ fn get_bf4_astra_config_files(
 ) -> Result<Vec<DpuFlavorConfigFiles>, crate::error::DpfError> {
     let mut config_files = vec![
         DpuFlavorConfigFiles {
+            path: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(
+                concat!(
+                    "[program: cl-acltool]\n",
+                    "command = bash -c \"sleep 5 && ",
+                    "/usr/cumulus/bin/cl-acltool -i\"\n",
+                    "startsecs = 0\n",
+                    "autorestart = false\n",
+                    "priority = 200\n",
+                )
+                .to_string(),
+            ),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(dhcp_acl_rules(None)),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/etc/lldpd.d/lldp-interfaces.conf".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("configure system interface pattern *\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/etc/default/lldpd".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("DAEMON_ARGS=\"-M 1\"\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
             content_from: None,
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             path: "/etc/mellanox/mlnx-bf.conf".to_string(),
@@ -1404,7 +1446,6 @@ fn get_bf4_astra_config_files(
             r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
         },
     ];
-
     if let Some(proxy) = proxy {
         validate_proxy_string(&proxy.https_proxy, "https_proxy")?;
 
@@ -2494,6 +2535,27 @@ mod tests {
                 ) => true,
             }
 
+            "Astra includes the HBN configuration files" {
+                {
+                    let paths = flavor
+                        .spec
+                        .config_files
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|file| file.path.as_str())
+                        .collect::<BTreeSet<_>>();
+                    [
+                        "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf",
+                        "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules",
+                        "/etc/lldpd.d/lldp-interfaces.conf",
+                        "/etc/default/lldpd",
+                    ]
+                    .into_iter()
+                    .all(|path| paths.contains(path))
+                } => true,
+            }
+
             "ewNic rawNvConfig has correct programmable CC and locality mode" {
                 {
                     let raw = ew_nic.raw_nv_config.as_ref().unwrap();
@@ -2530,12 +2592,12 @@ mod tests {
                     .count();
                 (files.len(), proxy_file_count)
             };
-            "no proxy keeps only the eight Astra base files" {
-                None => (8, 0),
+            "no proxy keeps the twelve Astra base files" {
+                None => (12, 0),
             }
 
             "configured proxy appends exactly one proxy file" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (9, 1),
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (13, 1),
             }
         );
     }
