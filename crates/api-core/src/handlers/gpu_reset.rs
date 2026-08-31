@@ -19,8 +19,8 @@
 
 use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{MachineInterfaceSnapshot, ManagedHostState};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -32,21 +32,20 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Maps the requested reset action to a Redfish chassis power control.
 ///
-/// v1 only supports `ForceRestart` (also the default for Unset/On). Redfish
-/// `Chassis.Reset` allowable `ResetType` values are vendor-specific and do not
-/// reliably include `GracefulRestart` or `ACPowercycle`, so those are rejected
-/// for now; power-off actions are rejected so a reset never leaves the baseboard
-/// powered off.
+/// v1 only supports `ForceRestart`; all other actions are rejected because
+/// Redfish `Chassis.Reset` allowable `ResetType` values are vendor-specific.
 fn map_gpu_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, Status> {
     use rpc::admin_power_control_request::SystemPowerControl as Spc;
     let action = Spc::try_from(action).map_err(|_| Status::invalid_argument("unknown action"))?;
     match action {
-        Spc::On | Spc::ForceRestart => Ok(libredfish::SystemPowerControl::ForceRestart),
-        Spc::GracefulRestart | Spc::AcPowercycle | Spc::GracefulShutdown | Spc::ForceOff => {
-            Err(Status::invalid_argument(
-                "action must be ForceRestart (the only reset type supported today)",
-            ))
-        }
+        Spc::ForceRestart => Ok(libredfish::SystemPowerControl::ForceRestart),
+        Spc::On
+        | Spc::GracefulRestart
+        | Spc::AcPowercycle
+        | Spc::GracefulShutdown
+        | Spc::ForceOff => Err(Status::invalid_argument(
+            "action must be ForceRestart (the only reset type supported today)",
+        )),
     }
 }
 
@@ -64,11 +63,15 @@ pub(crate) async fn admin_gpu_reset(
         // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
         .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
 
-    // Require maintenance mode so the caller has claimed the host and the reset
-    // cannot race a concurrent NICo power op (v1 guard; full serialization TODO).
+    // Reject tenant-assigned hosts and require maintenance mode before a reset.
     let (host_machine, txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
+    if matches!(host_machine.managed_state, ManagedHostState::Assigned { .. }) {
+        return Err(Status::failed_precondition(
+            "host is assigned to a tenant; a GPU reset is not allowed",
+        ));
+    }
     if host_machine.health_reports.maintenance_override().is_none() {
         return Err(Status::failed_precondition(
             "host must be in maintenance mode before a GPU reset \
@@ -109,10 +112,10 @@ mod tests {
         value_scenarios!(run = |a: i32| { map_gpu_reset_action(a).map_err(|_| ()) };
             "gpu reset action mapping" {
                 Spc::ForceRestart as i32 => Ok(L::ForceRestart),
-                Spc::On as i32 => Ok(L::ForceRestart),
-                0 => Ok(L::ForceRestart), // omitted action (proto3 default) -> ForceRestart
-                Spc::GracefulRestart as i32 => Err(()), // not supported in v1
-                Spc::AcPowercycle as i32 => Err(()),    // not supported in v1
+                Spc::On as i32 => Err(()),
+                0 => Err(()), // omitted action (proto3 default)
+                Spc::GracefulRestart as i32 => Err(()),
+                Spc::AcPowercycle as i32 => Err(()),
                 Spc::GracefulShutdown as i32 => Err(()),
                 Spc::ForceOff as i32 => Err(()),
                 9999 => Err(()),
