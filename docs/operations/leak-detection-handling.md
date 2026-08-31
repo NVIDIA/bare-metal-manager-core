@@ -138,9 +138,9 @@ For hosts known to be leaking before being turned off, and for hosts in a previo
 ## Related documentation and implementation
 
 - [Monitoring and Health](monitoring-health.md)
-- `crates/dsx-exchange-consumer/README.md`
-- `crates/dsx-exchange-consumer/src/health_updater.rs`
-- `helm/README.md`
+- [`crates/dsx-exchange-consumer/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/crates/dsx-exchange-consumer/README.md)
+- [`crates/dsx-exchange-consumer/src/health_updater.rs`](https://github.com/NVIDIA/infra-controller/blob/main/crates/dsx-exchange-consumer/src/health_updater.rs)
+- [`helm/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/helm/README.md)
 - [issue #2076](https://github.com/NVIDIA/infra-controller/issues/2076)
 - [Issue #5018](https://github.com/NVIDIA/infra-controller/issues/5018)
 - [issue #5391](https://github.com/NVIDIA/infra-controller/issues/5391)
