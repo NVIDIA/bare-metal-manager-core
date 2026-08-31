@@ -118,6 +118,14 @@ func cmdVPCPeeringCreate(s *Session, args []string) error {
 }
 
 func promptVPCPeeringVPCs(s *Session, siteID string) ([]NamedItem, error) {
+	savedVpcID, savedVpcName := s.Scope.VpcID, s.Scope.VpcName
+	s.Scope.VpcID, s.Scope.VpcName = "", ""
+	s.Cache.InvalidateFiltered()
+	defer func() {
+		s.Scope.VpcID, s.Scope.VpcName = savedVpcID, savedVpcName
+		s.Cache.InvalidateFiltered()
+	}()
+
 	vpcs, err := s.Resolver.Fetch(context.Background(), "vpc")
 	if err != nil {
 		return nil, fmt.Errorf("listing VPCs: %w", err)

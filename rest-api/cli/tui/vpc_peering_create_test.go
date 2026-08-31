@@ -5,6 +5,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -128,6 +129,24 @@ func TestFetchVPCPeeringsForSite(t *testing.T) {
 	require.Len(t, peerings, 1)
 	assert.Equal(t, "vpc-1", peerings[0].Extra["vpc1Id"])
 	assert.Equal(t, "vpc-2", peerings[0].Extra["vpc2Id"])
+}
+
+func TestPromptVPCPeeringVPCs(t *testing.T) {
+	session := NewSession(nil, "acme", "")
+	session.Scope.VpcID = "vpc-1"
+	session.Scope.VpcName = "VPC 1"
+	session.Cache.Set("vpc", []NamedItem{{ID: "vpc-1"}})
+	session.Resolver.RegisterFetcher("vpc", func(context.Context) ([]NamedItem, error) {
+		assert.Empty(t, session.Scope.VpcID)
+		assert.Empty(t, session.Scope.VpcName)
+		return nil, assert.AnError
+	})
+
+	_, err := promptVPCPeeringVPCs(session, "site-1")
+	require.ErrorIs(t, err, assert.AnError)
+	assert.Equal(t, "vpc-1", session.Scope.VpcID)
+	assert.Equal(t, "VPC 1", session.Scope.VpcName)
+	assert.Nil(t, session.Cache.Get("vpc"))
 }
 
 func testVPCPeeringItems(count int) []NamedItem {

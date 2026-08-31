@@ -202,6 +202,9 @@ verification expectations.
   send its ID in the list request, and require each returned row to match that
   exact tenant ID. Test a dual-role caller whose response also contains
   provider-owned and other-tenant resources.
+- When a site-wide TUI resource picker must ignore a narrower active scope,
+  clear that scope and invalidate filtered caches before fetching, then restore
+  both the scope and cache state on every return path. Test the scoped case.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
