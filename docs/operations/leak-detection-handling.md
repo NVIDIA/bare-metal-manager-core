@@ -75,7 +75,7 @@ NICo and the BMS together automatically take leak handling actions in three tier
 
 #### Critical Leakage Handling
 
-Critical leakages are those detected by BMS based on BMS-managed sensors. Because these sensors are often at rack or even larger scope, any leaks detected from them may have very large and serious impact, and rack electric and liquid isolation often need to be performed ASAP, by BMS via its control of AC power breaker and coolant valve.
+Critical leaks are those detected by the BMS based on BMS-managed sensors. Because these sensors are often at rack or even larger scope, any leaks detected from them can have a very large and serious impact. Critical leaks often require immediate rack electric and liquid isolation; the BMS does this using its control of AC power breakers and coolant valves.
 
 #### Severe Leakage Handling
 
