@@ -29,6 +29,11 @@ ENV CONTAINER_REPO_ROOT=/carbide
 
 RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
+
+# v0.10 integration tests invoke grpcurl. Install it here instead of relying on
+# the selected build container to provide this test prerequisite.
+RUN cd /tmp && curl -Lo ./grpcurl.tar.gz https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz && tar xzf grpcurl.tar.gz && chmod +x ./grpcurl && mv grpcurl /usr/local/bin/ && rm LICENSE && rm grpcurl.tar.gz
+
 COPY . ./
 
 # --mount=type=cache persists the sccache directory across docker build invocations.
