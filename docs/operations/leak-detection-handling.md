@@ -107,13 +107,14 @@ GET /nico/tray/{id}/leak
 GET /nico/leak
 ```
 
-Which should report
+These endpoints should report:
+
 - Tray leak sensor status
 - Tray leak sensor leakage status
 - BMS rack leak sensor status
 - BMS rack leak handling status
-- Ongoing leak handling (graceful tray shutdown, forceful tray shutdown, rack isolation)
-- If not ongoing leak handling, last leak handling and results
+- Ongoing leak handling actions (graceful tray shutdown, forceful tray shutdown, rack isolation)
+- If there is no ongoing leak handling, last leak-handling actions and results
 
 ### Customizable leak handling policies
 
