@@ -4,7 +4,7 @@
 
 In a rack-scale system, there are two sets of leak sensors: NICo and the BMS each manage one set, and detect leaks based on them. Additionally, the BMS controls the rack AC power breaker and coolant valve for rack isolation remediation, while NICo provides infrastructure-management health reporting, allocation protection, and safe handling.
 
-NICo evaluates leak-related conditions from compute and NVSwitch tray sensors managed by it to detect leak events. NICo also listens via DSX Exchange (MQTT event bus) for BMS-issued leak events based on BMS-managed sensors such as CDU, rope, and dripping pan. A leak event results in tray or rack health warnings and alerts in NICo, which prevent the machines from being allocated. Depending on the leak type and severity, NICo takes automated handling actions based on configuration and policy.
+NICo uses the sensors it manages in compute and NVSwitch trays to detect leak events. NICo also listens via the [DSX Exchange](https://docs.nvidia.com/dsx-exchange) MQTT event bus for BMS-issued leak events from BMS-managed sensors such as CDU, rope, and dripping pan. A leak event results in tray or rack health warnings and alerts in NICo, which prevent the machines from being allocated. Depending on the leak type and severity, NICo takes automated handling actions based on configuration and policy.
 
 ## Current capability: automated e2e leak detection, reporting, allocation protection, and handling
 
