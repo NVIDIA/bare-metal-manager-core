@@ -37,8 +37,8 @@ To add support for hardware that the NICo development team does not have access 
 | Lenovo ThinkSystem SR670 V2 | 6.10 | 3.30 | 3.31.01 |
 | Lenovo ThinkSystem SR675 V3 | 14.10 | 8.30 | 4.20.03 |
 | Lenovo ThinkSystem SR675 V3 OVX* | 14.10 | 8.30 | 4.20.03 |
-| NVSwitch Tray - Wiwynn | 1.3.2GA | 1.3.2GA | 1.3.2GA |
 | NVSwitch Tray DGX | 1.3.2GA | 1.3.2GA | 1.3.2GA |
+| NVSwitch Tray - Wiwynn | 1.3.2GA | 1.3.2GA | 1.3.2GA |
 | SSG-121E-NES24R | 01.04.19 | 2.7 | SAA Ver = 1.3.0-p1 |
 | SYS-121H-TNR | X1.05.10 | 2.7 | SAA Ver = 1.3.0-p5 |
 | SYS-221H-TN24R | X1.05.10 | 2.7 | SAA Ver = 1.3.0-p5 |
