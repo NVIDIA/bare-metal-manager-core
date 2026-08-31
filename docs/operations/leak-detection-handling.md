@@ -129,11 +129,11 @@ The following are examples of _potential_ customized future policies:
 
 ### Full-lifecycle leak detection and handling
 
-Currently, NICo only detects from in-tray BMC sensors of ingested machines and switches. This does not cover the full lifecycle of liquid-cooled hardware, which not only exposes risks but will eventually become blockers for the scaling of AI factory.
+Currently, NICo only detects from in-tray BMC sensors of _ingested_ machines and switches. This does not cover the full lifecycle of liquid-cooled hardware, which not only exposes risks, but will eventually become a blocker for scaling AI factories.
 
-For trays with BMC powered on and visible from NICo but have not yet been fully ingested, [issue #5391](https://github.com/NVIDIA/infra-controller/issues/5391) aims to expand the collection, detection, reporting, and handling of leakage to those trays, which not only expands the leak detection and handling coverage, but is also a dependency for the enhancement below.
+For trays with a BMC powered on and visible from NICo, but that have not yet been fully ingested, [issue #5391](https://github.com/NVIDIA/infra-controller/issues/5391) aims to expand the collection, detection, reporting, and handling of leakage to those trays. This not only expands leak detection and handling coverage, but is also a dependency for the following enhancement.
 
-For hosts that were known to be leaking before being previously turned off, and for hosts that belong to a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent them from being automatically turned on, until their BMC or the whole rack's BMCs can give a definitive clearance of leakage. This will complete the coverage of the full lifecycle of liquid-cooled hardware.
+For hosts known to be leaking before being turned off, and for hosts in a previously known-leaking rack, [issue #5510](https://github.com/NVIDIA/infra-controller/issues/5510) aims to prevent these hosts from being automatically turned on until their BMCs (or the whole rack's BMCs) can give a definitive clearance of leakage. This will complete the coverage of the full lifecycle of liquid-cooled hardware.
 
 ## Related documentation and implementation
 
