@@ -76,7 +76,7 @@ pub(crate) async fn should_enter_nic_lockdown_rotation(
         return Ok(true);
     }
     // Cheap site-wide flag first, so a disabled site never runs the gate query.
-    if !services.site_config.lockdown_ikm_rotation_enabled {
+    if !services.site_config.nic_lockdown_ikm_rotation_enabled {
         return Ok(false);
     }
     // The gate reports `true` for a NIC MAC whose lockdown_ikm credential lags the

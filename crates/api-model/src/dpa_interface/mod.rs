@@ -55,7 +55,7 @@ pub enum DpaInterfaceControllerState {
     Provisioning,
     /// The dpa interface is ready. It has been configured with a zero VNI
     Ready,
-    /// Unlock the card
+    /// Unlock the card as part of the tenant allocation-flow (applying f/w update if necessary)
     Unlocking,
     /// Apply firmware to the SuperNIC, in which we will send down
     /// a FirmwareFlasherProfile matching the device P/N + PSID,
@@ -70,21 +70,25 @@ pub enum DpaInterfaceControllerState {
     ApplyFirmware,
     /// Apply mlx profile
     ApplyProfile,
-    /// Lock the card
+    /// Lock the card as part of the tenant allocation-flow
     Locking,
     /// The Dpa Interface has been configured with a non-zero VNI
     Assigned,
-    /// Tenant-free NIC lockdown IKM rekey: unlock the card with the IKM version
-    /// it is currently locked under. Entered only from the idle-only
-    /// `ManagedHostState::RotatingNicLockdown` host state (never under active
-    /// tenancy). Distinct from the assignment `Unlocking` so its convergence
-    /// bookkeeping and next-state (`RotateKeyLocking`) can't be confused with the
-    /// VNI/tenant assignment flow.
+    /// Tenant-free NIC lockdown input-key-material (IKM) rotation, phase one:
+    /// unlock the card. Like the assignment `Unlocking`, it unlocks at the IKM
+    /// version the card is currently locked under -- it reuses the same
+    /// `build_unlock_command`, because a card must always be unlocked with the
+    /// key it was locked with. That shared unlock is not what makes this a
+    /// separate state; its gating and continuation are. It is entered only from
+    /// the idle-only `ManagedHostState::RotatingNicLockdown` host state (never
+    /// under active tenancy), and on observed unlock it clears the card's
+    /// convergence bookkeeping (`record_device_unlocked`) and advances to
+    /// `RotateKeyLocking` (relock at the site-wide target) rather than into the
+    /// firmware/profile assignment pipeline.
     RotateKeyUnlocking,
-    /// Tenant-free NIC lockdown IKM rekey: relock the card at the staged
+    /// Tenant-free NIC lockdown input-key-material (IKM) rotation flow, phase 2: lock the NIC with the most recent
     /// site-wide target IKM version, completing the rekey and returning the card
-    /// to `Ready`. The lock side stages `rotating_to_version` and promotes it on
-    /// observed lock, exactly like the assignment `Locking`.
+    /// to `Ready`.
     RotateKeyLocking,
 }
 

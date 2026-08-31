@@ -34851,13 +34851,8 @@ type NicLockdownCredentialRotationRequest struct {
 	// The host machine that owns the SuperNIC (SVPC) cards to rekey. The rekey
 	// cycle is host-level (it rekeys every lagging SVPC card on the host), so the
 	// one-shot force flag lives on the host machine row and its id uniquely names
-	// the target.
-	MachineId *MachineId `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3,oneof" json:"machine_id,omitempty"`
-	// MAC of one of the host's SuperNIC (SVPC) NICs, resolved server-side to its
-	// owning host machine. May be given alone, or alongside `machine_id` as a
-	// cross-check (they must identify the same host). At least one of
-	// `machine_id` / `nic_mac` must be set (enforced server-side).
-	NicMac        *string `protobuf:"bytes,3,opt,name=nic_mac,json=nicMac,proto3,oneof" json:"nic_mac,omitempty"`
+	// the target. Required (enforced server-side).
+	MachineId     *MachineId `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3,oneof" json:"machine_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -34904,13 +34899,6 @@ func (x *NicLockdownCredentialRotationRequest) GetMachineId() *MachineId {
 		return x.MachineId
 	}
 	return nil
-}
-
-func (x *NicLockdownCredentialRotationRequest) GetNicMac() string {
-	if x != nil && x.NicMac != nil {
-		return *x.NicMac
-	}
-	return ""
 }
 
 type HostReprovisioningListRequest struct {
@@ -67871,19 +67859,16 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x05Clear\x10\x02B\r\n" +
 	"\v_machine_idB\n" +
 	"\n" +
-	"\b_bmc_mac\"\x89\x02\n" +
+	"\b_bmc_mac\"\xdf\x01\n" +
 	"$NicLockdownCredentialRotationRequest\x12D\n" +
 	"\x04mode\x18\x01 \x01(\x0e20.forge.NicLockdownCredentialRotationRequest.ModeR\x04mode\x125\n" +
 	"\n" +
-	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdH\x00R\tmachineId\x88\x01\x01\x12\x1c\n" +
-	"\anic_mac\x18\x03 \x01(\tH\x01R\x06nicMac\x88\x01\x01\"+\n" +
+	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdH\x00R\tmachineId\x88\x01\x01\"+\n" +
 	"\x04Mode\x12\x0f\n" +
 	"\vUnspecified\x10\x00\x12\a\n" +
 	"\x03Set\x10\x01\x12\t\n" +
 	"\x05Clear\x10\x02B\r\n" +
-	"\v_machine_idB\n" +
-	"\n" +
-	"\b_nic_mac\"\x1f\n" +
+	"\v_machine_id\"\x1f\n" +
 	"\x1dHostReprovisioningListRequest\"\xb8\x03\n" +
 	"\x1eHostReprovisioningListResponse\x12V\n" +
 	"\x05hosts\x18\x01 \x03(\v2@.forge.HostReprovisioningListResponse.HostReprovisioningListItemR\x05hosts\x1a\xbd\x02\n" +

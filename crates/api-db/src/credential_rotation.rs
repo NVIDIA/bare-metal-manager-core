@@ -272,25 +272,8 @@ pub async fn promote_rotating_to_current(
 /// Records that `device_mac` is now *unlocked* for `credential_type`: NULLs
 /// `current_version` (the truth column's "no credential established" value, per
 /// the `lockdown_ikm` unlock contract) and clears the in-flight `rotating_to_version`
-/// marker plus all failure bookkeeping. Returns `true` if a row was updated,
-/// `false` if no row existed.
-///
-/// This is the unlock-side counterpart of [`promote_rotating_to_current`]. It is
-/// used by the two version-aware unlock observers for `lockdown_ikm`: the
-/// tenant-free idle rekey cycle (`RotateKeyUnlocking` -> observed `Unlocked`)
-/// and the decommission `WaitForSuperNicLockdown` observation. Recording the
-/// unlock keeps the truth column honest -- a released or decommissioned card
-/// must not retain a stale `current_version`/`rotating_to_version` that the
-/// rotation status counts or a later derivation would act on.
-///
-/// Clearing the failure bookkeeping (`rotate_attempts`, `rotate_quarantined_until`,
-/// `rotate_last_error_redacted`, `rotate_job_id`) mirrors [`promote_rotating_to_current`]:
-/// an unlocked card is a clean slate for its next lock, so it carries no stale
-/// error text or backoff window into `GetCredentialRotationStatus`.
-///
-/// Idempotent: a re-observed unlock finds the row already NULLed and is a no-op
-/// (it still reports `true` while the row exists). Missing row is a no-op that
-/// reports `false`.
+/// marker plus all failure bookkeeping. 
+// Only applicable for NIC lockdown input-key-material rotation today (other rotations dont unlock the device).
 pub async fn record_device_unlocked(
     conn: &mut PgConnection,
     device_mac: MacAddress,

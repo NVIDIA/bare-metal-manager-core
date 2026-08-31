@@ -6408,13 +6408,8 @@ message NicLockdownCredentialRotationRequest {
   // The host machine that owns the SuperNIC (SVPC) cards to rekey. The rekey
   // cycle is host-level (it rekeys every lagging SVPC card on the host), so the
   // one-shot force flag lives on the host machine row and its id uniquely names
-  // the target.
+  // the target. Required (enforced server-side).
   optional common.MachineId machine_id = 2;
-  // MAC of one of the host's SuperNIC (SVPC) NICs, resolved server-side to its
-  // owning host machine. May be given alone, or alongside `machine_id` as a
-  // cross-check (they must identify the same host). At least one of
-  // `machine_id` / `nic_mac` must be set (enforced server-side).
-  optional string nic_mac = 3;
 }
 
 message HostReprovisioningListRequest {

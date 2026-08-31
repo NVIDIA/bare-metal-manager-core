@@ -2830,10 +2830,8 @@ pub async fn clear_uefi_credential_rotation_requested(
     Ok(())
 }
 
-/// Record an operator "force-converge this host's SuperNIC lockdown keys now"
-/// request on the host machine that owns the SuperNICs. The machine state
-/// controller consumes it on its next idle sweep by entering
-/// `RotatingNicLockdown`. Mirrors [`set_bmc_credential_rotation_requested`].
+/// Record that an operator has requested rotating the NIC lockdown keys for a host 
+/// (bypasses the site-config flag for NIC lockdown rotation) 
 pub async fn set_lockdown_ikm_credential_rotation_requested(
     txn: &mut PgConnection,
     machine_id: MachineId,
@@ -2876,6 +2874,29 @@ pub async fn clear_lockdown_ikm_credential_rotation_requested(
             e => DatabaseError::new("clear_lockdown_ikm_credential_rotation_requested", e),
         })?;
     Ok(())
+}
+
+/// Read a host's one-shot NIC lockdown IKM rotation force flag. The SVPC scout
+/// handler consults this so the tenant-allocation lock migrates a force-flagged
+/// host's cards to the site-wide target even when the site-wide gate is off,
+/// mirroring the idle rekey path.
+pub async fn get_lockdown_ikm_credential_rotation_requested(
+    conn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<bool> {
+    let query =
+        "SELECT lockdown_ikm_credential_rotation_requested FROM machines WHERE id = $1";
+    sqlx::query_scalar::<_, bool>(query)
+        .bind(machine_id)
+        .fetch_one(conn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("get_lockdown_ikm_credential_rotation_requested", e),
+        })
 }
 
 pub async fn update_dpu_asns(

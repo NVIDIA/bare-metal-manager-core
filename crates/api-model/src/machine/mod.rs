@@ -874,14 +874,8 @@ pub struct Machine {
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub uefi_credential_rotation_requested: bool,
 
-    /// Operator "force-converge this host's SuperNIC lockdown keys now" request.
-    /// Set on the host machine that owns the SuperNICs. When `true`, the machine
-    /// state controller enters `RotatingNicLockdown` for the otherwise-idle host
-    /// and rekeys every lagging SVPC card to the site-wide target IKM on its next
-    /// idle sweep, bypassing the passive site-wide gate
-    /// (`lockdown_ikm_rotation_enabled`) and each card's backoff quarantine. The
-    /// rekey never runs under active tenancy, so a forced request against a busy
-    /// host is honored on its next idle window rather than immediately.
+    /// Force the rotation of the NIC lockdown keys on this host. 
+    /// Bypasses the site-config flag for NIC lockdown rotation.
     pub lockdown_ikm_credential_rotation_requested: bool,
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
