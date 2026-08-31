@@ -67,7 +67,10 @@ pub(crate) async fn admin_gpu_reset(
     let (host_machine, txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
-    if matches!(host_machine.current_state(), ManagedHostState::Assigned { .. }) {
+    if matches!(
+        host_machine.current_state(),
+        ManagedHostState::Assigned { .. }
+    ) {
         return Err(Status::failed_precondition(
             "host is assigned to a tenant; a GPU reset is not allowed",
         ));

@@ -276,10 +276,11 @@ impl EndpointExplorer for MockEndpointExplorer {
         chassis_id: &str,
         action: SystemPowerControl,
     ) -> Result<(), EndpointExplorationError> {
-        self.redfish_chassis_reset_calls
-            .lock()
-            .unwrap()
-            .push((address, chassis_id.to_string(), action));
+        self.redfish_chassis_reset_calls.lock().unwrap().push((
+            address,
+            chassis_id.to_string(),
+            action,
+        ));
         Ok(())
     }
 
