@@ -897,7 +897,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			verifyChildSpanner: true,
 		},
 		{
-			name: "test VPC create API endpoint rejects unsupported routing profile",
+			name: "test VPC create API endpoint accepts site-configured routing profile",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -905,16 +905,22 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			},
 			args: args{
 				reqData: &model.APIVpcCreateRequest{
-					Name:                      "Test VPC unsupported routing profile",
+					Name:                      "Test VPC site-configured routing profile",
 					Description:               cutil.GetPtr("Test VPC Description"),
 					SiteID:                    st1.ID.String(),
 					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 					RoutingProfile:            cutil.GetPtr("tenant-edge"),
 				},
-				reqOrg:      tnOrg,
-				reqUser:     tnu,
-				respCode:    http.StatusBadRequest,
-				respMessage: "`routingProfile` must be one of privileged-internal, internal, or external",
+				reqOrg:         tnOrg,
+				reqUser:        tnu,
+				respCode:       http.StatusCreated,
+				expectedStatus: cdbm.VpcStatusProvisioning,
+				expectedStatusDetails: []expectedStatusDetail{
+					{
+						status:  cdbm.VpcStatusProvisioning,
+						message: "VPC provisioning has been initiated on Site",
+					},
+				},
 			},
 			wantErr:            false,
 			verifyChildSpanner: true,

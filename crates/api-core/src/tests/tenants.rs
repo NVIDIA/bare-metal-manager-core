@@ -377,6 +377,31 @@ async fn test_tenant(pool: sqlx::PgPool) {
 
     assert_eq!(tenant.routing_profile_type.as_deref(), Some("INTERNAL"));
     assert_eq!(tenant.organization_id, "Org2");
+
+    // A profile can disappear from FNN config after it was persisted. Tenant
+    // lookup must remain usable and expose no selectable profiles in that
+    // stale state.
+    sqlx::query("UPDATE tenants SET routing_profile_type = $1 WHERE organization_id = $2")
+        .bind("REMOVED_PROFILE")
+        .bind("Org2")
+        .execute(&env.pool)
+        .await
+        .unwrap();
+
+    let find_tenant = env
+        .api
+        .find_tenant(tonic::Request::new(rpc::forge::FindTenantRequest {
+            tenant_organization_id: "Org2".to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(find_tenant.permitted_vpc_routing_profile_types.is_empty());
+    assert_eq!(
+        find_tenant.tenant.unwrap().routing_profile_type.as_deref(),
+        Some("REMOVED_PROFILE")
+    );
 }
 
 #[crate::sqlx_test]

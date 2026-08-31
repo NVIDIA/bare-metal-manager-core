@@ -625,6 +625,7 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	}
 
 	routingProfile := ""
+	routingProfileOverride := ""
 	siteRaw, _ := site.Raw.(map[string]interface{})
 	siteCapabilities, _ := siteRaw["capabilities"].(map[string]interface{})
 	nativeNetworking, _ := siteCapabilities["nativeNetworking"].(bool)
@@ -648,12 +649,15 @@ func cmdVPCCreate(s *Session, _ []string) error {
 		if err != nil {
 			return err
 		}
-		body["routingProfile"] = routingProfile
+		if routingProfile != profiles.TenantDefaultRoutingProfile {
+			routingProfileOverride = routingProfile
+			body["routingProfile"] = routingProfileOverride
+		}
 	}
 
 	logArgs := []string{"vpc", "create", "--name", name, "--site-id", site.ID}
-	if routingProfile != "" {
-		logArgs = append(logArgs, "--routing-profile", routingProfile)
+	if routingProfileOverride != "" {
+		logArgs = append(logArgs, "--routing-profile", routingProfileOverride)
 	}
 	LogCmd(s, logArgs...)
 	bodyJSON, _ := json.Marshal(body)

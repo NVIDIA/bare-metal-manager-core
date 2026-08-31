@@ -73,7 +73,7 @@ func TestNewAPITenant(t *testing.T) {
 func TestAPITenantRoutingProfilesFromProto(t *testing.T) {
 	coreResponse := &corev1.FindTenantResponse{
 		Tenant:                          &corev1.Tenant{RoutingProfileType: cutil.GetPtr("INTERNAL")},
-		PermittedVpcRoutingProfileTypes: []string{"EXTERNAL", "INTERNAL"},
+		PermittedVpcRoutingProfileTypes: []string{"EXTERNAL", "INTERNAL", "MAINTENANCE"},
 	}
 
 	t.Run("allows site-scoped alternatives", func(t *testing.T) {
@@ -81,7 +81,7 @@ func TestAPITenantRoutingProfilesFromProto(t *testing.T) {
 		response.FromProto(coreResponse, true)
 
 		assert.Equal(t, "internal", response.TenantDefaultRoutingProfile)
-		assert.Equal(t, []string{"external", "internal"}, response.PermittedRoutingProfiles)
+		assert.Equal(t, []string{"external", "internal", "MAINTENANCE"}, response.PermittedRoutingProfiles)
 	})
 
 	t.Run("limits selection to tenant default without privilege", func(t *testing.T) {

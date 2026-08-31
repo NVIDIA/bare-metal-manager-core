@@ -17729,7 +17729,7 @@ components:
           example: internal
         permittedRoutingProfiles:
           type: array
-          description: Routing profiles the Tenant may explicitly select at this Site
+          description: Site-configured routing profiles the Tenant may choose at this Site. Choosing `tenantDefaultRoutingProfile` inherits it by omitting `routingProfile`; other returned values can be sent explicitly when creating a VPC.
           items:
             type: string
           example:
@@ -19280,7 +19280,7 @@ components:
             - 'null'
           minLength: 3
           maxLength: 64
-          description: Specify routing profile for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege. Current accepted values are `privileged-internal`, `internal`, and `external`.
+          description: Specify a Site-configured routing profile returned by GET `/tenant/current/routing-profiles` for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege.
         routingProfileOverrides:
           oneOf:
             - $ref: '#/components/schemas/VpcRoutingProfileOverrides'

@@ -284,8 +284,8 @@ type APIVpcCreateRequest struct {
 	// RoutingProfile specifies the routing profile for the VPC.
 	// This is only supported when `networkVirtualizationType` is `FNN`, or when
 	// `networkVirtualizationType` is omitted and the Site has native networking enabled.
-	// This requires the Tenant to have elevated privileges. Current accepted values
-	// are `privileged-internal`, `internal`, and `external`.
+	// This requires the Tenant to have elevated privileges. The selected value must
+	// be one of the Site-configured profiles returned for the Tenant.
 	RoutingProfile *string `json:"routingProfile"`
 	// RoutingProfileOverrides replaces selected properties from the VPC's named routing profile.
 	RoutingProfileOverrides *APIVpcRoutingProfileOverrides `json:"routingProfileOverrides"`
@@ -336,12 +336,6 @@ func (ascr APIVpcCreateRequest) Validate() error {
 	}
 
 	if ascr.RoutingProfile != nil {
-		if _, ok := apiVpcRoutingProfileToSiteMap[*ascr.RoutingProfile]; !ok {
-			return validation.Errors{
-				"routingProfile": fmt.Errorf("`routingProfile` must be one of %s, %s, or %s", APIVpcRoutingProfilePrivilegedInternal, APIVpcRoutingProfileInternal, APIVpcRoutingProfileExternal),
-			}
-		}
-
 		if ascr.NetworkVirtualizationType != nil && !cdbm.VpcTypeSupportsRoutingProfile(ascr.NetworkVirtualizationType) {
 			return validation.Errors{
 				"routingProfile": errors.New("`routingProfile` is only supported when `networkVirtualizationType` is FNN"),

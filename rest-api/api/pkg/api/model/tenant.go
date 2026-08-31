@@ -56,13 +56,14 @@ type APITenant struct {
 type APITenantRoutingProfiles struct {
 	// TenantDefaultRoutingProfile is the profile Core applies when a VPC omits routingProfile.
 	TenantDefaultRoutingProfile string `json:"tenantDefaultRoutingProfile"`
-	// PermittedRoutingProfiles contains the profiles this Tenant may select explicitly.
+	// PermittedRoutingProfiles contains the profiles this Tenant may choose during VPC creation.
+	// Choosing TenantDefaultRoutingProfile inherits it without sending an explicit override.
 	PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
 }
 
 // FromProto populates the REST response from Core's Tenant lookup. When the
-// Tenant lacks the site-scoped write privilege, only its default is exposed as
-// selectable.
+// Tenant lacks the site-scoped write privilege, only its inheritable default is
+// exposed as selectable.
 func (atrp *APITenantRoutingProfiles) FromProto(response *corev1.FindTenantResponse, allowAlternatives bool) {
 	*atrp = APITenantRoutingProfiles{PermittedRoutingProfiles: []string{}}
 	if response == nil || response.GetTenant() == nil {

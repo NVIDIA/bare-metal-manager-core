@@ -143,32 +143,34 @@ pub(crate) async fn find(
                 api.runtime_config.fnn.as_ref(),
             ) {
                 (Some(tenant_profile_type), Some(fnn)) => {
-                    let tenant_access_tier = fnn
-                        .routing_profiles
-                        .get(tenant_profile_type)
-                        .ok_or_else(|| CarbideError::NotFoundError {
-                            kind: "RoutingProfile",
-                            id: tenant_profile_type.to_string(),
-                        })?
-                        .access_tier
-                        .unwrap_or_default();
-                    let mut permitted = fnn
-                        .routing_profiles
-                        .iter()
-                        .filter(|(_, profile)| {
-                            profile.access_tier.unwrap_or_default() >= tenant_access_tier
-                        })
-                        .map(|(name, _)| name.clone())
-                        .collect::<Vec<_>>();
-                    permitted.sort();
-                    permitted
+                    match fnn.routing_profiles.get(tenant_profile_type) {
+                        Some(tenant_profile) => {
+                            let tenant_access_tier = tenant_profile.access_tier.unwrap_or_default();
+                            let mut permitted = fnn
+                                .routing_profiles
+                                .iter()
+                                .filter(|(_, profile)| {
+                                    profile.access_tier.unwrap_or_default() >= tenant_access_tier
+                                })
+                                .map(|(name, _)| name.clone())
+                                .collect::<Vec<_>>();
+                            permitted.sort();
+                            permitted
+                        }
+                        None => {
+                            tracing::warn!(
+                                organization_id = %t.organization_id,
+                                %tenant_profile_type,
+                                "tenant routing profile is not present in the current FNN config"
+                            );
+                            vec![]
+                        }
+                    }
                 }
                 _ => vec![],
             };
-            let mut response: rpc::FindTenantResponse =
-                t.try_into().map_err(CarbideError::from)?;
-            response.permitted_vpc_routing_profile_types =
-                permitted_vpc_routing_profile_types;
+            let mut response: rpc::FindTenantResponse = t.try_into().map_err(CarbideError::from)?;
+            response.permitted_vpc_routing_profile_types = permitted_vpc_routing_profile_types;
             response
         }
     };

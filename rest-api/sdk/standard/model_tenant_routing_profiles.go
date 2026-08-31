@@ -26,7 +26,7 @@ var _ MappedNullable = &TenantRoutingProfiles{}
 type TenantRoutingProfiles struct {
 	// Routing profile applied by Core when a VPC omits routingProfile
 	TenantDefaultRoutingProfile string `json:"tenantDefaultRoutingProfile"`
-	// Routing profiles the Tenant may explicitly select at this Site
+	// Site-configured routing profiles the Tenant may choose at this Site. Choosing `tenantDefaultRoutingProfile` inherits it by omitting `routingProfile`; other returned values can be sent explicitly when creating a VPC.
 	PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
 }
 
