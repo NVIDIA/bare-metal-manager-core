@@ -39873,8 +39873,7 @@ type AdminGpuResetRequest struct {
 	MachineId *MachineId `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
 	// Redfish Chassis id to reset, e.g. "HGX_Chassis_0". Required.
 	ChassisId string `protobuf:"bytes,2,opt,name=chassis_id,json=chassisId,proto3" json:"chassis_id,omitempty"`
-	// Reset type. v1 only supports ForceRestart (Unset/On default to it); all
-	// other actions are rejected so a reset never leaves the baseboard powered off.
+	// Reset type. v1 accepts only ForceRestart and rejects all other actions.
 	Action        AdminPowerControlRequest_SystemPowerControl `protobuf:"varint,3,opt,name=action,proto3,enum=forge.AdminPowerControlRequest_SystemPowerControl" json:"action,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
