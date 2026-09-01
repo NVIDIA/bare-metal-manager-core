@@ -121,9 +121,6 @@
 #   NICO_RMS_NGC_API_KEY   NGC API key for the rms-pull-secret. Required with
 #                          the default (entitlement-gated) image repo.
 #                          Default: $REGISTRY_PULL_SECRET
-#   NICO_RMS_NAMESPACE     Namespace for the rack-manager release. Must match
-#                          helm-prereqs/values.yaml::rms.namespace (the ESO
-#                          credential sync targets it). Default: rack-manager
 #
 # Usage:
 #   export KUBECONFIG=/path/to/kubeconfig
@@ -228,9 +225,6 @@ case "${INSTALL_RMS}" in
     true|false) ;;
     *) echo "Error: NICO_INSTALL_RMS must be true or false (got '${INSTALL_RMS}')"; exit 1 ;;
 esac
-# Re-exported under the NICO_ name for values/nico-prereqs-dynamic.yaml.gotmpl,
-# which gates the rms database / user / ESO sync on it at helmfile sync time.
-export NICO_INSTALL_RMS="${INSTALL_RMS}"
 
 # The predecessor Flow chart bundled PSM and NSM in the Flow Deployment. This
 # release does not provide an automatic migration for those workloads. Stop
@@ -358,7 +352,10 @@ NICO_RMS_SRC_DIR="${NICO_RMS_SRC_DIR:-${SCRIPT_DIR}/.rms-src}"
 NICO_RMS_IMAGE_REPO="${NICO_RMS_IMAGE_REPO:-nvcr.io/0837451325059433/rms-dev/rms-api}"
 NICO_RMS_IMAGE_TAG="${NICO_RMS_IMAGE_TAG:-}"
 NICO_RMS_NGC_API_KEY="${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}"
-NICO_RMS_NAMESPACE="${NICO_RMS_NAMESPACE:-rack-manager}"
+# The namespace is fixed: NICo Core's chart defaults dial
+# rms-api-server.rack-manager.svc.cluster.local, and the ESO sync,
+# health-check, and clean.sh all assume it. Not overridable by design.
+_RMS_NS="rack-manager"
 # Site-wide BMC root password. Optional: when provided, setup.sh calls
 # nico-admin-cli (phase 6b) to store the credential via the API so DPU
 # provisioning starts immediately. When omitted, carbide-api starts cleanly
@@ -1267,16 +1264,16 @@ if "${INSTALL_RMS}"; then
     # 5c.1 Namespace. Created here (not by the chart) so the pull secret and
     #      the ESO credential sync have somewhere to land before helm runs.
     #      The rms-db-eso ClusterExternalSecret selects it by metadata.name.
-    kubectl create namespace "${NICO_RMS_NAMESPACE}" --dry-run=client -o yaml \
+    kubectl create namespace "${_RMS_NS}" --dry-run=client -o yaml \
         | kubectl apply -f -
 
     # 5c.2 Image pull secret. Same off-argv construction as the DPF secrets:
     #      the NGC key must never appear in an exec argument.
     if [[ -n "${NICO_RMS_NGC_API_KEY}" ]]; then
-        echo "Creating rms-pull-secret in ${NICO_RMS_NAMESPACE}..."
+        echo "Creating rms-pull-secret in ${_RMS_NS}..."
         _rms_auth="$(printf '%s' "\$oauthtoken:${NICO_RMS_NGC_API_KEY}" | base64 | tr -d '\n')"
         kubectl create secret generic rms-pull-secret \
-            --namespace "${NICO_RMS_NAMESPACE}" \
+            --namespace "${_RMS_NS}" \
             --type=kubernetes.io/dockerconfigjson \
             --from-file=.dockerconfigjson=<(printf \
                 '{"auths":{"%s":{"username":"$oauthtoken","password":"%s","auth":"%s"}}}' \
@@ -1300,9 +1297,18 @@ if "${INSTALL_RMS}"; then
         if [[ -d "${NICO_RMS_SRC_DIR}/.git" ]]; then
             echo "Reusing nv-rms clone at ${NICO_RMS_SRC_DIR} (ref ${NICO_RMS_VERSION})..."
         else
-            # Wipe any half-created dir (aborted mid-run, disk-full) so
-            # `git init` starts clean rather than inheriting stale state.
-            rm -rf "${NICO_RMS_SRC_DIR}"
+            # Mirror the DPF clone guard: never auto-delete a path that is
+            # not our own clone, and reject dangerous override values.
+            case "${NICO_RMS_SRC_DIR}" in
+                ""|"/"|"${HOME}"|"${HOME}/")
+                    echo "ERROR: refusing to use NICO_RMS_SRC_DIR='${NICO_RMS_SRC_DIR}' — set it to a dedicated clone dir."
+                    exit 1 ;;
+            esac
+            if [[ -e "${NICO_RMS_SRC_DIR}" ]]; then
+                echo "ERROR: '${NICO_RMS_SRC_DIR}' exists but is not an nv-rms Git clone."
+                echo "  Remove it explicitly and re-run (refusing to auto-delete a non-clone path)."
+                exit 1
+            fi
             echo "Cloning nv-rms ${NICO_RMS_VERSION}..."
             git init -q "${NICO_RMS_SRC_DIR}"
             git -C "${NICO_RMS_SRC_DIR}" remote add origin \
@@ -1321,7 +1327,7 @@ if "${INSTALL_RMS}"; then
     _rms_creds_ok=false
     for _rms_i in $(seq 1 36); do
         if kubectl get secret rms.nico.nico-pg-cluster.credentials \
-            -n "${NICO_RMS_NAMESPACE}" &>/dev/null; then
+            -n "${_RMS_NS}" &>/dev/null; then
             _rms_creds_ok=true
             break
         fi
@@ -1329,7 +1335,7 @@ if "${INSTALL_RMS}"; then
         sleep 5
     done
     if [[ "${_rms_creds_ok}" == "false" ]]; then
-        echo "Error: rms.nico.nico-pg-cluster.credentials never appeared in ${NICO_RMS_NAMESPACE}."
+        echo "Error: rms.nico.nico-pg-cluster.credentials never appeared in ${_RMS_NS}."
         echo "  → Check 'kubectl describe clusterexternalsecret rms-db-eso' and that the"
         echo "    Zalando operator created the rms user (kubectl get secret -n postgres | grep rms)."
         echo "  → Confirm nico-prereqs synced with NICO_INSTALL_RMS=true (phase 5 of this run)."
@@ -1342,10 +1348,10 @@ if "${INSTALL_RMS}"; then
     #      failure mode gets its own message instead of a generic helm timeout.
     NICO_RMS_CMD=(
         helm upgrade --install rack "${_RMS_CHART}"
-        --namespace "${NICO_RMS_NAMESPACE}"
+        --namespace "${_RMS_NS}"
         -f "${SCRIPT_DIR}/values/rms.yaml"
         # The chart renders into .Values.namespace, not the -n flag; set both.
-        --set "namespace=${NICO_RMS_NAMESPACE}"
+        --set "namespace=${_RMS_NS}"
         --set-string "apiServer.image.repository=${NICO_RMS_IMAGE_REPO}"
         --set-string "global.image.tag=${NICO_RMS_IMAGE_TAG}"
     )
@@ -1360,14 +1366,14 @@ if "${INSTALL_RMS}"; then
     #      ContainerCreating until the Secret exists.
     echo "Waiting for the RMS API server certificate..."
     kubectl wait --for=condition=Ready certificate/rms-api-server-certificate \
-        -n "${NICO_RMS_NAMESPACE}" --timeout=180s
+        -n "${_RMS_NS}" --timeout=180s
 
     # The RMS binary refuses to start unless ca.crt is present in the TLS
     # Secret (it is the client-CA for mTLS). cert-manager's Vault issuer does
     # not populate ca.crt under every role/chain configuration, so verify it
     # here with a targeted message rather than letting the pod crashloop.
     if [[ -z "$(kubectl get secret rms-api-server-certificate \
-            -n "${NICO_RMS_NAMESPACE}" -o jsonpath='{.data.ca\.crt}' 2>/dev/null)" ]]; then
+            -n "${_RMS_NS}" -o jsonpath='{.data.ca\.crt}' 2>/dev/null)" ]]; then
         echo "Error: the issued Secret rms-api-server-certificate has no ca.crt."
         echo "  → RMS requires ca.crt as the mTLS client CA and will not start without it."
         echo "  → Check the vault-nico-issuer CA chain configuration, or pre-create a"
@@ -1377,12 +1383,12 @@ if "${INSTALL_RMS}"; then
 
     echo "Waiting for rms-api-server rollout..."
     kubectl rollout status deployment/rms-api-server \
-        -n "${NICO_RMS_NAMESPACE}" --timeout=300s
-    echo "RMS ready: rms-api-server.${NICO_RMS_NAMESPACE}.svc.cluster.local:8801"
+        -n "${_RMS_NS}" --timeout=300s
+    echo "RMS ready: rms-api-server.${_RMS_NS}.svc.cluster.local:8801"
 else
     echo ""
     echo "=== [5c] RMS (Rack Manager Service) ==="
-    echo "Skipped (--skip-rms flag set)."
+    echo "Skipped (RMS disabled via --skip-rms / NICO_SKIP_RMS / NICO_INSTALL_RMS=false)."
 fi
 
 # ---------------------------------------------------------------------------

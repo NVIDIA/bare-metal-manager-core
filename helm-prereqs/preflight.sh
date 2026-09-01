@@ -86,6 +86,8 @@ if ! ${_SOURCED}; then
     # DPF is on by default; derive INSTALL_DPF from env, then let flags override.
     INSTALL_DPF="${INSTALL_DPF:-${NICO_INSTALL_DPF:-true}}"
     [[ "${NICO_SKIP_DPF:-false}" == "true" ]] && INSTALL_DPF=false
+    INSTALL_RMS="${INSTALL_RMS:-${NICO_INSTALL_RMS:-true}}"
+    [[ "${NICO_SKIP_RMS:-false}" == "true" ]] && INSTALL_RMS=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --skip-core)      SKIP_CORE=true ;;
@@ -93,6 +95,8 @@ if ! ${_SOURCED}; then
             --skip-flow)      SKIP_FLOW=true ;;
             --skip-dpf)       INSTALL_DPF=false ;;
             --install-dpf)    INSTALL_DPF=true ;;
+            --skip-rms)       INSTALL_RMS=false ;;
+            --install-rms)    INSTALL_RMS=true ;;
             -y|--yes)         AUTO_YES=true ;;
             --core-values)    CORE_VALUES="$2"; shift ;;
             --metallb-config) METALLB_CONFIG="$2"; shift ;;
@@ -472,8 +476,10 @@ fi
 # RMS requirements. RMS installs by default; these apply unless --skip-rms
 # (NICO_SKIP_RMS=true / NICO_INSTALL_RMS=false), which clears INSTALL_RMS.
 if [[ "${INSTALL_RMS:-true}" == "true" ]]; then
-    command -v git &>/dev/null || \
-        ERRORS+=("RMS requires 'git' to clone nv-rms — install it, or set NICO_RMS_CHART to a local chart path")
+    if [[ -z "${NICO_RMS_CHART:-}" ]]; then
+        command -v git &>/dev/null || \
+            ERRORS+=("RMS requires 'git' to clone nv-rms — install it, or set NICO_RMS_CHART to a local chart path")
+    fi
     [[ -z "${NICO_RMS_IMAGE_TAG:-}" ]] && \
         ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required unless --skip-rms)")
     # The default rms-api image is entitlement-gated on NGC; without a key the

@@ -183,10 +183,11 @@ rest:
 ##     the rack-manager namespace (eso-external-secrets.yaml)
 ##
 ## The rack-manager chart itself is installed by setup.sh phase 5c, by
-## DEFAULT (opt out with --skip-rms). setup.sh exports the flag, and
-## values/nico-prereqs-dynamic.yaml.gotmpl overrides this value from it, so
-## the two stay in lockstep on script-driven installs. This static default
-## only matters for direct `helmfile sync` runs.
+## DEFAULT (opt out with --skip-rms). Deliberately NOT driven by that flag:
+## --skip-rms skips only the chart install and never deprovisions these
+## prerequisites — removing them would strand a running rack-manager release
+## (same contract as --skip-flow). To skip the prerequisites too, set
+## enabled: false here, paired with --skip-rms.
 ## ---------------------------------------------------------------------------
 rms:
   enabled: true
