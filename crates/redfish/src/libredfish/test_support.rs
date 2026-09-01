@@ -283,18 +283,25 @@ impl RedfishSim {
             .unwrap_or_default()
     }
 
-    /// Build a simulator with optional SPDM / firmware-integration test flags.
-    pub fn with_test_overrides(overrides: RedfishSimTestOverrides) -> Self {
-        Self {
-            state: Arc::new(Mutex::new(RedfishSimState {
-                no_component_integrities: overrides.no_component_integrities,
-                firmware_for_component_error: overrides.firmware_for_component_error,
-                get_task_trigger_evidence_returns_interrupted: overrides
-                    .get_task_trigger_evidence_returns_interrupted,
-                ..Default::default()
-            })),
-            credential_manager: TestCredentialManager::default(),
-        }
+    /// Model a BMC that exposes no `ComponentIntegrity` collection, so nothing
+    /// is eligible for SPDM attestation.
+    pub fn set_no_component_integrities(&self, no_component_integrities: bool) {
+        self.state.lock().unwrap().no_component_integrities = no_component_integrities;
+    }
+
+    /// Fail the firmware-inventory lookup an attestation makes while fetching
+    /// component metadata.
+    pub fn set_firmware_for_component_error(&self, error: bool) {
+        self.state.lock().unwrap().firmware_for_component_error = error;
+    }
+
+    /// Return the evidence-collection task as `Interrupted`, modelling a BMC
+    /// that keeps failing to produce evidence.
+    pub fn set_get_task_trigger_evidence_returns_interrupted(&self, interrupted: bool) {
+        self.state
+            .lock()
+            .unwrap()
+            .get_task_trigger_evidence_returns_interrupted = interrupted;
     }
 
     pub fn set_machine_setup_bios_job_id(&self, job_id: Option<String>) {
@@ -501,14 +508,6 @@ impl RedfishSim {
             .await
             .expect("seed redfish-sim credential");
     }
-}
-
-/// Optional simulation flags used by API integration tests.
-#[derive(Clone, Default)]
-pub struct RedfishSimTestOverrides {
-    pub no_component_integrities: bool,
-    pub firmware_for_component_error: bool,
-    pub get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 pub struct RedfishSimTimepoint {

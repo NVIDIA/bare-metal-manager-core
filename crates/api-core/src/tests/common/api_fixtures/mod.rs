@@ -57,7 +57,7 @@ use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
-use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
+use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_secrets::credentials::{
     CompositeCredentialManager, CredentialKey, CredentialManager, CredentialReader, CredentialType,
     Credentials,
@@ -186,7 +186,6 @@ pub(in crate::tests) struct TestEnvOverrides {
     pub(in crate::tests) nmxc_fail_after_n_creates: Option<usize>,
     pub(in crate::tests) compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
     pub(in crate::tests) nmxc_simulator: Option<bool>,
-    pub(in crate::tests) redfish_overrides: Option<RedfishOverrides>,
 
     /// Optional compute-tray backend injected into the component manager.
     pub(in crate::tests) compute_tray_manager:
@@ -198,13 +197,6 @@ pub(in crate::tests) struct TestEnvOverrides {
     pub(in crate::tests) nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub(in crate::tests) vpc_prefixes_drain_period: Option<chrono::Duration>,
     pub(in crate::tests) dhcp_lease_expiry_handling: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(in crate::tests) struct RedfishOverrides {
-    pub(in crate::tests) no_component_integrities: bool,
-    pub(in crate::tests) firmware_for_component_error: bool,
-    pub(in crate::tests) get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 impl TestEnvOverrides {
@@ -1258,16 +1250,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         credential_manager.clone(),
     ));
 
-    let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
-        Arc::new(RedfishSim::with_test_overrides(RedfishSimTestOverrides {
-            no_component_integrities: redfish_overrides.no_component_integrities,
-            firmware_for_component_error: redfish_overrides.firmware_for_component_error,
-            get_task_trigger_evidence_returns_interrupted: redfish_overrides
-                .get_task_trigger_evidence_returns_interrupted,
-        }))
-    } else {
-        Arc::new(RedfishSim::default())
-    };
+    let redfish_sim = Arc::new(RedfishSim::default());
 
     // Seed the site-wide host and DPU UEFI site-default credentials (version 0).
     // These are written during site setup in production; tests don't run that.
