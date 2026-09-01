@@ -1141,6 +1141,19 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
     }
 
+    async fn redfish_chassis_reset(
+        &self,
+        bmc_ip_address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        chassis_id: &str,
+        action: libredfish::SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        let credentials = self.get_bmc_root_credentials(interface.mac_address).await?;
+        self.redfish_client
+            .chassis_reset(bmc_ip_address, credentials, chassis_id, action)
+            .await
+    }
+
     async fn disable_secure_boot(
         &self,
         bmc_ip_address: SocketAddr,

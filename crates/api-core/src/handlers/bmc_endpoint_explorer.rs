@@ -1189,7 +1189,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     Ok(Response::new(()))
 }
 
-async fn resolve_bmc_interface(
+pub(super) async fn resolve_bmc_interface(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), Status> {

@@ -1038,6 +1038,8 @@ paths:
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Tenants cannot create Sites.
+
+        New Sites enable `nativeNetworking`, `networkSecurityGroup`, and `flow` by default. Other Site capabilities default to `false`.
       requestBody:
         content:
           application/json:
@@ -18100,9 +18102,10 @@ components:
             nativeNetworking: true
             networkSecurityGroup: true
             nvLinkPartition: false
-            flow: false
+            flow: true
             imageBasedOperatingSystem: false
             vpcSlaac: false
+            dpsPowerManagement: false
           isOnline: false
           status: Pending
           statusHistory:
@@ -18292,7 +18295,7 @@ components:
           description: 'Whether the Site supports NVLink partitioning'
         flow:
           type: boolean
-          description: Whether the Site supports Flow-based operations. The value retains its REST default or latest Provider configuration until a compatible Site Agent reports Flow availability, after which Site configuration inventory reconciles it. An explicitly disabled Flow client reports `false`; initialization and transient connection failures do not clear the stored value.
+          description: 'Whether the Site supports Flow-based operations'
         imageBasedOperatingSystem:
           type: boolean
           description: 'Whether the Site supports image-based operating system provisioning'
@@ -18476,7 +18479,7 @@ components:
           type:
             - boolean
             - 'null'
-          description: Set the Flow capability until a compatible Site Agent reports Flow availability. Site configuration inventory is authoritative after that report and may overwrite this value. Omission or `null` preserves the current value.
+          description: Enable or disable NICo Flow for the Site. Site inventory may overwrite this value.
         imageBasedOperatingSystem:
           type:
             - boolean
