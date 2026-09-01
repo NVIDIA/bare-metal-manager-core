@@ -438,6 +438,19 @@ func TestAPIOperatingSystemCreateRequest_ValidateAndSetUserData(t *testing.T) {
 			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
 		},
 		{
+			name: "error when effective userData exceeds max length after phone home insertion",
+			fields: fields{
+				Name:              "test-name",
+				Description:       cutil.GetPtr("Test description"),
+				TenantID:          cutil.GetPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("a: " + strings.Repeat("b", util.MaxUserDataBytes-10)),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
+			},
+			wantErr:      true,
+			phoneHomeUrl: cutil.GetPtr("http://localhost/local"),
+		},
+		{
 			name: "test valid Instance PhoneHome enabled create request when userData is valid YAML but invalid cloud-config",
 			fields: fields{
 				Name:              "test-name",
@@ -671,6 +684,27 @@ phone_home:
 			wantErr:      false,
 			phoneHomeUrl: "http://localhost/local",
 			existingOS:   existingPhoneHomeEnabledOS,
+		},
+		{
+			name: "error when merged userData from existing OS exceeds max length after phone home insertion",
+			fields: fields{
+				Name:             "test-name",
+				Description:      cutil.GetPtr("Test description"),
+				UserData:         nil,
+				PhoneHomeEnabled: cutil.GetPtr(true),
+			},
+			wantErr:      true,
+			phoneHomeUrl: "http://localhost/local",
+			existingOS: &cdbm.OperatingSystem{
+				ID:               uuid.New(),
+				Name:             "ab",
+				IpxeScript:       cutil.GetPtr("original ipxe"),
+				UserData:         cutil.GetPtr("a: " + strings.Repeat("b", util.MaxUserDataBytes)),
+				PhoneHomeEnabled: false,
+				Status:           cdbm.OperatingSystemStatusReady,
+				Type:             cdbm.OperatingSystemTypeIPXE,
+				CreatedBy:        uuid.New(),
+			},
 		},
 		{
 			name: "test valid Operating System PhoneHome disabled update request when existing OS has enabled and its stored phone-home URL is stale",

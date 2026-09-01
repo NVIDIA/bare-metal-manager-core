@@ -481,7 +481,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 	// Render it back out.
 	oscr.UserData = cutil.GetPtr(string(byteUserData))
 
-	return nil
+	return util.ValidateEffectiveUserData(oscr.UserData)
 }
 
 // ToImageProto builds the workflow request that asks a Site to create the
@@ -879,7 +879,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	// Set it in the request.
 	osur.UserData = cutil.GetPtr(string(byteUserData))
 
-	return nil
+	return util.ValidateEffectiveUserData(osur.UserData)
 }
 
 // ToImageProto builds the workflow request that asks a Site to update the

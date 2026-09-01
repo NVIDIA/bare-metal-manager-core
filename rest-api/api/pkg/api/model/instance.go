@@ -972,7 +972,7 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 		}
 	}
 
-	return nil
+	return util.ValidateEffectiveUserData(icr.UserData)
 }
 
 // ValidateMultiEthernetDeviceInterfaces validates the Multi-Ethernet Device Interfaces for the Instance
@@ -1343,7 +1343,7 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 		}
 	}
 
-	return nil
+	return util.ValidateEffectiveUserData(bicr.UserData)
 }
 
 // ValidateNVLinkInterfaces validates the NVLink interfaces for the Instance
@@ -1670,7 +1670,7 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 		}
 	}
 
-	return nil
+	return util.ValidateEffectiveUserData(iur.UserData)
 }
 
 // ValidateMultiEthernetDeviceInterfaces validates the Multi-Ethernet Device Interfaces for the Instance

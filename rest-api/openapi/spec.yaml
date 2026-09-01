@@ -20895,7 +20895,6 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 32768
           description: User data for the Operating System. Limited to 32768 bytes (32 KiB) of raw/plain text.
         isCloudInit:
           type: boolean
@@ -21009,7 +21008,6 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 32768
           description: User data for the Operating System. Limited to 32768 bytes (32 KiB).
         isCloudInit:
           type:
@@ -21935,7 +21933,6 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 32768
           description: Can only be specified if allowOverride is set to true in Operating System. Limited to 32768 bytes (32 KiB) of raw/plain text.
         operatingSystemId:
           type:
@@ -22111,7 +22108,6 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 32768
           description: User data applied to all instances. Can only be specified if allowOverride is set to true in Operating System. Limited to 32768 bytes (32 KiB) of raw/plain text.
         operatingSystemId:
           type:
@@ -22323,7 +22319,6 @@ components:
           type:
             - string
             - 'null'
-          maxLength: 32768
           description: 'Any user-data to be sent to the booting OS.  For example, cloud-init data. Limited to 32768 bytes (32 KiB) of raw/plain text.'
         alwaysBootWithCustomIpxe:
           type:
