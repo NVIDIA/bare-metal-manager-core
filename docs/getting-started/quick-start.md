@@ -98,9 +98,9 @@ export NICO_DPF_DPU_CLUSTER_VIP=<free-routable-ip>    # DPU cluster control-plan
 read -r -s -p "Site-wide BMC root password (leave blank to set later): " NICO_DPF_BMC_ROOT_PASSWORD; echo
 export NICO_DPF_BMC_ROOT_PASSWORD
 
-# RMS (Rack Manager Service) installs by default. Set the image tag (there
+# RMS (Rack Management Service) installs by default. Set the image tag (there
 # is no safe default), or pass --skip-rms to setup.sh to opt out:
-export NICO_RMS_IMAGE_TAG=<rms-api image tag>
+export NICO_RMS_IMAGE_TAG=v0.8.0                      # your rms-api image tag
 # export NICO_RMS_IMAGE_REPO=<registry>/rms-api   # only for a mirror/self-built image
 ```
 
@@ -342,6 +342,7 @@ You can combine common options as needed:
 | `--skip-core` | Skip the Phase 6 NICo Core Helm release. |
 | `--skip-flow` | Skip Phase 7h NICo Flow. Also set `flow.enabled=false` in `helm-prereqs/values.yaml` to omit Flow prerequisites. |
 | `--skip-rest` | Skip all Phase 7 NICo REST phases. |
+| `--skip-rms` | Skip Phase 5c Rack Management Service (installs by default; `NICO_RMS_IMAGE_TAG` required otherwise). |
 | `--with-observability` | Install the optional local metrics, logs, and traces stack before Phase 7. This also runs with `--skip-rest`; see [`helm-prereqs/observability/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/observability/README.md) for standalone installation. |
 | `-y` | Accept setup prompts automatically. |
 
@@ -364,6 +365,7 @@ before continuing.
 | 4 | Vault init + unseal + SSH host key |
 | 5 | external-secrets + nico-prereqs + nico-pg-cluster |
 | 5b | DPF stack for DPU provisioning (default; `--skip-dpf` to opt out) |
+| 5c | RMS (Rack Management Service) (default; `--skip-rms` to opt out) |
 | 6 | **NICo Core** (nico helm release) |
 | 7a-7g | **NICo REST** base stack (source and CA setup, PostgreSQL, Keycloak, Temporal, REST services) |
 | 7h | **NICo Flow**, unless `--skip-flow` is used |
@@ -380,6 +382,8 @@ vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
 DPF stack                  (default; --skip-dpf to opt out: argo-cd, kamaji, NFD,
                             maintenance-operator, dpf-operator — see docs/manuals/dpf.md)
+rack-manager (RMS)         (default; --skip-rms to opt out — cloned from nv-rms, mTLS
+                            via vault-nico-issuer, rms database on nico-pg-cluster)
 nico-prereqs               (this Helm chart - nico-system namespace)
 NICo Core                  (../helm - nico-core.yaml values)
 NICo REST                  (../helm/rest/nico-rest)

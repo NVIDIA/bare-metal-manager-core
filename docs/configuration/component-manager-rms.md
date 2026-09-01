@@ -1,6 +1,6 @@
 # Component Manager RMS Backends (Day 1) <Badge intent="info">v2.0</Badge>
 
-Operator guide for configuring **Rack Manager Service (RMS)** backends in the
+Operator guide for configuring **Rack Management Service (RMS)** backends in the
 `[component_manager]` section of `nico-api` site config, and the **rack profile**
 data those backends require for node descriptors.
 

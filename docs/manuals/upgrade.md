@@ -204,7 +204,7 @@ If a phase fails, `setup.sh` prints `SETUP FAILED` and offers: `Run clean.sh to 
 | `--skip-core` | Skip Phase 6 only. Prerequisites and the REST stack still upgrade; NICo Core is left on its current image. Useful when the Core image did not change. |
 | `--skip-rest` | Skip Phase 7 only. Prerequisites and NICo Core still upgrade; the REST stack is left untouched. |
 | `--skip-flow` | Skip the Flow upgrade (Phase 7h). It does not bypass the initial guard for bundled PSM/NSM containers or an incomplete Flow-only rollout. Follow the [preserve-or-overwrite guidance](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm). |
-| `--skip-rms` | Skip the Rack Manager Service upgrade (Phase 5c). RMS installs **by default** (like DPF); `NICO_RMS_IMAGE_TAG` is required unless this flag is passed. Skipping leaves an existing RMS release untouched. |
+| `--skip-rms` | Skip the Rack Management Service upgrade (Phase 5c). RMS installs **by default** (like DPF); `NICO_RMS_IMAGE_TAG` is required unless this flag is passed. Skipping leaves an existing RMS release untouched. |
 | `--skip-dpf` | Use **only** if DPF is not enabled at this site. This is not a pure skip: it clears `INSTALL_DPF`, which drops phases 5b and 6b *and* redeploys NICo Core with the `[dpf]` block disabled — on a DPF-enabled site that is a config change, not a skip. |
 | `--core-values <file>` | Use a per-site NICo Core values file (same as initial install). |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest or kustomize dir (same as initial install). |
