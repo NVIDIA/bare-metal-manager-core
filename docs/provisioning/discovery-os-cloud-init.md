@@ -40,8 +40,10 @@ snippet path is:
 ```
 
 Use a `bootArtifactContainers` init container to copy snippets from an image
-into the shared volume that the PXE container serves. For example, if the image
-stores its snippets in `/snippets`, add this entry to the `nico-pxe` values:
+into the shared volume that the PXE container serves. The selected image must
+contain the snippets and provide `sh`, `mkdir`, and `cp`; otherwise, use a
+shell-capable image that includes them. For example, if the image stores its
+snippets in `/snippets`, add this entry to the `nico-pxe` values:
 
 ```yaml
 bootArtifactContainers:
