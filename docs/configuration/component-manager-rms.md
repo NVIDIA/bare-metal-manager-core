@@ -22,7 +22,7 @@ NICo deployment charts do not install NSM or PSM.
 [nv-rms](https://github.com/dsx-ai-factory/nv-rms) rack-manager chart with an
 mTLS certificate issued from `vault-nico-issuer`, matching the `[rms]` defaults
 NICo Core's chart already renders (`rms-api-server.rack-manager.svc.cluster.local:8801`).
-An externally managed RMS remains supported — point `[rms] api_url` at it and
+An externally managed RMS remains supported - point `[rms] api_url` at it and
 pass `--skip-rms`.
 
 ---
