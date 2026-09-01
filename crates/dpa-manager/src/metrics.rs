@@ -169,7 +169,7 @@ impl DpaMonitorInstruments {
 #[cfg(test)]
 mod tests {
     use carbide_instrument::emit;
-    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_instrument::testing::{ApproxHistogramSum, MetricsCapture, capture_logs};
     use carbide_test_support::value_scenarios;
 
     use super::*;
@@ -198,7 +198,7 @@ mod tests {
             log_count: usize,
             log: Option<LogObservation>,
             histogram_count_delta: u64,
-            histogram_sum_delta: f64,
+            histogram_sum_delta: ApproxHistogramSum,
         }
 
         value_scenarios!(
@@ -227,7 +227,9 @@ mod tests {
                     log_count: logs.len(),
                     log,
                     histogram_count_delta: metrics.histogram_count_delta(EXPOSED_METRIC, &[]),
-                    histogram_sum_delta: metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
+                    histogram_sum_delta: ApproxHistogramSum(
+                        metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
+                    ),
                 }
             };
             "successful iteration stays silent" {
@@ -238,7 +240,7 @@ mod tests {
                     log_count: 0,
                     log: None,
                     histogram_count_delta: 1,
-                    histogram_sum_delta: 125.0,
+                    histogram_sum_delta: ApproxHistogramSum(125.0),
                 },
             }
             "fractional milliseconds remain precise" {
@@ -249,7 +251,7 @@ mod tests {
                     log_count: 0,
                     log: None,
                     histogram_count_delta: 1,
-                    histogram_sum_delta: 125.5,
+                    histogram_sum_delta: ApproxHistogramSum(125.5),
                 },
             }
             "failed iteration retains the warning" {
@@ -267,7 +269,7 @@ mod tests {
                         error: Some("simulated iteration failure".to_string()),
                     }),
                     histogram_count_delta: 1,
-                    histogram_sum_delta: 375.0,
+                    histogram_sum_delta: ApproxHistogramSum(375.0),
                 },
             }
         );

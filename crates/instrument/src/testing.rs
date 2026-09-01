@@ -220,6 +220,20 @@ impl tracing::field::Visit for CaptureVisitor {
     }
 }
 
+/// A histogram sum delta compared with a small absolute tolerance.
+///
+/// [`MetricsCapture::histogram_sum_delta`] subtracts two cumulative `f64`
+/// snapshots. A fractional observation recorded before the capture can make
+/// that subtraction differ from the expected delta by a few low-order bits.
+#[derive(Clone, Copy, Debug)]
+pub struct ApproxHistogramSum(pub f64);
+
+impl PartialEq for ApproxHistogramSum {
+    fn eq(&self, other: &Self) -> bool {
+        (self.0 - other.0).abs() < 1e-9
+    }
+}
+
 /// A serialized window onto the process-global test meter.
 ///
 /// The first capture installs a Prometheus-backed meter provider as the

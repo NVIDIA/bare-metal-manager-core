@@ -20,7 +20,9 @@
 
 use std::time::Duration;
 
-use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+use carbide_instrument::testing::{
+    ApproxHistogramSum, CapturedFieldKind, MetricsCapture, capture_logs,
+};
 use carbide_instrument::{
     Event, LabelValue, LogAt, MetricFamily, MetricKind, Outcome, emit, initialize_counter_series,
 };
@@ -30,6 +32,33 @@ use carbide_test_support::value_scenarios;
 enum Stage {
     PreFlight,
     Apply,
+}
+
+#[test]
+fn histogram_sum_comparison_tolerates_only_low_order_drift() {
+    struct Comparison {
+        actual: f64,
+        expected: f64,
+    }
+
+    value_scenarios!(run = |comparison: Comparison| {
+        ApproxHistogramSum(comparison.actual) == ApproxHistogramSum(comparison.expected)
+    };
+        "histogram delta comparison" {
+            Comparison {
+                actual: 12.500000000000002,
+                expected: 12.5,
+            } => true,
+            Comparison {
+                actual: 1e-9,
+                expected: 0.0,
+            } => false,
+            Comparison {
+                actual: 12.500001,
+                expected: 12.5,
+            } => false,
+        }
+    );
 }
 
 /// log = warn, metric = counter: one emit writes the log line AND moves the
