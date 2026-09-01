@@ -20,10 +20,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
 use kube::Resource;
+use tokio::sync::Notify;
 
 use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
@@ -72,6 +74,9 @@ struct InitializationMock {
     service_configs: Arc<DashMap<String, DPUServiceConfiguration>>,
     nads: Arc<DashMap<String, DPUServiceNAD>>,
     service_interfaces: Arc<DashMap<String, DPUServiceInterface>>,
+    blocked_service_interface_deletes: Arc<DashMap<String, ()>>,
+    service_interface_delete_started: Arc<Notify>,
+    service_interface_delete_release: Arc<Notify>,
     configs: Arc<DashMap<String, BTreeMap<String, String>>>,
     secrets: Arc<DashMap<String, BTreeMap<String, Vec<u8>>>>,
 }
@@ -426,6 +431,16 @@ impl DpuServiceInterfaceRepository for InitializationMock {
         self.service_interfaces
             .insert(resource_key(iface), iface.clone());
         Ok(iface.clone())
+    }
+
+    async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+        let key = ns_key(ns, name);
+        if self.blocked_service_interface_deletes.contains_key(&key) {
+            self.service_interface_delete_started.notify_one();
+            self.service_interface_delete_release.notified().await;
+        }
+        self.service_interfaces.remove(&key);
+        Ok(())
     }
 }
 
@@ -1189,75 +1204,165 @@ async fn scoped_bf3_gb200_bf4_and_astra_initialization_coexists() {
     drop(sdk);
 }
 
-/// Verifies unrelated ServiceInterfaces with NICo-like names or labels cannot block either
-/// initialization mode and remain untouched because shape alone is not ownership evidence.
 #[tokio::test]
-async fn existing_service_interfaces_do_not_block_or_get_deleted() {
-    let cases = [
-        // A matching name and logical label must not be treated as NICo-owned legacy state.
-        ("vendor-uplink", "vendor-uplink", true),
-        // A deployment-like suffix must not be treated as NICo-owned scoped state.
-        ("vendor-uplink-bf3", "vendor-uplink", false),
-    ];
+async fn scoped_initialization_prunes_unscoped_interfaces() {
+    let definitions = crate::sdk::build_dpu_interfaces_vec();
 
-    for (existing_name, logical_name, desired_scoped) in cases {
-        // Seed a foreign-managed resource whose name and inner label resemble one NICo mode.
-        let mock = InitializationMock::default();
-        let mut existing = crate::sdk::build_service_interface(
-            &crate::sdk::build_dpu_interfaces_vec()[0],
-            TEST_NS,
-        );
-        existing.metadata.name = Some(existing_name.to_string());
-        existing.metadata.labels = Some(BTreeMap::from([(
-            "app.kubernetes.io/managed-by".to_string(),
-            "vendor-dpf-operator".to_string(),
-        )]));
-        existing
-            .spec
-            .template
-            .spec
-            .template
-            .metadata
-            .as_mut()
-            .unwrap()
-            .labels
-            .as_mut()
-            .unwrap()
-            .insert("interface".to_string(), logical_name.to_string());
-        let existing_snapshot = serde_json::to_value(&existing).unwrap();
-        mock.service_interfaces
-            .insert(resource_key(&existing), existing);
-
-        // Initialize the opposite shape in both directions through the complete SDK path.
-        let config = InitDpfResourcesConfig {
+    // Legacy-to-scoped: legacy interfaces are pruned, including stale interfaces from a
+    // previously configured intercept inventory.
+    let mock = InitializationMock::default();
+    let stale_p1 = crate::sdk::build_service_interface(
+        definitions
+            .iter()
+            .find(|definition| definition.name == "p1")
+            .expect("static test inventory must contain p1"),
+        TEST_NS,
+    );
+    mock.service_interfaces
+        .insert(resource_key(&stale_p1), stale_p1);
+    let old_intercept_interfaces = crate::sdk::build_effective_dpu_interfaces(
+        DEFAULT_DPU_NUM_OF_VFS,
+        Some(&configured_intercept_bridging()),
+    );
+    let stale_c2pf3 = crate::sdk::build_service_interface(
+        old_intercept_interfaces
+            .iter()
+            .find(|definition| definition.name == "c2pf3")
+            .expect("configured test inventory must contain c2pf3"),
+        TEST_NS,
+    );
+    mock.service_interfaces
+        .insert(resource_key(&stale_c2pf3), stale_c2pf3);
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .initialize(&InitDpfResourcesConfig {
             bfb_url: "http://example.com/test.bfb".to_string(),
-            deployment_scoped_service_interfaces: desired_scoped,
+            deployment_scoped_service_interfaces: true,
             ..Default::default()
-        };
-        // `InitializationMock` clones share Arc-backed stores, so assertions through `mock`
-        // observe the exact writes performed through the repository clone held by the SDK.
-        let sdk =
-            crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
-                .with_labeler(InitializationLabeler)
-                .initialize(&config)
-                .await
-                .unwrap();
-
-        // Initialization must apply its own resources without mutating or pruning the existing one.
-        assert!(!mock.bfbs.is_empty());
-        assert!(!mock.flavors.is_empty());
-        assert!(!mock.deployments.is_empty());
-        let existing_after = DpuServiceInterfaceRepository::get(&mock, existing_name, TEST_NS)
+        })
+        .await
+        .unwrap();
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1", TEST_NS)
             .await
             .unwrap()
-            .expect("pre-existing ServiceInterface must remain");
-        assert_eq!(
-            serde_json::to_value(existing_after).unwrap(),
-            existing_snapshot
-        );
+            .is_none()
+    );
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "c2pf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    drop(sdk);
+}
 
-        drop(sdk);
-    }
+#[tokio::test]
+async fn scoped_initialization_waits_for_legacy_interface_deletion() {
+    let definitions = crate::sdk::build_dpu_interfaces_vec();
+    let mock = InitializationMock::default();
+    let stale_p1 = crate::sdk::build_service_interface(
+        definitions
+            .iter()
+            .find(|definition| definition.name == "p1")
+            .expect("static test inventory must contain p1"),
+        TEST_NS,
+    );
+    mock.service_interfaces
+        .insert(resource_key(&stale_p1), stale_p1);
+    mock.blocked_service_interface_deletes
+        .insert(ns_key(TEST_NS, "p1"), ());
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .build_without_resources()
+        .await
+        .unwrap();
+    let delete_started = mock.service_interface_delete_started.notified();
+    let initialization = tokio::spawn(async move {
+        sdk.create_initialization_objects(&InitDpfResourcesConfig {
+            bfb_url: "http://example.com/test.bfb".to_string(),
+            deployment_scoped_service_interfaces: true,
+            ..Default::default()
+        })
+        .await
+    });
+
+    delete_started.await;
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_none(),
+        "scoped replacement must not be created before legacy deletion completes"
+    );
+
+    mock.blocked_service_interface_deletes
+        .remove(&ns_key(TEST_NS, "p1"));
+    mock.service_interface_delete_release.notify_one();
+    initialization.await.unwrap().unwrap();
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn scoped_initialization_keeps_waiting_when_legacy_interface_delete_hangs() {
+    let definitions = crate::sdk::build_dpu_interfaces_vec();
+    let mock = InitializationMock::default();
+    let stale_p1 = crate::sdk::build_service_interface(
+        definitions
+            .iter()
+            .find(|definition| definition.name == "p1")
+            .expect("static test inventory must contain p1"),
+        TEST_NS,
+    );
+    mock.service_interfaces
+        .insert(resource_key(&stale_p1), stale_p1);
+    mock.blocked_service_interface_deletes
+        .insert(ns_key(TEST_NS, "p1"), ());
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .with_labeler(InitializationLabeler)
+        .build_without_resources()
+        .await
+        .unwrap();
+    let delete_started = mock.service_interface_delete_started.notified();
+    let initialization = tokio::spawn(async move {
+        sdk.create_initialization_objects(&InitDpfResourcesConfig {
+            bfb_url: "http://example.com/test.bfb".to_string(),
+            deployment_scoped_service_interfaces: true,
+            ..Default::default()
+        })
+        .await
+    });
+
+    delete_started.await;
+    tokio::time::advance(Duration::from_secs(10 * 60 + 1)).await;
+    assert!(
+        !initialization.is_finished(),
+        "a blocked migration must continue waiting after the operator-error log"
+    );
+    mock.blocked_service_interface_deletes
+        .remove(&ns_key(TEST_NS, "p1"));
+    mock.service_interface_delete_release.notify_one();
+    initialization.await.unwrap().unwrap();
+    assert!(
+        DpuServiceInterfaceRepository::get(&mock, "p1-bf3", TEST_NS)
+            .await
+            .unwrap()
+            .is_some(),
+        "scoped replacements must be created after the blocked cleanup completes"
+    );
 }
 
 /// Verifies a missing referenced template fails the complete inventory lookup
