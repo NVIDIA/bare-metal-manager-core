@@ -107,7 +107,7 @@ config it edits.
    vars only for your own/mirrored registry. See *DPF* below. Sites with no
    DPUs (or still on iPXE) run `./setup.sh -y --skip-dpf` and can ignore these.
 
-9. **RMS (Rack Management Service) - on by default.** Unless you pass
+9. **[RMS (Rack Management Service)](https://docs.nvidia.com/rms/documentation/home/) - on by default.** Unless you pass
    `--skip-rms`, export `NICO_RMS_IMAGE_TAG` (required; the image tag
    is decoupled from the chart). Phase 5c installs the rack-manager chart
    from the `helm-prereqs/nv-rms` git submodule (pinned to a reviewed
