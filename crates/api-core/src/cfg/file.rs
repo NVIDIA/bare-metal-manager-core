@@ -2228,23 +2228,6 @@ pub struct DpfDeploymentConfig {
     pub deployment_name: String,
     /// Label key applied to DPUNode CRs for this deployment's node selector.
     pub node_label_key: String,
-    /// Experimental escape hatch for appending interfaces to NICo's HBN service on BF3 and
-    /// generic BF4 deployments. This field may be removed without a compatibility period.
-    ///
-    /// Names must be unique across HBN's generated and extra interfaces, start with a lowercase
-    /// ASCII letter, contain only lowercase ASCII letters, digits, `-`, or `_`, and contain at
-    /// most 15 bytes. HBN supports at most 32 generated and extra interfaces in total. A non-empty
-    /// value is rejected for BF4 Astra. Omission appends no interfaces.
-    ///
-    /// Each entry updates HBN's `DPUServiceConfiguration`, `nvidia.com/bf_sf` request, and startup
-    /// configuration. With intercept bridging, it also increases calculated `PF_TOTAL_SF`, changes
-    /// the `DPUFlavor`, and requires controlled DPU reprovisioning. Without intercept bridging,
-    /// `PF_TOTAL_SF` remains the unchanged legacy total and the added SF consumes that existing
-    /// pool; startup rejects the configuration if all generated and extra endpoints exceed the
-    /// pool. NICo does not create the matching bridge, service interfaces, service chain, IPAM, or
-    /// application service CRs; an external controller must own them.
-    #[serde(default)]
-    pub extra_sfs: Vec<String>,
     /// Optional per-deployment override of the mandatory Helm services. When set,
     /// these services are deployed for this deployment instead of the top-level
     /// [`DpfConfig::services`]. When absent, the top-level services are inherited.
@@ -2266,7 +2249,6 @@ impl Default for DpfDeploymentConfig {
             flavor_name: default_dpf_flavor_name(),
             deployment_name: default_dpf_deployment_name(),
             node_label_key: default_dpf_node_label_key(),
-            extra_sfs: Vec::new(),
             services: None,
             extra_services: BTreeMap::new(),
         }
@@ -3686,6 +3668,14 @@ pub struct DpuConfig {
     #[serde(default)]
     pub num_of_vfs: u32,
 
+    /// Number of deterministic HBN interfaces reserved for service-VPC attachments.
+    #[serde(default)]
+    pub service_vpc_slot_count: u32,
+
+    /// Additional SF capacity that is not assigned to an HBN interface.
+    #[serde(default)]
+    pub additional_managed_sf: u32,
+
     /// Restart OVS on DPU agents whenever the host switches between
     /// admin and tenant networking. Required in some environments to
     /// ensure OVS picks up the changed network configuration.
@@ -3734,6 +3724,10 @@ impl<'de> Deserialize<'de> for DpuConfig {
             #[serde(default)]
             num_of_vfs: Option<u32>,
             #[serde(default)]
+            service_vpc_slot_count: Option<u32>,
+            #[serde(default)]
+            additional_managed_sf: Option<u32>,
+            #[serde(default)]
             restart_ovs_on_use_admin_network_change: Option<bool>,
         }
 
@@ -3764,6 +3758,12 @@ impl<'de> Deserialize<'de> for DpuConfig {
                 .dpu_enable_secure_boot
                 .unwrap_or(default.dpu_enable_secure_boot),
             num_of_vfs,
+            service_vpc_slot_count: partial
+                .service_vpc_slot_count
+                .unwrap_or(default.service_vpc_slot_count),
+            additional_managed_sf: partial
+                .additional_managed_sf
+                .unwrap_or(default.additional_managed_sf),
             restart_ovs_on_use_admin_network_change: partial
                 .restart_ovs_on_use_admin_network_change
                 .unwrap_or(default.restart_ovs_on_use_admin_network_change),
@@ -3894,6 +3894,8 @@ impl Default for DpuConfig {
             ],
             dpu_enable_secure_boot: false,
             num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
+            service_vpc_slot_count: 0,
+            additional_managed_sf: 0,
             restart_ovs_on_use_admin_network_change: false,
         }
     }
@@ -6515,6 +6517,8 @@ mqtt_endpoint = "mqtt.forge"
 bootstrap_ca_source = "embedded"
 dpu_enable_secure_boot = true
 num_of_vfs = 64
+service_vpc_slot_count = 5
+additional_managed_sf = 2
 "#;
 
         let config: CarbideConfig = Figment::new()
@@ -6529,6 +6533,8 @@ num_of_vfs = 64
         );
         assert!(config.dpu_config.dpu_enable_secure_boot);
         assert_eq!(config.dpu_config.num_of_vfs, 64);
+        assert_eq!(config.dpu_config.service_vpc_slot_count, 5);
+        assert_eq!(config.dpu_config.additional_managed_sf, 2);
         assert!(!config.dpu_config.dpu_models.is_empty());
     }
 
@@ -7590,26 +7596,9 @@ helm_repo_url = "oci://registry.example.test/doca"
             flavor_name: "bf4-flavor".to_string(),
             deployment_name: "bf4-dep".to_string(),
             node_label_key: "carbide.nvidia.com/bf4".to_string(),
-            extra_sfs: Vec::new(),
             services: None,
             extra_services: BTreeMap::new(),
         }
-    }
-
-    #[test]
-    fn dpf_deployment_parses_extra_sfs() {
-        let deployment: DpfDeploymentConfig = toml::from_str(
-            r#"
-                flavor_name = "dpu-flavor"
-                deployment_name = "dpu-deployment"
-                node_label_key = "carbide.nvidia.com/bf3"
-
-                extra_sfs = ["storage_if"]
-            "#,
-        )
-        .expect("HBN extra interface configuration must deserialize");
-
-        assert_eq!(deployment.extra_sfs, vec!["storage_if".to_string()]);
     }
 
     /// Verifies deployment selectors remain distinct from each other and NICo-owned labels.

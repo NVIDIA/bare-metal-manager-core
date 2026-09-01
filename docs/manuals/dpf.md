@@ -795,35 +795,36 @@ Per-deployment field reference:
 | `flavor_name` | yes | `carbide-dpu-flavor` | Base name for the generated `DPUFlavor` (BF3/generic BF4) or `DPUFlavorTemplate` (Astra) CR. |
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
-| `extra_sfs` | no | `[]` | Experimental BF3 and generic-BF4 escape hatch for appending externally managed HBN interfaces. BF4 Astra rejects a non-empty list. See [Extra HBN interfaces](#extra-hbn-interfaces). |
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
 | `extra_services` | no | none | Optional deployment-local field overrides for extra services. Only extras supported by this deployment type are used. |
 
-##### Extra HBN interfaces
+##### Service VPC and additional SF capacity
 
-`extra_sfs` appends interface names to HBN's generated
-`DPUServiceConfiguration`, startup interface list, and `nvidia.com/bf_sf`
-request. It is supported for BF3 and generic BF4. BF4 Astra rejects a non-empty
-list. Omission or an empty list adds no interfaces.
+Two global `[dpu_config]` fields reserve SFs for BF3 and generic BF4:
 
-Each name must contain 1–15 bytes, start with a lowercase ASCII letter, and use
-only lowercase ASCII letters, digits, hyphens, or underscores. Names must be
-unique across generated and extra HBN interfaces, and their combined count
-must not exceed 32. With intercept bridging, each extra interface also
-increases `PF_TOTAL_SF`, changes the `DPUFlavor`, and requires controlled DPU
-reprovisioning. Without intercept bridging, the flavor retains the legacy
-`pf_total_sf_reserved` total; all generated and extra endpoints must fit in
-that pool or carbide-api rejects the configuration at startup.
+- `service_vpc_slot_count` generates stable HBN interface names from
+  `iface_svc_0` through `iface_svc_{N-1}`. These interfaces are added to HBN's
+  `DPUServiceConfiguration`, startup configuration, and `nvidia.com/bf_sf`
+  request. The generated and topology-derived HBN interfaces must total no more
+  than 32.
+- `additional_managed_sf` reserves SF capacity without generating an HBN
+  interface.
+
+NICo adds both values to the managed SF count. With intercept bridging, they
+increase `PF_TOTAL_SF`, change the `DPUFlavor`, and require controlled DPU
+reprovisioning. Without intercept bridging, they consume the unchanged legacy
+`pf_total_sf_reserved` pool; carbide-api rejects an overcommit at startup. BF4
+Astra ignores both fields.
 
 NICo does not create a bridge for now, or a `DPUServiceInterface`, service
-chain, IPAM, or application-service CR for these names. An external controller
-must own those resources. The value is read when carbide-api starts, so restart
-the API after changing it. This experimental field may be removed without a
-compatibility period.
+chain, IPAM, or application-service CR for these slots. An external controller
+must coordinate which service uses each deterministic interface. The values are
+read when carbide-api starts, so restart the API after changing them.
 
 ```toml
-[dpf.deployments.bf3]
-extra_sfs = ["storage_if"]
+[dpu_config]
+service_vpc_slot_count = 5
+additional_managed_sf = 2
 ```
 
 **Per-deployment services override.** By default every deployment inherits the

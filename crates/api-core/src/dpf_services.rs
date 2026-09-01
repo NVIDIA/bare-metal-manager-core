@@ -143,40 +143,36 @@ fn doca_hbn_service_interfaces(
     service_interfaces
 }
 
-/// Validates extra names against the HBN names NICo derives from the effective DPU inventory.
-pub(crate) fn validate_extra_sfs(
+/// Generates deterministic service-VPC interface names after checking HBN capacity.
+pub(crate) fn service_vpc_interfaces(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
-    extra_interfaces: &[String],
-) -> Result<(), String> {
+    slot_count: u32,
+) -> Result<Vec<String>, String> {
     let mut hbn_interface_names = doca_hbn_service_interfaces(interfaces, &[])
         .into_iter()
         .map(|interface| interface.name)
         .collect::<std::collections::BTreeSet<_>>();
 
-    for name in extra_interfaces {
-        let valid = (1..=15).contains(&name.len())
-            && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-            && name.bytes().all(|character| {
-                character.is_ascii_lowercase()
-                    || character.is_ascii_digit()
-                    || matches!(character, b'-' | b'_')
-            });
-        if !valid {
-            return Err(format!("HBN extra interface name {name:?} is invalid"));
-        }
+    let total = usize::try_from(slot_count)
+        .ok()
+        .and_then(|slot_count| hbn_interface_names.len().checked_add(slot_count))
+        .ok_or_else(|| "HBN interface count exceeds usize".to_string())?;
+    if total > 32 {
+        return Err(format!(
+            "HBN interface count {total} exceeds the supported maximum of 32"
+        ));
+    }
+
+    let generated = (0..slot_count)
+        .map(|slot| format!("iface_svc_{slot}"))
+        .collect::<Vec<_>>();
+    for name in &generated {
         if !hbn_interface_names.insert(name.clone()) {
             return Err(format!("HBN interface name {name:?} is not unique"));
         }
     }
 
-    if hbn_interface_names.len() > 32 {
-        return Err(format!(
-            "HBN interface count {} exceeds the supported maximum of 32",
-            hbn_interface_names.len()
-        ));
-    }
-
-    Ok(())
+    Ok(generated)
 }
 fn dhcp_server_service_interfaces(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
@@ -896,12 +892,12 @@ pub(crate) fn mandatory_services(
     resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
-    extra_sfs: &[String],
+    service_vpc_interfaces: &[String],
     node_auth: &NodeAuthConfig,
 ) -> Vec<ServiceDefinition> {
     let mut service_vec = vec![
         dts_service(&resolved.base.dts),
-        doca_hbn_service(&resolved.base.doca_hbn, interfaces, extra_sfs),
+        doca_hbn_service(&resolved.base.doca_hbn, interfaces, service_vpc_interfaces),
         dhcp_server_service(&resolved.base.dhcp_server, interfaces),
         dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
         // Not `node_auth.enabled` directly: an operator staging a disable
@@ -978,10 +974,11 @@ mod tests {
 
         // HBN receives p0, p1, the PF, the VF, and the configured external attachment; its SF
         // count and startup YAML agree.
+        let service_vpc_interfaces = service_vpc_interfaces(&interfaces, 1).unwrap();
         let hbn = doca_hbn_service(
             &default_doca_hbn_service(),
             &interfaces,
-            &["storage_if".to_string()],
+            &service_vpc_interfaces,
         );
         assert_eq!(hbn.interfaces.len(), 5);
         assert_eq!(
@@ -994,7 +991,7 @@ mod tests {
         assert!(
             startup_yaml.contains("pf0hpf_if:")
                 && startup_yaml.contains("pf0vf4_if:")
-                && startup_yaml.contains("storage_if:")
+                && startup_yaml.contains("iface_svc_0:")
         );
 
         // DHCP receives both configured entries, while FMDS receives only the PF.
@@ -1017,26 +1014,13 @@ mod tests {
     }
 
     #[test]
-    fn hbn_extra_interface_validation_covers_names_and_capacity() {
+    fn service_vpc_interfaces_are_deterministic_and_capacity_checked() {
         let interfaces = build_effective_dpu_interfaces(16, None);
-        value_scenarios!(
-            run = |extra| validate_extra_sfs(&interfaces, &extra).is_err();
-            "valid storage interface" {
-                vec!["storage_if".to_string()] => false,
-            }
-
-            "duplicate generated interface" {
-                vec!["p0_if".to_string()] => true,
-            }
-
-            "name exceeds DPF's interface limit" {
-                vec!["storage_endpoint".to_string()] => true,
-            }
-
-            "combined list exceeds HBN's interface limit" {
-                (0..15).map(|index| format!("storage{index}_if")).collect::<Vec<_>>() => true,
-            }
+        assert_eq!(
+            service_vpc_interfaces(&interfaces, 2).unwrap(),
+            ["iface_svc_0".to_string(), "iface_svc_1".to_string()]
         );
+        assert!(service_vpc_interfaces(&interfaces, 15).is_err());
     }
 
     /// Verifies operator Helm values cannot disconnect HBN's SF request from its interfaces.

@@ -1514,10 +1514,10 @@ fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefi
         .collect()
 }
 
-/// Calculates BF3 or generic-BF4 SF capacity from generated and additional managed endpoints.
+/// Calculates BF3 or generic-BF4 SF capacity from generated endpoints and additional capacity.
 ///
 /// With intercept topology, `additional_managed_sf` increases the returned total. Without
-/// topology, generated and additional endpoints must fit inside `reserved`, which remains the
+/// topology, generated endpoints and additional capacity must fit inside `reserved`, which is the
 /// returned legacy total.
 pub fn calculate_pf_total_sf(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
@@ -1550,29 +1550,27 @@ pub fn calculate_pf_total_sf(
             DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
         })
     })?;
-    let managed_endpoints = managed_endpoints
+    let managed_sf_count = managed_endpoints
         .checked_add(additional_managed_sf)
-        .ok_or_else(|| {
-            DpfError::ConfigError("DPF managed SF endpoint count exceeds u32".to_string())
-        })?;
+        .ok_or_else(|| DpfError::ConfigError("DPF managed SF count exceeds u32".to_string()))?;
 
     // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): inventory-free deployments must retain the
     // historical behavior where the configured reserved value is the complete PF_TOTAL_SF pool.
-    // The static and additional endpoints consume that pool rather than changing the flavor, but
+    // The managed SFs consume that pool rather than changing the flavor, but
     // must still fit inside it.
     if intercept_bridging.is_none() {
-        if managed_endpoints > reserved {
+        if managed_sf_count > reserved {
             return Err(DpfError::ConfigError(format!(
-                "configured DPF service endpoints ({managed_endpoints}) exceed the legacy \
+                "configured DPF managed SFs ({managed_sf_count}) exceed the legacy \
                  dpf.pf_total_sf_reserved pool ({reserved})"
             )));
         }
         return Ok(reserved);
     }
 
-    managed_endpoints.checked_add(reserved).ok_or_else(|| {
+    managed_sf_count.checked_add(reserved).ok_or_else(|| {
         DpfError::ConfigError(format!(
-            "configured DPF service endpoints ({managed_endpoints}) plus \
+            "configured DPF managed SFs ({managed_sf_count}) plus \
              dpf.pf_total_sf_reserved ({reserved}) exceed u32"
         ))
     })

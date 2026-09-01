@@ -95,9 +95,9 @@ pub struct InitDpfResourcesConfig {
     /// SF capacity reserved beyond configured NICo-managed service endpoints.
     /// Without intercept bridging, this remains the complete legacy `PF_TOTAL_SF` value.
     pub pf_total_sf_reserved: u32,
-    /// Managed SF endpoints that are not represented in [`interfaces`](Self::interfaces).
+    /// Managed SF capacity not represented in [`interfaces`](Self::interfaces).
     /// Added to calculated BF3/generic-BF4 capacity when intercept bridging is configured;
-    /// otherwise they consume the unchanged legacy pool. BF4 Astra rejects a non-zero value.
+    /// otherwise it consumes the unchanged legacy pool. BF4 Astra rejects a non-zero value.
     pub additional_managed_sf: u32,
     /// Enables deployment-scoped DPUServiceInterface names and node selectors.
     /// False preserves the legacy global resource naming and selector mode for

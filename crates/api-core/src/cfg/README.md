@@ -666,7 +666,16 @@ Without configured DPF intercept topology, NICo deliberately preserves the estab
 | `dpu_nic_firmware_update_versions` | `Vec<String>` | *(BF2+BF3 NIC versions)* | DPU NIC firmware version strings. |
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
 | `num_of_vfs` | `u32` | `16` | Number of hardware VFs configured per DPU PF during BlueField provisioning. Max `126`. Under DPF, changing this value changes the immutable BF3/generic-BF4 flavor and requires a carbide-api restart and DPU reprovisioning. Reducing it below the static inventory's previous effective VF count also removes desired VF ServiceInterfaces; because NICo does not prune them, operators must stop NICo, remove the omitted NICo ServiceInterfaces, re-ingest the DPUs, and restart. Configured intercept inventories remain valid only while every selected `vf_id` is both lower than this value and no greater than 15. |
+| `service_vpc_slot_count` | `u32` | `0` | Number of HBN interfaces reserved for externally coordinated service-VPC attachments on BF3 and generic BF4. NICo generates stable names from `iface_svc_0` through `iface_svc_{N-1}`. The generated interfaces count toward HBN's 32-interface limit and increase its `nvidia.com/bf_sf` request. BF4 Astra ignores this field. |
+| `additional_managed_sf` | `u32` | `0` | Additional BF3/generic-BF4 SF capacity without a generated HBN interface. This value and `service_vpc_slot_count` are added to the managed SF count used to size or validate `PF_TOTAL_SF`. BF4 Astra ignores this field. |
 | `restart_ovs_on_use_admin_network_change` | `bool` | `false` | Restart OVS on DPU-OS agents when host `use_admin_network` changes. Containerized agents skip the local service restart and still ACK the network config. |
+
+With intercept bridging, both SF settings increase `PF_TOTAL_SF`, change the
+`DPUFlavor`, and require controlled DPU reprovisioning. Without intercept
+bridging, they consume the unchanged legacy `pf_total_sf_reserved` pool, and
+startup rejects an overcommit. NICo does not create bridges, ServiceInterfaces,
+service chains, IPAM, or application-service CRs for service-VPC slots; an
+external controller must coordinate them. Changes are read at API startup.
 
 To use `embedded`, build a site-specific BFB with an explicit
 `BOOTSTRAP_CA_PATH`. The build provides no repository or default CA fallback
@@ -819,7 +828,6 @@ events, so consumers handle them identically.
 | `flavor_name` | `String` | `carbide-dpu-flavor` | Base name for the generated BF3/generic-BF4 `DPUFlavor` or Astra `DPUFlavorTemplate`. |
 | `deployment_name` | `String` | `nico-deployment-v2` | Name of the generated `DPUDeployment`. |
 | `node_label_key` | `String` | `carbide.nvidia.com/controlled.node.v2` | Label key used to select DPU nodes for this deployment. |
-| `extra_sfs` | `Vec<String>` | `[]` | Experimental BF3 and generic-BF4 escape hatch that appends externally managed interfaces to HBN. Names must be unique across generated and extra HBN interfaces, start with a lowercase ASCII letter, contain only lowercase ASCII letters, digits, `-`, or `_`, and contain 1–15 bytes. The combined HBN inventory is limited to 32 interfaces. BF4 Astra rejects a non-empty value. Each entry increases HBN's `nvidia.com/bf_sf` request and startup interface list. With intercept bridging it also increases `PF_TOTAL_SF`, changes the `DPUFlavor`, and requires controlled DPU reprovisioning. Without intercept bridging it consumes the unchanged legacy `pf_total_sf_reserved` pool, and startup rejects an overcommit. NICo does not create the matching bridge, ServiceInterfaces, service chain, IPAM, or application-service CRs; an external controller must own them. Changes are read at API startup. This experimental field may be removed without a compatibility period. |
 | `services` | `Option<Box<DpfMandatoryServicesConfig>>` | inherit `[dpf.services]` | Optional complete per-deployment mandatory-service override. Omitted service entries use built-in defaults rather than top-level values. |
 | `extra_services` | `BTreeMap<DpfExtraService, DpfServiceConfigOverride>` | `{}` | Deployment-local overlays for supported extra services. |
 
