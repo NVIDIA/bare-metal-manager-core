@@ -66,7 +66,6 @@ use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
 use carbide_utils::HostPortPair;
-use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
 use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
 use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
@@ -1118,6 +1117,12 @@ async fn initialize_and_start_controllers<'a>(
         credential_manager,
         ..
     } = api_service.as_ref();
+
+    let nvos_update_manager = rms_client.clone().map(|client| {
+        Arc::new(component_manager::rms::rms_nvos_update_manager(client))
+            as Arc<dyn component_manager::NvosUpdateManager>
+    });
+
     // As soon as we get the database up, observe this version of forge so that we know when it was
     // first deployed
     {
@@ -1369,24 +1374,6 @@ async fn initialize_and_start_controllers<'a>(
 
         emitter_builder.build()
     };
-
-    let switch_system_image_rms_client =
-        carbide_config
-            .rms
-            .api_url
-            .as_deref()
-            .none_if_empty()
-            .map(|url| {
-                let rms_client_config = librms::client_config::RmsClientConfig::new(
-                    carbide_config.rms.root_ca_path.clone(),
-                    carbide_config.rms.client_cert.clone(),
-                    carbide_config.rms.client_key.clone(),
-                    carbide_config.rms.enforce_tls,
-                );
-                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
-                Arc::new(librms::RackManagerApi::new(&rms_api_config))
-                    as Arc<dyn carbide_rack::rms_client::SwitchSystemImageRmsClient>
-            });
 
     // Use the hostname as cluster-wide state controller ID
     // The expectation here is that either the host only runs a single
@@ -1764,7 +1751,7 @@ async fn initialize_and_start_controllers<'a>(
                     rack_profiles: carbide_config.rack_profiles.clone(),
                 }
                 .into(),
-                switch_system_image_rms_client,
+                nvos_update_manager: nvos_update_manager.clone(),
                 credential_manager: credential_manager.clone(),
                 component_manager: component_manager.clone().map(Arc::new),
                 nmx_cluster_switch_mtls_services: carbide_config
