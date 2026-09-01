@@ -4457,7 +4457,7 @@ pub struct VmaasConfig {
     pub allow_instance_vf: bool,
 
     /// Comma-separated representors HBN is expected to use from the configured VF population.
-    /// Pre-DPF instance admission recognizes individual `pf0vfN` entries and inclusive
+    /// Non-DPF instance admission recognizes individual `pf0vfN` entries and inclusive
     /// `pf0vfN-pf0vfM` ranges. An omitted or empty value uses HBN's VF0 through VF13 fallback.
     pub hbn_reps: Option<String>,
 

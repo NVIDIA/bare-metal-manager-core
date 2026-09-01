@@ -1619,7 +1619,11 @@ async fn update_instance_network_config(
                 .unwrap_or(true),
         )
         .map_err(CarbideError::from)?;
-    validate_instance_vfs_against_effective_dpu_inventory(network, runtime_config)?;
+    validate_instance_vfs_against_effective_dpu_inventory(
+        network,
+        runtime_config,
+        mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
+    )?;
     validate_instance_interface_routing_profiles(txn, network, runtime_config.fnn.as_ref()).await?;
 
     // Allocate IPs and add them to the network config

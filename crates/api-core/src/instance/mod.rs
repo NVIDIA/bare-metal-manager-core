@@ -145,12 +145,13 @@ async fn validate_zero_dpu_auto_vpc(
 
 /// Rejects instance VFs that are absent from the effective DPU interface inventory.
 ///
-/// A configured DPF intercept topology replaces the static PF/VF inventory and is authoritative.
-/// DPF without a topology retains its historical admission behavior. Pre-DPF admission follows the
-/// HBN representors selected by `hbn_reps`, capped by the configured hardware VF population.
+/// A DPF-managed host uses the configured intercept topology as its authoritative inventory. DPF
+/// without a topology retains its historical admission behavior. A non-DPF host follows the HBN
+/// representors selected by `hbn_reps`, capped by the configured hardware VF population.
 pub(crate) fn validate_instance_vfs_against_effective_dpu_inventory(
     network: &InstanceNetworkConfig,
     config: &CarbideConfig,
+    is_dpf_managed_host: bool,
 ) -> CarbideResult<()> {
     validate_vf_ids_against_effective_dpu_inventory(
         network
@@ -161,6 +162,7 @@ pub(crate) fn validate_instance_vfs_against_effective_dpu_inventory(
                 InterfaceFunctionId::Virtual { id } => Some(*id),
             }),
         config,
+        is_dpf_managed_host,
     )
 }
 
@@ -168,28 +170,29 @@ pub(crate) fn validate_instance_vfs_against_effective_dpu_inventory(
 fn validate_vf_ids_against_effective_dpu_inventory(
     vf_ids: impl IntoIterator<Item = u8>,
     config: &CarbideConfig,
+    is_dpf_managed_host: bool,
 ) -> CarbideResult<()> {
-    let selected_vfs = if config.dpf.enabled {
+    let selected_vfs = if is_dpf_managed_host {
         let Some(selected_vfs) = dpf_topology_vf_ids(config) else {
             // DPF without a replacement topology retains its historical admission behavior.
             return Ok(());
         };
         selected_vfs
     } else {
-        pre_dpf_hbn_vf_ids(config)?
+        configured_instance_vf_ids(config)?
     };
 
     if let Some(unselected_vf) = vf_ids
         .into_iter()
         .find(|vf_id| !selected_vfs.contains(vf_id))
     {
-        let message = if config.dpf.enabled {
+        let message = if is_dpf_managed_host {
             format!(
                 "virtual function VF{unselected_vf} is not selected by the configured DPF intercept-bridging topology"
             )
         } else {
             format!(
-                "virtual function VF{unselected_vf} is not present in the effective pre-DPF DPU interface inventory"
+                "virtual function VF{unselected_vf} is not available in the configured instance VF inventory"
             )
         };
         return Err(ConfigValidationError::InvalidValue(message).into());
@@ -198,38 +201,38 @@ fn validate_vf_ids_against_effective_dpu_inventory(
     Ok(())
 }
 
-/// HBN's pre-DPF fallback exposes VF0 through VF13 when `hbn_reps` is omitted or empty.
-const DEFAULT_PRE_DPF_HBN_VF_COUNT: u8 = 14;
+/// Default instance VF count when no representor selection is configured.
+const DEFAULT_INSTANCE_VF_COUNT: u8 = 14;
 
-/// Returns the pre-DPF VF population selected by HBN and supported by the configured hardware.
-fn pre_dpf_hbn_vf_ids(config: &CarbideConfig) -> CarbideResult<BTreeSet<u8>> {
-    let hbn_reps = config
+/// Returns the configured tenant-facing VF IDs, capped by the hardware VF count.
+fn configured_instance_vf_ids(config: &CarbideConfig) -> CarbideResult<BTreeSet<u8>> {
+    let representors = config
         .vmaas_config
         .as_ref()
         .and_then(|vmaas_config| vmaas_config.hbn_reps.as_deref())
         // The PXE template omits an empty value, so HBN applies the same fallback as `None`.
-        .filter(|hbn_reps| !hbn_reps.is_empty());
+        .filter(|representors| !representors.is_empty());
 
-    let mut selected_vfs = match hbn_reps {
-        Some(hbn_reps) => parse_pre_dpf_hbn_pf0_vf_ids(hbn_reps)?,
-        None => (0..DEFAULT_PRE_DPF_HBN_VF_COUNT).collect(),
+    let mut selected_vfs = match representors {
+        Some(representors) => instance_vf_ids_from_representors(representors)?,
+        None => (0..DEFAULT_INSTANCE_VF_COUNT).collect(),
     };
 
     selected_vfs.retain(|vf_id| u32::from(*vf_id) < config.dpu_config.num_of_vfs);
     Ok(selected_vfs)
 }
 
-/// Extracts the tenant-facing PF0 VF identities from HBN's comma-separated representor list.
-fn parse_pre_dpf_hbn_pf0_vf_ids(hbn_reps: &str) -> CarbideResult<BTreeSet<u8>> {
+/// Extracts tenant-facing PF0 VF IDs from a comma-separated representor list.
+fn instance_vf_ids_from_representors(representors: &str) -> CarbideResult<BTreeSet<u8>> {
     let mut selected_vfs = BTreeSet::new();
 
-    for representor in hbn_reps.split(',') {
+    for representor in representors.split(',') {
         if representor.is_empty()
             || representor
                 .chars()
                 .any(|character| character.is_ascii_whitespace())
         {
-            return Err(invalid_hbn_representor(representor));
+            return Err(invalid_vf_selector(representor));
         }
 
         let Some(vf_selector) = representor.strip_prefix("pf0vf") else {
@@ -238,16 +241,24 @@ fn parse_pre_dpf_hbn_pf0_vf_ids(hbn_reps: &str) -> CarbideResult<BTreeSet<u8>> {
         };
 
         let Some((start, end_representor)) = vf_selector.split_once('-') else {
-            selected_vfs.insert(parse_hbn_vf_id(representor, vf_selector)?);
+            selected_vfs.insert(
+                vf_selector
+                    .parse::<u8>()
+                    .map_err(|_| invalid_vf_selector(representor))?,
+            );
             continue;
         };
         let Some(end) = end_representor.strip_prefix("pf0vf") else {
-            return Err(invalid_hbn_representor(representor));
+            return Err(invalid_vf_selector(representor));
         };
-        let start = parse_hbn_vf_id(representor, start)?;
-        let end = parse_hbn_vf_id(representor, end)?;
+        let start = start
+            .parse::<u8>()
+            .map_err(|_| invalid_vf_selector(representor))?;
+        let end = end
+            .parse::<u8>()
+            .map_err(|_| invalid_vf_selector(representor))?;
         if start > end {
-            return Err(invalid_hbn_representor(representor));
+            return Err(invalid_vf_selector(representor));
         }
         selected_vfs.extend(start..=end);
     }
@@ -255,25 +266,15 @@ fn parse_pre_dpf_hbn_pf0_vf_ids(hbn_reps: &str) -> CarbideResult<BTreeSet<u8>> {
     Ok(selected_vfs)
 }
 
-fn parse_hbn_vf_id(representor: &str, vf_id: &str) -> CarbideResult<u8> {
-    vf_id
-        .parse()
-        .map_err(|_| invalid_hbn_representor(representor))
-}
-
-fn invalid_hbn_representor(representor: &str) -> CarbideError {
+fn invalid_vf_selector(representor: &str) -> CarbideError {
     ConfigValidationError::InvalidValue(format!(
         "invalid PF0 VF selector `{representor}` in `hbn_reps`; expected `pf0vfN` or an inclusive `pf0vfN-pf0vfM` range"
     ))
     .into()
 }
 
-/// Returns the exact topology VF population, or `None` when legacy admission remains in effect.
+/// Returns the exact topology VF population, or `None` when no topology is configured.
 fn dpf_topology_vf_ids(config: &CarbideConfig) -> Option<BTreeSet<u8>> {
-    if !config.dpf.enabled {
-        return None;
-    }
-
     let topology = config.vmaas_config.as_ref()?.bridging.as_ref()?;
     Some(
         topology
@@ -2164,6 +2165,7 @@ pub(crate) async fn batch_allocate_instances(
         validate_instance_vfs_against_effective_dpu_inventory(
             &request.config.network,
             &api.runtime_config,
+            mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
         )?;
         validate_instance_interface_routing_profiles(
             &mut txn,
@@ -2907,98 +2909,106 @@ mod tests {
     fn instance_vf_admission_follows_effective_dpu_inventory() {
         #[derive(Clone, Copy)]
         enum InventoryMode {
-            Topology(&'static [u8]),
-            Static,
-            DpfDisabled(&'static [u8]),
+            DpfTopology(&'static [u8]),
+            DpfWithoutTopology,
+            NonDpf(&'static [u8]),
         }
 
         value_scenarios!(
             run = |(mode, requested_vfs)| {
-                let config = match mode {
-                    InventoryMode::Topology(vf_ids) => {
-                        crate::test_support::default_config::with_dpf_intercept_topology(vf_ids)
-                    }
-                    InventoryMode::Static => {
-                        let mut config = crate::test_support::default_config::get();
-                        config.dpf.enabled = true;
-                        config.vmaas_config = None;
-                        config
-                    }
-                    InventoryMode::DpfDisabled(vf_ids) => {
+                let (config, is_dpf_managed_host) = match mode {
+                    InventoryMode::DpfTopology(vf_ids) => {
                         let mut config =
                             crate::test_support::default_config::with_dpf_intercept_topology(vf_ids);
+                        // The host's observed provisioning path, not the current site flag, owns
+                        // admission behavior.
                         config.dpf.enabled = false;
-                        config
+                        (config, true)
                     }
+                    InventoryMode::DpfWithoutTopology => {
+                        let mut config = crate::test_support::default_config::get();
+                        config.vmaas_config = None;
+                        (config, true)
+                    }
+                    InventoryMode::NonDpf(vf_ids) => (
+                        crate::test_support::default_config::with_dpf_intercept_topology(vf_ids),
+                        false,
+                    ),
                 };
-                validate_vf_ids_against_effective_dpu_inventory(requested_vfs, &config).is_ok()
+                validate_vf_ids_against_effective_dpu_inventory(
+                    requested_vfs,
+                    &config,
+                    is_dpf_managed_host,
+                )
+                .is_ok()
             };
             "selected sparse VF" {
                 // An explicitly selected sparse VF is addressable.
-                (InventoryMode::Topology(&[7]), vec![7]) => true,
+                (InventoryMode::DpfTopology(&[7]), vec![7]) => true,
             }
 
             "unselected sparse VF" {
                 // VF0 must not pass merely because the hardware provisions it.
-                (InventoryMode::Topology(&[7]), vec![0]) => false,
+                (InventoryMode::DpfTopology(&[7]), vec![0]) => false,
             }
 
             "all requested VFs selected" {
                 // Multiple requested VFs must each belong to the replacement inventory.
-                (InventoryMode::Topology(&[4, 7]), vec![4, 7]) => true,
+                (InventoryMode::DpfTopology(&[4, 7]), vec![4, 7]) => true,
             }
 
             "one requested VF omitted" {
                 // One unselected VF rejects the complete network configuration.
-                (InventoryMode::Topology(&[4, 7]), vec![4, 6]) => false,
+                (InventoryMode::DpfTopology(&[4, 7]), vec![4, 6]) => false,
             }
 
             "PF-only topology" {
                 // A valid PF-only topology deliberately exposes no instance VFs.
-                (InventoryMode::Topology(&[]), vec![0]) => false,
+                (InventoryMode::DpfTopology(&[]), vec![0]) => false,
             }
 
             "DPF without topology retains compatibility behavior" {
-                (InventoryMode::Static, vec![14]) => true,
+                (InventoryMode::DpfWithoutTopology, vec![14]) => true,
             }
 
-            "DPF disabled ignores typed topology within the static inventory" {
-                (InventoryMode::DpfDisabled(&[7]), vec![0]) => true,
+            "non-DPF host ignores the configured DPF topology" {
+                (InventoryMode::NonDpf(&[7]), vec![0]) => true,
             }
 
-            "pre-DPF admits the final default HBN VF" {
-                (InventoryMode::DpfDisabled(&[7]), vec![13]) => true,
+            "non-DPF host admits the final default HBN VF" {
+                (InventoryMode::NonDpf(&[7]), vec![13]) => true,
             }
 
-            "pre-DPF rejects the first absent default HBN VF" {
-                (InventoryMode::DpfDisabled(&[7]), vec![14]) => false,
+            "non-DPF host rejects the first absent default HBN VF" {
+                (InventoryMode::NonDpf(&[7]), vec![14]) => false,
             }
         );
 
         let error = validate_vf_ids_against_effective_dpu_inventory(
             [14],
             &crate::test_support::default_config::get(),
+            false,
         )
-        .expect_err("VF14 must be absent from the default static DPU inventory");
+        .expect_err("VF14 must be absent from the configured instance VF inventory");
         assert_eq!(
             error.to_string(),
-            "invalid configuration: invalid value: virtual function VF14 is not present in the effective pre-DPF DPU interface inventory"
+            "invalid configuration: invalid value: virtual function VF14 is not available in the configured instance VF inventory"
         );
     }
 
     #[test]
-    fn pre_dpf_hbn_vf_inventory_follows_hbn_reps_and_num_of_vfs() {
+    fn instance_vf_inventory_follows_hbn_reps_and_num_of_vfs() {
         check_cases(
             [
                 Case {
                     scenario: "omitted selection uses HBN fallback",
                     input: (16, None),
-                    expect: Yields((0..DEFAULT_PRE_DPF_HBN_VF_COUNT).collect()),
+                    expect: Yields((0..DEFAULT_INSTANCE_VF_COUNT).collect()),
                 },
                 Case {
                     scenario: "empty selection uses HBN fallback",
                     input: (16, Some("")),
-                    expect: Yields((0..DEFAULT_PRE_DPF_HBN_VF_COUNT).collect()),
+                    expect: Yields((0..DEFAULT_INSTANCE_VF_COUNT).collect()),
                 },
                 Case {
                     scenario: "blank selection is rejected",
@@ -3070,7 +3080,7 @@ mod tests {
                     .as_mut()
                     .expect("the default test configuration includes VMaaS")
                     .hbn_reps = hbn_reps.map(str::to_owned);
-                pre_dpf_hbn_vf_ids(&config)
+                configured_instance_vf_ids(&config)
                     .map(|vf_ids| vf_ids.into_iter().collect())
                     .map_err(drop)
             },
