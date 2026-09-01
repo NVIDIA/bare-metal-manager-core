@@ -1038,6 +1038,8 @@ paths:
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Tenants cannot create Sites.
+
+        New Sites enable `nativeNetworking`, `networkSecurityGroup`, and `flow` by default. Other Site capabilities default to `false`.
       requestBody:
         content:
           application/json:
@@ -18100,9 +18102,10 @@ components:
             nativeNetworking: true
             networkSecurityGroup: true
             nvLinkPartition: false
-            flow: false
+            flow: true
             imageBasedOperatingSystem: false
             vpcSlaac: false
+            dpsPowerManagement: false
           isOnline: false
           status: Pending
           statusHistory:
