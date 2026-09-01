@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	tClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -26,22 +27,34 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		coreClientMissing  bool
-		siteAgentBuildInfo *corev1.SiteAgentBuildInfo
-		wantErr            error
+		name                string
+		coreClientMissing   bool
+		flowGrpcEnabled     bool
+		flowClientConnected bool
+		siteAgentBuildInfo  *corev1.SiteAgentBuildInfo
+		wantFlowAvailable   *bool
+		wantErr             error
 	}{
 		{
-			name: "publishes Core build info alongside the Site Agent build info",
+			name:                "publishes connected Flow as available",
+			flowGrpcEnabled:     true,
+			flowClientConnected: true,
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
 				InventoryInterval: durationpb.New(3 * time.Minute),
 			},
+			wantFlowAvailable: proto.Bool(true),
 		},
 		{
 			// The Site Agent leaves the interval unset when it cannot derive one, so Cloud can
 			// tell that apart from a real value and stay on its own default.
-			name:               "omits the interval when the Site Agent could not derive one",
+			name:               "publishes explicitly disabled Flow as unavailable",
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: "2.0.0"},
+			wantFlowAvailable:  proto.Bool(false),
+		},
+		{
+			name:               "omits Flow while an enabled client is not initialized",
+			flowGrpcEnabled:    true,
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: "2.0.0"},
 		},
 		{
@@ -64,6 +77,11 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 				mockCoreService.BuildCapabilities = buildCapabilities
 			}
 
+			flowGrpcAtomicClient := cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})
+			if tt.flowClientConnected {
+				flowGrpcAtomicClient.SwapClient(cClient.NewMockFlowGrpcClient())
+			}
+
 			siteID := uuid.New()
 			wrun := &tmocks.WorkflowRun{}
 			wrun.On("GetID").Return("test-workflow-id")
@@ -81,6 +99,8 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 			manageSiteConfigInventory := NewManageSiteConfigInventory(ManageInventoryConfig{
 				SiteID:                siteID,
 				CoreGrpcAtomicClient:  coreGrpcAtomicClient,
+				FlowGrpcAtomicClient:  flowGrpcAtomicClient,
+				FlowGrpcEnabled:       tt.flowGrpcEnabled,
 				TemporalPublishClient: tc,
 				TemporalPublishQueue:  "test-queue",
 			}, tt.siteAgentBuildInfo)
@@ -114,8 +134,15 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 				"Version request must set DisplayConfig, Core omits the runtime config without it")
 			assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())
 
-			// The Site Agent build info is fixed at startup, so it is published as handed over.
-			assert.Equal(t, tt.siteAgentBuildInfo, inventory.GetSiteAgentBuildInfo())
+			reportedSiteAgentBuildInfo := inventory.GetSiteAgentBuildInfo()
+			require.NotNil(t, reportedSiteAgentBuildInfo)
+			assert.Equal(t, tt.siteAgentBuildInfo.GetVersion(), reportedSiteAgentBuildInfo.GetVersion())
+			assert.True(t, proto.Equal(
+				tt.siteAgentBuildInfo.GetInventoryInterval(),
+				reportedSiteAgentBuildInfo.GetInventoryInterval(),
+			))
+			assert.Equal(t, tt.wantFlowAvailable, reportedSiteAgentBuildInfo.FlowAvailable)
+			assert.Nil(t, tt.siteAgentBuildInfo.FlowAvailable, "inventory collection must not mutate shared process metadata")
 		})
 	}
 }

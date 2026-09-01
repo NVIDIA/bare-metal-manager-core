@@ -167,8 +167,12 @@ type SiteAgentBuildInfo struct {
 	// How often the Site Agent collects inventory, derived from its configured schedule.
 	// Cloud compares object timestamps against this to decide whether an inventory is stale.
 	InventoryInterval *durationpb.Duration `protobuf:"bytes,2,opt,name=inventory_interval,json=inventoryInterval,proto3" json:"inventory_interval,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whether Flow is available to this Site Agent. True means Flow is configured and the
+	// startup Version handshake succeeded; false means Flow is explicitly disabled. An absent
+	// value means an older Site Agent or an enabled client that has not initialized yet.
+	FlowAvailable *bool `protobuf:"varint,3,opt,name=flow_available,json=flowAvailable,proto3,oneof" json:"flow_available,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SiteAgentBuildInfo) Reset() {
@@ -213,6 +217,13 @@ func (x *SiteAgentBuildInfo) GetInventoryInterval() *durationpb.Duration {
 		return x.InventoryInterval
 	}
 	return nil
+}
+
+func (x *SiteAgentBuildInfo) GetFlowAvailable() bool {
+	if x != nil && x.FlowAvailable != nil {
+		return *x.FlowAvailable
+	}
+	return false
 }
 
 // SiteConfigInventory - Site configuration reported periodically. Site-level reporting is
@@ -2104,10 +2115,12 @@ const file_inventory_proto_rawDesc = "" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1f\n" +
 	"\vtotal_items\x18\x04 \x01(\x05R\n" +
 	"totalItems\x12\x19\n" +
-	"\bitem_ids\x18\x05 \x03(\tR\aitemIds\"x\n" +
+	"\bitem_ids\x18\x05 \x03(\tR\aitemIds\"\xb7\x01\n" +
 	"\x12SiteAgentBuildInfo\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12H\n" +
-	"\x12inventory_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x11inventoryInterval\"\xa1\x01\n" +
+	"\x12inventory_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x11inventoryInterval\x12*\n" +
+	"\x0eflow_available\x18\x03 \x01(\bH\x00R\rflowAvailable\x88\x01\x01B\x11\n" +
+	"\x0f_flow_available\"\xa1\x01\n" +
 	"\x13SiteConfigInventory\x128\n" +
 	"\x0fcore_build_info\x18\x01 \x01(\v2\x10.forge.BuildInfoR\rcoreBuildInfo\x12P\n" +
 	"\x15site_agent_build_info\x18\x02 \x01(\v2\x1d.inventory.SiteAgentBuildInfoR\x12siteAgentBuildInfo\"\xd1\x02\n" +
@@ -2456,6 +2469,7 @@ func file_inventory_proto_init() {
 	file_common_nico_proto_init()
 	file_machine_discovery_nico_proto_init()
 	file_nico_nico_proto_init()
+	file_inventory_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -28,7 +28,7 @@ type SiteCapabilities struct {
 	NetworkSecurityGroup *bool `json:"networkSecurityGroup,omitempty"`
 	// Whether the Site supports NVLink partitioning
 	NvLinkPartition *bool `json:"nvLinkPartition,omitempty"`
-	// Whether the Site supports Flow-based operations
+	// Whether the Site supports Flow-based operations. The value retains its REST default or latest Provider configuration until a compatible Site Agent reports Flow availability, after which Site configuration inventory reconciles it. An explicitly disabled Flow client reports `false`; initialization and transient connection failures do not clear the stored value.
 	Flow *bool `json:"flow,omitempty"`
 	// Whether the Site supports image-based operating system provisioning
 	ImageBasedOperatingSystem *bool `json:"imageBasedOperatingSystem,omitempty"`

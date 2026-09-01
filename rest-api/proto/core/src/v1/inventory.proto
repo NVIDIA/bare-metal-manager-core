@@ -42,6 +42,10 @@ message SiteAgentBuildInfo {
   // How often the Site Agent collects inventory, derived from its configured schedule.
   // Cloud compares object timestamps against this to decide whether an inventory is stale.
   google.protobuf.Duration inventory_interval = 2;
+  // Whether Flow is available to this Site Agent. True means Flow is configured and the
+  // startup Version handshake succeeded; false means Flow is explicitly disabled. An absent
+  // value means an older Site Agent or an enabled client that has not initialized yet.
+  optional bool flow_available = 3;
 }
 
 // SiteConfigInventory - Site configuration reported periodically. Site-level reporting is
