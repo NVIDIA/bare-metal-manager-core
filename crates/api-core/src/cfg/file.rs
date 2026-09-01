@@ -2364,6 +2364,9 @@ impl DpfDeploymentsConfig {
     }
 
     /// Validates the final Kubernetes identifiers, their uniqueness, and reserved labels.
+    /// `DPU_ENABLED_NODE_LABEL` and `HOST_BMC_IP_LABEL` are reserved for the
+    /// shared DPF node marker and host BMC IP. Neither can be used as the
+    /// `node_label_key` for an individual deployment.
     /// Returns every error so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
         let bf3_gb200 = self.bf3.bf3_gb200();

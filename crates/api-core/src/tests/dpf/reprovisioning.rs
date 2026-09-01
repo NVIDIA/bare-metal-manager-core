@@ -29,22 +29,23 @@ use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     DpfState, DpuReprovisionStates, FailureCause, InstanceState, ManagedHostState, ReprovisionState,
 };
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::{dpf_config, get_host_state};
 use crate::test_support::builder::TestApiBuilder;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
-    TEST_RMS_RACK_PROFILE_ID, TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
-    create_managed_host_with_dpf_multi, create_test_env_with_overrides, get_config,
-    get_config_with_rack_profiles,
+    TEST_RMS_RACK_PROFILE_ID, TestEnv, TestEnvOverrides, TestManagedHost,
+    create_managed_host_with_dpf, create_managed_host_with_dpf_multi,
+    create_test_env_with_overrides, get_config, get_config_with_rack_profiles,
 };
+use crate::tests::common::postgres::wait_for_blocked_query;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -131,22 +132,11 @@ fn source_deployment_mock_with_verification_observer(
     mock
 }
 
-/// A GB200 deployment migration waits for Site Explorer attachment writes
-/// before it snapshots and updates the complete DPU set.
+/// A request rechecks migration eligibility after Site Explorer changes the
+/// host while holding its attachment locks.
 #[crate::sqlx_test]
-async fn test_gb200_deployment_migration_waits_for_attachment_updates(pool: sqlx::PgPool) {
-    let observe_migration_check = Arc::new(AtomicBool::new(false));
-    let source_deployment_checked = Arc::new(Notify::new());
-    let observe_migration_check_for_mock = observe_migration_check.clone();
-    let source_deployment_checked_for_mock = source_deployment_checked.clone();
-    let mock = source_deployment_mock_with_verification_observer(2, move |deployment| {
-        if observe_migration_check_for_mock.load(Ordering::SeqCst)
-            && deployment == DpuDeploymentType::Bf3
-        {
-            source_deployment_checked_for_mock.notify_one();
-        }
-    });
-
+async fn test_gb200_deployment_migration_rechecks_after_attachment_updates(pool: sqlx::PgPool) {
+    let mock = source_deployment_mock(2);
     let mut config = get_config_with_rack_profiles();
     config.dpf = dpf_config();
     let env = create_test_env_with_overrides(
@@ -157,25 +147,24 @@ async fn test_gb200_deployment_migration_waits_for_attachment_updates(pool: sqlx
     let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_multi(&env, 2))
         .await
         .expect("timed out during initial provisioning");
-    configure_gb200_b3240_host(&pool, &mh).await;
     mh.mark_machine_for_updates().await;
 
-    // Stand in for Site Explorer while it changes DPU attachments. The API
-    // must wait for this transaction before it chooses the request set.
+    // Stand in for Site Explorer changing the machine from a generic BF3 host
+    // to a GB200 host while the request still sees the earlier data.
     let admin_lock_admission = db::machine_interface::admin_lock_admission().await;
     let mut attachment_txn = pool.begin().await.unwrap();
     db::machine_interface::lock_all_admin_segments(attachment_txn.as_mut())
         .await
         .unwrap();
+    configure_gb200_b3240_host_in_txn(attachment_txn.as_mut(), &mh).await;
 
-    observe_migration_check.store(true, Ordering::SeqCst);
     let api = env.api.clone();
-    let host_id = mh.id;
+    let requested_dpu_id = mh.dpu_ids[0];
     let mut request_task = tokio::spawn(async move {
         api.trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: host_id.into(),
+                dpu_id: requested_dpu_id.into(),
+                machine_id: None,
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
@@ -184,23 +173,21 @@ async fn test_gb200_deployment_migration_waits_for_attachment_updates(pool: sqlx
         .await
     });
 
-    timeout(TEST_TIMEOUT, source_deployment_checked.notified())
-        .await
-        .expect("timed out waiting for the deployment check");
     assert!(
         timeout(Duration::from_millis(250), &mut request_task)
             .await
             .is_err(),
-        "the migration request must wait for attachment updates"
+        "the request must wait for attachment updates before checking migration"
     );
 
     attachment_txn.commit().await.unwrap();
     drop(admin_lock_admission);
-    timeout(TEST_TIMEOUT, request_task)
+    let error = timeout(TEST_TIMEOUT, request_task)
         .await
         .expect("timed out after releasing the attachment locks")
-        .expect("the migration request task panicked")
-        .expect("the migration request failed");
+        .expect("the reprovisioning request task panicked")
+        .expect_err("an individual DPU request must be rejected after GB200 becomes visible");
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
 
     let mut txn = pool.begin().await.unwrap();
     let dpu_machines = mh.dpu_db_machines(&mut txn).await;
@@ -208,10 +195,145 @@ async fn test_gb200_deployment_migration_waits_for_attachment_updates(pool: sqlx
     assert!(
         dpu_machines
             .iter()
-            .all(|dpu| dpu.reprovision_requested.is_some()),
-        "the host request must update every attached DPU"
+            .all(|dpu| dpu.reprovision_requested.is_none()),
+        "a rejected partial request must not update any attached DPU"
     );
     txn.commit().await.unwrap();
+}
+
+/// Verifies that a `Set` request preserves controller progress made after its
+/// initial validation.
+async fn assert_dpu_reprovision_set_rechecks_request_updates(
+    pool: &sqlx::PgPool,
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) {
+    let requested_dpu_id = mh.dpu_ids[0];
+    let mut request_txn = pool.begin().await.unwrap();
+    db::machine::trigger_dpu_reprovisioning_request(
+        &requested_dpu_id,
+        request_txn.as_mut(),
+        "test",
+        true,
+    )
+    .await
+    .unwrap();
+    request_txn.commit().await.unwrap();
+
+    // Stand in for the controller owning the DPU row while the API validates
+    // the current request.
+    let mut controller_txn = pool.begin().await.unwrap();
+    let blocker_pid = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(controller_txn.as_mut())
+        .await
+        .unwrap();
+    let locked_dpu = db::machine::find_one(
+        controller_txn.as_mut(),
+        &requested_dpu_id,
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        locked_dpu.is_some(),
+        "the controller must lock the test DPU"
+    );
+
+    let api = env.api.clone();
+    let request_task = tokio::spawn(async move {
+        api.trigger_dpu_reprovisioning(tonic::Request::new(
+            ::rpc::forge::DpuReprovisioningRequest {
+                dpu_id: requested_dpu_id.into(),
+                machine_id: None,
+                mode: Mode::Set as i32,
+                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true,
+            },
+        ))
+        .await
+    });
+
+    // Both the protected row lock and the stale write it replaces must reach
+    // the DPU row after initial validation before the controller moves it.
+    tokio::select! {
+        _ = wait_for_blocked_query(pool, blocker_pid, "SELECT row_to_json") => {}
+        _ = wait_for_blocked_query(
+            pool,
+            blocker_pid,
+            "UPDATE machines SET reprovisioning_requested",
+        ) => {}
+    }
+    db::machine::update_dpu_reprovision_start_time(&requested_dpu_id, controller_txn.as_mut())
+        .await
+        .unwrap();
+    controller_txn.commit().await.unwrap();
+
+    let error = timeout(TEST_TIMEOUT, request_task)
+        .await
+        .expect("timed out after the controller released the DPU row")
+        .expect("the reprovisioning request task panicked")
+        .expect_err("the request must reject controller state advanced after validation");
+    assert_eq!(error.code(), tonic::Code::Internal);
+    assert_eq!(
+        error.message(),
+        "internal error: reprovisioning is already started"
+    );
+
+    let mut txn = pool.begin().await.unwrap();
+    let dpu = db::machine::find_one(txn.as_mut(), &requested_dpu_id, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        dpu.reprovision_requested
+            .is_some_and(|request| request.started_at.is_some()),
+        "the rejected API request must preserve the controller's start time"
+    );
+    txn.commit().await.unwrap();
+}
+
+/// An ordinary DPF reprovision request rechecks controller progress before
+/// replacing the request JSON.
+#[crate::sqlx_test]
+async fn test_dpu_reprovision_set_rechecks_after_request_updates(pool: sqlx::PgPool) {
+    let mock = provisioning_mock(Arc::new(AtomicBool::new(true)));
+    let mut config = get_config();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf(&env))
+        .await
+        .expect("timed out during initial provisioning");
+    mh.mark_machine_for_updates().await;
+
+    assert_dpu_reprovision_set_rechecks_request_updates(&pool, &env, &mh).await;
+}
+
+/// A GB200 request rechecks controller progress after reading deployment
+/// labels, even when the target deployment is already active.
+#[crate::sqlx_test]
+async fn test_gb200_deployment_migration_rechecks_after_dpu_request_updates(pool: sqlx::PgPool) {
+    let mock = provisioning_mock(Arc::new(AtomicBool::new(true)));
+    let mut config = get_config_with_rack_profiles();
+    config.dpf = dpf_config();
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config).with_dpf_sdk(Arc::new(mock)),
+    )
+    .await;
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf(&env))
+        .await
+        .expect("timed out during initial provisioning");
+    configure_gb200_b3240_host(&pool, &mh).await;
+    mh.mark_machine_for_updates().await;
+
+    assert_dpu_reprovision_set_rechecks_request_updates(&pool, &env, &mh).await;
 }
 
 /// Build the DPU reprovision states map for the given DPF sub-state.
@@ -299,15 +421,22 @@ async fn dpu_device_names(pool: &sqlx::PgPool, mh: &TestManagedHost) -> HashSet<
 /// deployment.
 async fn configure_gb200_b3240_host(pool: &sqlx::PgPool, mh: &TestManagedHost) {
     let mut txn = pool.begin().await.unwrap();
+    configure_gb200_b3240_host_in_txn(txn.as_mut(), mh).await;
+    txn.commit().await.unwrap();
+}
+
+/// Gives a DPF test host the GB200 rack and DPU inventory in an existing
+/// transaction.
+async fn configure_gb200_b3240_host_in_txn(conn: &mut sqlx::PgConnection, mh: &TestManagedHost) {
     let rack_id = TestRackDbBuilder::new()
         .with_rack_profile_id(TEST_RMS_RACK_PROFILE_ID)
-        .persist(txn.as_mut())
+        .persist(&mut *conn)
         .await
         .unwrap();
     let rack_assignment = sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
         .bind(rack_id.as_str())
         .bind(mh.id)
-        .execute(txn.as_mut())
+        .execute(&mut *conn)
         .await
         .unwrap();
     assert_eq!(
@@ -316,7 +445,7 @@ async fn configure_gb200_b3240_host(pool: &sqlx::PgPool, mh: &TestManagedHost) {
         "the test host must be attached to the GB200 rack profile"
     );
     for dpu_id in &mh.dpu_ids {
-        let dpu = db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
+        let dpu = db::machine::find_one(&mut *conn, dpu_id, Default::default())
             .await
             .unwrap()
             .unwrap();
@@ -329,14 +458,13 @@ async fn configure_gb200_b3240_host(pool: &sqlx::PgPool, mh: &TestManagedHost) {
             .as_mut()
             .expect("fixture DPU should have DPU information")
             .part_number = "900-9D3B6-00CN-PA0".to_string();
-        db::machine_topology::set_topology_update_needed(txn.as_mut(), dpu_id, true)
+        db::machine_topology::set_topology_update_needed(&mut *conn, dpu_id, true)
             .await
             .unwrap();
-        db::machine_topology::create_or_update(txn.as_mut(), dpu_id, &hardware_info)
+        db::machine_topology::create_or_update(&mut *conn, dpu_id, &hardware_info)
             .await
             .unwrap();
     }
-    txn.commit().await.unwrap();
 }
 
 /// Recreates the partial DPF reprovision state that a controller without

@@ -204,12 +204,16 @@ fn deployment_migration_has_complete_dpu_set(
         && expected_dpu_ids == state_dpu_ids
 }
 
-/// Returns whether the stored reprovision state may be a parked migration.
+/// Returns whether a DPF-managed host may have a parked migration.
 ///
 /// The migration handler validates the full DPU set before changing external
 /// resources. Keeping this detector broad turns damaged parked state into a
 /// visible failure instead of leaving every DPU idle indefinitely.
 pub(super) fn deployment_migration_is_parked(state: &ManagedHostStateSnapshot) -> bool {
+    if !state.host_snapshot.config.dpf.used_for_ingestion {
+        return false;
+    }
+
     let Some(dpu_states) = state.managed_state.dpu_reprovision_states() else {
         return false;
     };
@@ -1075,13 +1079,6 @@ pub(super) async fn handle_dpf_state(
             return Ok(dpf_deployment_selection_failed(state, error.as_str()));
         }
     };
-    if matches!(dpf_state, DpfState::Provisioning) {
-        tracing::info!(
-            machine_id = %state.host_snapshot.id,
-            ?deployment_type,
-            "selected DPF deployment type for host"
-        );
-    }
     let node_has_desired_labels = dpf_sdk
         .verify_node_labels(&node_name, deployment_type)
         .await
@@ -1146,6 +1143,13 @@ pub(super) async fn handle_dpf_state(
             )));
         }
     }
+    if matches!(dpf_state, DpfState::Provisioning) {
+        tracing::info!(
+            machine_id = %state.host_snapshot.id,
+            ?deployment_type,
+            "selected DPF deployment type for host"
+        );
+    }
 
     match dpf_state {
         DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk, deployment_type).await,
@@ -1188,6 +1192,8 @@ pub(super) async fn handle_dpf_state(
 mod tests {
     use carbide_test_support::{Check, check_values};
     use model::hardware_info::DpuData;
+    use model::machine::ReprovisionRequest;
+    use model::test_support::machine_snapshot::managed_host_state_snapshot;
 
     use super::*;
 
@@ -1199,6 +1205,54 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    fn parked_deployment_migration_state(used_for_ingestion: bool) -> ManagedHostStateSnapshot {
+        let mut state = managed_host_state_snapshot();
+        state.host_snapshot.config.dpf.used_for_ingestion = used_for_ingestion;
+        for dpu in &mut state.dpu_snapshots {
+            dpu.reprovision_requested = Some(ReprovisionRequest {
+                requested_at: chrono::DateTime::UNIX_EPOCH,
+                initiator: "test".to_string(),
+                update_firmware: false,
+                started_at: Some(chrono::DateTime::UNIX_EPOCH),
+                user_approval_received: false,
+                restart_reprovision_requested_at: chrono::DateTime::UNIX_EPOCH,
+            });
+        }
+        state.managed_state = ManagedHostState::DPUReprovision {
+            dpu_states: DpuReprovisionStates {
+                states: state
+                    .dpu_snapshots
+                    .iter()
+                    .map(|dpu| (dpu.id, ReprovisionState::NotUnderReprovision))
+                    .collect(),
+            },
+        };
+        state
+    }
+
+    #[test]
+    fn only_dpf_managed_hosts_resume_parked_deployment_migrations() {
+        check_values(
+            [
+                Check {
+                    scenario: "DPF-managed host",
+                    input: true,
+                    expect: true,
+                },
+                Check {
+                    scenario: "Non-DPF host",
+                    input: false,
+                    expect: false,
+                },
+            ],
+            |used_for_ingestion| {
+                deployment_migration_is_parked(&parked_deployment_migration_state(
+                    used_for_ingestion,
+                ))
+            },
+        );
     }
 
     #[test]

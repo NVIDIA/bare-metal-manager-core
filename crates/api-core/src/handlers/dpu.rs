@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv6Addr};
 use std::str::FromStr;
+use std::time::Duration;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
@@ -62,6 +63,9 @@ use crate::{CarbideError, cfg, ethernet_virtualization};
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
+
+/// Bounds Kubernetes label reads while Site Explorer attachment locks are held.
+const DPF_DEPLOYMENT_LABEL_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Consolidates host-level and DPU-level `ManagedHostNetworkConfig` into
 /// the single proto sent to `carbide-dpu-agent`. The host layer
@@ -1555,8 +1559,8 @@ fn validate_dpu_reprovisioning_request(
     Ok(())
 }
 
-/// Locks every attached DPU row in stable order before validating a migration
-/// request set and updating any member of it.
+/// Locks every attached DPU row in stable order before revalidating and
+/// updating a reprovisioning request set.
 async fn lock_attached_dpus(
     conn: &mut sqlx::PgConnection,
     snapshot: &ManagedHostStateSnapshot,
@@ -1611,9 +1615,13 @@ async fn load_dpu_reprovisioning_snapshot(
     })
 }
 
-/// Trigger DPU reprovisioning
-/// In case user passes a DPU ID, trigger_dpu_reprovisioning only for that particular DPU.
-/// In case user passes a host id, trigger_dpu_reprovisioning
+/// Triggers DPU reprovisioning for one DPU or every DPU attached to a host.
+///
+/// `Set` and `Clear` intentionally keep the transaction that owns the admin
+/// segment locks open across the DPF Kubernetes read. This prevents Site
+/// Explorer from changing attachments between the authorizing snapshot and
+/// the request writes.
+#[allow(txn_held_across_await)]
 pub(crate) async fn trigger_dpu_reprovisioning(
     api: &Api,
     request: tonic::Request<rpc::DpuReprovisioningRequest>,
@@ -1625,55 +1633,58 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     let machine_id = req.machine_id.as_ref().or(req.dpu_id.as_ref());
     let machine_id = convert_and_log_machine_id(machine_id)?;
 
+    let mode = req.mode();
+    // Set and Clear must choose their complete DPU set from the same attachment
+    // state that authorizes the request writes. Take the Site Explorer lock
+    // order before loading that snapshot so attachment changes cannot make a
+    // previously ineligible host require migration after this check.
+    let admin_lock_admission = if matches!(mode, Mode::Set | Mode::Clear) {
+        Some(db::machine_interface::admin_lock_admission().await)
+    } else {
+        None
+    };
     let mut txn = api.txn_begin().await?;
+    if admin_lock_admission.is_some() {
+        db::machine_interface::lock_all_admin_segments(txn.as_mut()).await?;
+    }
 
     let mut snapshot = load_dpu_reprovisioning_snapshot(api, txn.as_mut(), &machine_id).await?;
-    let mode = req.mode();
     validate_dpu_reprovisioning_request(api, &snapshot, &machine_id, mode)?;
 
-    // The migration check reads Kubernetes, so release the database transaction
-    // before that external call. Set and Clear both change the request set and
-    // must preserve its empty or complete cardinality while the source selector
-    // remains active.
     let migration_node = if matches!(mode, Mode::Set | Mode::Clear) {
         dpf_deployment_migration_node(api, txn.as_mut(), &snapshot).await?
     } else {
         None
     };
-    let (migration_source_is_active, admin_lock_admission) = if let Some(node_name) = migration_node
-    {
-        txn.rollback().await?;
-        let source_is_active = dpf_deployment_migration_source_is_active(api, &node_name).await?;
-
-        // Site Explorer takes these same locks before it changes DPU
-        // attachments. Hold them through the request writes so the snapshots
-        // and DPU row locks below describe one complete DPU set.
-        let admin_lock_admission = if source_is_active {
-            Some(db::machine_interface::admin_lock_admission().await)
-        } else {
-            None
-        };
-        txn = api.txn_begin().await?;
-
-        if source_is_active {
-            db::machine_interface::lock_all_admin_segments(txn.as_mut()).await?;
-        }
-
-        snapshot = load_dpu_reprovisioning_snapshot(api, txn.as_mut(), &machine_id).await?;
-
-        if source_is_active {
-            lock_attached_dpus(txn.as_mut(), &snapshot).await?;
-            snapshot = load_dpu_reprovisioning_snapshot(api, txn.as_mut(), &machine_id).await?;
-        }
-
-        // Recheck all database conditions after the Kubernetes call and after
-        // waiting for the row locks. Only this snapshot can authorize the
-        // writes below.
-        validate_dpu_reprovisioning_request(api, &snapshot, &machine_id, mode)?;
-        (source_is_active, admin_lock_admission)
+    let migration_source_is_active = if let Some(node_name) = migration_node.as_deref() {
+        // Keep the attachment locks through this Kubernetes read and the
+        // request writes. Releasing them here would allow migration eligibility
+        // to change between the two operations.
+        tokio::time::timeout(
+            DPF_DEPLOYMENT_LABEL_CHECK_TIMEOUT,
+            dpf_deployment_migration_source_is_active(api, node_name),
+        )
+        .await
+        .map_err(|_| {
+            CarbideError::DpfError(carbide_dpf::DpfError::timeout(
+                "DPUNode deployment label validation",
+                format!(
+                    "label checks for DPUNode '{node_name}' did not complete within {} seconds",
+                    DPF_DEPLOYMENT_LABEL_CHECK_TIMEOUT.as_secs()
+                ),
+            ))
+        })??
     } else {
-        (false, None)
+        false
     };
+
+    if mode == Mode::Set || migration_node.is_some() {
+        // Set replaces the request JSON, and migration validation depends on
+        // the complete request set. Lock and reload before either can write.
+        lock_attached_dpus(txn.as_mut(), &snapshot).await?;
+        snapshot = load_dpu_reprovisioning_snapshot(api, txn.as_mut(), &machine_id).await?;
+        validate_dpu_reprovisioning_request(api, &snapshot, &machine_id, mode)?;
+    }
 
     match mode {
         Mode::Set => {
