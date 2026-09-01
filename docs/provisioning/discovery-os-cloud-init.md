@@ -26,6 +26,45 @@ a cloud-config snippet must begin with `#cloud-config`.
 PXE validates filenames and file types, but it does not parse or validate the
 snippet contents.
 
+### Populate snippets with the `nico-pxe` Helm chart
+
+The shipped `nico-pxe` chart does not expose arbitrary volumes or volume mounts
+for the PXE container, so a ConfigMap cannot be mounted at the snippet path
+directly through chart values.
+
+With the default `bootArtifacts.servePath` of `/forge-boot-artifacts`, the full
+snippet path is:
+
+```text
+/forge-boot-artifacts/blobs/internal/cloud-init.d/scout/
+```
+
+Use a `bootArtifactContainers` init container to copy snippets from an image
+into the shared volume that the PXE container serves. For example, if the image
+stores its snippets in `/snippets`, add this entry to the `nico-pxe` values:
+
+```yaml
+bootArtifactContainers:
+  - name: scout-cloud-init-snippets
+    repository: <your-registry>/scout-cloud-init-snippets
+    tag: <tag>
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /forge-boot-artifacts/blobs/internal/cloud-init.d/scout
+        cp -r /snippets/. /forge-boot-artifacts/blobs/internal/cloud-init.d/scout/
+```
+
+When using the umbrella NICo chart, place this configuration under its
+`nico-pxe` key. The chart's shared-volume mount is fixed at
+`/forge-boot-artifacts/blobs/internal`, so this mechanism assumes the default
+`bootArtifacts.servePath`.
+
+For deployments outside this chart, use any mount or copy mechanism that puts
+the snippets under `<PXE static directory>/blobs/internal/cloud-init.d/scout`.
+A patched Deployment can, for example, mount a ConfigMap at that path.
+
 ### Filename and entry rules
 
 A snippet filename must be non-empty and contain only ASCII letters, digits,
@@ -70,10 +109,11 @@ that PXE cannot read.
 
 ## Compose multiple snippets safely
 
-Each snippet is a separate cloud-config document. By default, cloud-init
-replaces lists rather than appending them. If multiple snippets define a shared
-list-valued key such as `runcmd`, `packages`, or `write_files`, a later snippet
-can replace the earlier value without causing the boot to fail.
+Each cloud-config snippet is a separate cloud-config document. When cloud-init
+merges these documents, it replaces lists rather than appending them by
+default. If multiple cloud-config snippets define a shared list-valued key such
+as `runcmd`, `packages`, or `write_files`, a later snippet can replace the
+earlier value without causing the boot to fail.
 
 To make list-valued configuration additive, add this merge policy to each
 participating snippet:
@@ -83,24 +123,30 @@ participating snippet:
 merge_how: 'dict(recurse_array,no_replace)+list(append)'
 ```
 
-A single snippet does not need a custom merge policy. Snippets that use
-different top-level keys do not conflict.
+A single cloud-config snippet does not need a custom merge policy. Cloud-config
+snippets that use different top-level keys do not conflict. Other supported
+user-data formats, such as scripts, do not use cloud-config merge policies.
 
-## Account for the cloud-init timeout
+## Understand Scout's cloud-init wait
 
-Cloud-init processes configuration in systemd-managed stages. Final-stage
-modules, including `runcmd`, run under `cloud-final.service` and are subject to
-its start timeout. Check the value in the running Scout image instead of
-assuming a fixed duration:
+Before registering the machine and proceeding with discovery, Scout runs
+`cloud-init status --wait --long`. In a normal cloud-init run, every snippet has
+finished, either successfully or with errors, before Scout proceeds.
+
+Scout waits for at most 600 seconds. If the status command has not returned by
+then, Scout stops waiting and continues with registration. Timing out the
+status command does not stop `cloud-final.service`, so a long-running snippet
+can still be running when Scout proceeds after this backstop.
+
+Independently, cloud-init processes configuration in systemd-managed stages.
+Final-stage modules, including `runcmd`, run under `cloud-final.service` and are
+subject to its start timeout. A stage that exceeds this timeout is terminated,
+and unfinished work is not retried later in the same boot. Check the value in
+the running Scout image instead of assuming a fixed duration:
 
 ```bash
 systemctl show -p TimeoutStartUSec cloud-final.service
 ```
-
-The Scout service is not ordered after `cloud-final.service`. Do not rely on a
-snippet completing before Scout starts. Long-running work can be terminated by
-the applicable cloud-init unit timeout and is not retried later in the same
-boot.
 
 ## Never reboot from a Scout snippet
 
