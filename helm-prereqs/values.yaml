@@ -191,9 +191,6 @@ rest:
 ## ---------------------------------------------------------------------------
 rms:
   enabled: true
-  ## Namespace the rack-manager release runs in — must match setup.sh's
-  ## NICO_RMS_NAMESPACE. ESO projects the DB credentials into it.
-  namespace: rack-manager
 
 flow:
   enabled: true

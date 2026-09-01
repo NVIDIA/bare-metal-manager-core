@@ -14,8 +14,9 @@
 #     Renewal still requires a rollout restart of rms-api-server.
 # =============================================================================
 
-# Must match values.yaml::rms.namespace in helm-prereqs. The chart renders
-# into .Values.namespace (NOT the helm -n flag), so setup.sh sets both.
+# Fixed: NICo Core dials rms-api-server.rack-manager by name, and the
+# helm-prereqs ESO sync targets the same namespace. The chart renders into
+# .Values.namespace (NOT the helm -n flag), so setup.sh sets both.
 namespace: rack-manager
 createNamespace: false   # setup.sh creates and labels it for the ESO sync
 

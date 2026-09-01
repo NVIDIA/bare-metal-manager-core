@@ -1266,18 +1266,24 @@ if "${INSTALL_RMS}"; then
     # 5c.2 Image pull secret. Same off-argv construction as the DPF secrets:
     #      the NGC key must never appear in an exec argument.
     if [[ -n "${NICO_RMS_NGC_API_KEY}" ]]; then
-        echo "Creating rms-pull-secret in ${_RMS_NS}..."
-        _rms_auth="$(printf '%s' "\$oauthtoken:${NICO_RMS_NGC_API_KEY}" | base64 | tr -d '\n')"
+        # Scope the credential to the registry the image actually pulls from
+        # (a mirror override included), and honor REGISTRY_PULL_USERNAME -
+        # kubelet matches pull secrets by registry host, so an nvcr.io-only
+        # entry is useless for a mirror.
+        _rms_registry="${NICO_RMS_IMAGE_REPO%%/*}"
+        _rms_pull_user="${REGISTRY_PULL_USERNAME:-\$oauthtoken}"
+        echo "Creating rms-pull-secret in ${_RMS_NS} (registry: ${_rms_registry})..."
+        _rms_auth="$(printf '%s' "${_rms_pull_user}:${NICO_RMS_NGC_API_KEY}" | base64 | tr -d '\n')"
         kubectl create secret generic rms-pull-secret \
             --namespace "${_RMS_NS}" \
             --type=kubernetes.io/dockerconfigjson \
             --from-file=.dockerconfigjson=<(printf \
-                '{"auths":{"%s":{"username":"$oauthtoken","password":"%s","auth":"%s"}}}' \
-                "nvcr.io" "${NICO_RMS_NGC_API_KEY}" "${_rms_auth}") \
+                '{"auths":{"%s":{"username":"%s","password":"%s","auth":"%s"}}}' \
+                "${_rms_registry}" "${_rms_pull_user}" "${NICO_RMS_NGC_API_KEY}" "${_rms_auth}") \
             --dry-run=client -o yaml | kubectl apply -f -
         unset _rms_auth
     else
-        echo "NICO_RMS_NGC_API_KEY not set — skipping rms-pull-secret (mirror or pre-loaded registry)."
+        echo "NICO_RMS_NGC_API_KEY not set - skipping rms-pull-secret (mirror or pre-loaded registry)."
     fi
 
     # 5c.3 Resolve the chart: an explicit NICO_RMS_CHART override, or the
@@ -1291,15 +1297,22 @@ if "${INSTALL_RMS}"; then
         echo "Using local rack-manager chart: ${_RMS_CHART}"
     else
         _RMS_SUBMODULE="${SCRIPT_DIR}/nv-rms"
-        if [[ ! -f "${_RMS_SUBMODULE}/helm/Chart.yaml" ]]; then
-            echo "Initializing the nv-rms submodule (pinned by this repo)..."
-            if ! git -C "${SCRIPT_DIR}/.." submodule update --init -- helm-prereqs/nv-rms; then
-                echo "Error: could not initialize the nv-rms submodule."
-                echo "  → On an airgapped host, clone https://github.com/dsx-ai-factory/nv-rms"
-                echo "    at the pinned commit (git -C ${SCRIPT_DIR}/.. submodule status) and"
-                echo "    set NICO_RMS_CHART=<clone>/helm."
-                exit 1
-            fi
+        # The pin is only a boundary if the working tree honors it: refuse a
+        # dirty submodule, then align HEAD to the gitlink this repo records.
+        if [[ -d "${_RMS_SUBMODULE}/.git" || -f "${_RMS_SUBMODULE}/.git" ]] && \
+           [[ -n "$(git -C "${_RMS_SUBMODULE}" status --porcelain 2>/dev/null)" ]]; then
+            echo "Error: helm-prereqs/nv-rms has local modifications."
+            echo "  → Commit/stash them upstream, restore the submodule, or point"
+            echo "    NICO_RMS_CHART at your modified chart explicitly."
+            exit 1
+        fi
+        echo "Syncing the nv-rms submodule to the pinned commit..."
+        if ! git -C "${SCRIPT_DIR}/.." submodule update --init --checkout -- helm-prereqs/nv-rms; then
+            echo "Error: could not sync the nv-rms submodule to the pinned commit."
+            echo "  → On an airgapped host, clone https://github.com/dsx-ai-factory/nv-rms"
+            echo "    at the pinned commit (git -C ${SCRIPT_DIR}/.. submodule status) and"
+            echo "    set NICO_RMS_CHART=<clone>/helm."
+            exit 1
         fi
         _RMS_CHART="${_RMS_SUBMODULE}/helm"
         echo "rack-manager chart: ${_RMS_CHART} ($(git -C "${_RMS_SUBMODULE}" rev-parse --short HEAD 2>/dev/null || echo pinned))"
