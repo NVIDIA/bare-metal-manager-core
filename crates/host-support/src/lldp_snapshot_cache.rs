@@ -32,6 +32,7 @@ pub struct LldpSnapshotCache {
 }
 
 impl LldpSnapshotCache {
+    /// Create an empty cache, holding no acknowledged snapshot.
     pub fn new() -> Self {
         Self::default()
     }
@@ -280,6 +281,18 @@ mod tests {
     #[test]
     fn empty_snapshot_is_an_ordinary_update() {
         let mut cache = LldpSnapshotCache::new();
+
+        let report = cache.classify(Ok(vec![]));
+        assert_eq!(result_of(&report), LldpReportResult::Updated);
+        assert!(report.interfaces.is_empty());
+        cache.confirm_reported(report);
+
+        assert_eq!(
+            result_of(&cache.classify(Ok(vec![]))),
+            LldpReportResult::Unchanged,
+            "an empty snapshot is not repeated once acknowledged"
+        );
+
         let report = cache.classify(Ok(one_neighbor()));
         cache.confirm_reported(report);
 

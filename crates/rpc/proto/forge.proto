@@ -4435,14 +4435,22 @@ enum LldpReportResult {
 // One LLDP collection attempt on a machine.
 message LldpReport {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  // Required. LLDP_REPORT_RESULT_UNSPECIFIED will be rejected, so a
+  // default-constructed report cannot be mistaken for a fresh snapshot.
   LldpReportResult result = 1;
-  // Populated only for LLDP_REPORT_RESULT_UPDATED.
+  // Populated only for LLDP_REPORT_RESULT_UPDATED, where an empty list is
+  // meaningful: the machine genuinely sees no neighbors.
   repeated InterfaceLldp interfaces = 2;
 }
 
 // Full snapshot of a machine's current LLDP neighbors, keyed by local NIC MAC.
+// Sent by a scout; a DPU agent reports through DpuNetworkStatus.lldp instead.
 message LldpNeighborReport {
+  // Required. A report that names no machine is rejected.
   common.MachineId machine_id = 1;
+  // Required. An absent report is rejected; use
+  // LLDP_REPORT_RESULT_COLLECTION_FAILED to say the neighbors could not be
+  // read.
   LldpReport report = 2;
 }
 

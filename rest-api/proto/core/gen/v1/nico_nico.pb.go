@@ -24204,9 +24204,12 @@ func (x *MachineInventorySoftwareComponent) GetUrl() string {
 
 // One LLDP collection attempt on a machine.
 type LldpReport struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Result LldpReportResult       `protobuf:"varint,1,opt,name=result,proto3,enum=forge.LldpReportResult" json:"result,omitempty"`
-	// Populated only for LLDP_REPORT_RESULT_UPDATED.
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. LLDP_REPORT_RESULT_UNSPECIFIED will be rejected, so a
+	// default-constructed report cannot be mistaken for a fresh snapshot.
+	Result LldpReportResult `protobuf:"varint,1,opt,name=result,proto3,enum=forge.LldpReportResult" json:"result,omitempty"`
+	// Populated only for LLDP_REPORT_RESULT_UPDATED, where an empty list is
+	// meaningful: the machine genuinely sees no neighbors.
 	Interfaces    []*InterfaceLldp `protobuf:"bytes,2,rep,name=interfaces,proto3" json:"interfaces,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -24257,10 +24260,15 @@ func (x *LldpReport) GetInterfaces() []*InterfaceLldp {
 }
 
 // Full snapshot of a machine's current LLDP neighbors, keyed by local NIC MAC.
+// Sent by a scout; a DPU agent reports through DpuNetworkStatus.lldp instead.
 type LldpNeighborReport struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MachineId     *MachineId             `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
-	Report        *LldpReport            `protobuf:"bytes,2,opt,name=report,proto3" json:"report,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Required. A report that names no machine is rejected.
+	MachineId *MachineId `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
+	// Required. An absent report is rejected; use
+	// LLDP_REPORT_RESULT_COLLECTION_FAILED to say the neighbors could not be
+	// read.
+	Report        *LldpReport `protobuf:"bytes,2,opt,name=report,proto3" json:"report,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
