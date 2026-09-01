@@ -25,6 +25,15 @@ NICo Core's chart already renders (`rms-api-server.rack-manager.svc.cluster.loca
 An externally managed RMS remains supported - point `[rms] api_url` at it and
 pass `--skip-rms`.
 
+For predecessor Flow deployments that still bundle PSM/NSM, the setup.sh path
+is intentionally unreachable: the upgrade guard exits before any phase runs,
+because a prerequisites sync would strand the bundled managers' credentials.
+To move Core backends to RMS *before* that Flow upgrade, use an externally
+managed RMS, or install the rack-manager chart manually from the
+`helm-prereqs/nv-rms` submodule with a database the guard cannot touch
+(`databaseMode: standalone`, or an external PostgreSQL). Once the Flow-only
+upgrade completes, re-run `setup.sh` and phase 5c adopts RMS management.
+
 ---
 
 ## What the rack profile provides
