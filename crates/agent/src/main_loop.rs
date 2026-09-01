@@ -29,7 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_host_support::lldp_report::ReportOutcome;
+use carbide_host_support::lldp_snapshot_cache::LldpSnapshotCache;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -58,7 +58,7 @@ use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
-    LldpReport, NetworkStatus, OvsRestart, create_metrics, get_dpu_agent_meter,
+    LldpCollection, NetworkStatus, OvsRestart, create_metrics, get_dpu_agent_meter,
     get_prometheus_registry,
 };
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
@@ -412,12 +412,6 @@ pub(super) async fn setup_and_run(
         .as_ref()
         .map(|prefix| InterfaceTranslationMode::Prepend(prefix.clone()));
 
-    let lldp_reporter = carbide_host_support::lldp_report::LldpReporter::new(
-        machine_id,
-        forge_api_server.clone(),
-        forge_client_config.as_ref().clone(),
-    );
-
     let mut main_loop = MainLoop {
         forge_client_config,
         build_version,
@@ -433,10 +427,9 @@ pub(super) async fn setup_and_run(
         version_check_time: std::time::Instant::now(),
         inventory_updater_time: std::time::Instant::now(),
         ca_republish_time: std::time::Instant::now(),
-        lldp_report_time: std::time::Instant::now(),
         started_at: std::time::Instant::now(),
         inventory_updater_config,
-        lldp_reporter,
+        lldp_cache: LldpSnapshotCache::new(),
         options,
         agent_config,
         forge_api_server,
@@ -474,9 +467,8 @@ struct MainLoop {
     version_check_time: std::time::Instant,
     inventory_updater_time: std::time::Instant,
     ca_republish_time: std::time::Instant,
-    lldp_report_time: std::time::Instant,
     inventory_updater_config: MachineInventoryUpdaterConfig,
-    lldp_reporter: carbide_host_support::lldp_report::LldpReporter,
+    lldp_cache: LldpSnapshotCache,
     options: command_line::RunOptions,
     agent_config: AgentConfig,
     forge_api_server: String,
@@ -936,6 +928,7 @@ impl MainLoop {
             dpu_extension_service_version: None,
             dpu_extension_services: vec![],
             astra_config_status: None,
+            lldp: None,
         };
 
         // `read` does not block
@@ -1293,12 +1286,29 @@ impl MainLoop {
                 current_extension_service_version =
                     status_out.dpu_extension_service_version.clone();
 
-                record_network_status(
+                let collected =
+                    crate::collect_lldp_neighbors(&self.options.agent_platform_type).await;
+                match &collected {
+                    Ok(_) => LldpCollection::Succeeded.emit(),
+                    Err(error) => LldpCollection::Failed {
+                        error: error.to_string(),
+                    }
+                    .emit(),
+                }
+                let lldp = self.lldp_cache.classify(collected);
+                status_out.lldp = Some(lldp.clone());
+
+                if record_network_status(
                     status_out,
                     &self.forge_api_server,
                     &self.forge_client_config,
                 )
-                .await;
+                .await
+                .is_ok()
+                {
+                    // The cache advances only once nico-api has the report
+                    self.lldp_cache.confirm_reported(lldp);
+                }
                 self.seen_blank = false;
             }
             None => {
@@ -1331,11 +1341,6 @@ impl MainLoop {
         if now > self.ca_republish_time {
             self.ca_republish_time = now.add(crate::CA_REPUBLISH_INTERVAL);
             crate::republish_bootstrap_ca_if_changed(&self.agent_config.forge_system.root_ca);
-        }
-
-        if now > self.lldp_report_time {
-            self.lldp_report_time = now.add(crate::LLDP_REPORT_INTERVAL);
-            self.report_lldp_neighbors().await;
         }
 
         if now > self.inventory_updater_time {
@@ -1405,32 +1410,6 @@ impl MainLoop {
             stop_agent: false,
             loop_period,
         })
-    }
-
-    /// Collect the LLDP neighbors this machine sees and report them to nico-api.
-    async fn report_lldp_neighbors(&mut self) {
-        let neighbors = match crate::collect_lldp_neighbors(&self.options.agent_platform_type).await
-        {
-            Ok(neighbors) => neighbors,
-            Err(error) => {
-                tracing::warn!(%error, "Could not collect LLDP neighbors; skipping report");
-                return;
-            }
-        };
-
-        match self.lldp_reporter.report_if_changed(neighbors).await {
-            Ok(ReportOutcome::Sent) => LldpReport::Succeeded.emit(),
-            Ok(ReportOutcome::UnchangedSkipped) => {
-                tracing::debug!("LLDP neighbors unchanged; skipping report")
-            }
-            Ok(ReportOutcome::EmptySkipped) => {
-                tracing::debug!("No LLDP neighbors found; skipping report")
-            }
-            Err(error) => LldpReport::Failed {
-                error: error.to_string(),
-            }
-            .emit(),
-        }
     }
 
     async fn perform_upgrade_check(&mut self, now: std::time::Instant) -> IterationResult {
@@ -1640,11 +1619,13 @@ async fn plan_fmds_armos_routing(
         Ok(None)
     }
 }
+
+/// Push the DPU's network status to nico-api.
 async fn record_network_status(
     status: rpc::DpuNetworkStatus,
     forge_api: &str,
     forge_client_config: &forge_tls_client::ForgeClientConfig,
-) {
+) -> Result<(), eyre::Report> {
     let mut client = match forge_tls_client::ForgeTlsClient::new(forge_client_config)
         .build(forge_api)
         .await
@@ -1656,17 +1637,22 @@ async fn record_network_status(
                 error: format!("{err:#}"),
             }
             .emit();
-            return;
+            return Err(err.into());
         }
     };
     let request = tonic::Request::new(status);
-    let result = client.record_dpu_network_status(request).await;
-    match &result {
-        Ok(_) => NetworkStatus::Succeeded.emit(),
-        Err(err) => NetworkStatus::RpcFailed {
-            error: format!("{err:#}"),
+    match client.record_dpu_network_status(request).await {
+        Ok(_) => {
+            NetworkStatus::Succeeded.emit();
+            Ok(())
         }
-        .emit(),
+        Err(err) => {
+            NetworkStatus::RpcFailed {
+                error: format!("{err:#}"),
+            }
+            .emit();
+            Err(err.into())
+        }
     }
 }
 

@@ -4197,10 +4197,39 @@ message MachineInventorySoftwareComponent {
   string url = 3;
 }
 
+// Why a machine's LLDP snapshot is being reported. Lets nico-api tell a fresh
+// snapshot from an unchanged one and from a machine that could not read its
+// neighbors at all, so a broken `lldpcli` does not reconcile away known links.
+enum LldpReportResult {
+  // Explicit zero value so an omitted result cannot read as a fresh snapshot.
+  LLDP_REPORT_RESULT_UNSPECIFIED = 0;
+  // `interfaces` holds a snapshot that differs from the last one nico-api
+  // acknowledged. An empty `interfaces` here means the machine genuinely sees
+  // no neighbors.
+  LLDP_REPORT_RESULT_UPDATED = 1;
+  // The snapshot matches the last one nico-api acknowledged; `interfaces` is
+  // empty and nothing needs reconciling. Only ever sent after a successful
+  // collection, so the stored neighbors can be read as confirmed current.
+  LLDP_REPORT_RESULT_UNCHANGED = 2;
+  // The reporter could not read its LLDP neighbors; `interfaces` is empty. It
+  // repeats on every poll for as long as collection keeps failing, and the
+  // reporter re-sends its full snapshot once collection recovers -- so nico-api
+  // may retain or discard the last known neighbors as its own policy prefers.
+  // Why it failed stays in the reporter's own logs and metrics, not on the wire.
+  LLDP_REPORT_RESULT_COLLECTION_FAILED = 3;
+}
+
+// One LLDP collection attempt on a machine.
+message LldpReport {
+  LldpReportResult result = 1;
+  // Populated only for LLDP_REPORT_RESULT_UPDATED.
+  repeated InterfaceLldp interfaces = 2;
+}
+
 // Full snapshot of a machine's current LLDP neighbors, keyed by local NIC MAC.
 message LldpNeighborReport {
   common.MachineId machine_id = 1;
-  repeated InterfaceLldp interfaces = 2;
+  LldpReport report = 2;
 }
 
 message InterfaceLldp {
@@ -5572,6 +5601,9 @@ message DpuNetworkStatus {
   optional string dpu_extension_service_version = 15;
   repeated DpuExtensionServiceStatusObservation dpu_extension_services = 16;
   optional AstraConfigStatus astra_config_status = 17;
+  // LLDP neighbors this DPU sees, attached to the status push rather than sent
+  // on its own RPC. Absent when the agent did not attempt a collection.
+  optional LldpReport lldp = 18;
 }
 
 message LastDhcpRequest {

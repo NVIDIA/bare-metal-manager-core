@@ -55,6 +55,7 @@ mod client;
 mod deprovision;
 mod discovery;
 mod firmware_upgrade;
+mod lldp_report;
 mod machine_validation;
 mod metrics;
 mod mlx_device;
@@ -244,7 +245,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
 
     // Report LLDP neighbors on each poll, re-sending only when the snapshot
     // changes. The reporter's cache must live across loop iterations.
-    let mut lldp_reporter = carbide_host_support::lldp_report::LldpReporter::new(
+    let mut lldp_reporter = lldp_report::LldpReporter::new(
         machine_id,
         config.api.clone(),
         client::forge_client_config(config),
@@ -263,7 +264,7 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
                 initial_setup(config).await?;
             }
         }
-        report_lldp_neighbors(&mut lldp_reporter).await;
+        lldp_report::report_lldp_neighbors(&mut lldp_reporter).await;
 
         let controller_response = match query_api_with_retries(config, &machine_id).await {
             Ok(action) => action,
@@ -302,31 +303,6 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             stream::start_scout_stream(machine_id, config);
         }
         tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
-/// Collect this host's LLDP neighbors and report them to nico-api, re-sending
-/// only when the snapshot changed since the last successful report.
-async fn report_lldp_neighbors(reporter: &mut carbide_host_support::lldp_report::LldpReporter) {
-    use carbide_host_support::lldp_report::ReportOutcome;
-
-    let neighbors = match carbide_host_support::lldp_collector::collect_lldp_neighbors().await {
-        Ok(neighbors) => neighbors,
-        Err(error) => {
-            tracing::warn!(%error, "Could not collect LLDP neighbors; skipping report");
-            return;
-        }
-    };
-
-    match reporter.report_if_changed(neighbors).await {
-        Ok(ReportOutcome::Sent) => tracing::info!("Reported LLDP neighbors"),
-        Ok(ReportOutcome::UnchangedSkipped) => {
-            tracing::debug!("LLDP neighbors unchanged; skipping report")
-        }
-        Ok(ReportOutcome::EmptySkipped) => {
-            tracing::debug!("No LLDP neighbors found; skipping report")
-        }
-        Err(error) => tracing::warn!(%error, "Could not report LLDP neighbors"),
     }
 }
 

@@ -189,7 +189,7 @@ pub(crate) enum NetworkStatus {
     RpcFailed { error: String },
 }
 
-pub(crate) enum LldpReport {
+pub(crate) enum LldpCollection {
     Succeeded,
     Failed { error: String },
 }
@@ -368,14 +368,18 @@ struct NetworkStatusRpcFailed {
     error: String,
 }
 
+/// Counted with no log line: LLDP is collected once per main-loop iteration,
+/// so a successful collection every 10-30s is a rate to trend, not a record to
+/// read. The report it produces travels on `RecordDpuNetworkStatus`, whose own
+/// Events cover the send.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "dpu_agent_lldp_report_succeeded",
+    event_name = "dpu_agent_lldp_collection_succeeded",
     metric_family = DpuAgentReport,
-    log = info,
-    message = "Reported LLDP neighbors"
+    log = off,
+    message = "Collected LLDP neighbors"
 )]
-struct LldpReportSucceeded {
+struct LldpCollectionSucceeded {
     #[label]
     report_loop: ReportLoop,
     #[label]
@@ -384,12 +388,12 @@ struct LldpReportSucceeded {
 
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "dpu_agent_lldp_report_failed",
+    event_name = "dpu_agent_lldp_collection_failed",
     metric_family = DpuAgentReport,
     log = error,
-    message = "Could not report LLDP neighbors"
+    message = "Could not collect LLDP neighbors"
 )]
-struct LldpReportFailed {
+struct LldpCollectionFailed {
     #[label]
     report_loop: ReportLoop,
     #[label]
@@ -482,14 +486,14 @@ impl NetworkStatus {
     }
 }
 
-impl LldpReport {
+impl LldpCollection {
     pub(crate) fn emit(self) {
         match self {
-            Self::Succeeded => carbide_instrument::emit(LldpReportSucceeded {
+            Self::Succeeded => carbide_instrument::emit(LldpCollectionSucceeded {
                 report_loop: ReportLoop::Lldp,
                 outcome: Outcome::Ok,
             }),
-            Self::Failed { error } => carbide_instrument::emit(LldpReportFailed {
+            Self::Failed { error } => carbide_instrument::emit(LldpCollectionFailed {
                 report_loop: ReportLoop::Lldp,
                 outcome: Outcome::Error,
                 error,

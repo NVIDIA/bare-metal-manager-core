@@ -15,26 +15,71 @@
 //
 
 use ::rpc::forge as rpc;
+use carbide_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
-/// Receive a periodic LLDP neighbor report from a running agent or scout.
+/// Receive a periodic LLDP neighbor report from a running scout.
+///
+/// The DPU agent does not use this RPC; it attaches its report to `RecordDpuNetworkStatus` instead
 pub(crate) async fn report_lldp_neighbors(
-    _api: &Api,
+    api: &Api,
     request: Request<rpc::LldpNeighborReport>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+    let report = request
+        .report
+        .ok_or(CarbideError::MissingArgument("report"))?;
 
-    tracing::debug!(
-        %machine_id,
-        interfaces = request.interfaces.len(),
-        "Received LLDP neighbor report (not persisted yet)"
-    );
-    // TODO Add handling logic in the next PR
+    handle_lldp_report(api, &machine_id, &report).await?;
     Ok(Response::new(()))
+}
+
+// Nothing is awaited yet because the handler only classifies and logs; the persistence PR adds
+// the database writes.
+#[expect(clippy::unused_async, reason = "persistence lands in the next PR")]
+pub(crate) async fn handle_lldp_report(
+    _api: &Api,
+    machine_id: &MachineId,
+    report: &rpc::LldpReport,
+) -> Result<(), CarbideError> {
+    let result = rpc::LldpReportResult::try_from(report.result).map_err(|_| {
+        CarbideError::InvalidArgument(format!("unknown LLDP report result {}", report.result))
+    })?;
+
+    match result {
+        // Treating the zero value as a fresh snapshot would reconcile the machine's neighbors
+        // away, so a report that names no result is rejected rather than guessed at.
+        rpc::LldpReportResult::Unspecified => Err(CarbideError::InvalidArgument(
+            "LLDP report result is unspecified".to_string(),
+        )),
+        rpc::LldpReportResult::Updated => {
+            tracing::debug!(
+                %machine_id,
+                interfaces = report.interfaces.len(),
+                "Received LLDP neighbor report (not persisted yet)"
+            );
+            // TODO Add handling logic in the next PR
+            Ok(())
+        }
+        // The reporter has already confirmed nothing changed, so what nico-api
+        // holds is still current.
+        rpc::LldpReportResult::Unchanged => {
+            tracing::debug!(%machine_id, "LLDP neighbors unchanged");
+            Ok(())
+        }
+        // The machine could not read its neighbors. This repeats on every poll while
+        // collection keeps failing, and the reporter re-sends its full snapshot on
+        // recovery.
+        rpc::LldpReportResult::CollectionFailed => {
+            tracing::warn!(%machine_id, "Reporter could not collect LLDP neighbors");
+            Ok(())
+        }
+    }
 }
