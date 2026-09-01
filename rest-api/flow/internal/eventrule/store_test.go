@@ -19,22 +19,44 @@ func TestExecutionClaimRequest_Validate(t *testing.T) {
 		wantErr string
 	}{
 		"valid": {
-			request: ExecutionClaimRequest{Owner: "scheduler-1", Limit: 1},
+			request: validExecutionClaimRequest(),
 		},
 		"missing owner": {
-			request: ExecutionClaimRequest{Limit: 1},
+			request: func() ExecutionClaimRequest {
+				request := validExecutionClaimRequest()
+				request.Owner = ""
+				return request
+			}(),
 			wantErr: "execution claim owner is empty",
 		},
 		"owner too long": {
 			request: ExecutionClaimRequest{
-				Owner: strings.Repeat("x", maxExecutionClaimOwnerRunes+1),
-				Limit: 1,
+				Owner:         strings.Repeat("x", maxExecutionClaimOwnerRunes+1),
+				Limit:         1,
+				ClaimDuration: time.Minute,
+				MaxAttempts:   4,
 			},
 			wantErr: "execution claim owner exceeds 128 characters",
 		},
 		"invalid limit": {
 			request: ExecutionClaimRequest{Owner: "scheduler-1"},
 			wantErr: "execution claim limit must be positive",
+		},
+		"invalid claim duration": {
+			request: func() ExecutionClaimRequest {
+				request := validExecutionClaimRequest()
+				request.ClaimDuration = 0
+				return request
+			}(),
+			wantErr: "execution claim duration must be positive",
+		},
+		"invalid max attempts": {
+			request: func() ExecutionClaimRequest {
+				request := validExecutionClaimRequest()
+				request.MaxAttempts = 0
+				return request
+			}(),
+			wantErr: "execution claim max attempts must be positive",
 		},
 	}
 
@@ -57,7 +79,15 @@ func TestClaimedExecution_Validate(t *testing.T) {
 	require.NoError(t, err)
 
 	token := uuid.New()
-	require.NoError(t, execution.Claim("scheduler-1", token, createdAt))
+	disposition, err := execution.AcquireClaim(
+		"scheduler-1",
+		token,
+		createdAt,
+		createdAt.Add(time.Minute),
+		4,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ClaimAcquired, disposition)
 
 	valid := ClaimedExecution{Execution: *execution, Token: token}
 
@@ -97,6 +127,15 @@ func TestClaimedExecution_Validate(t *testing.T) {
 
 			require.ErrorContains(t, err, test.wantErr)
 		})
+	}
+}
+
+func validExecutionClaimRequest() ExecutionClaimRequest {
+	return ExecutionClaimRequest{
+		Owner:         "scheduler-1",
+		Limit:         1,
+		ClaimDuration: time.Minute,
+		MaxAttempts:   4,
 	}
 }
 

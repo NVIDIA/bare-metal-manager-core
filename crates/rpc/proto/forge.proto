@@ -415,6 +415,11 @@ service Forge {
   // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
   // credential that a prior sweep already rotated.
   rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this host's NIC lockdown keys now" escape hatch
+  // for a single host. This is asynchronous: the handler only persists (Set) or
+  // removes (Clear) a flag maintained per host to determine whether to initiate NIC lockdown key rotation. 
+  // A later machine-controller sweep observes a set flag and facilitates rotation.
+  rpc TriggerNicLockdownCredentialRotation(NicLockdownCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -6382,6 +6387,18 @@ message UefiCredentialRotationRequest {
   // `machine_id` as a cross-check (they must identify the same machine). At
   // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
   optional string bmc_mac = 3;
+}
+
+message NicLockdownCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  common.MachineId machine_id = 2;
 }
 
 message HostReprovisioningListRequest {

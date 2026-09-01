@@ -33,7 +33,8 @@ use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfig
 use crate::test_support::network_segment::{FIXTURE_TENANT_ORG_ID, create_default_flat_vpc};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::{
-    default_os_config, default_tenant_config, single_interface_network_config,
+    advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
+    single_interface_network_config,
 };
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
@@ -77,6 +78,23 @@ async fn assert_client_resolution_fails_closed(
             "ambiguity errors must not identify a candidate owner: {private_id}"
         );
     }
+}
+
+/// Returns the NVConfig profile selected for a DPU cloud-init request.
+async fn resolved_dpu_nvconfig_profile(env: &TestEnv, dpu_ip: &str) -> i32 {
+    env.api
+        .get_cloud_init_instructions(
+            rpc::forge::CloudInitInstructionsRequest {
+                ip: dpu_ip.to_string(),
+            }
+            .into_request(),
+        )
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner()
+        .discovery_instructions
+        .expect("DPU should receive discovery instructions")
+        .dpu_nvconfig_profile
 }
 
 // A client_ip that matches a row in machine_interface_addresses (the
@@ -465,6 +483,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
 
     // When the instance is ready, we should get tenant cloud-init instructions
     for instance_state in [InstanceState::WaitingForRebootToReady, InstanceState::Ready] {
+        let reboot_pending = instance_state == InstanceState::WaitingForRebootToReady;
         env.run_machine_state_controller_iteration_until_state_matches(
             &mh.host().id,
             10,
@@ -512,6 +531,11 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
                 .instance_id,
             instance_id.to_string()
         );
+
+        if reboot_pending {
+            env.run_machine_state_controller_iteration().await;
+            mh.host().reboot_completed().await;
+        }
     }
 }
 
@@ -592,14 +616,7 @@ async fn test_cloud_init_local_hostname_set_from_instance_name(pool: sqlx::PgPoo
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
     // Advance to Assigned/Ready so the Instance path is taken
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        },
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
 
     let cloud_init = env
         .api
@@ -705,14 +722,7 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
     let instance_id = instance.id.expect("allocated instance should have an ID");
 
     // Advance to Assigned/Ready so the Instance path is taken
-    env.run_machine_state_controller_iteration_until_state_matches(
-        &mh.host().id,
-        10,
-        ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        },
-    )
-    .await;
+    advance_created_instance_into_ready_state(&env, &mh).await;
 
     let cloud_init = env
         .api
@@ -736,7 +746,7 @@ async fn test_cloud_init_local_hostname_omitted_when_instance_name_is_not_a_vali
 }
 
 #[crate::sqlx_test]
-async fn dpu_nvconfig_profile_resolution_follows_host_rack_and_dpu_identity(pool: sqlx::PgPool) {
+async fn dpu_nvconfig_profile_resolution_uses_report_or_rack_and_dpu_identity(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(
         pool,
         TestEnvOverrides::with_config(get_config_with_rack_profiles()),
@@ -797,21 +807,55 @@ async fn dpu_nvconfig_profile_resolution_follows_host_rack_and_dpu_identity(pool
         .to_string();
     txn.rollback().await.unwrap();
 
-    let cloud_init = env
-        .api
-        .get_cloud_init_instructions(
-            rpc::forge::CloudInitInstructionsRequest {
-                ip: dpu_interface_ip,
-            }
-            .into_request(),
-        )
-        .await
-        .expect("get_cloud_init_instructions returned an error")
-        .into_inner();
-    let profile = cloud_init
-        .discovery_instructions
-        .expect("DPU should receive discovery instructions")
-        .dpu_nvconfig_profile;
+    assert_eq!(
+        resolved_dpu_nvconfig_profile(&env, &dpu_interface_ip).await,
+        rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,
+    );
 
-    assert_eq!(profile, rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,);
+    // Non-DPF provisioning sees the same early ingestion window as DPF: the
+    // Redfish report is present, but the host does not have a rack yet.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = NULL WHERE id = $1")
+        .bind(managed_host.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    managed_host
+        .host()
+        .set_exploration_model(&mut txn, "DGX GB200 Compute Tray")
+        .await;
+    assert!(
+        managed_host
+            .host()
+            .db_machine(&mut txn)
+            .await
+            .rack_id
+            .is_none()
+    );
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        resolved_dpu_nvconfig_profile(&env, &dpu_interface_ip).await,
+        rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,
+    );
+
+    // A recognized report is more specific than the rack fallback. A GB300
+    // report must not inherit the GB200 profile from stale rack metadata.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id.as_str())
+        .bind(managed_host.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    managed_host
+        .host()
+        .set_exploration_model(&mut txn, "DGX GB300 Compute Tray")
+        .await;
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        resolved_dpu_nvconfig_profile(&env, &dpu_interface_ip).await,
+        rpc::forge::DpuNvConfigProfile::Unspecified as i32,
+    );
 }

@@ -18,9 +18,7 @@
 mod boot_interface_resolution;
 mod client_resolution;
 pub(in crate::tests) mod common;
-mod dpa_interfaces;
 mod dpf;
-mod dpu_info_list;
 mod dpu_machine_update;
 mod dpu_nic_firmware;
 mod dpu_remediation;
@@ -72,7 +70,6 @@ mod network_segment_lifecycle;
 mod nvl_instance;
 mod nvl_logical_partition;
 mod power_shelf_health;
-mod power_shelf_state_controller;
 mod preingestion_dpu_nic_mode;
 mod primary_interface;
 mod rack_health;

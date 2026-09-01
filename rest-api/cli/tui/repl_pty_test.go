@@ -111,6 +111,15 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.send(t, "scope\r")
 		terminal.waitFor(t, "No scope set.")
 
+		// History selection must restore the REPL terminal before entering the
+		// nested selector, then return to raw mode for the selected command.
+		terminal.sendBytes(t, []byte{KeyEscape, '[', 'A'})
+		terminal.waitFor(t, "History")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "scope")
+		terminal.send(t, "\r")
+		terminal.waitFor(t, "No scope set.")
+
 		// VPC prefix creation must offer only Ready tenant-owned IP blocks.
 		terminal.send(t, "scope site site-one\r")
 		terminal.waitFor(t, "Scope set: site =")
@@ -542,6 +551,25 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		}
 		assert.Contains(t, strings.Join(vpcQueries, "\n"), "siteId=site-1")
 		assert.Contains(t, strings.Join(vpcQueries, "\n"), "siteId=site-2")
+	})
+
+	t.Run("interactive Ctrl+D prints goodbye", func(t *testing.T) {
+		configPath := writeRegressionConfig(t, "http://127.0.0.1:1")
+		command := exec.Command(binaryPath, "--config", configPath, "tui")
+		command.Env = regressionEnvironment(map[string]string{
+			"NICO_TOKEN": ptyAuthToken,
+			"TERM":       "xterm-256color",
+		})
+
+		terminal := startRegressionPTY(t, command)
+		defer terminal.close()
+
+		terminal.waitFor(t, "NICo Interactive Mode")
+		terminal.waitFor(t, "Type a command or")
+		terminal.waitFor(t, "nico:acme")
+		terminal.sendBytes(t, []byte{KeyCtrlD})
+		terminal.waitFor(t, "Goodbye.")
+		terminal.waitForExit(t)
 	})
 
 	t.Run("non-interactive generated command keeps shared debug output redacted", func(t *testing.T) {

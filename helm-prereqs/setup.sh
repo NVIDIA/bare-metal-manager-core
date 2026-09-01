@@ -112,7 +112,7 @@
 #   ./setup.sh --skip-rest              # skip Phase 7 NICo REST entirely (no repo needed)
 #   ./setup.sh --skip-flow              # skip Phase 7h NICo Flow (REST still installs)
 #                                       #   pair with helm-prereqs/values.yaml::flow.enabled=false
-#                                       #   to skip Flow prereqs (DBs / ESO / vault tokens) too
+#                                       #   to skip Flow prerequisites (database / ESO) too
 #   ./setup.sh --skip-core --skip-rest  # fully non-interactive infra-only run
 #   ./setup.sh --core-values /path/to/values.yaml      # use site-specific values for Phase 6
 #   ./setup.sh --metallb-config /path/to/metallb.yaml  # use site-specific MetalLB config (file or kustomize dir)
@@ -191,6 +191,105 @@ case "${INSTALL_DPF}" in
     true|false) ;;
     *) echo "Error: NICO_INSTALL_DPF must be true or false (got '${INSTALL_DPF}')"; exit 1 ;;
 esac
+
+# The predecessor Flow chart bundled PSM and NSM in the Flow Deployment. This
+# release does not provide an automatic migration for those workloads. Stop
+# before preflight creates temporary check Pods or any installation phase can
+# remove prerequisites the legacy managers still use.
+_reject_bundled_flow_manager_upgrade() {
+    local container_names
+    local container_name
+    local manager_containers
+    local rollout_state
+    local generation observed_generation desired_replicas updated_replicas
+    local ready_replicas available_replicas total_replicas
+    local pod_rows
+    local pod_name pod_phase pod_containers pod_container
+    local manager_pods
+
+    if ! container_names="$(
+        kubectl get deployment flow -n flow --ignore-not-found \
+            -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}'
+    )"; then
+        echo "ERROR: unable to inspect flow/flow for bundled manager containers; refusing to continue." >&2
+        return 1
+    fi
+
+    manager_containers=""
+    while IFS= read -r container_name; do
+        case "${container_name}" in
+            psm|nsm)
+                manager_containers="${manager_containers:+${manager_containers}, }${container_name}"
+                ;;
+        esac
+    done <<< "${container_names}"
+    if [[ -n "${manager_containers}" ]]; then
+        echo "ERROR: automatic upgrade from a Flow deployment that bundles ${manager_containers} is unsupported." >&2
+        echo "Preserve the existing release, or handle its dependencies and upgrade only the flow Helm release to the Flow-only chart before rerunning setup.sh." >&2
+        return 1
+    fi
+
+    # A failed manual Helm upgrade can update the Deployment template while an
+    # old PSM/NSM Pod remains active. Require a completed rollout before shared
+    # prerequisites or credentials can be changed.
+    if [[ -n "${container_names}" ]]; then
+        if ! rollout_state="$(
+            kubectl get deployment flow -n flow \
+                -o jsonpath='{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.spec.replicas}{"|"}{.status.updatedReplicas}{"|"}{.status.readyReplicas}{"|"}{.status.availableReplicas}{"|"}{.status.replicas}'
+        )"; then
+            echo "ERROR: unable to inspect flow/flow rollout status; refusing to continue." >&2
+            return 1
+        fi
+        IFS='|' read -r generation observed_generation desired_replicas \
+            updated_replicas ready_replicas available_replicas total_replicas \
+            <<< "${rollout_state}"
+        updated_replicas="${updated_replicas:-0}"
+        ready_replicas="${ready_replicas:-0}"
+        available_replicas="${available_replicas:-0}"
+        total_replicas="${total_replicas:-0}"
+        if [[ -z "${generation}" || -z "${observed_generation}" || \
+              -z "${desired_replicas}" || \
+              "${observed_generation}" != "${generation}" || \
+              "${updated_replicas}" != "${desired_replicas}" || \
+              "${ready_replicas}" != "${desired_replicas}" || \
+              "${available_replicas}" != "${desired_replicas}" || \
+              "${total_replicas}" != "${desired_replicas}" ]]; then
+            echo "ERROR: flow/flow rollout is incomplete; old manager Pods may still be running." >&2
+            echo "Complete or roll back the Flow-only Helm upgrade before rerunning setup.sh." >&2
+            return 1
+        fi
+    fi
+
+    if ! pod_rows="$(
+        kubectl get pods -n flow -l app=flow --ignore-not-found \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{range .spec.containers[*]}{.name}{" "}{end}{"\n"}{end}'
+    )"; then
+        echo "ERROR: unable to inspect active Flow Pods for bundled manager containers; refusing to continue." >&2
+        return 1
+    fi
+    manager_pods=""
+    while IFS=$'\t' read -r pod_name pod_phase pod_containers; do
+        [[ -z "${pod_name}" ]] && continue
+        case "${pod_phase}" in
+            Succeeded|Failed) continue ;;
+        esac
+        for pod_container in ${pod_containers}; do
+            case "${pod_container}" in
+                psm|nsm)
+                    manager_pods="${manager_pods:+${manager_pods}, }${pod_name}/${pod_container}"
+                    ;;
+            esac
+        done
+    done <<< "${pod_rows}"
+    if [[ -n "${manager_pods}" ]]; then
+        echo "ERROR: active Flow Pods still contain bundled managers: ${manager_pods}." >&2
+        echo "Complete or roll back the Flow-only Helm upgrade before rerunning setup.sh." >&2
+        return 1
+    fi
+}
+
+_reject_bundled_flow_manager_upgrade
+
 # shellcheck source=preflight.sh
 source "${SCRIPT_DIR}/preflight.sh"
 
@@ -1434,6 +1533,12 @@ else
     echo "=== Observability — skipped (pass --with-observability or run observability/install-observability.sh later) ==="
 fi
 
+# The initial guard proved that both the desired Deployment and active Flow
+# Pods are manager-free. After preflight and the Core phase completes or is
+# skipped, revoke predecessor hook credentials and RBAC before --skip-rest can
+# exit. Fresh installs have no legacy markers, so this is a read-only no-op.
+"${SCRIPT_DIR}/cleanup-legacy-flow-managers.sh"
+
 # ---------------------------------------------------------------------------
 # 7. NICo REST full stack
 #    Order of operations:
@@ -1444,7 +1549,7 @@ fi
 #      7e. Temporal namespace + TLS certs (issued by the NICo REST CA issuer)
 #      7f. Temporal helm chart
 #      7g. NICo REST helm chart (API, cert-manager, workflow, site-manager)
-#      7h. NICo Flow (Flow, PSM, NSM)
+#      7h. NICo Flow
 #      7i. NICo REST site-agent
 # ---------------------------------------------------------------------------
 echo ""
@@ -1734,19 +1839,16 @@ else
 fi
 
 # --- 7h. NICo Flow ------------------------------------------------------------
-# Flow is the rack lifecycle orchestrator (formerly RLA). Single pod with three
-# containers — flow (50051), psm (50052), nsm (50053).  Runs in its own `flow`
-# namespace.
+# Flow is the task, policy, and automation service. It runs in its own `flow`
+# namespace and serves gRPC on port 50051.
 #
 # Runs BEFORE the site-agent (7i) so that flow.flow.svc.cluster.local:50051
 # exists when the site-agent starts and attempts its Flow gRPC connection.
 #
 # Prerequisites already in place by this point:
-#   - flow/psm/nsm databases on nico-pg-cluster (helm-prereqs postgresql.yaml)
-#   - flow.nico/psm.nico/nsm.nico DB credentials synced via ESO into the flow
-#     namespace by the flow-db-eso / psm-db-eso / nsm-db-eso ClusterExternalSecrets
-#   - psm-vault-token and nsm-vault-token Secrets in the flow namespace
-#     (provisioned by the flow-vault-tokens post-install hook)
+#   - flow database on nico-pg-cluster (helm-prereqs postgresql.yaml)
+#   - flow.nico DB credentials synced into the flow namespace by the
+#     flow-db-eso ClusterExternalSecret
 #   - Temporal `flow` namespace (created in phase 7f above)
 #   - nico-rest-ca-issuer ClusterIssuer (installed by phase 7b — issues the
 #     temporal-client-certs)
@@ -1768,9 +1870,8 @@ else
         --namespace "${NICO_FLOW_NAMESPACE}"
         --create-namespace
         --set "global.image.repository=${NICO_IMAGE_REGISTRY}"
-        ## Flow (nico-flow / nico-psm / nico-nsm) ships on the same image release
-        ## line as NICo REST — they're built and tagged together — so reuse
-        ## NICO_REST_IMAGE_TAG, not NICO_CORE_IMAGE_TAG (which is carbide-api).
+        ## Flow ships on the same image release line as NICo REST, so reuse
+        ## NICO_REST_IMAGE_TAG rather than NICO_CORE_IMAGE_TAG.
         --set "global.image.tag=${NICO_REST_IMAGE_TAG}"
     )
 
@@ -1809,9 +1910,8 @@ else
     kubectl label certificate/temporal-client-certs -n "${NICO_FLOW_NAMESPACE}" \
         "app.kubernetes.io/managed-by=Helm" --overwrite
 
-    # Annotate/label the namespace itself — the flow-vault-tokens-job (nico-prereqs
-    # helm hook) creates this namespace ahead of the flow release. Without Helm
-    # ownership metadata, helm install refuses to adopt it.
+    # Annotate/label the namespace itself so the Flow release can adopt the
+    # namespace created before the main helm install.
     kubectl annotate namespace "${NICO_FLOW_NAMESPACE}" \
         "meta.helm.sh/release-name=flow" \
         "meta.helm.sh/release-namespace=${NICO_FLOW_NAMESPACE}" --overwrite
@@ -1825,11 +1925,9 @@ else
     kubectl wait --for=condition=Ready certificate/temporal-client-certs \
         -n "${NICO_FLOW_NAMESPACE}" --timeout=120s
 
-    # Wait for the psm/nsm vault tokens and DB credential ESO syncs to land
-    # (provisioned by helm-prereqs hooks; may still be in flight if nico-prereqs
-    # was re-installed just before this phase). Fail-fast if any secret never
-    # shows up — the alternative (silently falling through to helm install) is
-    # 5 minutes of FailedMount-loop before helm gives up with an opaque message.
+    # Wait for the Flow DB credential ESO sync to land. Fail fast if the Secret
+    # never appears instead of allowing the helm install to enter an opaque
+    # FailedMount loop.
     _wait_for_secret() {
         local _name="$1"
         local _ns="$2"
@@ -1847,19 +1945,10 @@ else
         return 1
     }
 
-    echo "Waiting for psm/nsm Vault tokens..."
-    for _s in psm-vault-token nsm-vault-token; do
-        _wait_for_secret "${_s}" "${NICO_FLOW_NAMESPACE}" \
-            "Provisioned by the flow-vault-tokens helm hook in nico-prereqs. Check 'kubectl logs -n nico-system job/flow-vault-tokens' and confirm helm-prereqs/values.yaml::flow.enabled=true."
-    done
-
-    echo "Waiting for flow/psm/nsm DB credentials..."
-    for _s in flow.nico.nico-pg-cluster.credentials \
-             psm.nico.nico-pg-cluster.credentials \
-             nsm.nico.nico-pg-cluster.credentials; do
-        _wait_for_secret "${_s}" "${NICO_FLOW_NAMESPACE}" \
-            "Synced by the flow-db-eso/psm-db-eso/nsm-db-eso ClusterExternalSecrets in nico-prereqs. Check 'kubectl describe clusterexternalsecret -A | grep flow' and confirm helm-prereqs/values.yaml::flow.enabled=true."
-    done
+    echo "Waiting for Flow DB credentials..."
+    _wait_for_secret "flow.nico.nico-pg-cluster.credentials" \
+        "${NICO_FLOW_NAMESPACE}" \
+        "Synced by the flow-db-eso ClusterExternalSecret in nico-prereqs. Check 'kubectl describe clusterexternalsecret flow-db-eso' and confirm helm-prereqs/values.yaml::flow.enabled=true."
 
     echo "Installing flow helm chart..."
     helm upgrade --install flow "${NICO_FLOW_CHART}" \

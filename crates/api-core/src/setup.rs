@@ -1487,6 +1487,10 @@ async fn initialize_and_start_controllers<'a>(
                     carbide_credential_rotation::RotationGate::new_for_family(
                         db::credential_rotation::CredentialRotationType::DpuBmcService,
                     ),
+                nic_lockdown_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::LockdownIkm,
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,
             }

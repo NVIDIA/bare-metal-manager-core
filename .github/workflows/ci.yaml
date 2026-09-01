@@ -1708,6 +1708,31 @@ jobs:
           lint: 'true'
           template: 'true'
 
+      # Charts with tests must be listed explicitly.
+      - name: Run Helm unit tests
+        uses: dsx-ai-factory/dsx-github-actions/.github/actions/helm-unittest@fdc2fa4b5f14ae570f290218f102f9b4aad3b26e
+        with:
+          plugin-oci-ref: oci://nvcr.io/0837451325059433/carbide-dev/unittest:1.1.2
+          registry-password: ${{ secrets.NVCR_TOKEN }}
+          charts: >-
+            helm
+            helm/charts/nico-api
+            helm/charts/nico-bmc-proxy
+            helm/charts/nico-dhcp
+            helm/charts/nico-dns
+            helm/charts/nico-dsx-exchange-consumer
+            helm/charts/nico-flow
+            helm/charts/nico-hardware-health
+            helm/charts/nico-machine-a-tron
+            helm/charts/nico-machine-a-tron/charts/mat-k8s-controller
+            helm/charts/nico-pxe
+            helm/charts/nico-ssh-console-rs
+            helm/charts/unbound
+            helm/rest/nico-mcp
+            helm/rest/nico-rest-site-agent
+            helm/rest/nico-rest/charts/nico-rest-common
+            helm/rest/nico-rest/charts/nico-rest-site-manager
+
   build-push-helm-chart:
     needs:
       - prepare

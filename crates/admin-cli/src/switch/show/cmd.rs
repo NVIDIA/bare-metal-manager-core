@@ -459,12 +459,10 @@ mod tests {
 
     use super::*;
 
-    // switch_details_text_smoke calls switch_details_text with a representative
-    // Switch (matching the row visible in the ASCII table output) and prints the
-    // formatted result to stdout so it can be inspected manually when running
-    // `cargo test -- --nocapture`.
-    #[tokio::test]
-    async fn switch_details_text_smoke() {
+    // switch_details_text_formats_representative_switch calls switch_details_text
+    // with a representative Switch and verifies fields from each output section.
+    #[test]
+    fn switch_details_text_formats_representative_switch() {
         let switch = Switch {
             id: Some(
                 SwitchId::from_str("sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60")
@@ -513,7 +511,14 @@ mod tests {
 
         let output = switch_details_text(&switch).expect("switch_details_text should succeed");
 
-        let mut stdout: Box<dyn tokio::io::AsyncWrite + Unpin> = Box::new(tokio::io::stdout());
-        crate::async_write!(stdout, "{}", output).expect("write to stdout should succeed");
+        for expected in [
+            "ID            : sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60",
+            "\tName       : MT2519600UD6",
+            "\tPower State      : on",
+            "\tFirmware Version     : 1.3.5-GA",
+            "\tNAME: sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60",
+        ] {
+            assert!(output.contains(expected), "missing {expected:?}");
+        }
     }
 }

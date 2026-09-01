@@ -249,6 +249,69 @@ errors, as does a missing `curl` when validation is required), and an
 unreachable registry host skips the image checks entirely
 (air-gapped/preloaded installs).
 
+## Upgrading deployments that bundled PSM and NSM
+
+The Flow chart no longer deploys PSM or NSM, and `setup.sh` does not support an
+automatic upgrade from a Flow Deployment that still contains either manager
+container. This check runs before preflight or any cluster mutation, including
+when `--skip-flow` or `--skip-rest` is set.
+
+To preserve the bundled managers, leave the existing Flow release unchanged
+and stop the upgrade. `setup.sh` cannot upgrade the other components while that
+predecessor topology remains.
+
+To replace the bundled managers with Flow only, first handle any site-specific
+dependencies outside `setup.sh`. In particular, inspect custom Core values and
+configuration for `componentManager.nvSwitchBackend: nsm`,
+`componentManager.powerShelfBackend: psm`, `nv_switch_backend = "nsm"`, or
+`power_shelf_backend = "psm"`. Move those roles to
+[RMS](../docs/configuration/component-manager-rms.md) or to an externally
+managed endpoint, and deploy and verify that Core change using the site's
+existing process. This release does not provide a Core or manager data
+migration. An external endpoint must not resolve to the `psm` or `nsm` Service
+removed by the Flow upgrade.
+
+After those dependencies are handled, upgrade only the existing Flow release
+from the repository root. Reusing the release values preserves site-specific
+image and registry settings; the explicit repository and tag select the target
+Flow image. This is a normal Helm rolling upgrade: do not use `--force` and do
+not patch the Deployment or upgrade `nico-prereqs` first.
+
+```bash
+helm upgrade flow ./helm/charts/nico-flow \
+  --namespace flow \
+  --reuse-values \
+  --set global.image.repository="${NICO_IMAGE_REGISTRY}" \
+  --set global.image.tag="${NICO_REST_IMAGE_TAG}" \
+  --timeout 300s \
+  --wait
+
+kubectl rollout status deployment/flow -n flow --timeout=300s
+
+kubectl get pods -n flow -l app=flow \
+  --field-selector=status.phase!=Succeeded,status.phase!=Failed \
+  -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.containers[*].name}{"\n"}{end}'
+```
+
+Helm replaces the old three-container Pod with a Flow-only Pod and deletes the
+PSM and NSM Services. Stop and resolve or roll back any failed rollout. Before
+continuing, every active Pod returned by the second verification command must
+omit `psm` and `nsm`.
+
+Then rerun the exact `setup.sh` invocation used for the site, with the same
+environment, values files, site overlay, DPF choice, and other options. Setup
+verifies the Deployment rollout and active Pods again before mutation. After
+preflight and the Core phase completes or is skipped, it removes any remaining
+legacy Vault tokens, policies, Secrets, and cluster-wide RBAC even when
+`--skip-rest` or `--skip-flow` is set.
+
+Upgrading `nico-prereqs` removes the retired ExternalSecret resources and may
+garbage-collect their generated PSM/NSM database credential Secrets. The
+Zalando Postgres operator retains the databases and users themselves for manual
+rollback or recovery, but the chart no longer manages them or their
+credentials. Retain any credentials needed for that recovery before choosing
+the overwrite path.
+
 ## What gets deployed
 
 ```text
@@ -281,7 +344,7 @@ NICo REST                  (../helm/rest/nico-rest)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
   └── nico-rest             (API, cert-manager, workflow, site-manager)
-NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
+NICo Flow                  (../helm/charts/nico-flow)
 NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
 Observability (opt-in)     (observability/ - only with --with-observability; also standalone)
   ├── kube-prometheus-stack (prometheus-community 59.1.0 - Prometheus + Grafana, release `obs`)

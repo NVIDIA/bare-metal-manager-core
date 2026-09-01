@@ -333,6 +333,46 @@ func main() {
 		w.RegisterWorkflow(nvLinkLogicalPartitionWorkflow.UpdateNVLinkLogicalPartitionInventory)
 	}
 
+	// Metric setup has to precede the activity registrations below, because the
+	// activities hold their own metric handles and the worker will not accept a
+	// registration once it is running. Only serving can wait for the goroutine
+	// further down.
+	mconfig := cfg.GetMetricsConfig()
+
+	var reg *prometheus.Registry
+	var siteHealthMetrics *cwm.SiteHealthMetrics
+
+	if mconfig.Enabled {
+		reg = prometheus.NewRegistry()
+		reg.MustRegister(collectors.NewGoCollector())
+
+		// Register core metrics
+		cm := cwm.NewCoreMetrics(reg, mconfig.Namespace)
+		// TODO: Set version here when available
+		cm.Info.With(prometheus.Labels{"version": "unknown", "namespace": tcfg.Namespace}).Set(1)
+
+		// Published by the Site health monitor cron, which runs on the Cloud queue.
+		siteHealthMetrics = cwm.NewSiteHealthMetrics(reg, mconfig.Namespace)
+
+		if tcfg.Namespace == cwfn.SiteNamespace {
+			// The inventory workflows that report these metrics only run here.
+
+			// Register common inventory metrics activity
+			inventoryMetricsManager := cwm.NewManageInventoryMetrics(reg, dbSession, mconfig.Namespace)
+			w.RegisterActivity(inventoryMetricsManager)
+
+			// Register inventory operation metrics activity
+			vpcLifecycleMetricsManager := vpcActivity.NewManageVpcLifecycleMetrics(reg, dbSession, mconfig.Namespace)
+			w.RegisterActivity(&vpcLifecycleMetricsManager)
+
+			subnetLifecycleMetricsManager := subnetActivity.NewManageSubnetLifecycleMetrics(reg, dbSession, mconfig.Namespace)
+			w.RegisterActivity(&subnetLifecycleMetricsManager)
+
+			instanceLifecycleMetricsManager := instanceActivity.NewManageInstanceLifecycleMetrics(reg, dbSession, mconfig.Namespace)
+			w.RegisterActivity(&instanceLifecycleMetricsManager)
+		}
+	}
+
 	// Register activities
 	// Common activities
 	machineManager := machineActivity.NewManageMachine(dbSession, siteClientPool)
@@ -347,7 +387,7 @@ func main() {
 	instanceManager := instanceActivity.NewManageInstance(dbSession, siteClientPool, tc, cfg)
 	w.RegisterActivity(&instanceManager)
 
-	siteManager := siteActivity.NewManageSite(dbSession, siteClientPool, tc, cfg)
+	siteManager := siteActivity.NewManageSite(dbSession, siteClientPool, tc, cfg, siteHealthMetrics)
 	w.RegisterActivity(&siteManager)
 
 	sshKeyGroupManager := sshKeyGroupActivity.NewManageSSHKeyGroup(dbSession, siteClientPool)
@@ -426,35 +466,10 @@ func main() {
 		}()
 	}
 
-	mconfig := cfg.GetMetricsConfig()
 	if mconfig.Enabled {
 		// Serve Prometheus metrics
 		go func() {
 			log.Info().Msg("starting Prometheus metrics server")
-
-			reg := prometheus.NewRegistry()
-			reg.MustRegister(collectors.NewGoCollector())
-
-			// Register core metrics
-			cm := cwm.NewCoreMetrics(reg)
-			// TODO: Set version here when available
-			cm.Info.With(prometheus.Labels{"version": "unknown", "namespace": tcfg.Namespace}).Set(1)
-
-			if tcfg.Namespace == cwfn.SiteNamespace {
-				// Register common inventory metrics activity
-				inventoryMetricsManager := cwm.NewManageInventoryMetrics(reg, dbSession)
-				w.RegisterActivity(&inventoryMetricsManager)
-
-				// Register inventory operation metrics activity
-				vpcLifecycleMetricsManager := vpcActivity.NewManageVpcLifecycleMetrics(reg, dbSession)
-				w.RegisterActivity(&vpcLifecycleMetricsManager)
-
-				subnetLifecycleMetricsManager := subnetActivity.NewManageSubnetLifecycleMetrics(reg, dbSession)
-				w.RegisterActivity(&subnetLifecycleMetricsManager)
-
-				instanceLifecycleMetricsManager := instanceActivity.NewManageInstanceLifecycleMetrics(reg, dbSession)
-				w.RegisterActivity(&instanceLifecycleMetricsManager)
-			}
 
 			promHandler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg})
 

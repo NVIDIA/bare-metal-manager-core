@@ -456,8 +456,8 @@ pub struct CarbideConfig {
     /// version a card is actually locked under regardless of this flag, so
     /// flipping it off never bricks an already-migrated card. This is the fleet
     /// kill-switch for rolling the feature out site-by-site.
-    #[serde(default)]
-    pub lockdown_ikm_rotation_enabled: bool,
+    #[serde(default, alias = "lockdown_ikm_rotation_enabled")]
+    pub nic_lockdown_ikm_rotation_enabled: bool,
 
     /// Site-wide enable for factory-resetting the host BMC during tenant
     /// release. When `false` (the default), tenant release skips the BMC
@@ -1276,6 +1276,7 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
+            nic_lockdown_ikm_rotation_enabled: self.nic_lockdown_ikm_rotation_enabled,
             bmc_factory_reset_on_instance_termination_enabled: self
                 .bmc_factory_reset_on_instance_termination_enabled,
 
@@ -2363,6 +2364,9 @@ impl DpfDeploymentsConfig {
     }
 
     /// Validates the final Kubernetes identifiers, their uniqueness, and reserved labels.
+    /// `DPU_ENABLED_NODE_LABEL` and `HOST_BMC_IP_LABEL` are reserved for the
+    /// shared DPF node marker and host BMC IP. Neither can be used as the
+    /// `node_label_key` for an individual deployment.
     /// Returns every error so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
         let bf3_gb200 = self.bf3.bf3_gb200();

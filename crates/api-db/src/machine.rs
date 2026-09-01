@@ -2830,6 +2830,75 @@ pub async fn clear_uefi_credential_rotation_requested(
     Ok(())
 }
 
+/// Record that an operator has requested rotating the NIC lockdown keys for a host
+/// (bypasses the site-config flag for NIC lockdown rotation)
+pub async fn set_lockdown_ikm_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET lockdown_ikm_credential_rotation_requested = true \
+                 WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("set_lockdown_ikm_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Clear the force NIC lockdown rotation flag for this host
+pub async fn clear_lockdown_ikm_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET lockdown_ikm_credential_rotation_requested = false \
+                 WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("clear_lockdown_ikm_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Read a host's one-shot NIC lockdown IKM rotation force flag. The SVPC scout
+/// handler consults this so the tenant-allocation lock migrates a force-flagged
+/// host's cards to the site-wide target even when the site-wide gate is off,
+/// mirroring the idle rekey path.
+pub async fn get_lockdown_ikm_credential_rotation_requested(
+    conn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<bool> {
+    let query = "SELECT lockdown_ikm_credential_rotation_requested FROM machines WHERE id = $1";
+    sqlx::query_scalar::<_, bool>(query)
+        .bind(machine_id)
+        .fetch_one(conn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("get_lockdown_ikm_credential_rotation_requested", e),
+        })
+}
+
 pub async fn update_dpu_asns(
     db_pool: &Pool<Postgres>,
     common_pools: &CommonPools,

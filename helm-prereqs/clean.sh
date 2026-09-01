@@ -283,6 +283,8 @@ kubectl delete clusterissuer \
 kubectl delete clustersecretstore \
     cert-manager-ns-secretstore postgres-ns-secretstore \
     --ignore-not-found 2>/dev/null || true
+# Keep removed PSM/NSM hook names in cleanup so upgrades from older releases do
+# not strand their cluster-scoped resources.
 kubectl delete clusterexternalsecret \
     nico-roots-eso nico-db-eso \
     flow-db-eso psm-db-eso nsm-db-eso \

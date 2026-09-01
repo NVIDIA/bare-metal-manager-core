@@ -238,7 +238,7 @@ impl DpaMonitor {
                             })?,
                         };
 
-                    db::dpa_interface::try_update_controller_state(
+                    let applied = db::dpa_interface::try_update_controller_state(
                         &mut txn,
                         mh.dpa_interface_snapshots[idx].id,
                         controller_state.version,
@@ -247,9 +247,17 @@ impl DpaMonitor {
                     )
                     .await?;
 
-                    txn.commit()
-                        .await
-                        .map_err(|e| db::AnnotatedSqlxError::new("dpa_monitor commit txn", e))?;
+                    if applied {
+                        txn.commit().await.map_err(|e| {
+                            db::AnnotatedSqlxError::new("dpa_monitor commit txn", e)
+                        })?;
+                    } else {
+                        // Lost the controller-state CAS: another writer advanced
+                        // this interface since the snapshot loaded. The transition did not apply, so
+                        // drop the txn to roll back any bookkeeping the handler
+                        // staged in it. re-read on the next tick
+                        drop(txn);
+                    }
                 } else if let Some(txn) = txn {
                     txn.commit()
                         .await
@@ -313,6 +321,16 @@ impl DpaMonitor {
             }
             DpaInterfaceControllerState::Assigned => {
                 handler.handle_assigned(self, mh, idx, metrics).await
+            }
+            DpaInterfaceControllerState::RotateKeyUnlocking => {
+                handler
+                    .handle_rotate_key_unlocking(self, mh, idx, metrics)
+                    .await
+            }
+            DpaInterfaceControllerState::RotateKeyLocking => {
+                handler
+                    .handle_rotate_key_locking(self, mh, idx, metrics)
+                    .await
             }
         }
     }

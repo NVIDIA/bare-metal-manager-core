@@ -7,6 +7,9 @@ templates:
 tests:
   - it: mounts the key read-only in the Flow container only
     asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -18,14 +21,6 @@ tests:
             name: data-encryption-key
             mountPath: /var/run/secrets/flow-data-encryption
             readOnly: true
-      - notContains:
-          path: spec.template.spec.containers[1].volumeMounts
-          content:
-            name: data-encryption-key
-      - notContains:
-          path: spec.template.spec.containers[2].volumeMounts
-          content:
-            name: data-encryption-key
       - contains:
           path: spec.template.spec.volumes
           content:

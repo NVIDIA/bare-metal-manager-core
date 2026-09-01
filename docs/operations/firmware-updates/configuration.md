@@ -1,4 +1,4 @@
-# Configure Firmware Versions
+# Configure Firmware Versions <Badge intent="info">v2.1</Badge> <Badge intent="launch" minimal>New</Badge>
 
 NICo needs a site-specific definition of acceptable firmware before it can
 detect drift or choose an upgrade target. Host firmware and DPU NIC firmware

@@ -1,4 +1,4 @@
-# machine-a-tron Build & Deployment Guide <Badge intent="info">Upcoming</Badge>
+# machine-a-tron Build & Deployment Guide <Badge intent="info">v2.1</Badge> <Badge intent="launch" minimal>New</Badge>
 
 machine-a-tron is a bare-metal simulator for NICo testing. It hosts mock DPUs and
 servers via Redfish BMC, allowing end-to-end NICo flows without real hardware. This
@@ -6,12 +6,7 @@ guide documents everything needed to build the container image and deploy it on 
 cluster.
 
 <Note title="Version availability">
-Everything in this guide — the `nico-machine-a-tron` Helm chart,
-`helm-prereqs/setup-machine-a-tron.sh`, and the values files it references —
-landed on `main` in July 2026 (#2764) and is **not present in v2.0.x
-releases**. If your checkout is a `v2.0.0` tag or the `release/v2.0` branch,
-these paths will not exist; use a checkout of `main` (or the first release
-that includes them) to follow this guide.
+Everything in this guide — the `nico-machine-a-tron` Helm chart, `helm-prereqs/setup-machine-a-tron.sh`, and the values files it references — is available as of NVIDIA Infra Controller v2.1.
 </Note>
 
 ## Overview

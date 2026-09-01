@@ -70,7 +70,7 @@ Use `site_explorer.dpu_policy` instead.
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
 | `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation (host and DPU). When `false` (default), a Ready host never auto-enters `RotatingHostUefi` nor drives its DPUs into `RotatingDpuUefi`; the per-machine force-converge escape hatch bypasses it. |
-| `lockdown_ikm_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for NIC lockdown IKM rotation. When `false` (default), the SuperNIC lock/unlock flow keeps deriving keys from each card's current tracked IKM version, so a staged `RotateCredential(lockdown_ikm)` bumps the site-wide target without migrating any card. When `true`, the assignment-cycle lock derives from the staged site-wide target, so cards migrate to the new IKM as tenants cycle. Unlock always derives from the version a card is actually locked under regardless of this flag, so flipping it off never bricks an already-migrated card. |
+| `nic_lockdown_ikm_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for NIC lockdown IKM rotation. When `false` (default), the SuperNIC lock/unlock flow keeps deriving keys from each card's current tracked IKM version, so a staged `RotateCredential(lockdown_ikm)` bumps the site-wide target without migrating any card. When `true`, the assignment-cycle lock derives from the staged site-wide target, so cards migrate to the new IKM as tenants cycle. Unlock always derives from the version a card is actually locked under regardless of this flag, so flipping it off never bricks an already-migrated card. |
 | `bmc_factory_reset_on_instance_termination_enabled` | `bool` | `false` | `security` | Site-wide opt-in for factory-resetting the host BMC during tenant release. When `false` (default), tenant release proceeds directly to `PowerCycle`; when `true`, the release flow factory-resets the BMC, waits for it to return, restores the device's previous per-device credential, then continues with the existing power-cycle / boot-order repair. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
@@ -202,6 +202,8 @@ use non-RMS backends.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
+The `nsm` and `psm` backend values require externally managed services; the
+NICo deployment charts do not install NSM or PSM.
 
 Example: GB200 rack where all component-manager roles use RMS:
 

@@ -313,7 +313,8 @@ componentManager:
   enabled: true
   ## Backend per role. computeTray: rms | core | mock. nvSwitch: rms | nsm |
   ## mock. powerShelf: rms | psm | mock. The binary defaults all three to rms;
-  ## nsm/psm select the standalone managers instead of RMS.
+  ## nsm/psm select externally managed standalone services instead of RMS. The
+  ## NICo deployment charts do not install those services.
   computeTrayBackend: "rms"
   nvSwitchBackend: "rms"
   powerShelfBackend: "rms"

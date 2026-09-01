@@ -21,7 +21,8 @@ spec:
       # with E2BIG ("argument list too long").
       enableServiceLinks: false
       serviceAccountName: {{ include "mat-k8s-controller.serviceAccountName" . }}
-      {{- with (default .Values.global.imagePullSecrets .Values.imagePullSecrets) }}
+      {{- $global := .Values.global | default dict }}
+      {{- with (.Values.imagePullSecrets | default $global.imagePullSecrets) }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

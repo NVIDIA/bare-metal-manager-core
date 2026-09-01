@@ -72,7 +72,7 @@ pub(super) async fn get_astra_config(
     txn.commit().await?;
 
     if dpa_interfaces.is_empty() {
-        tracing::info!(
+        tracing::debug!(
             machine_id = %snapshot.host_snapshot.id,
             "No Astra NICs found; skipping Astra config retrieval",
         );

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod bmc_rotation;
 mod common;
 mod error_state;
 mod maintenance;

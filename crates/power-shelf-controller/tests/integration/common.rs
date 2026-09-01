@@ -44,6 +44,7 @@ use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHa
 pub(super) struct ControllerEnv {
     pub(super) harness: TestHarness,
     pub(super) pool: PgPool,
+    pub(super) credential_manager: Arc<TestCredentialManager>,
     pub(super) redfish_sim: Arc<RedfishSim>,
     pub(super) rms_sim: Arc<RmsSim>,
     pub(super) rack_profiles: RackProfileConfig,
@@ -52,6 +53,7 @@ pub(super) struct ControllerEnv {
 
 impl ControllerEnv {
     pub(super) async fn new(pool: PgPool) -> Self {
+        let credential_manager = Arc::new(TestCredentialManager::default());
         let redfish_sim = Arc::new(RedfishSim::default());
         let rms_sim = Arc::new(RmsSim::default());
         let rack_profiles = rms_rack_profiles();
@@ -82,6 +84,7 @@ impl ControllerEnv {
         .await
         .expect("test component manager should build");
         let api_redfish_sim = redfish_sim.clone();
+        let api_credential_manager = credential_manager.clone();
         let api_rms_client = rms_sim
             .as_rms_client()
             .expect("RMS simulator should provide a client");
@@ -90,6 +93,7 @@ impl ControllerEnv {
             .with_api_builder_fn(move |builder| {
                 builder
                     .with_runtime_config(runtime_config)
+                    .with_credential_manager(api_credential_manager)
                     .with_redfish_pool(api_redfish_sim)
                     .with_rms_client(api_rms_client)
                     .with_component_manager(Arc::new(api_component_manager))
@@ -100,6 +104,7 @@ impl ControllerEnv {
         Self {
             harness,
             pool,
+            credential_manager,
             redfish_sim,
             rms_sim,
             rack_profiles,

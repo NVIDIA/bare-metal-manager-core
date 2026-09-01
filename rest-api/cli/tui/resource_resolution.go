@@ -86,6 +86,9 @@ func GeneratedPathResourceDescriptor(commandName, parameter string) GeneratedRes
 	if descriptor.ResourceType == "task" {
 		descriptor.FreeFormReason = "task IDs come from prior lifecycle actions; no site-wide task list API exists"
 	}
+	if descriptor.ResourceType == "nvlink-domain" {
+		descriptor.FreeFormReason = "NVLink domain IDs come from prior lifecycle actions; no list API exists"
+	}
 	if strings.HasPrefix(commandName, "measured-boot") && strings.EqualFold(parameter, "id") {
 		descriptor.FreeFormReason = "measured-boot approvals and their selected machine or profile IDs share this parameter; enter the ID that matches --selector"
 	}

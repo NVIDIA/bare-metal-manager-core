@@ -22,6 +22,54 @@ import (
 
 // --- Upstream tests ---
 
+func TestCmdSiteCreateRejectsResponseWithoutID(t *testing.T) {
+	for _, response := range []string{"null", "{}"} {
+		t.Run(response, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_, _ = io.WriteString(w, response)
+			}))
+			defer server.Close()
+
+			session := NewSession(appcli.NewClient(server.URL, "acme", "token", nil, false), "acme", "")
+			_, err := withStdin(t, "site-name\n\n\n\n\n\n\n", func() (string, error) {
+				return "", cmdSiteCreate(session, nil)
+			})
+
+			require.EqualError(t, err, "parsing created site response: missing id")
+		})
+	}
+}
+
+func TestParseMutationResponseRequiringID(t *testing.T) {
+	tests := []struct {
+		name      string
+		response  string
+		wantID    string
+		wantError string
+	}{
+		{name: "malformed JSON", response: "[", wantError: "parsing created site response:"},
+		{name: "null", response: "null", wantError: "parsing created site response: missing id"},
+		{name: "empty object", response: "{}", wantError: "parsing created site response: missing id"},
+		{name: "blank id", response: `{"id":"  "}`, wantError: "parsing created site response: missing id"},
+		{name: "valid object", response: `{"id":"site-1","name":"Site One"}`, wantID: "site-1"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := parseMutationResponseRequiringID([]byte(test.response), "created site")
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				assert.Nil(t, parsed)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantID, str(parsed, "id"))
+		})
+	}
+}
+
 func TestAppendScopeFlags_NoSession(t *testing.T) {
 	got := appendScopeFlags(nil, []string{"machine", "list"})
 	want := []string{"machine", "list"}
@@ -129,6 +177,78 @@ func TestLogCmd_NoScope(t *testing.T) {
 	if strings.Contains(output, "--site-id") {
 		t.Errorf("LogCmd output should not contain --site-id when no scope set: %q", output)
 	}
+}
+
+func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
+	cache := NewCache()
+	cache.Set("vpc", []NamedItem{{Name: "VPC One", ID: "vpc-1"}})
+	cache.Set("site", []NamedItem{{Name: "Site One", ID: "site-1"}})
+	cache.Set("instance", []NamedItem{
+		{
+			Name: "with-addresses", ID: "instance-1", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw: map[string]interface{}{
+				"interfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{"192.0.2.10"}},
+					map[string]interface{}{"ipAddresses": []interface{}{"2001:db8::10"}},
+				},
+			},
+		},
+		{
+			Name: "without-addresses", ID: "instance-2", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw:   map[string]interface{}{"interfaces": []interface{}{}},
+		},
+		{
+			Name: "auto-network", ID: "instance-3", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw: map[string]interface{}{
+				"interfaces": []interface{}{},
+				"status": map[string]interface{}{
+					"network": map[string]interface{}{
+						"interfaces": []interface{}{
+							map[string]interface{}{"ipAddresses": []interface{}{"198.51.100.10"}},
+						},
+					},
+				},
+			},
+		},
+	})
+	session := &Session{Cache: cache}
+	session.Resolver = NewResolver(cache)
+
+	var runErr error
+	output := captureStdout(func() {
+		runErr = cmdInstanceList(session, nil)
+	})
+	require.NoError(t, runErr)
+
+	lines := strings.Split(output, "\n")
+	var header, populated, empty, autoNetwork string
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "NAME"):
+			header = line
+		case strings.HasPrefix(line, "with-addresses"):
+			populated = line
+		case strings.HasPrefix(line, "without-addresses"):
+			empty = line
+		case strings.HasPrefix(line, "auto-network"):
+			autoNetwork = line
+		}
+	}
+	require.NotEmpty(t, header)
+	require.NotEmpty(t, populated)
+	require.NotEmpty(t, empty)
+	require.NotEmpty(t, autoNetwork)
+
+	ipAddressesColumn := strings.Index(header, "IP ADDRESSES")
+	statusColumn := strings.Index(header, "STATUS")
+	require.Greater(t, ipAddressesColumn, 0)
+	require.Greater(t, statusColumn, ipAddressesColumn)
+	assert.Equal(t, "192.0.2.10, 2001:db8::10", strings.TrimSpace(populated[ipAddressesColumn:statusColumn]))
+	assert.Equal(t, "-", strings.TrimSpace(empty[ipAddressesColumn:statusColumn]))
+	assert.Equal(t, "198.51.100.10", strings.TrimSpace(autoNetwork[ipAddressesColumn:statusColumn]))
 }
 
 func TestShellQuoteCLIArg(t *testing.T) {
@@ -819,6 +939,20 @@ func TestParseLabelArgs(t *testing.T) {
 		_, _, _, err := parseLabelArgs([]string{"--sort-label"})
 		assert.Error(t, err)
 	})
+	t.Run("sort-label rejects another option", func(t *testing.T) {
+		remaining, labels, sortKey, err := parseLabelArgs([]string{"--sort-label", "--label", "env=prod"})
+		require.Error(t, err)
+		assert.Nil(t, remaining)
+		assert.Nil(t, labels)
+		assert.Empty(t, sortKey)
+	})
+	t.Run("label rejects another option", func(t *testing.T) {
+		remaining, labels, sortKey, err := parseLabelArgs([]string{"--label", "--sort-label", "rack"})
+		require.Error(t, err)
+		assert.Nil(t, remaining)
+		assert.Nil(t, labels)
+		assert.Empty(t, sortKey)
+	})
 	t.Run("dangling label flag", func(t *testing.T) {
 		_, _, _, err := parseLabelArgs([]string{"--label"})
 		assert.Error(t, err)
@@ -1373,7 +1507,8 @@ func captureStdout(f func()) string {
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	_, err := io.Copy(&buf, r)
+	if err != nil {
 		panic(err)
 	}
 	return buf.String()

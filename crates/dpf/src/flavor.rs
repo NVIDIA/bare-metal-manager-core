@@ -20,7 +20,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
-use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
+use carbide_libmlx_model::nvconfig::{DpuNvConfigProfile, GB200_B3240_V1_PF_TOTAL_SF};
 use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
@@ -1089,6 +1089,48 @@ fn get_bf4_astra_config_files(
 ) -> Result<Vec<DpuFlavorConfigFiles>, crate::error::DpfError> {
     let mut config_files = vec![
         DpuFlavorConfigFiles {
+            path: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(
+                concat!(
+                    "[program: cl-acltool]\n",
+                    "command = bash -c \"sleep 5 && ",
+                    "/usr/cumulus/bin/cl-acltool -i\"\n",
+                    "startsecs = 0\n",
+                    "autorestart = false\n",
+                    "priority = 200\n",
+                )
+                .to_string(),
+            ),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(dhcp_acl_rules(None)),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/etc/lldpd.d/lldp-interfaces.conf".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("configure system interface pattern *\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/etc/default/lldpd".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("DAEMON_ARGS=\"-M 1\"\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
             content_from: None,
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             path: "/etc/mellanox/mlnx-bf.conf".to_string(),
@@ -1404,7 +1446,6 @@ fn get_bf4_astra_config_files(
             r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
         },
     ];
-
     if let Some(proxy) = proxy {
         validate_proxy_string(&proxy.https_proxy, "https_proxy")?;
 
@@ -1449,6 +1490,11 @@ fn get_nvconfig(
     pf_total_sf: u32,
     deployment_type: DpuDeploymentType,
 ) -> DpuFlavorNvconfig {
+    let pf_total_sf = if deployment_type == DpuDeploymentType::Bf3Gb200 {
+        GB200_B3240_V1_PF_TOTAL_SF
+    } else {
+        pf_total_sf
+    };
     let mut parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
@@ -1469,9 +1515,15 @@ fn get_nvconfig(
     ];
 
     if deployment_type == DpuDeploymentType::Bf3Gb200 {
+        let configured_parameter_names = parameters
+            .iter()
+            .map(|parameter| nvconfig_parameter_name(parameter).to_string())
+            .collect::<BTreeSet<_>>();
+
         // DPF v26.4 accepts at most 32 parameters. These two assignments set
         // values that DPF already restores to their firmware default of 0, so
-        // omitting them preserves the required platform state.
+        // omitting them preserves the required platform state. Values already
+        // present in the BF3 base stay in their native DPF representation.
         // TODO(chet): Add PCI_SWITCH0_UPSTREAM_PORT_BUS=0 and
         // PCI_SWITCH0_UPSTREAM_PORT_PEX=0 after DPF accepts more than 32
         // NVConfig parameters.
@@ -1480,10 +1532,11 @@ fn get_nvconfig(
                 .parameters()
                 .iter()
                 .filter(|parameter| {
-                    !matches!(
-                        **parameter,
-                        "PCI_SWITCH0_UPSTREAM_PORT_BUS=0" | "PCI_SWITCH0_UPSTREAM_PORT_PEX=0"
-                    )
+                    !configured_parameter_names.contains(nvconfig_parameter_name(parameter))
+                        && !matches!(
+                            **parameter,
+                            "PCI_SWITCH0_UPSTREAM_PORT_BUS=0" | "PCI_SWITCH0_UPSTREAM_PORT_PEX=0"
+                        )
                 })
                 .map(|parameter| (*parameter).to_string()),
         );
@@ -1494,6 +1547,12 @@ fn get_nvconfig(
         device: Some(DpuFlavorNvconfigDevice::KopiumVariant0), //"*"
         parameters: Some(parameters),
     }
+}
+
+fn nvconfig_parameter_name(parameter: &str) -> &str {
+    parameter
+        .split_once('=')
+        .map_or(parameter, |(name, _)| name)
 }
 
 fn get_bf4_astra_nvconfig(pf_total_sf: u32) -> DpuFlavorNvconfig {
@@ -1854,10 +1913,17 @@ mod tests {
         };
         let bf3 = parameters(DpuDeploymentType::Bf3);
         let gb200 = parameters(DpuDeploymentType::Bf3Gb200);
+        let expected_gb200_base = bf3
+            .iter()
+            .map(|parameter| match parameter.as_str() {
+                "PF_TOTAL_SF=30" => "PF_TOTAL_SF=128".to_string(),
+                _ => parameter.clone(),
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(bf3.len(), 16);
         assert_eq!(gb200.len(), 32);
-        assert_eq!(&gb200[..bf3.len()], bf3.as_slice());
+        assert_eq!(&gb200[..bf3.len()], expected_gb200_base.as_slice());
         assert_eq!(
             &gb200[bf3.len()..],
             [
@@ -2494,6 +2560,27 @@ mod tests {
                 ) => true,
             }
 
+            "Astra includes the HBN configuration files" {
+                {
+                    let paths = flavor
+                        .spec
+                        .config_files
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|file| file.path.as_str())
+                        .collect::<BTreeSet<_>>();
+                    [
+                        "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf",
+                        "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules",
+                        "/etc/lldpd.d/lldp-interfaces.conf",
+                        "/etc/default/lldpd",
+                    ]
+                    .into_iter()
+                    .all(|path| paths.contains(path))
+                } => true,
+            }
+
             "ewNic rawNvConfig has correct programmable CC and locality mode" {
                 {
                     let raw = ew_nic.raw_nv_config.as_ref().unwrap();
@@ -2530,12 +2617,12 @@ mod tests {
                     .count();
                 (files.len(), proxy_file_count)
             };
-            "no proxy keeps only the eight Astra base files" {
-                None => (8, 0),
+            "no proxy keeps the twelve Astra base files" {
+                None => (12, 0),
             }
 
             "configured proxy appends exactly one proxy file" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (9, 1),
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (13, 1),
             }
         );
     }

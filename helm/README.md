@@ -17,7 +17,7 @@ The chart is designed for production environments where NICo manages the full li
 | 3  | **nico-dhcp** | Kea DHCP server for bare-metal PXE boot and IP assignment. |
 | 4  | **nico-dns** | Authoritative DNS server (StatefulSet) for managed machines and VPCs. |
 | 5  | **nico-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. Disabled by default. |
-| 6  | **nico-flow** | Workflow / Temporal-backed orchestration component. Disabled by default. |
+| 6  | **nico-flow** | Task, policy, and automation service. Installed separately by `setup.sh` unless `--skip-flow` is used; not rendered by the umbrella chart. |
 | 7  | **nico-hardware-health** | Collects and reports hardware health metrics from managed machines. |
 | 8  | **nico-ntp** | chrony NTP servers (3-replica StatefulSet, per-pod LoadBalancer VIPs). DPUs and bare-metal hosts sync against these per the kea DHCP `ntpServer` advertisement. |
 | 9  | **nico-pxe** | PXE boot server (HTTP-based) for OS provisioning workflows. |
@@ -190,7 +190,7 @@ nico-dns:
 nico-dsx-exchange-consumer:
   enabled: false       # DSX exchange telemetry consumer (off by default)
 nico-flow:
-  enabled: false       # Temporal-backed workflow orchestrator (off by default)
+  enabled: false       # Off in the umbrella; setup.sh installs a separate release by default
 nico-hardware-health:
   enabled: true        # Hardware health monitoring
 nico-ntp:
@@ -306,10 +306,10 @@ nico-dns:
 
 ### Service Dependencies
 
-```
-                         +------------------+
-                         |   nico-api    |  <-- PostgreSQL, Vault
-                         +--------+---------+
+```text
+                         +-----------------+
+                         |    nico-api     |  <-- PostgreSQL, Vault
+                         +--------+--------+
                                   |
           +-----------+-----------+-----------+-----------+
           |           |           |           |           |
@@ -353,6 +353,10 @@ helm diff upgrade nico ./helm \
   --namespace forge-system \
   -f values-production.yaml
 ```
+
+Deployments upgrading from a Flow release that bundled PSM and NSM must first
+follow the
+[preserve-or-overwrite guidance](../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm).
 
 ### Upgrading from pre-2.0.0 (carbide/forge naming)
 
@@ -461,6 +465,28 @@ This is also available as a ready-to-use overlay at
   `nico-ssh-console-rs` to dial `carbide-api` (the name the Service has after `nameOverride`),
   rather than the new default `nico-api`. Without this, those services build a URL pointing at
   a Service that does not exist.
+
+## Testing
+
+This chart includes unit tests using the [helm-unittest](https://github.com/helm-unittest/helm-unittest) plugin.
+
+### Running tests locally
+
+```bash
+# Install the plugin (once)
+helm plugin install https://github.com/helm-unittest/helm-unittest.git
+
+# Run all tests
+helm unittest helm --with-subchart
+
+# Disabled-by-default subcharts must be tested separately
+helm unittest helm/charts/nico-flow
+helm unittest helm/charts/nico-machine-a-tron
+helm unittest helm/charts/nico-machine-a-tron/charts/mat-k8s-controller
+helm unittest helm/charts/unbound
+```
+
+Test files live in `tests/` directories within each chart. CI runs these tests automatically on every PR.
 
 ## Uninstalling
 

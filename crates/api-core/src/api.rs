@@ -1444,6 +1444,16 @@ impl Forge for Api {
             .await
     }
 
+    async fn trigger_nic_lockdown_credential_rotation(
+        &self,
+        request: Request<rpc::NicLockdownCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nic_lockdown_credential_rotation::trigger_nic_lockdown_credential_rotation(
+            self, request,
+        )
+        .await
+    }
+
     async fn mark_manual_firmware_upgrade_complete(
         &self,
         request: Request<MachineId>,
