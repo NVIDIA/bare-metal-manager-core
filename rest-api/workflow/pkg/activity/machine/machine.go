@@ -184,7 +184,10 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 	// Get all machines for Site to allow faster lookups
 	mDAO := cdbm.NewMachineDAO(mm.dbSession)
 
-	filterInput := cdbm.MachineFilterInput{SiteIDs: []uuid.UUID{site.ID}}
+	filterInput := cdbm.MachineFilterInput{
+		SiteIDs:        []uuid.UUID{site.ID},
+		IncludeDeleted: true,
+	}
 
 	existingMachines, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -206,8 +209,8 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		}
 	}
 
-	for _, machine := range existingMachines {
-		existingCloudMachineIDMap[machine.ID] = &machine
+	for i := range existingMachines {
+		existingCloudMachineIDMap[existingMachines[i].ID] = &existingMachines[i]
 	}
 
 	miDAO := cdbm.NewMachineInterfaceDAO(mm.dbSession)
@@ -432,24 +435,50 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			// There could be a race between inventory and human changes in nico-rest-api,
 			// so we need to grab a txn and also lock on the machine record.
 
+			wasDeleted := existingCloudMachine.Deleted != nil
+			if wasDeleted && site.IsTimeWithinStaleInventoryThreshold(*existingCloudMachine.Deleted) {
+				// A snapshot collected before the delete can arrive after it. Wait until the
+				// delete is older than the inventory staleness threshold before restoring.
+				slogger.Info().Msg("not undeleting Machine yet because it was deleted more recently than the inventory interval")
+				continue
+			}
+
 			txn, err := cdb.BeginTx(ctx, mm.dbSession, &sql.TxOptions{})
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to start transaction")
 				continue
 			}
 
-			// Grab a fresh copy of the machine details and a lock on the record during the SELECT.
-			existingCloudMachine, err = mDAO.GetByID(ctx, txn, existingCloudMachine.ID, nil, true)
-			if err != nil {
-				slogger.Error().Err(err).Msg("failed to start transaction")
-				txn.Rollback()
-				continue
+			if wasDeleted {
+				existingCloudMachine, err = mDAO.Clear(ctx, txn, cdbm.MachineClearInput{
+					MachineID: existingCloudMachine.ID,
+					Deleted:   true,
+				})
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to clear soft-delete timestamp for Machine")
+					terr := txn.Rollback()
+					if terr != nil {
+						slogger.Error().Err(terr).Msg("failed to rollback transaction")
+					}
+					continue
+				}
+			} else {
+				// Grab a fresh copy of the machine details and a lock on the record during the SELECT.
+				existingCloudMachine, err = mDAO.GetByID(ctx, txn, existingCloudMachine.ID, nil, true)
+				if err != nil {
+					slogger.Error().Err(err).Msg("failed to retrieve Machine in transaction")
+					terr := txn.Rollback()
+					if terr != nil {
+						slogger.Error().Err(terr).Msg("failed to rollback transaction")
+					}
+					continue
+				}
 			}
 
 			// If the machine was updated at all since this inventory was received, we
 			// should consider the inventory details stale for this machine.
 			// We'll add a 5 second buffer to account for a little clock skew/drift.
-			if site.IsTimeWithinStaleInventoryThreshold(existingCloudMachine.Updated) {
+			if !wasDeleted && site.IsTimeWithinStaleInventoryThreshold(existingCloudMachine.Updated) {
 				slogger.Warn().Msg("machine updated more recently than inventory received time, skipping processing")
 				txn.Rollback()
 				continue
@@ -702,6 +731,10 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 	// If inventory paging is enabled, we only need to do this once and we do it on the last page
 	if machineInventory.InventoryPage == nil || machineInventory.InventoryPage.TotalPages == 0 || (machineInventory.InventoryPage.CurrentPage == machineInventory.InventoryPage.TotalPages) {
 		for _, existingMachine := range existingMachines {
+			if existingMachine.Deleted != nil {
+				continue
+			}
+
 			_, found := reportedMachineIDMap[existingMachine.ID]
 			if found {
 				continue
