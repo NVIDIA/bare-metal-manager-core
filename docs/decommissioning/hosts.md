@@ -1,0 +1,273 @@
+# Decommission hosts and DPUs
+
+Use this procedure to return a managed host, its DPUs, BMCs, and credentials to
+a pre-ingestion baseline. After the host reaches
+`Decommissioning/Decommissioned`, force-delete it to remove the control-plane
+records.
+
+The supported workflow is `managed-host decommission`. Run it while NICo and
+its credentials are available.
+
+## Before you begin
+
+For each host:
+
+- Release any instance and wait for the exact top-level state `Ready`. Follow
+  [Tenant Lifecycle Cleanup](../operations/tenant-lifecycle-cleanup.md) and
+  verify its sanitization outcome first.
+- Confirm that every DPU supports BFB installation through Redfish. NICo rejects
+  the request if any DPU does not support it.
+- Keep the NICo API, database, credentials store, DHCP service, PXE service,
+  and Redfish connectivity available until the host reaches
+  `Decommissioning/Decommissioned`.
+- If the host will be ingested again, retain the host BMC MAC address, chassis
+  serial number, and factory-default BMC credentials for the Expected Machine
+  entry.
+
+<Warning>
+Do not destroy the old credentials store first. NICo needs the current
+per-device BMC credentials and the host UEFI credential version to authenticate
+the reset operations. The new installation cannot recover a password known only
+to the previous installation.
+</Warning>
+
+## Start and monitor decommissioning
+
+Start the workflow with the stable host machine ID:
+
+```bash
+nico-admin-cli -a <old-api-url> managed-host decommission <host-machine-id>
+```
+
+The command records the request and returns. Monitor it until the state reaches
+`Decommissioning/Decommissioned`:
+
+```bash
+nico-admin-cli -a <old-api-url> managed-host show <host-machine-id>
+```
+
+Use the state and handler message to identify a blocked operation.
+Decommissioning does not continue past a failed Redfish, credential, or DPF
+operation.
+
+## What the workflow changes
+
+NICo performs these operations in order:
+
+1. Suppresses Site Explorer for the host BMC and every DPU BMC.
+1. Disables host BMC lockdown. NICo restarts Supermicro hosts after disabling
+   lockdown; other supported vendors continue without that restart.
+1. Unlocks managed SuperNICs and waits for them to report an unlocked state.
+1. Resets the host BIOS/UEFI settings to factory defaults.
+1. Clears the host UEFI administrator password. If the platform schedules a
+   Redfish job, NICo restarts the host and waits for the job to complete.
+1. Deletes DPF resources when DPF provisioned the host.
+1. Installs the vanilla `preingestion.bfb` on every DPU through Redfish and
+   waits for each DPU to boot. This image does not contain the NICo DPU agent,
+   HBN configuration, DPU-local NICo DHCP service, MDS, Scout, or old NICo root
+   CA.
+1. Suppresses DHCP for host and DPU OOB interfaces, performs an AC power cycle,
+   and waits for the DHCP service to acknowledge the suppressions.
+1. Suppresses DHCP for the host and DPU BMC interfaces.
+1. Factory-resets the host BMC and every DPU BMC, then waits for DHCP
+   suppression acknowledgement.
+1. Deletes the old installation's per-device BMC, DPU SSH, and DPU HBN secrets,
+   and removes host and DPU UEFI convergence records.
+1. Stops in `Decommissioning/Decommissioned`.
+
+## Verify the resulting state
+
+Before you force-delete the host, verify the following:
+
+| Component | Required state |
+| --- | --- |
+| Host BIOS/UEFI settings | Factory defaults |
+| Host UEFI administrator password | Empty |
+| Host and DPU BMCs | Returned from reset and accept the applicable factory credentials |
+| SuperNIC lockdown | Unlocked |
+| DPU operating system | Vanilla `preingestion.bfb` |
+| NICo agent, HBN, DPU-local DHCP, MDS, and old NICo CA on each DPU | Absent |
+| Host and DPU OOB path | Can reach the site DHCP service |
+
+The terminal state means NICo completed or received acceptance for every
+workflow operation. Redfish can accept a reset before the hardware finishes
+applying it, so the terminal state alone does not prove these observations.
+
+### DPU UEFI limitation
+
+Decommissioning does not explicitly clear a DPU UEFI password. Installing the
+vanilla BFB and factory-resetting the DPU BMC are the implemented reset
+boundaries, but DPU UEFI password behavior can be platform-specific.
+
+Before destroying the old credentials store, verify the behavior for the
+installed DPU model. If the password persists, use the platform-supported
+service procedure to reset it or retain the current value for the new site's
+first credential transition.
+
+### Credentials and identity for the new site
+
+| Item | New-site expectation |
+| --- | --- |
+| Host and DPU BMC passwords | Factory credentials; the Expected Machine data and model-specific DPU factory credentials must match |
+| Host UEFI password | Empty before ingestion; the new site sets its configured value |
+| DPU UEFI password | Factory or platform baseline; verify manually |
+| Site CA and machine certificates | Generated by the new installation |
+| DPU SSH and HBN credentials | Generated by the new installation |
+
+Do not copy the old site CA merely to accept leftover agents. The host was
+sanitized when it returned to `Ready`. Certificates and controller ownership
+must come from the installation that ingests the host.
+
+The stable machine ID is derived from hardware identity and can be the same
+after re-ingestion.
+
+## After decommissioning
+
+When the host reaches `Decommissioning/Decommissioned`, force-delete it with
+the flags that remove interfaces, BMC interfaces, suppressions, and retained
+boot entries:
+
+```bash
+nico-admin-cli -a <api-url> machine force-delete \
+  --machine <host-machine-id> \
+  --delete-interfaces \
+  --delete-bmc-interfaces \
+  --delete-bmc-suppressions \
+  --delete-retained-boot-interfaces
+```
+
+If the host is still physically present, Site Explorer ingests it from the
+reset state. If you confirm it is no longer in the site, it does not come
+back and those records are gone.
+
+Refer to
+[Force deleting and rebuilding NICo hosts](../playbooks/force_delete.md)
+for the force-delete command.
+
+## Recover a host that was not decommissioned
+
+If the old NICo installation still works, restore its credentials store and run
+the supported workflow. It is the only workflow that coordinates all host,
+DPU, BMC, DHCP, and credential steps.
+
+If the old installation is gone, recover each device before normal ingestion.
+The exact factory-reset method is vendor- and platform-specific. Use these NICo
+operations only when you know the current credentials:
+
+```bash
+# Disable host lockdown before changing firmware settings.
+nico-admin-cli redfish \
+  --address <host-bmc-ip> \
+  --username <bmc-user> \
+  --password '<current-bmc-password>' \
+  lockdown-disable
+
+# Clear the host UEFI password.
+nico-admin-cli redfish \
+  --address <host-bmc-ip> \
+  --username <bmc-user> \
+  --password '<current-bmc-password>' \
+  clear-uefi-password \
+  --current-password '<old-host-uefi-password>' \
+  --new-password ''
+
+# Reset BIOS settings and apply them.
+nico-admin-cli redfish \
+  --address <host-bmc-ip> \
+  --username <bmc-user> \
+  --password '<current-bmc-password>' \
+  reset-bios --reboot
+
+# Factory-reset each host and DPU BMC last.
+nico-admin-cli redfish \
+  --address <bmc-ip> \
+  --username <bmc-user> \
+  --password '<current-bmc-password>' \
+  bmc-reset-to-defaults
+```
+
+If you can access a BlueField DPU ARM OS but cannot authenticate to its BMC,
+reset the DPU BMC:
+
+```bash
+sudo ipmitool raw 0x32 0x66
+sudo ipmitool mc reset cold
+```
+
+After BMC access is restored, install the vanilla pre-ingestion BFB on each DPU:
+
+```bash
+nico-admin-cli -a <new-api-url> site-explorer copy-bfb-to-dpu-rshim \
+  --host-bmc-ip <host-bmc-ip> \
+  <dpu-bmc-ip>
+```
+
+Add `--pre-copy-powercycle` if the host must release rshim control before the
+copy. Do not install an old NICo BFB as the baseline.
+
+If you do not know the old host UEFI password, the new site cannot change it.
+Redfish rejects `ChangePassword` when `OldPassword` is wrong. Use the hardware
+vendor's password-clear or service procedure. Do not repeatedly retry
+credentials because BMC lockout protection can block discovery.
+
+Ensure that the host network-boots Scout instead of a leftover disk OS:
+
+```bash
+nico-admin-cli redfish \
+  --address <host-bmc-ip> \
+  --username <factory-bmc-user> \
+  --password '<factory-bmc-password>' \
+  boot-pxe
+
+nico-admin-cli redfish \
+  --address <host-bmc-ip> \
+  --username <factory-bmc-user> \
+  --password '<factory-bmc-password>' \
+  ac-power-cycle
+```
+
+Verify the DHCP relay, lease, PXE request, and Scout callback in that order.
+
+<Warning>
+Command-line passwords can be visible in shell history and process listings.
+Use direct Redfish commands only in an approved recovery environment and follow
+your site's secret-handling policy.
+</Warning>
+
+## Identify leftover agent traffic
+
+Scout in an old NICo BFB can call `DiscoverMachine` on the new API with an
+identity owned by the previous installation. The DPU agent uses other API calls
+and enters isolated mode when the new site reports that its managed host does
+not exist.
+
+Compare Site Explorer, managed hosts, and API logs:
+
+```bash
+nico-admin-cli -a <new-api-url> site-explorer get-report all
+nico-admin-cli -a <new-api-url> managed-host show
+kubectl -n <nico-namespace> logs deploy/nico-api --tail=500 |
+  grep -E 'DiscoverMachine|<bmc-ip>|<reported-machine-id>'
+```
+
+Traffic is left over from the old installation when the reported machine or
+interface ID does not exist in the new database, Site Explorer has not created
+or paired that host, and the DPU runs NICo-managed services before the new site
+installs its NICo BFB. DPU logs can also report `NotFound`, `MachineNotFound`,
+or entry into isolated mode.
+
+On a systemd-based DPU:
+
+```bash
+systemctl status forge-dpu-agent.service
+journalctl -u forge-dpu-agent.service -e --no-pager
+```
+
+Install the vanilla pre-ingestion BFB instead of adding the old ID or CA to the
+new site.
+
+When Site Explorer reports the BMC endpoint and the new database contains the
+corresponding managed host, continue with
+[Host Ingestion Failures](../playbooks/stuck_objects/host_ingestion_failures.md)
+or
+[DPU Provisioning Failures](../playbooks/stuck_objects/dpu_provisioning_failures.md).
