@@ -16,7 +16,7 @@
  */
 
 use common::api_fixtures::{
-    TEST_RMS_RACK_PROFILE_ID, TestEnvOverrides, create_managed_host,
+    TEST_RMS_RACK_PROFILE_ID, TestEnv, TestEnvOverrides, create_managed_host,
     create_managed_host_with_config, create_test_env, create_test_env_with_overrides,
     get_config_with_rack_profiles,
 };
@@ -40,6 +40,23 @@ use crate::tests::common::api_fixtures::network_segment::{
     create_host_inband_network_segment,
 };
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
+
+/// Returns the NVConfig profile selected for a DPU cloud-init request.
+async fn resolved_dpu_nvconfig_profile(env: &TestEnv, dpu_ip: &str) -> i32 {
+    env.api
+        .get_cloud_init_instructions(
+            rpc::forge::CloudInitInstructionsRequest {
+                ip: dpu_ip.to_string(),
+            }
+            .into_request(),
+        )
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner()
+        .discovery_instructions
+        .expect("DPU should receive discovery instructions")
+        .dpu_nvconfig_profile
+}
 
 // A client_ip that matches a row in machine_interface_addresses (the
 // common admin/host case) should resolve directly to that interface.
@@ -293,7 +310,7 @@ async fn test_zero_dpu_cloud_init_prefers_instance_when_ip_matches_host_interfac
     }
 }
 #[crate::sqlx_test]
-async fn dpu_nvconfig_profile_resolution_follows_host_rack_and_dpu_identity(pool: sqlx::PgPool) {
+async fn dpu_nvconfig_profile_resolution_uses_report_or_rack_and_dpu_identity(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(
         pool,
         TestEnvOverrides::with_config(get_config_with_rack_profiles()),
@@ -354,21 +371,55 @@ async fn dpu_nvconfig_profile_resolution_follows_host_rack_and_dpu_identity(pool
         .to_string();
     txn.rollback().await.unwrap();
 
-    let cloud_init = env
-        .api
-        .get_cloud_init_instructions(
-            rpc::forge::CloudInitInstructionsRequest {
-                ip: dpu_interface_ip,
-            }
-            .into_request(),
-        )
-        .await
-        .expect("get_cloud_init_instructions returned an error")
-        .into_inner();
-    let profile = cloud_init
-        .discovery_instructions
-        .expect("DPU should receive discovery instructions")
-        .dpu_nvconfig_profile;
+    assert_eq!(
+        resolved_dpu_nvconfig_profile(&env, &dpu_interface_ip).await,
+        rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,
+    );
 
-    assert_eq!(profile, rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,);
+    // Non-DPF provisioning sees the same early ingestion window as DPF: the
+    // Redfish report is present, but the host does not have a rack yet.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = NULL WHERE id = $1")
+        .bind(managed_host.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    managed_host
+        .host()
+        .set_exploration_model(&mut txn, "DGX GB200 Compute Tray")
+        .await;
+    assert!(
+        managed_host
+            .host()
+            .db_machine(&mut txn)
+            .await
+            .rack_id
+            .is_none()
+    );
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        resolved_dpu_nvconfig_profile(&env, &dpu_interface_ip).await,
+        rpc::forge::DpuNvConfigProfile::Gb200B3240V1 as i32,
+    );
+
+    // A recognized report is more specific than the rack fallback. A GB300
+    // report must not inherit the GB200 profile from stale rack metadata.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(rack_id.as_str())
+        .bind(managed_host.id)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    managed_host
+        .host()
+        .set_exploration_model(&mut txn, "DGX GB300 Compute Tray")
+        .await;
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        resolved_dpu_nvconfig_profile(&env, &dpu_interface_ip).await,
+        rpc::forge::DpuNvConfigProfile::Unspecified as i32,
+    );
 }

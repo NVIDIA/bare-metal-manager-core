@@ -19,16 +19,20 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
 use kube::Resource;
+use kube::core::ObjectMeta;
 
 use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
-use crate::crds::dpudeployments_generated::DPUDeployment;
+use crate::crds::dpudeployments_generated::{
+    DPUDeployment, DpuDeploymentDpusDpuSets, DpuDeploymentDpusDpuSetsDpuNodeSelector,
+};
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpunodes_generated::{DPUNode, DpuNodeSpec};
 use crate::crds::dpus_generated::{DPU, DpuStatusPhase};
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
@@ -37,14 +41,21 @@ use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
-    DpuDeploymentRepository, DpuFlavorRepository, DpuRepository, DpuServiceConfigurationRepository,
-    DpuServiceInterfaceRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
-    K8sConfigRepository,
+    DpuDeploymentRepository, DpuFlavorRepository, DpuNodeRepository, DpuRepository,
+    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceNADRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
-use crate::sdk::ResourceLabeler;
+use crate::sdk::{DpfSdkBuilder, ResourceLabeler};
 use crate::types::*;
 
 const TEST_NS: &str = "sdk-init-ns";
+const TEST_NODE_NAME: &str = "node-host-001";
+const TEST_DPU_NAME: &str = "node-host-001-device-001";
+const SOURCE_DEPLOYMENT: &str = "bf3-deployment";
+const TARGET_DEPLOYMENT: &str = "gb200-deployment";
+const TEST_FLAVOR: &str = "test-flavor";
+const TEST_BFB: &str = "bf-bundle-abc";
+const OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
 
 fn ns_key(ns: &str, name: &str) -> String {
     format!("{}/{}", ns, name)
@@ -63,6 +74,7 @@ struct InitializationMock {
     bfbs: Arc<DashMap<String, BFB>>,
     bluefield_softwares: Arc<DashMap<String, BlueFieldSoftware>>,
     flavors: Arc<DashMap<String, DPUFlavor>>,
+    nodes: Arc<DashMap<String, DPUNode>>,
     dpus: Arc<DashMap<String, DPU>>,
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
@@ -71,6 +83,9 @@ struct InitializationMock {
     service_interfaces: Arc<DashMap<String, DPUServiceInterface>>,
     configs: Arc<DashMap<String, BTreeMap<String, String>>>,
     secrets: Arc<DashMap<String, BTreeMap<String, Vec<u8>>>>,
+    node_patches: Arc<Mutex<Vec<serde_json::Value>>>,
+    dpu_list_selectors: Arc<Mutex<Vec<Option<String>>>>,
+    dpu_uid_deletes: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -91,6 +106,36 @@ impl ResourceLabeler for InitializationLabeler {
             "test.nvidia.com/deployment-type".to_string(),
             deployment_type.to_string(),
         )]))
+    }
+}
+
+/// Provides selectors with one shared label and one label unique to each BF3
+/// deployment so migration tests can distinguish selector ownership.
+#[derive(Clone, Copy)]
+struct MigrationLabeler;
+
+impl ResourceLabeler for MigrationLabeler {
+    fn node_labels_for_deployment_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        let deployment_label = match deployment_type {
+            DpuDeploymentType::Bf3 => "test.nvidia.com/bf3",
+            DpuDeploymentType::Bf3Gb200 => "test.nvidia.com/bf3gb200",
+            other => {
+                return Err(DpfError::ConfigError(format!(
+                    "no migration test selector for {other:?}"
+                )));
+            }
+        };
+
+        Ok(BTreeMap::from([
+            (
+                "test.nvidia.com/dpu-enabled".to_string(),
+                "true".to_string(),
+            ),
+            (deployment_label.to_string(), "true".to_string()),
+        ]))
     }
 }
 
@@ -173,7 +218,11 @@ impl DpuRepository for InitializationMock {
         Ok(self.dpus.get(&ns_key(ns, name)).map(|dpu| dpu.clone()))
     }
 
-    async fn list(&self, ns: &str, _label_selector: Option<&str>) -> Result<Vec<DPU>, DpfError> {
+    async fn list(&self, ns: &str, label_selector: Option<&str>) -> Result<Vec<DPU>, DpfError> {
+        self.dpu_list_selectors
+            .lock()
+            .unwrap()
+            .push(label_selector.map(str::to_string));
         let prefix = format!("{ns}/");
         Ok(self
             .dpus
@@ -197,6 +246,24 @@ impl DpuRepository for InitializationMock {
         Ok(())
     }
 
+    async fn delete_if_uid(&self, name: &str, ns: &str, uid: &str) -> Result<(), DpfError> {
+        self.dpu_uid_deletes
+            .lock()
+            .unwrap()
+            .push((name.to_string(), uid.to_string()));
+        let current_uid = self
+            .dpus
+            .get(&ns_key(ns, name))
+            .map(|dpu| dpu.metadata.uid.clone())
+            .ok_or_else(|| DpfError::not_found("DPU", name))?;
+        if current_uid.as_deref() != Some(uid) {
+            return Err(DpfError::InvalidState(format!(
+                "DPU {name} no longer has UID {uid}"
+            )));
+        }
+        DpuRepository::delete(self, name, ns).await
+    }
+
     fn watch<F, Fut>(
         &self,
         _ns: &str,
@@ -208,6 +275,54 @@ impl DpuRepository for InitializationMock {
         Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
     {
         futures::future::pending()
+    }
+}
+
+#[async_trait]
+impl DpuNodeRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUNode>, DpfError> {
+        Ok(self.nodes.get(&ns_key(ns, name)).map(|node| node.clone()))
+    }
+
+    async fn list(&self, ns: &str) -> Result<Vec<DPUNode>, DpfError> {
+        let prefix = format!("{ns}/");
+        Ok(self
+            .nodes
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+
+    async fn create(&self, node: &DPUNode) -> Result<DPUNode, DpfError> {
+        self.nodes.insert(resource_key(node), node.clone());
+        Ok(node.clone())
+    }
+
+    async fn patch(&self, name: &str, ns: &str, patch: serde_json::Value) -> Result<(), DpfError> {
+        self.node_patches.lock().unwrap().push(patch.clone());
+
+        if let Some(mut node) = self.nodes.get_mut(&ns_key(ns, name))
+            && let Some(labels) = patch
+                .pointer("/metadata/labels")
+                .and_then(serde_json::Value::as_object)
+        {
+            let node_labels = node.metadata.labels.get_or_insert_with(BTreeMap::new);
+            for (key, value) in labels {
+                if value.is_null() {
+                    node_labels.remove(key);
+                } else if let Some(value) = value.as_str() {
+                    node_labels.insert(key.clone(), value.to_string());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+        self.nodes.remove(&ns_key(ns, name));
+        Ok(())
     }
 }
 
@@ -379,6 +494,491 @@ impl DpfOperatorConfigRepository for InitializationMock {
     }
 }
 
+/// Builds a DPUNode with source deployment labels and one unrelated label that
+/// a migration must preserve.
+fn migration_dpu_node() -> DPUNode {
+    DPUNode {
+        metadata: ObjectMeta {
+            name: Some(TEST_NODE_NAME.to_string()),
+            namespace: Some(TEST_NS.to_string()),
+            resource_version: Some("7".to_string()),
+            labels: Some(BTreeMap::from([
+                (
+                    "test.nvidia.com/dpu-enabled".to_string(),
+                    "true".to_string(),
+                ),
+                ("test.nvidia.com/bf3".to_string(), "true".to_string()),
+                (
+                    "external.nvidia.com/label".to_string(),
+                    "preserved".to_string(),
+                ),
+            ])),
+            ..Default::default()
+        },
+        spec: DpuNodeSpec {
+            dpus: Some(vec![]),
+            node_dms_address: None,
+            node_reboot_method: None,
+        },
+        status: None,
+    }
+}
+
+/// Builds one ready or settling deployment with the selector for its requested
+/// BF3 deployment type.
+fn migration_deployment(
+    name: &str,
+    deployment_type: DpuDeploymentType,
+    ready: bool,
+) -> DPUDeployment {
+    let spec = serde_json::json!({
+        "dpus": {
+            "bfb": TEST_BFB,
+            "flavor": TEST_FLAVOR,
+            "dpuSetStrategy": { "type": "OnDelete" },
+            "nodeEffect": {},
+        },
+        "services": {},
+        "serviceChains": {
+            "switches": [],
+            "upgradePolicy": { "applyNodeEffect": true },
+        },
+    });
+    let status = serde_json::json!({
+        "conditions": [{
+            "type": "DPUSetsReconciled",
+            "status": if ready { "True" } else { "False" },
+            "observedGeneration": 1,
+            "lastTransitionTime": "2026-01-01T00:00:00Z",
+            "reason": "Test",
+        }],
+    });
+    let selector_labels = MigrationLabeler
+        .node_labels_for_deployment_type(deployment_type)
+        .expect("migration test selector");
+    let mut deployment = DPUDeployment {
+        metadata: ObjectMeta {
+            name: Some(name.to_string()),
+            namespace: Some(TEST_NS.to_string()),
+            generation: Some(1),
+            ..Default::default()
+        },
+        spec: serde_json::from_value(spec).expect("valid DPUDeployment spec"),
+        status: Some(serde_json::from_value(status).expect("valid DPUDeployment status")),
+    };
+    deployment.spec.dpus.dpu_sets = Some(vec![DpuDeploymentDpusDpuSets {
+        dpu_annotations: None,
+        dpu_selector: None,
+        name_suffix: "default".to_string(),
+        dpu_node_selector: Some(DpuDeploymentDpusDpuSetsDpuNodeSelector {
+            match_expressions: None,
+            match_labels: Some(selector_labels),
+        }),
+        dpu_cluster_selector: None,
+        dpu_device_selector: None,
+        node_selector: None,
+    }]);
+    deployment
+}
+
+/// Builds one DPU owned by a selected deployment with the configuration fields
+/// that are authoritative after it reaches Ready.
+fn migration_dpu(
+    owner: &str,
+    phase: DpuStatusPhase,
+    flavor: &str,
+    installed_bfb_file: Option<&str>,
+    uid: &str,
+) -> DPU {
+    let mut dpu = super::helpers::make_dpu(TEST_NS, TEST_DPU_NAME, "001", TEST_NODE_NAME, phase);
+    dpu.metadata.labels = Some(BTreeMap::from([(
+        OWNED_BY_DEPLOYMENT_LABEL.to_string(),
+        format!("{TEST_NS}_{owner}"),
+    )]));
+    dpu.metadata.uid = Some(uid.to_string());
+    dpu.spec.dpu_flavor = flavor.to_string();
+    dpu.status.as_mut().expect("DPU status").bfb_file = installed_bfb_file.map(str::to_string);
+    dpu
+}
+
+/// Builds the SDK with migration selectors and returns the target deployment's
+/// phase for the single test DPU.
+async fn target_dpu_phase(mock: InitializationMock) -> Result<Option<DpuPhase>, DpfError> {
+    let phases = DpfSdkBuilder::new(mock, TEST_NS, String::new())
+        .with_labeler(MigrationLabeler)
+        .build_without_resources()
+        .await
+        .expect("migration SDK")
+        .get_dpu_phases_for_deployment_type(
+            &["001".to_string()],
+            TEST_NODE_NAME,
+            DpuDeploymentType::Bf3Gb200,
+        )
+        .await?;
+
+    Ok(phases.and_then(|mut phases| phases.remove("001")))
+}
+
+/// A selector transfer removes and adds the deployment-specific labels in one
+/// version-guarded patch, is idempotent, and repairs a node matching both.
+#[tokio::test]
+async fn deployment_label_transfer_is_atomic_idempotent_and_repairs_partial_state() {
+    let mock = InitializationMock::default();
+    let node = migration_dpu_node();
+    mock.nodes.insert(resource_key(&node), node);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .with_labeler(MigrationLabeler)
+        .build_without_resources()
+        .await
+        .expect("migration SDK");
+
+    sdk.transfer_dpu_node_deployment_labels(
+        TEST_NODE_NAME,
+        DpuDeploymentType::Bf3,
+        DpuDeploymentType::Bf3Gb200,
+    )
+    .await
+    .expect("source-to-target selector transfer");
+
+    {
+        let patches = mock.node_patches.lock().unwrap();
+        assert_eq!(patches.len(), 1);
+        assert_eq!(
+            patches[0]
+                .pointer("/metadata/resourceVersion")
+                .and_then(serde_json::Value::as_str),
+            Some("7")
+        );
+        assert!(patches[0]["metadata"]["labels"]["test.nvidia.com/bf3"].is_null());
+        assert_eq!(
+            patches[0]["metadata"]["labels"]["test.nvidia.com/bf3gb200"],
+            "true"
+        );
+    }
+
+    let node = DpuNodeRepository::get(&mock, TEST_NODE_NAME, TEST_NS)
+        .await
+        .unwrap()
+        .expect("transferred DPUNode");
+    assert_eq!(
+        node.metadata.labels,
+        Some(BTreeMap::from([
+            (
+                "test.nvidia.com/dpu-enabled".to_string(),
+                "true".to_string()
+            ),
+            ("test.nvidia.com/bf3gb200".to_string(), "true".to_string()),
+            (
+                "external.nvidia.com/label".to_string(),
+                "preserved".to_string()
+            ),
+        ]))
+    );
+
+    sdk.transfer_dpu_node_deployment_labels(
+        TEST_NODE_NAME,
+        DpuDeploymentType::Bf3,
+        DpuDeploymentType::Bf3Gb200,
+    )
+    .await
+    .expect("idempotent selector transfer");
+    assert_eq!(mock.node_patches.lock().unwrap().len(), 1);
+
+    mock.nodes
+        .get_mut(&ns_key(TEST_NS, TEST_NODE_NAME))
+        .expect("DPUNode to repair")
+        .metadata
+        .labels
+        .as_mut()
+        .expect("DPUNode labels")
+        .insert("test.nvidia.com/bf3".to_string(), "true".to_string());
+    sdk.transfer_dpu_node_deployment_labels(
+        TEST_NODE_NAME,
+        DpuDeploymentType::Bf3,
+        DpuDeploymentType::Bf3Gb200,
+    )
+    .await
+    .expect("repair selector overlap");
+
+    let node = DpuNodeRepository::get(&mock, TEST_NODE_NAME, TEST_NS)
+        .await
+        .unwrap()
+        .expect("repaired DPUNode");
+    assert!(
+        !node
+            .metadata
+            .labels
+            .expect("DPUNode labels")
+            .contains_key("test.nvidia.com/bf3")
+    );
+    assert_eq!(mock.node_patches.lock().unwrap().len(), 2);
+}
+
+/// A node outside both deployment selectors cannot be claimed by the target
+/// deployment as a side effect of migration.
+#[tokio::test]
+async fn deployment_label_transfer_rejects_unrelated_node() {
+    let mock = InitializationMock::default();
+    let mut node = migration_dpu_node();
+    node.metadata.labels = Some(BTreeMap::from([
+        (
+            "test.nvidia.com/dpu-enabled".to_string(),
+            "true".to_string(),
+        ),
+        (
+            "external.nvidia.com/label".to_string(),
+            "preserved".to_string(),
+        ),
+    ]));
+    mock.nodes.insert(resource_key(&node), node);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .with_labeler(MigrationLabeler)
+        .build_without_resources()
+        .await
+        .expect("migration SDK");
+
+    let error = sdk
+        .transfer_dpu_node_deployment_labels(
+            TEST_NODE_NAME,
+            DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3Gb200,
+        )
+        .await
+        .expect_err("unrelated DPUNode must be rejected");
+
+    assert!(matches!(error, DpfError::InvalidState(_)));
+    assert!(mock.node_patches.lock().unwrap().is_empty());
+}
+
+/// Deployment-scoped reads require one unambiguous live deployment selector.
+#[tokio::test]
+async fn deployment_phase_requires_exactly_one_target_deployment() {
+    for (name, deployment_count, expected_message) in [
+        ("no matching deployment", 0, "no DPUDeployment selects"),
+        (
+            "multiple matching deployments",
+            2,
+            "multiple DPUDeployments select",
+        ),
+    ] {
+        let mock = InitializationMock::default();
+        for index in 0..deployment_count {
+            let deployment = migration_deployment(
+                &format!("target-deployment-{index}"),
+                DpuDeploymentType::Bf3Gb200,
+                true,
+            );
+            mock.deployments
+                .insert(resource_key(&deployment), deployment);
+        }
+
+        let error = target_dpu_phase(mock).await.expect_err(name);
+        assert!(
+            matches!(&error, DpfError::InvalidState(message) if message.contains(expected_message)),
+            "{name}: {error}"
+        );
+    }
+}
+
+/// Target phase reads are owner-scoped; work in progress can be reported by
+/// ownership alone, while Ready requires matching flavor and installed BFB.
+#[tokio::test]
+async fn target_deployment_phase_checks_ownership_and_ready_configuration() {
+    struct Case {
+        name: &'static str,
+        owner: &'static str,
+        phase: DpuStatusPhase,
+        flavor: &'static str,
+        installed_bfb_file: Option<&'static str>,
+        expected_phase: Option<DpuPhase>,
+        expects_error: bool,
+    }
+
+    let cases = [
+        Case {
+            name: "source still owns the DPU",
+            owner: SOURCE_DEPLOYMENT,
+            phase: DpuStatusPhase::Ready,
+            flavor: TEST_FLAVOR,
+            installed_bfb_file: Some("/bfb/sdk-init-ns-bf-bundle-abc.bfb"),
+            expected_phase: None,
+            expects_error: false,
+        },
+        Case {
+            name: "target owns a DPU still installing",
+            owner: TARGET_DEPLOYMENT,
+            phase: DpuStatusPhase::OsInstalling,
+            flavor: "old-flavor",
+            installed_bfb_file: None,
+            expected_phase: Some(DpuPhase::Provisioning("OsInstalling".to_string())),
+            expects_error: false,
+        },
+        Case {
+            name: "target owns a matching Ready DPU",
+            owner: TARGET_DEPLOYMENT,
+            phase: DpuStatusPhase::Ready,
+            flavor: TEST_FLAVOR,
+            installed_bfb_file: Some("/bfb/sdk-init-ns-bf-bundle-abc.bfb"),
+            expected_phase: Some(DpuPhase::Ready),
+            expects_error: false,
+        },
+        Case {
+            name: "Ready flavor drift",
+            owner: TARGET_DEPLOYMENT,
+            phase: DpuStatusPhase::Ready,
+            flavor: "old-flavor",
+            installed_bfb_file: Some("/bfb/sdk-init-ns-bf-bundle-abc.bfb"),
+            expected_phase: None,
+            expects_error: true,
+        },
+        Case {
+            name: "Ready BFB drift",
+            owner: TARGET_DEPLOYMENT,
+            phase: DpuStatusPhase::Ready,
+            flavor: TEST_FLAVOR,
+            installed_bfb_file: Some("/bfb/sdk-init-ns-bf-bundle-old.bfb"),
+            expected_phase: None,
+            expects_error: true,
+        },
+    ];
+
+    for case in cases {
+        let mock = InitializationMock::default();
+        let deployment = migration_deployment(TARGET_DEPLOYMENT, DpuDeploymentType::Bf3Gb200, true);
+        mock.deployments
+            .insert(resource_key(&deployment), deployment);
+        let dpu = migration_dpu(
+            case.owner,
+            case.phase,
+            case.flavor,
+            case.installed_bfb_file,
+            "dpu-uid",
+        );
+        mock.dpus.insert(resource_key(&dpu), dpu);
+
+        let result = target_dpu_phase(mock.clone()).await;
+        if case.expects_error {
+            assert!(
+                matches!(result, Err(DpfError::InvalidState(_))),
+                "{}: {result:?}",
+                case.name
+            );
+        } else {
+            assert_eq!(result.unwrap(), case.expected_phase, "{}", case.name);
+        }
+        assert_eq!(
+            *mock.dpu_list_selectors.lock().unwrap(),
+            vec![Some(format!(
+                "{OWNED_BY_DEPLOYMENT_LABEL}={TEST_NS}_{TARGET_DEPLOYMENT}"
+            ))],
+            "{}",
+            case.name
+        );
+    }
+}
+
+/// Source deletion uses the observed UID and a retry preserves a replacement
+/// already owned by the target deployment.
+#[tokio::test]
+async fn deployment_migration_deletion_is_uid_guarded_and_preserves_target_replacement() {
+    let mock = InitializationMock::default();
+    for (name, deployment_type) in [
+        (SOURCE_DEPLOYMENT, DpuDeploymentType::Bf3),
+        (TARGET_DEPLOYMENT, DpuDeploymentType::Bf3Gb200),
+    ] {
+        let deployment = migration_deployment(name, deployment_type, true);
+        mock.deployments
+            .insert(resource_key(&deployment), deployment);
+    }
+    let source_dpu = migration_dpu(
+        SOURCE_DEPLOYMENT,
+        DpuStatusPhase::Ready,
+        TEST_FLAVOR,
+        Some("/bfb/sdk-init-ns-bf-bundle-abc.bfb"),
+        "source-uid",
+    );
+    mock.dpus.insert(resource_key(&source_dpu), source_dpu);
+    let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NS, String::new())
+        .with_labeler(MigrationLabeler)
+        .build_without_resources()
+        .await
+        .expect("migration SDK");
+
+    sdk.delete_source_dpus_for_deployment_migration(
+        &["001".to_string()],
+        TEST_NODE_NAME,
+        DpuDeploymentType::Bf3,
+        DpuDeploymentType::Bf3Gb200,
+    )
+    .await
+    .expect("source DPU deletion");
+    assert!(
+        DpuRepository::get(&mock, TEST_DPU_NAME, TEST_NS)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        *mock.dpu_uid_deletes.lock().unwrap(),
+        vec![(TEST_DPU_NAME.to_string(), "source-uid".to_string())]
+    );
+
+    let target_replacement = migration_dpu(
+        TARGET_DEPLOYMENT,
+        DpuStatusPhase::OsInstalling,
+        TEST_FLAVOR,
+        None,
+        "target-uid",
+    );
+    mock.dpus
+        .insert(resource_key(&target_replacement), target_replacement);
+    sdk.delete_source_dpus_for_deployment_migration(
+        &["001".to_string()],
+        TEST_NODE_NAME,
+        DpuDeploymentType::Bf3,
+        DpuDeploymentType::Bf3Gb200,
+    )
+    .await
+    .expect("migration retry");
+
+    let replacement = DpuRepository::get(&mock, TEST_DPU_NAME, TEST_NS)
+        .await
+        .unwrap()
+        .expect("target replacement must remain");
+    assert_eq!(replacement.metadata.uid.as_deref(), Some("target-uid"));
+    assert_eq!(mock.dpu_uid_deletes.lock().unwrap().len(), 1);
+}
+
+/// A conditional delete must preserve a replacement DPU whose UID differs
+/// from the stale object observed by the migration reconciler.
+#[tokio::test]
+async fn conditional_dpu_delete_rejects_uid_mismatch() {
+    let mock = InitializationMock::default();
+    let dpu_name = "node-host-device-dpu";
+    let mut replacement = super::helpers::make_dpu(
+        TEST_NS,
+        dpu_name,
+        "device-dpu",
+        "node-host",
+        DpuStatusPhase::Ready,
+    );
+    replacement.metadata.uid = Some("replacement-uid".to_string());
+    mock.dpus.insert(resource_key(&replacement), replacement);
+
+    let error = DpuRepository::delete_if_uid(&mock, dpu_name, TEST_NS, "stale-uid")
+        .await
+        .expect_err("a stale UID must not delete the replacement DPU");
+
+    assert!(matches!(error, DpfError::InvalidState(_)));
+    assert!(
+        DpuRepository::get(&mock, dpu_name, TEST_NS)
+            .await
+            .unwrap()
+            .is_some(),
+        "the replacement DPU must remain after the rejected delete"
+    );
+}
+
 #[tokio::test]
 async fn test_create_initialization_objects() {
     let mock = InitializationMock::default();
@@ -500,9 +1100,19 @@ async fn bf3_and_gb200_initialization_persists_distinct_resources() {
             .any(|parameter| parameter == "OFF_BOARD_SERIALIZER=1")
     );
     assert!(
+        bf3_nvconfig
+            .iter()
+            .any(|parameter| parameter == "PF_TOTAL_SF=30")
+    );
+    assert!(
         gb200_nvconfig
             .iter()
             .any(|parameter| parameter == "OFF_BOARD_SERIALIZER=1")
+    );
+    assert!(
+        gb200_nvconfig
+            .iter()
+            .any(|parameter| parameter == "PF_TOTAL_SF=128")
     );
 
     let bf3_service = bf3_deployment
