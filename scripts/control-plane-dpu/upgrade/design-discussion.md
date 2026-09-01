@@ -76,9 +76,12 @@ considered:
 ### Password policy: keep by default
 
 Fleet operators should not have to re-socialize a new DPU password on every
-firmware upgrade. During the bf.cfg refresh, the existing
-`ubuntu_PASSWORD=` line is carried over from the old prepared `bf.cfg` by
-default. `--replace-ubuntu-password` installs the upgrade ISO's hash instead.
+firmware upgrade. The backup fetch also reads the DPU's **live** ubuntu
+shadow hash (same SSH session — one password prompt; best-effort, needs root
+or passwordless sudo), so a password rotated after initial provisioning is
+preserved too. During the bf.cfg refresh the live hash is preferred; the
+`ubuntu_PASSWORD=` line from the old prepared `bf.cfg` is the fallback.
+`--replace-ubuntu-password` installs the upgrade ISO's hash instead.
 Hosts without previous credentials, and any `--regenerate-dpu-credentials`
 run, necessarily get the ISO's hash (there is no old one to keep). The ISO
 build still requires `--ubuntu-password-hash` for exactly those cases.
@@ -120,9 +123,11 @@ DPU), so a saved `startup.yaml` cannot be fetched or copied in at run time.
 configs under `startup-configs/`; `upgrade-install.sh` copies them into the
 working directory for use with `--startup-yaml-file`. Known caveats: the new
 DPU has a different p0 MAC, so host netplan must be updated manually (the
-toolchain never writes netplan), and the post-power-cycle MAC validation
-passes by design — it verifies the MAC did not change *during* the upgrade,
-and the pre-flash capture already sees the new DPU.
+toolchain never writes netplan). The before/after MAC comparison passes by
+design in this scenario (the pre-flash capture already sees the new card), so
+`upgrade-post-power-cycle.sh` additionally cross-checks that a file under
+`/etc/netplan/` references the detected MAC and warns when none does —
+catching a forgotten netplan update instead of reporting a false all-clear.
 
 ### Host package handling on upgrade
 

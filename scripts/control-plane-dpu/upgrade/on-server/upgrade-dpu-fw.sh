@@ -88,6 +88,9 @@ for _arg in "$@"; do [[ "$_arg" == "--help" || "$_arg" == "-h" ]] && usage; done
 
 [[ "$(id -u)" -ne 0 ]] && die "must be run as root"
 LOG_FILE="$SCRIPT_DIR/upgrade.log"
+# The log can carry sensitive material (e.g. traced credential handling) —
+# keep it root-only regardless of the ambient umask.
+touch "$LOG_FILE" && chmod 600 "$LOG_FILE"
 # Keep the original stderr on fd 4: when there is no usable /dev/tty (e.g. a
 # session without a controlling terminal), tee dies and the first write to
 # fd 3 would kill the script silently with SIGPIPE.
@@ -130,7 +133,7 @@ REPLACE_UBUNTU_PASSWORD=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --ssh-key)           [[ -z "${2:-}" ]] && die "--ssh-key requires a value"; SSH_KEY="$2"; AUTH_MODE="key"; shift 2 ;;
+        --ssh-key)           [[ -z "${2:-}" ]] && die "--ssh-key requires a value"; [[ -n "$AUTH_MODE" ]] && die "--ssh-key and --auth are mutually exclusive"; SSH_KEY="$2"; AUTH_MODE="key"; shift 2 ;;
         --auth)              [[ "${2:-}" != "password" ]] && die "--auth only supports 'password' (use --ssh-key for key auth)"; [[ -n "$AUTH_MODE" ]] && die "--auth and --ssh-key are mutually exclusive"; AUTH_MODE="password"; shift 2 ;;
         --startup-yaml-file) [[ -z "${2:-}" ]] && die "--startup-yaml-file requires a value"; STARTUP_YAML_FILE="$2"; shift 2 ;;
         --dpu-user)          [[ -z "${2:-}" ]] && die "--dpu-user requires a value"; DPU_LOGIN_USER="$2"; shift 2 ;;
@@ -209,6 +212,7 @@ mkdir -p "$TOUCHFILES_DIR" "$SCRIPT_DIR/backup"
 TOUCHFILE_UPGRADE_BACKUP="$TOUCHFILES_DIR/upgradebackup"
 BACKUP_STARTUP_YAML="$SCRIPT_DIR/backup/startup.yaml"
 BACKUP_P0_MAC="$SCRIPT_DIR/backup/p0_mac"
+BACKUP_UBUNTU_SHADOW="$SCRIPT_DIR/backup/ubuntu_shadow"
 
 # ── Pre-upgrade backup ─────────────────────────────────────────────────────────
 
@@ -243,14 +247,22 @@ upgrade_backup() {
             setup_tmfifo
         fi
 
+        # Persist the DPU host key across retries/resume: first contact is
+        # trusted (accept-new), later connections must present the same key.
+        UPGRADE_KNOWN_HOSTS="$SCRIPT_DIR/backup/known_hosts"
         build_upgrade_ssh_opts "$AUTH_MODE" "$SSH_KEY" \
             || die "could not set up SSH options for the DPU login"
 
-        local remote_cmd
+        # One SSH session fetches both the live startup.yaml and the DPU's
+        # LIVE ubuntu password hash (it may have been rotated since initial
+        # provisioning, in which case the prepared bf.cfg's copy is stale).
+        # A single session means password auth prompts only once. The shadow
+        # read is best-effort (`|| true`): it needs root or passwordless sudo.
+        local remote_cmd _shadow_marker="__DPU_UPGRADE_SHADOW__"
         if [ "$DPU_LOGIN_USER" = "root" ]; then
-            remote_cmd="cat '$STARTUP_YAML_PATH'"
+            remote_cmd="{ cat '$STARTUP_YAML_PATH'; echo '$_shadow_marker'; getent shadow ubuntu || true; }"
         else
-            remote_cmd="sudo -n cat '$STARTUP_YAML_PATH' 2>/dev/null || cat '$STARTUP_YAML_PATH'"
+            remote_cmd="{ sudo -n cat '$STARTUP_YAML_PATH' 2>/dev/null || cat '$STARTUP_YAML_PATH'; echo '$_shadow_marker'; sudo -n getent shadow ubuntu 2>/dev/null || true; }"
         fi
 
         echo "Fetching $STARTUP_YAML_PATH from ${DPU_LOGIN_USER}@${DPU_LOGIN_HOST}..." >&3
@@ -258,10 +270,12 @@ upgrade_backup() {
             echo "You will be prompted for the password of '${DPU_LOGIN_USER}' on the DPU." >&3
         fi
 
-        local _tmp
+        local _raw _tmp
+        _raw="$(mktemp "$SCRIPT_DIR/backup/fetch.XXXXXX")"
         _tmp="$(mktemp "$SCRIPT_DIR/backup/startup.yaml.XXXXXX")"
-        if ! ssh "${UPGRADE_SSH_OPTS[@]}" "${DPU_LOGIN_USER}@${DPU_LOGIN_HOST}" "$remote_cmd" > "$_tmp"; then
-            rm -f "$_tmp"
+        chmod 600 "$_raw" "$_tmp"
+        if ! ssh "${UPGRADE_SSH_OPTS[@]}" "${DPU_LOGIN_USER}@${DPU_LOGIN_HOST}" "$remote_cmd" > "$_raw"; then
+            rm -f "$_raw" "$_tmp"
             echo "ERROR: failed to fetch $STARTUP_YAML_PATH from ${DPU_LOGIN_USER}@${DPU_LOGIN_HOST} — check credentials and that the DPU is reachable (see $LOG_FILE)." >&3
             if [ "$AUTH_MODE" = "key" ]; then
                 echo "" >&3
@@ -275,6 +289,32 @@ upgrade_backup() {
             echo "  $SCRIPT_DIR/upgrade-dpu-fw.sh --startup-yaml-file <saved-startup.yaml>" >&3
             exit 1
         fi
+        # Split the combined fetch: startup.yaml before the marker, the shadow
+        # entry after it. Suppress xtrace while hash material is handled so it
+        # never reaches the log.
+        local _xt=false
+        case "$-" in *x*) _xt=true; set +x ;; esac
+        awk -v marker="$_shadow_marker" -v yaml="$_tmp" -v shadow="$BACKUP_UBUNTU_SHADOW" \
+            '$0 == marker {found=1; next} !found {print > yaml} found {print > shadow}' "$_raw"
+        rm -f "$_raw"
+        if [ -s "$BACKUP_UBUNTU_SHADOW" ]; then
+            chmod 600 "$BACKUP_UBUNTU_SHADOW"
+            local _live_hash
+            _live_hash="$(cut -d: -f2 "$BACKUP_UBUNTU_SHADOW")"
+            if [ "${_live_hash#\$}" != "$_live_hash" ]; then
+                [ "$_xt" = true ] && set -x
+                echo "Captured the DPU's live ubuntu password hash — 'keep password' will preserve it." >&3
+            else
+                rm -f "$BACKUP_UBUNTU_SHADOW"
+                [ "$_xt" = true ] && set -x
+                echo "NOTE: the DPU's live password hash is unavailable or not a crypt hash — 'keep password' will use the hash recorded at initial provisioning." >&3
+            fi
+        else
+            rm -f "$BACKUP_UBUNTU_SHADOW"
+            [ "$_xt" = true ] && set -x
+            echo "NOTE: could not read the DPU's live password hash (needs root or passwordless sudo) — 'keep password' will use the hash recorded at initial provisioning." >&3
+        fi
+
         validate_saved_startup_yaml "$_tmp" || { rm -f "$_tmp"; die "fetched startup.yaml is empty — refusing to continue"; }
         if ! grep -q "set" "$_tmp"; then
             echo "WARNING: saved startup.yaml has no 'set' entries — it may not be an NVUE config. Continuing anyway." >&3
@@ -338,14 +378,26 @@ refresh_prepared_bf_cfg() {
     if [ "$REPLACE_UBUNTU_PASSWORD" = true ]; then
         echo "--replace-ubuntu-password: the DPU will receive this ISO's ubuntu password hash." >&3
     else
-        local old_pw_line
-        old_pw_line="$(grep -m1 '^ubuntu_PASSWORD=' "$_dpu_ssh_bf_prepared" || true)"
+        # Suppress xtrace while the password hash is in shell variables so it
+        # never lands in the log via the trace output.
+        local old_pw_line="" _live_hash _xtrace_was_on=false
+        case "$-" in *x*) _xtrace_was_on=true; set +x ;; esac
+        # Prefer the LIVE hash captured from the DPU during the backup — the
+        # prepared bf.cfg's copy is the provisioning-time hash and is stale if
+        # the password was rotated on the DPU since.
+        if [ -s "$BACKUP_UBUNTU_SHADOW" ]; then
+            _live_hash="$(cut -d: -f2 "$BACKUP_UBUNTU_SHADOW")"
+            [ "${_live_hash#\$}" != "$_live_hash" ] && old_pw_line="ubuntu_PASSWORD='${_live_hash}'"
+        fi
+        [ -z "$old_pw_line" ] && old_pw_line="$(grep -m1 '^ubuntu_PASSWORD=' "$_dpu_ssh_bf_prepared" || true)"
         if [ -n "$old_pw_line" ]; then
             awk -v repl="$old_pw_line" '/^ubuntu_PASSWORD=/ {print repl; next} {print}' "$_tmp" > "${_tmp}.pw"
             chmod 600 "${_tmp}.pw"
             mv -f "${_tmp}.pw" "$_tmp"
+            [ "$_xtrace_was_on" = true ] && set -x
             echo "Keeping the DPU's existing ubuntu password (pass --replace-ubuntu-password to install this ISO's instead)." >&3
         else
+            [ "$_xtrace_was_on" = true ] && set -x
             echo "WARNING: existing bf.cfg has no ubuntu_PASSWORD line — the DPU will receive this ISO's password hash." >&3
         fi
     fi
@@ -379,9 +431,16 @@ start_rshim
 upgrade_backup
 
 if [ "$REGEN_CREDENTIALS" = true ]; then
-    echo "Regenerating DPU provisioning credentials (--regenerate-dpu-credentials)..." >&3
-    rm -rf /root/.dpu_provision
-    rm -f /var/dpu_ssh_prepared
+    # Never wipe after a completed flash: the flashed DPU authorizes the
+    # CURRENT host key and install_bfb is skipped on resume, so a fresh key
+    # could never be injected — the host would be locked out of the DPU.
+    if [ -f "$TOUCHFILE_BFB_UPDATED" ]; then
+        echo "--regenerate-dpu-credentials ignored: the DPU was already flashed in an earlier run and authorizes the current host key. Continuing the resume; regenerate on the next upgrade instead." >&3
+    else
+        echo "Regenerating DPU provisioning credentials (--regenerate-dpu-credentials)..." >&3
+        rm -rf /root/.dpu_provision
+        rm -f "$DPU_SSH_TOUCHFILE"
+    fi
 fi
 
 refresh_prepared_bf_cfg

@@ -63,9 +63,14 @@ openssl passwd -6 'yourpassword'
   --hbn-container-tag 3.2.2-doca3.2.2 \
   --doca-host-url https://www.mellanox.com/downloads/DOCA/DOCA_v2.10.0/host/doca-host_2.10.0-093000-25.01-ubuntu2404_amd64.deb \
   --rshim-url     https://github.com/Mellanox/rshim-user-space/releases/download/rshim-2.3.1/rshim_2.3.1_amd64.deb \
-  --libfuse2-url  http://archive.ubuntu.com/ubuntu/pool/universe/f/fuse/libfuse2t64_2.9.9-8.1build1_amd64.deb \
+  --libfuse2-url  https://archive.ubuntu.com/ubuntu/pool/universe/f/fuse/libfuse2t64_2.9.9-8.1build1_amd64.deb \
   --output-dir    ./output
 ```
+
+Match the `--doca-host-url` package to your target `--doca-version` per
+NVIDIA's DOCA compatibility guidance — the installer flashes the BFB and
+installs the host tooling as one coherent set. The versions shown are from a
+validated lab combination; substitute the pairing published for your release.
 
 **Option B — reuse pre-downloaded artifacts** (from
 `../download-build-dpu-artifacts.sh`, exactly as for the install ISO — the
@@ -149,9 +154,12 @@ Nothing is flashed until the backup has succeeded.
 
 - **Its previous `startup.yaml`** (or the file you supplied).
 - **Its previous ubuntu password**, on hosts provisioned by this toolchain.
-  Add `--replace-ubuntu-password` to switch to the password baked into this
-  ISO. Hosts without previous provisioning credentials always get this ISO's
-  password.
+  The live password is read from the DPU during the backup (so a password
+  rotated since initial provisioning is preserved too); when that read is not
+  possible, the hash recorded at initial provisioning is used and the script
+  says so. Add `--replace-ubuntu-password` to switch to the password baked
+  into this ISO. Hosts without previous provisioning credentials always get
+  this ISO's password.
 - **A working provisioning SSH key** at
   `/root/.dpu_provision/dpu_provision_ed25519` — the existing one if present,
   a new one otherwise. Add `--regenerate-dpu-credentials` to rotate it (this
@@ -209,6 +217,8 @@ After `upgrade-install.sh`, the configs are available under
 `--startup-yaml-file` at the right one. After the upgrade, update the MAC in
 the host's netplan config to the new DPU's p0 MAC (`netplan generate &&
 netplan apply`); this toolchain never edits netplan for you.
+`upgrade-post-power-cycle.sh` warns if no netplan file references the
+detected MAC, so a forgotten update is caught rather than silently passed.
 
 #### Options for non-default DPUs
 
@@ -238,10 +248,11 @@ Reconnect via the BMC console once the host has booted:
 /var/lib/dpu-upgrade/<version>/upgrade-post-power-cycle.sh
 ```
 
-This verifies that the HBN container is running and that the BlueField p0 MAC
-address is **unchanged** from before the upgrade. No netplan is written — the
-host's existing network configuration matches the DPU by MAC, so an unchanged
-MAC means it keeps working as-is. On success you will see:
+This verifies that the HBN container is running, that the BlueField p0 MAC
+address is **unchanged** from before the upgrade, and that the host netplan
+actually **references that MAC** (so a DPU swapped before the upgrade cannot
+produce a false all-clear). No netplan is ever written. On success you will
+see:
 
 ```text
 DPU firmware upgrade complete
@@ -250,8 +261,10 @@ DPU firmware upgrade complete
 If the MAC **did** change (e.g. the DPU hardware was replaced rather than
 upgraded), the script fails and prints both MACs. Update the MAC in your
 netplan config (e.g. `/etc/netplan/99_config.yaml`), run
-`netplan generate && netplan apply`, record the new MAC in
-`backup/p0_mac`, and re-run the script — it tells you the exact commands.
+`netplan generate && netplan apply`, acknowledge the new MAC in
+`backup/p0_mac.replaced`, and re-run the script — it tells you the exact
+commands. The pre-flash record in `backup/p0_mac` is never overwritten, so it
+stays available for audit.
 
 ---
 

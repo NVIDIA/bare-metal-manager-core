@@ -62,12 +62,15 @@ detect_bluefield_p0_mac() {
 #   build_upgrade_ssh_opts password
 # Password mode relies on ssh's own interactive prompt on the console — the
 # password is never passed on a command line or stored on disk.
+# The caller may set UPGRADE_KNOWN_HOSTS to a file path so the DPU host key
+# accepted on first contact is persisted and verified on later connections
+# (retries, resume) instead of being re-trusted every time.
 UPGRADE_SSH_OPTS=()
 build_upgrade_ssh_opts() {
     local mode="$1" key="${2:-}"
     local -a common=(
         -o StrictHostKeyChecking=accept-new
-        -o UserKnownHostsFile=/dev/null
+        -o "UserKnownHostsFile=${UPGRADE_KNOWN_HOSTS:-/dev/null}"
         -o ConnectTimeout=10
         -o ServerAliveInterval=30
         -o ServerAliveCountMax=3

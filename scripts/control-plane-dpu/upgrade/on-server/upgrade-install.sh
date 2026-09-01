@@ -140,7 +140,13 @@ install_or_upgrade_pkg() {
 
     dpkg -s "$pkg" | grep -q "Status: install ok installed" \
         || die "$pkg installation verification failed"
-    log "$pkg $(dpkg -s "$pkg" | awk '/^Version:/{print $2}') installed and verified"
+    # apt-get --fix-broken may settle on a version other than the ISO's .deb
+    # (e.g. by keeping the old one) — verify what actually ended up installed.
+    local final_ver
+    final_ver=$(dpkg -s "$pkg" | awk '/^Version:/{print $2}')
+    dpkg --compare-versions "$final_ver" ge "$deb_ver" \
+        || die "$pkg ended up at ${final_ver}, older than the ISO's ${deb_ver} — dependency repair did not apply the upgrade. Fix manually, or re-run with --skip-package-upgrade to accept ${final_ver}."
+    log "$pkg ${final_ver} installed and verified"
 }
 
 # ── OS version check ──────────────────────────────────────────────────────────
@@ -220,7 +226,7 @@ _avail_kb=$(df -Pk "$WORK_DIR" | awk 'NR==2{print $4}')
 (( _avail_kb > _needed_kb )) \
     || die "Insufficient space in $WORK_DIR: need ~$(( _needed_kb / 1024 ))MiB, have $(( _avail_kb / 1024 ))MiB"
 _copied=0
-for pattern in "*.bfb" "*.bfb.gz" "*.deb" "*.deb.gz" "*.tar.gz" "*.zip.gz"; do
+for pattern in "*.bfb" "*.bfb.gz" "*.deb" "*.deb.gz" "*.tar" "*.tar.gz" "*.zip" "*.zip.gz"; do
     for f in "$SCRIPT_DIR"/$pattern; do
         [[ -e "$f" ]] || continue
         # Skip the full ISO zip — it is not needed at runtime

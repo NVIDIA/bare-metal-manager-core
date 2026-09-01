@@ -83,9 +83,14 @@ trap cleanup EXIT
 set -eux
 
 update_progress 11
+# update_progress 11 sets CUR_STEP=FINAL_STEP, which would make the cleanup
+# EXIT trap report success even when the MAC validation below fails. Keep
+# CUR_STEP below final until every check has passed.
+CUR_STEP=$(( FINAL_STEP - 1 ))
 check_hbn_container
 # check_hbn_container re-runs start_rshim/setup_tmfifo, which rewind CUR_STEP.
 update_progress 11
+CUR_STEP=$(( FINAL_STEP - 1 ))
 
 # ── Validate the BlueField p0 MAC instead of writing netplan ──────────────────
 
@@ -93,8 +98,17 @@ echo "Validating that the BlueField p0 MAC address is unchanged..." >&3
 ACTUAL_MAC="$(detect_bluefield_p0_mac 3 10)" \
     || die "could not detect the BlueField p0 MAC after the upgrade (see $LOG_FILE)"
 
+# backup/p0_mac is the immutable pre-flash record. An operator who has dealt
+# with a hardware swap acknowledges the new MAC in a SEPARATE file so the
+# original stays available for audit and a re-run cannot self-compare.
+BACKUP_P0_MAC_REPLACED="$SCRIPT_DIR/backup/p0_mac.replaced"
+
 if macs_equal "$EXPECTED_MAC" "$ACTUAL_MAC"; then
-    echo "BlueField p0 MAC unchanged: $ACTUAL_MAC — existing netplan remains valid." >&3
+    echo "BlueField p0 MAC unchanged since the pre-flash backup: $ACTUAL_MAC" >&3
+elif [ -s "$BACKUP_P0_MAC_REPLACED" ] && macs_equal "$(cat "$BACKUP_P0_MAC_REPLACED")" "$ACTUAL_MAC"; then
+    echo "BlueField p0 MAC changed (pre-flash: $EXPECTED_MAC, now: $ACTUAL_MAC) and the" >&3
+    echo "replacement was acknowledged in $BACKUP_P0_MAC_REPLACED." >&3
+    echo "Ensure the host netplan has been updated to the new MAC." >&3
 else
     echo "ERROR: BlueField p0 MAC changed during the upgrade!" >&3
     echo "  before: $EXPECTED_MAC" >&3
@@ -102,10 +116,24 @@ else
     echo "The existing host netplan matches the old MAC, so host networking will" >&3
     echo "not come up through the DPU. If the DPU hardware was replaced, update" >&3
     echo "the MAC in your netplan config (e.g. /etc/netplan/99_config.yaml)," >&3
-    echo "run 'netplan generate && netplan apply', then record the new MAC with" >&3
-    echo "  echo '$ACTUAL_MAC' > $BACKUP_P0_MAC" >&3
-    echo "and re-run this script to complete verification." >&3
+    echo "run 'netplan generate && netplan apply', then acknowledge the new MAC with" >&3
+    echo "  echo '$ACTUAL_MAC' > $BACKUP_P0_MAC_REPLACED" >&3
+    echo "and re-run this script. (The pre-flash record in $BACKUP_P0_MAC is kept as-is.)" >&3
     exit 1
+fi
+
+# The before/after comparison proves the DPU did not change during THIS
+# upgrade — but not that the host netplan references it. A replaced DPU that
+# was swapped before the upgrade records the new card's MAC on both sides, so
+# only a netplan cross-check gives real assurance about host networking.
+if grep -rqiF "$ACTUAL_MAC" /etc/netplan/ 2>/dev/null; then
+    echo "Host netplan references $ACTUAL_MAC — network configuration is consistent." >&3
+else
+    echo "WARNING: no file under /etc/netplan/ references $ACTUAL_MAC." >&3
+    echo "If this host's netplan matches the DPU by MAC (site controllers do), host" >&3
+    echo "networking will NOT come up: update the MAC in your netplan config and run" >&3
+    echo "'netplan generate && netplan apply'. If your netplan matches interfaces by" >&3
+    echo "name instead, this warning can be ignored." >&3
 fi
 
 CUR_STEP=$FINAL_STEP

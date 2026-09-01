@@ -31,6 +31,17 @@ assert_false "no BatchMode (would block the prompt)" "[[ \"\$_opts\" == *'BatchM
 assert_false "no -i option"             "[[ \"\$_opts\" == *' -i '* ]]"
 
 echo ""
+echo "=== known-hosts handling ==="
+build_upgrade_ssh_opts password
+_opts=" ${UPGRADE_SSH_OPTS[*]} "
+assert_true  "defaults to /dev/null"       "[[ \"\$_opts\" == *'UserKnownHostsFile=/dev/null'* ]]"
+UPGRADE_KNOWN_HOSTS="$_tmpdir/known_hosts"
+build_upgrade_ssh_opts password
+_opts=" ${UPGRADE_SSH_OPTS[*]} "
+assert_true  "honors UPGRADE_KNOWN_HOSTS"  "[[ \"\$_opts\" == *'UserKnownHostsFile=$_tmpdir/known_hosts'* ]]"
+unset UPGRADE_KNOWN_HOSTS
+
+echo ""
 echo "=== error cases ==="
 assert_false "key mode without a key path fails"   "build_upgrade_ssh_opts key ''"
 assert_false "key mode with missing key fails"     "build_upgrade_ssh_opts key '$_tmpdir/no-such-key'"
