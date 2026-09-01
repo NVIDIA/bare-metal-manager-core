@@ -43,7 +43,7 @@
 use bmc_vendor::DpuModel;
 use carbide_redfish::libredfish::CredentialOpError;
 use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, MachineId};
 use eyre::eyre;
 use model::machine::{Machine, ManagedHostState, ManagedHostStateSnapshot};
 use state_controller::state_handler::{
@@ -97,10 +97,10 @@ async fn should_rotate_dpu_uefi(
 pub(crate) async fn select_dpu_for_uefi_rotation(
     services: &MachineStateHandlerServices,
     mh: &ManagedHostStateSnapshot,
-) -> Result<Option<MachineId>, StateHandlerError> {
+) -> Result<Option<DpuMachineId>, StateHandlerError> {
     for dpu in &mh.dpu_snapshots {
         if should_rotate_dpu_uefi(services, dpu).await? {
-            return Ok(Some(dpu.id));
+            return Ok(Some(dpu.dpu_machine_id()?));
         }
     }
     Ok(None)

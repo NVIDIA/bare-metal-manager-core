@@ -24,7 +24,9 @@ use std::str::FromStr;
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{HostMachineId, MachineId, MachineType};
+use carbide_uuid::machine::{
+    DpuMachineId, HostMachineId, MachineId, MachineIdSubtypeTrait, MachineType, StableHostMachineId,
+};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use chrono::{DateTime, Utc};
@@ -213,14 +215,19 @@ pub async fn get_or_create(
     }
 }
 
-pub async fn find_one(
+pub async fn find_one<ID>(
     txn: impl DbReader<'_>,
-    id: &MachineId,
+    id: &ID,
     search_config: MachineSearchConfig,
-) -> Result<Option<Machine>, DatabaseError> {
-    Ok(find(txn, ObjectFilter::One(*id), search_config)
-        .await?
-        .pop())
+) -> Result<Option<Machine>, DatabaseError>
+where
+    ID: MachineIdSubtypeTrait,
+{
+    Ok(
+        find(txn, ObjectFilter::One(*id.as_machine_id()), search_config)
+            .await?
+            .pop(),
+    )
 }
 
 pub async fn find_existing_machine(
@@ -327,11 +334,14 @@ pub async fn advance(
 /// * `filter`        - An ObjectFilter to control the size of the response set
 /// * `search_config` - A MachineSearchConfig with search options to control the
 ///   records selected
-pub async fn find(
+pub async fn find<ID>(
     txn: impl DbReader<'_>,
-    filter: ObjectFilter<'_, MachineId>,
+    filter: ObjectFilter<'_, ID>,
     search_config: MachineSearchConfig,
-) -> Result<Vec<Machine>, DatabaseError> {
+) -> Result<Vec<Machine>, DatabaseError>
+where
+    ID: MachineIdSubtypeTrait,
+{
     // The TRUE will be optimized away by the query planner,
     // but it simplifies the rest of the building for us.
     lazy_static! {
@@ -875,7 +885,7 @@ pub async fn update_last_scout_observed_version(
 
 pub async fn find_host_by_dpu_machine_id(
     txn: &mut PgConnection,
-    dpu_machine_id: &MachineId,
+    dpu_machine_id: &DpuMachineId,
 ) -> Result<Option<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -897,15 +907,15 @@ pub async fn find_host_by_dpu_machine_id(
 
 pub async fn lookup_host_machine_ids_by_dpu_ids(
     conn: impl DbReader<'_>,
-    dpu_machine_ids: &[MachineId],
-) -> Result<HashMap<MachineId, HostMachineId>, DatabaseError> {
+    dpu_machine_ids: &[DpuMachineId],
+) -> Result<HashMap<DpuMachineId, HostMachineId>, DatabaseError> {
     let query = r#"SELECT mi.attached_dpu_machine_id, mi.machine_id
         FROM machine_interfaces mi
         WHERE mi.attached_dpu_machine_id != mi.machine_id
         AND mi.interface_type != 'Bmc'
         AND mi.attached_dpu_machine_id = ANY($1)"#;
 
-    let dpu_id_host_id_pairs: Vec<(MachineId, HostMachineId)> = sqlx::query_as(query)
+    let dpu_id_host_id_pairs: Vec<(DpuMachineId, HostMachineId)> = sqlx::query_as(query)
         .bind(
             dpu_machine_ids
                 .iter()
@@ -960,7 +970,7 @@ pub async fn get_host_use_admin_network_for_dpa_interface(
 
 pub async fn find_dpus_by_host_machine_id(
     txn: &mut PgConnection,
-    host_machine_id: &MachineId,
+    host_machine_id: &HostMachineId,
 ) -> Result<Vec<Machine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
@@ -1628,9 +1638,9 @@ pub async fn clear_use_admin_network_changed_if_version_matches(
 /// so updating host id must not interfere state machine handling.
 pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     txn: &mut PgConnection,
-    current_machine_id: &Option<MachineId>,
-    stable_machine_id: &MachineId,
-) -> Result<MachineId, DatabaseError> {
+    current_machine_id: Option<HostMachineId>,
+    stable_machine_id: &StableHostMachineId,
+) -> Result<StableHostMachineId, DatabaseError> {
     let Some(current_machine_id) = current_machine_id else {
         return Err(DatabaseError::NotFoundError {
             kind: "machine_id",
@@ -1639,9 +1649,9 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     };
 
     // This is repeated call. Machine is already updated with stable ID.
-    if !current_machine_id.machine_type().is_predicted_host() {
-        return match find_one(txn, current_machine_id, MachineSearchConfig::default()).await? {
-            Some(machine) => Ok(machine.id),
+    if let Ok(current_stable_id) = StableHostMachineId::try_from(current_machine_id) {
+        return match find_one(txn, &current_stable_id, MachineSearchConfig::default()).await? {
+            Some(_machine) => Ok(current_stable_id),
             None => Err(DatabaseError::NotFoundError {
                 kind: "machine",
                 id: current_machine_id.to_string(),
@@ -1653,8 +1663,8 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
     crate::state_history::update_object_ids(
         txn,
         crate::state_history::StateHistoryTableId::Machine,
-        current_machine_id,
-        stable_machine_id,
+        &current_machine_id,
+        &stable_machine_id,
     )
     .await?;
     crate::health_history::update_object_ids(
@@ -2327,7 +2337,7 @@ pub async fn find_machine_ids(
 
 pub async fn update_state(
     txn: &mut PgConnection,
-    host_id: &MachineId,
+    host_id: &HostMachineId,
     new_state: &ManagedHostState,
 ) -> Result<(), DatabaseError> {
     let host = find_one(
@@ -2477,9 +2487,10 @@ pub async fn find_dpu_infos(txn: &mut PgConnection) -> Result<Vec<DpuInfo>, Data
         .into_iter()
         .map(
             |(id, loopback_ip, controller_state, network_status_observation, firmware_version)| {
-                let dpu_id = MachineId::from_str(&id).map_err(|e| {
+                let dpu_id = DpuMachineId::try_from(MachineId::from_str(&id).map_err(|e| {
                     DatabaseError::internal(format!("Invalid DPU machine ID {id}: {e}"))
-                })?;
+                })?)
+                .map_err(|e| DatabaseError::internal(e.to_string()))?;
                 let network_status_observation = network_status_observation.0;
                 let representors = network_status_observation
                     .as_ref()
@@ -2941,7 +2952,7 @@ pub async fn clear_lockdown_ikm_credential_rotation_requested(
 /// mirroring the idle rekey path.
 pub async fn get_lockdown_ikm_credential_rotation_requested(
     conn: &mut PgConnection,
-    machine_id: MachineId,
+    machine_id: HostMachineId,
 ) -> DatabaseResult<bool> {
     let query = "SELECT lockdown_ikm_credential_rotation_requested FROM machines WHERE id = $1";
     sqlx::query_scalar::<_, bool>(query)
@@ -3468,7 +3479,7 @@ pub async fn get_backend_firmware_object_job_id(
 }
 
 pub fn count_healthy_unhealthy_host_machines(
-    all_machines: &HashMap<MachineId, model::machine::ManagedHostStateSnapshot>,
+    all_machines: &HashMap<impl MachineIdSubtypeTrait, model::machine::ManagedHostStateSnapshot>,
 ) -> (i32, i32) {
     let without_fault_count = all_machines
         .iter()
@@ -3494,7 +3505,9 @@ mod test {
     use std::sync::{Arc, Mutex};
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
-    use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+    use carbide_uuid::machine::{
+        HostMachineId, MachineId, MachineInterfaceId, StableHostMachineId,
+    };
     use carbide_uuid::network::NetworkSegmentId;
     use model::allocation_type::AllocationType;
     use model::bmc_info::BmcInfo;
@@ -3560,8 +3573,8 @@ mod test {
             )
         }
 
-        let predicted_id = machine_id(1, MachineType::PredictedHost);
-        let stable_id = machine_id(1, MachineType::Host);
+        let predicted_id = HostMachineId::try_from(machine_id(1, MachineType::PredictedHost))?;
+        let stable_id = StableHostMachineId::try_from(machine_id(1, MachineType::Host))?;
 
         let mut txn = pool.begin().await?;
 
@@ -3594,7 +3607,7 @@ mod test {
         // rows reference the old id: the ON UPDATE CASCADE FK moves them.
         let renamed = super::try_sync_stable_id_with_current_machine_id_for_host(
             &mut txn,
-            &Some(predicted_id),
+            Some(predicted_id),
             &stable_id,
         )
         .await?;
@@ -3613,7 +3626,7 @@ mod test {
 
         let under_stable = crate::dpa_interface::find_by_machine_id(
             txn.as_mut(),
-            stable_id,
+            *stable_id.as_host_machine_id(),
             DpaSearchConfig::default(),
         )
         .await?;

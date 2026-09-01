@@ -40,7 +40,7 @@ use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
 use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer};
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{MachineId, MachineIdSubtypeTrait, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
@@ -3848,11 +3848,11 @@ impl Api {
     #[track_caller]
     pub(crate) fn load_machine(
         &self,
-        machine_id: &MachineId,
+        machine_id: &impl MachineIdSubtypeTrait,
         search_config: MachineSearchConfig,
     ) -> impl Future<Output = CarbideResult<(Machine, db::Transaction<'_>)>> {
         let loc = Location::caller();
-        let machine_id = *machine_id;
+        let machine_id = machine_id.to_machine_id();
         async move {
             let mut txn =
                 db::Transaction::begin_with_location(&self.database_connection, loc).await?;

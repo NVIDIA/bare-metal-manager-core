@@ -66,7 +66,7 @@ pub(in crate::tests) mod tests {
         let status = env
             .api
             .trigger_machine_attestation(Request::new(SpdmMachineAttestationTriggerRequest {
-                machine_id: Some(machine_id),
+                machine_id: Some(machine_id.into()),
                 redfish_timeout_secs: u32::MAX,
             }))
             .await
@@ -102,7 +102,7 @@ pub(in crate::tests) mod tests {
         let response = env
             .api
             .trigger_machine_attestation(Request::new(SpdmMachineAttestationTriggerRequest {
-                machine_id: Some(machine_id),
+                machine_id: Some(machine_id.into()),
                 redfish_timeout_secs: u32::MAX,
             }))
             .await?;
@@ -138,7 +138,7 @@ pub(in crate::tests) mod tests {
         let response = env
             .api
             .trigger_machine_attestation(Request::new(SpdmMachineAttestationTriggerRequest {
-                machine_id: Some(machine_id),
+                machine_id: Some(machine_id.into()),
                 redfish_timeout_secs: u32::MAX,
             }))
             .await?;
@@ -199,7 +199,7 @@ pub(in crate::tests) mod tests {
         let response = env
             .api
             .trigger_machine_attestation(Request::new(SpdmMachineAttestationTriggerRequest {
-                machine_id: Some(machine_id),
+                machine_id: Some(machine_id.into()),
                 redfish_timeout_secs: u32::MAX,
             }))
             .await?;
@@ -284,7 +284,7 @@ pub(in crate::tests) mod tests {
         let _ = env
             .api
             .trigger_machine_attestation(Request::new(SpdmMachineAttestationTriggerRequest {
-                machine_id: Some(machine_id),
+                machine_id: Some(machine_id.into()),
                 redfish_timeout_secs: u32::MAX,
             }))
             .await?;
