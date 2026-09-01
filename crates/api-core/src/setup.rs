@@ -661,7 +661,7 @@ async fn reject_unscoped_initialization_with_scoped_interfaces<R: DpuServiceInte
             "Rejecting unscoped DPF initialization because scoped service interfaces exist"
         );
         return Err(eyre::eyre!(
-            "dpf.deployment_scoped_service_interfaces cannot be disabled while scoped DPUServiceInterfaces exist: {}.",
+            "dpf.deployment_scoped_service_interfaces cannot be disabled while scoped DPUServiceInterfaces exist: {}",
             scoped_interfaces.join(", "),
         ));
     }
