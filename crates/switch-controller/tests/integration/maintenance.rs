@@ -22,6 +22,7 @@ use carbide_switch_controller::context::{
 };
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::metrics::SwitchMetrics;
+use carbide_test_harness::prelude::{sqlx_test, sqlx_testing};
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{Switch, SwitchControllerState, SwitchMaintenanceOperation};
@@ -33,12 +34,10 @@ use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 use tonic::Request;
 
-use crate::tests::common::api_fixtures::site_explorer::new_switch;
-use crate::tests::common::api_fixtures::{
-    TestEnv, TestEnvOverrides, create_test_env, create_test_env_with_overrides,
-    get_config_with_rack_profiles,
+use crate::common::{
+    ControllerEnv, default_switch_mtls_services, new_switch, set_switch_controller_state,
 };
-use crate::tests::switch_state_controller::fixtures::switch::set_switch_controller_state;
+use crate::state_controller::build_test_component_manager;
 
 fn cm_power_action(operation: SwitchMaintenanceOperation) -> SystemPowerControl {
     match operation {
@@ -50,7 +49,7 @@ fn cm_power_action(operation: SwitchMaintenanceOperation) -> SystemPowerControl 
 }
 
 async fn request_switch_maintenance_via_cm(
-    env: &TestEnv,
+    env: &ControllerEnv,
     switch_id: &SwitchId,
     operation: SwitchMaintenanceOperation,
 ) {
@@ -66,7 +65,7 @@ async fn request_switch_maintenance_via_cm(
         .expect("component_power_control should succeed");
 }
 
-async fn load_switch(env: &TestEnv, id: &SwitchId) -> Switch {
+async fn load_switch(env: &ControllerEnv, id: &SwitchId) -> Switch {
     let switches = env
         .api
         .find_switches_by_ids(Request::new(SwitchesByIdsRequest {
@@ -119,13 +118,13 @@ async fn commit_and_extract_transition(
     }
 }
 
-fn services_without_component_manager(env: &TestEnv) -> SwitchStateHandlerServices {
+fn services_without_component_manager(env: &ControllerEnv) -> SwitchStateHandlerServices {
     SwitchStateHandlerServices {
         db_pool: env.pool.clone(),
         component_manager: None,
         credential_manager: env.test_credential_manager.clone(),
-        switch_mtls_services: super::default_switch_mtls_services(),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        switch_mtls_services: default_switch_mtls_services(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_credential_ops: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
@@ -135,14 +134,13 @@ fn services_without_component_manager(env: &TestEnv) -> SwitchStateHandlerServic
     }
 }
 
-async fn services_with_component_manager(env: &TestEnv) -> SwitchStateHandlerServices {
+async fn services_with_component_manager(env: &ControllerEnv) -> SwitchStateHandlerServices {
     SwitchStateHandlerServices {
         db_pool: env.pool.clone(),
-        component_manager: super::build_test_component_manager(env, env.rms_sim.as_rms_client())
-            .await,
+        component_manager: build_test_component_manager(env, env.rms_sim.as_rms_client()).await,
         credential_manager: env.test_credential_manager.clone(),
-        switch_mtls_services: super::default_switch_mtls_services(),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        switch_mtls_services: default_switch_mtls_services(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_credential_ops: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
@@ -152,15 +150,11 @@ async fn services_with_component_manager(env: &TestEnv) -> SwitchStateHandlerSer
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn ready_transitions_to_maintenance_when_request_is_set(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(
-        pool.clone(),
-        TestEnvOverrides::with_config(get_config_with_rack_profiles()),
-    )
-    .await;
+    let env = ControllerEnv::new(pool.clone()).await;
     let switch_id = new_switch(&env, None, None).await?;
 
     request_switch_maintenance_via_cm(&env, &switch_id, SwitchMaintenanceOperation::PowerOff).await;
@@ -189,11 +183,11 @@ async fn ready_transitions_to_maintenance_when_request_is_set(
 }
 
 /// `Ready` must not dispatch maintenance power operations while idling.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn ready_state_does_not_invoke_power_control(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
     let switch_id = new_switch(&env, None, None).await?;
 
     {

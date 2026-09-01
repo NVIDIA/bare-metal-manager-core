@@ -80,8 +80,6 @@ mod site_prefix;
 mod sku;
 mod spdm;
 mod switch;
-mod switch_health;
-mod switch_state_controller;
 mod tenants;
 mod tpm_ca;
 mod vpc;

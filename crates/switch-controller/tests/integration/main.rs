@@ -15,4 +15,9 @@
  * limitations under the License.
  */
 
-pub(in crate::tests) mod switch;
+mod bmc_rotation;
+mod common;
+mod health;
+mod maintenance;
+mod nvos_password_rotation;
+mod state_controller;

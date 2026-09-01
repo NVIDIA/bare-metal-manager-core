@@ -67,9 +67,6 @@ use carbide_site_explorer::test_support::MockEndpointExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
-use carbide_switch_controller::context::SwitchStateHandlerServices;
-use carbide_switch_controller::handler::SwitchStateHandler;
-use carbide_switch_controller::io::SwitchStateControllerIO;
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
@@ -274,7 +271,6 @@ pub(crate) struct TestEnv {
     extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
-    switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub(in crate::tests) reachability_params: ReachabilityParams,
     pub(in crate::tests) test_meter: TestMeter,
     pub(in crate::tests) attestation_enabled: bool,
@@ -647,17 +643,6 @@ impl TestEnv {
             .await
             .run_single_iteration()
             .boxed()
-            .await;
-    }
-
-    /// Runs one iteration of the switch state controller handler with the services
-    /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
-    pub(in crate::tests) async fn run_switch_controller_iteration(&self) {
-        self.switch_controller
-            .lock()
-            .await
-            .run_single_iteration()
             .await;
     }
 
@@ -1640,32 +1625,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build ExtensionServiceStateController");
 
-    let switch_controller = StateController::builder()
-        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
-        .meter("carbide_switches", test_meter.meter())
-        .processor_id(state_controller_id.clone())
-        .services(
-            SwitchStateHandlerServices {
-                db_pool: db_pool.clone(),
-                component_manager: test_component_manager.clone(),
-                credential_manager: credential_manager.clone(),
-                switch_mtls_services: component_manager::config::switch_mtls_services_as_i32(
-                    &component_manager::config::effective_switch_mtls_services(&[]),
-                ),
-                per_object_metrics_registry: per_object_metrics_registry.clone(),
-                redfish_client_pool: redfish_sim.clone(),
-                bmc_credential_ops: redfish_sim.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
-                    db::credential_rotation::CredentialRotationType::Bmc,
-                ),
-                bmc_rotation_enabled: false,
-            }
-            .into(),
-        )
-        .state_handler(Arc::new(SwitchStateHandler::default()))
-        .build_for_manual_iterations(cancel_token.clone())
-        .expect("Unable to build state controller");
-
     let rack_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_racks", test_meter.meter())
@@ -1812,7 +1771,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         machine_state_handler: machine_swap,
         ib_fabric_monitor: Arc::new(ib_fabric_monitor),
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
-        switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
         extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),

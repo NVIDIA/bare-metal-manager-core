@@ -27,6 +27,7 @@ use carbide_switch_controller::metrics::SwitchMetrics;
 use carbide_switch_controller::nvos_password_rotation::{
     NvosPasswordRotationOutcome, reconcile_nvos_password_rotation,
 };
+use carbide_test_harness::prelude::{sqlx_test, sqlx_testing};
 use component_manager::mock::MockNvSwitchManager;
 use component_manager::nv_switch_manager::SwitchPasswordRotationState;
 use db::switch as db_switch;
@@ -34,12 +35,10 @@ use model::switch::{ConfiguringState, Switch, SwitchControllerState};
 use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::StateHandlerContext;
 
-use super::fixtures::switch::transition_switch_controller_state;
-use super::{
-    common, default_switch_mtls_services, mock_component_manager,
-    run_switch_controller_with_services,
+use crate::common::{
+    ControllerEnv, default_switch_mtls_services, new_switch, transition_switch_controller_state,
 };
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::state_controller::{mock_component_manager, run_switch_controller_with_services};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
@@ -47,11 +46,11 @@ const CURRENT_PASSWORD: &str = "Current-Nvos-Password-0!";
 const TARGET_PASSWORD: &str = "Next-Nvos-Password-1!";
 
 async fn create_switch(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
     name: Option<String>,
 ) -> TestResult<(carbide_uuid::switch::SwitchId, mac_address::MacAddress)> {
-    let switch_id = common::api_fixtures::site_explorer::new_switch(env, name, None).await?;
+    let switch_id = new_switch(env, name, None).await?;
 
     let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(pool, &[switch_id])
         .await?
@@ -74,7 +73,7 @@ async fn create_switch(
 }
 
 async fn publish_target(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
     current_version: Option<i32>,
     password: &str,
@@ -202,7 +201,7 @@ async fn operation_state(
 }
 
 async fn reconcile(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
     switch_id: &carbide_uuid::switch::SwitchId,
     manager: MockNvSwitchManager,
@@ -224,7 +223,7 @@ async fn reconcile(
 }
 
 fn switch_services(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
     manager: MockNvSwitchManager,
 ) -> SwitchStateHandlerServices {
@@ -233,7 +232,7 @@ fn switch_services(
         component_manager: Some(mock_component_manager(Arc::new(manager))),
         credential_manager: env.test_credential_manager.clone(),
         switch_mtls_services: default_switch_mtls_services(),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_credential_ops: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
@@ -244,7 +243,7 @@ fn switch_services(
 }
 
 async fn run_controller(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
     manager: MockNvSwitchManager,
     passes: usize,
@@ -252,7 +251,7 @@ async fn run_controller(
     for _ in 0..passes {
         run_switch_controller_with_services(
             pool.clone(),
-            env.api.work_lock_manager_handle.clone(),
+            env.api.work_lock_manager_handle(),
             switch_services(env, pool, manager.clone()),
         )
         .await;
@@ -260,7 +259,7 @@ async fn run_controller(
 }
 
 async fn prepare_version_one_rotation(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
 ) -> TestResult<(carbide_uuid::switch::SwitchId, mac_address::MacAddress)> {
     publish_target(env, pool, None, CURRENT_PASSWORD).await?;
@@ -271,11 +270,11 @@ async fn prepare_version_one_rotation(
     Ok((switch_id, bmc_mac_address))
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn configuring_skips_credentials_when_rotation_is_not_actionable(
     pool: sqlx::PgPool,
 ) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
     let cases = [
         (
@@ -353,9 +352,9 @@ async fn configuring_skips_credentials_when_rotation_is_not_actionable(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn ready_switch_submits_version_zero_target(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
     publish_target(&env, &pool, None, TARGET_PASSWORD).await?;
     let (switch_id, bmc_mac_address) = create_switch(&env, &pool, None).await?;
@@ -431,11 +430,11 @@ async fn ready_switch_submits_version_zero_target(pool: sqlx::PgPool) -> TestRes
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn lost_submission_response_retries_original_target_after_later_publication(
     pool: sqlx::PgPool,
 ) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
     let (switch_id, bmc_mac_address) = prepare_version_one_rotation(&env, &pool).await?;
 
     let unknown = MockNvSwitchManager::default()
@@ -479,9 +478,9 @@ async fn lost_submission_response_retries_original_target_after_later_publicatio
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn job_observations_preserve_or_retry_staged_target(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
     publish_target(&env, &pool, None, CURRENT_PASSWORD).await?;
     publish_target(&env, &pool, Some(0), TARGET_PASSWORD).await?;
@@ -551,9 +550,9 @@ async fn job_observations_preserve_or_retry_staged_target(pool: sqlx::PgPool) ->
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn corrected_target_supersedes_rejected_submission(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
     let (switch_id, bmc_mac_address) = prepare_version_one_rotation(&env, &pool).await?;
 
     let rejected = MockNvSwitchManager::default()
@@ -596,11 +595,11 @@ async fn corrected_target_supersedes_rejected_submission(pool: sqlx::PgPool) -> 
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn staged_target_credential_survives_recovery_before_promotion(
     pool: sqlx::PgPool,
 ) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
     let (switch_id, bmc_mac_address) = prepare_version_one_rotation(&env, &pool).await?;
 
     stage_submitted_rotation(&pool, bmc_mac_address, 1, "pending-job").await?;
@@ -644,9 +643,9 @@ async fn staged_target_credential_survives_recovery_before_promotion(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn controller_converges_directly_to_latest_revision(pool: sqlx::PgPool) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
     publish_target(&env, &pool, None, CURRENT_PASSWORD).await?;
     let (switch_id, bmc_mac_address) = create_switch(&env, &pool, None).await?;
