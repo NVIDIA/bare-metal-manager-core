@@ -70,6 +70,10 @@ const (
 	MachineIssueCategoryOther = "Other"
 )
 
+// validationErrorUserDataLength derives from util.MaxUserDataBytes so the
+// message and the enforced limit cannot drift apart.
+var validationErrorUserDataLength = fmt.Sprintf("`userData` must not exceed %d KiB", util.MaxUserDataBytes/1024)
+
 var (
 	// SitePhoneHomeCloudInit default cloudinit with phone home config
 	SitePhoneHomeCloudInit = `#cloud-config
@@ -624,6 +628,10 @@ func (icr APIInstanceCreateRequest) Validate() error {
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&icr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&icr.UserData,
+			validation.When(icr.UserData != nil,
+				validation.Length(0, util.MaxUserDataBytes).Error(validationErrorUserDataLength)),
+		),
 		validation.Field(&icr.PowerProfile,
 			validation.When(icr.PowerProfile != nil, validation.Required.Error("`powerProfile` must not be empty"))),
 		validation.Field(&icr.Interfaces,
@@ -1008,6 +1016,10 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&bicr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
+		validation.Field(&bicr.UserData,
+			validation.When(bicr.UserData != nil,
+				validation.Length(0, util.MaxUserDataBytes).Error(validationErrorUserDataLength)),
+		),
 		validation.Field(&bicr.PowerProfile,
 			validation.When(bicr.PowerProfile != nil, validation.Required.Error("`powerProfile` must not be empty"))),
 		validation.Field(&bicr.Interfaces,
@@ -1725,6 +1737,10 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 		),
 		validation.Field(&iur.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID),
+		),
+		validation.Field(&iur.UserData,
+			validation.When(iur.UserData != nil,
+				validation.Length(0, util.MaxUserDataBytes).Error(validationErrorUserDataLength)),
 		),
 		validation.Field(&iur.Interfaces,
 			validation.When(len(iur.Interfaces) > 0, validation.Length(1, MaxInterfaceCount).Error(fmt.Sprintf("at most %v Interfaces can be specified", MaxInterfaceCount))),

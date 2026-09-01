@@ -19,6 +19,17 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
+const (
+	// MaxUserDataBytes caps `userData` on Instance and Operating System
+	// create/update requests, measured in bytes of the raw string as
+	// submitted. Instance creation, update and inventory operations
+	// move in Temporal payloads that are subject to a 2 MiB per-payload limit,
+	// so oversized blobs must be rejected at the API boundary.
+	// 32 KiB matches the middle of the range enforced by common infra providers
+	// (AWS 16 KB, Hetzner/Alibaba 32 KiB, Azure/OpenStack ~48 KiB, DO/IBM 64 KiB).
+	MaxUserDataBytes = 32 * 1024
+)
+
 var (
 	LeadingWhitespaceRegexp  = regexp.MustCompile("^\\s+.*")
 	TrailingWhitespaceRegexp = regexp.MustCompile(".*\\s+$")

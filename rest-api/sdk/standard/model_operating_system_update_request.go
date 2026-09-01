@@ -44,7 +44,7 @@ type OperatingSystemUpdateRequest struct {
 	RootFsLabel NullableString `json:"rootFsLabel,omitempty"`
 	// Indicates whether the Phone Home service should be enabled or disabled for Operating System
 	PhoneHomeEnabled NullableBool `json:"phoneHomeEnabled,omitempty"`
-	// User data for the Operating System
+	// User data for the Operating System. Limited to 32768 bytes (32 KiB).
 	UserData NullableString `json:"userData,omitempty"`
 	// Deprecated and ignored: whether the Operating System is cloud-init based. Value now derived from `userData`.
 	// Deprecated

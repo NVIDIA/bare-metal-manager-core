@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -1140,6 +1141,23 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "test valid Instance create request with userData at max length",
+			fields: fields{
+				Name:              "test-name",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    uuid.NewString(),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr(strings.Repeat("a", util.MaxUserDataBytes)),
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{
+						SubnetID: cutil.GetPtr(uuid.NewString()),
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name: "test Instance create request failed, invalid SpectrumX attachment type",
 			fields: fields{
 				Name:              "test-name",
@@ -1162,6 +1180,24 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
+		},
+		{
+			name: "test invalid Instance create request with userData exceeding max length",
+			fields: fields{
+				Name:              "test-name",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    uuid.NewString(),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr(strings.Repeat("a", util.MaxUserDataBytes+1)),
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{
+						SubnetID: cutil.GetPtr(uuid.NewString()),
+					},
+				},
+			},
+			wantErr:          true,
+			wantErrorMessage: "userData: " + validationErrorUserDataLength,
 		},
 	}
 	for _, tt := range tests {
@@ -1337,6 +1373,21 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr: true,
+		},
+		{
+			name: "fails with userData exceeding max length",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:     "test-batch",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
+				UserData:       cutil.GetPtr(strings.Repeat("a", util.MaxUserDataBytes+1)),
+				Interfaces:     []APIInterfaceCreateOrUpdateRequest{{SubnetID: cutil.GetPtr(uuid.NewString())}},
+			},
+			wantErr:          true,
+			wantErrorMessage: "userData: " + validationErrorUserDataLength,
 		},
 	}
 
@@ -2380,6 +2431,14 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
+			},
+			wantErr:           true,
+			wantUpdateRequest: cutil.GetPtr(true),
+		},
+		{
+			name: "test invalid Instance update request, userData exceeding max length",
+			fields: fields{
+				UserData: cutil.GetPtr(strings.Repeat("a", util.MaxUserDataBytes+1)),
 			},
 			wantErr:           true,
 			wantUpdateRequest: cutil.GetPtr(true),

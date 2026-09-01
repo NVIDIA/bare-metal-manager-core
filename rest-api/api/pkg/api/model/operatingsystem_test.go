@@ -34,6 +34,11 @@ func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			desc:      "error when userData exceeds max length",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr(strings.Repeat("a", util.MaxUserDataBytes+1)), IsCloudInit: true, AllowOverride: false},
+			expectErr: true,
+		},
+		{
 			desc:      "error when Name is no valid string",
 			obj:       APIOperatingSystemCreateRequest{Name: "a", Description: cutil.GetPtr("ab"), InfrastructureProviderID: nil, TenantID: cutil.GetPtr(uuid.New().String()), IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("ud"), IsCloudInit: true, AllowOverride: false},
 			expectErr: true,
@@ -237,6 +242,12 @@ func TestAPIOperatingSystemUpdateRequest_Validate(t *testing.T) {
 		existingOS *cdbm.OperatingSystem
 		expectErr  bool
 	}{
+		{
+			desc:       "error when userData exceeds max length",
+			obj:        APIOperatingSystemUpdateRequest{UserData: cutil.GetPtr(strings.Repeat("a", util.MaxUserDataBytes+1))},
+			existingOS: existingIpxeBasedOS,
+			expectErr:  true,
+		},
 		{
 			desc:      "ok when Name is not provided",
 			obj:       APIOperatingSystemUpdateRequest{Description: cutil.GetPtr("ab")},

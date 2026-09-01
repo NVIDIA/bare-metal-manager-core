@@ -291,6 +291,10 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 		validation.Field(&oscr.InfrastructureProviderID,
 			// infrastructure provider id must be nil
 			validation.Nil.Error(validationErrorInfrastructureProviderIDExpectNil)),
+		validation.Field(&oscr.UserData,
+			validation.When(oscr.UserData != nil,
+				validation.Length(0, util.MaxUserDataBytes).Error(validationErrorUserDataLength)),
+		),
 	)
 	if err != nil {
 		return err
@@ -548,6 +552,10 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 			validation.When(osur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(osur.Name != nil, validation.By(util.ValidateNameCharacters)),
 			validation.When(osur.Name != nil, validation.Length(2, 256).Error(validationErrorStringLength))),
+		validation.Field(&osur.UserData,
+			validation.When(osur.UserData != nil,
+				validation.Length(0, util.MaxUserDataBytes).Error(validationErrorUserDataLength)),
+		),
 	)
 	if err != nil {
 		return err
