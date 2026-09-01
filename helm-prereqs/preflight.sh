@@ -486,7 +486,14 @@ if [[ "${INSTALL_RMS:-true}" == "true" ]]; then
     # pod lands in ImagePullBackOff. A mirror override lifts the requirement.
     if [[ -z "${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" && \
           -z "${NICO_RMS_IMAGE_REPO:-}" ]]; then
-        ERRORS+=("NICO_RMS_NGC_API_KEY / REGISTRY_PULL_SECRET not set — the default rms-api image is entitlement-gated on NGC; set a key, or point NICO_RMS_IMAGE_REPO at your own mirror")
+        ERRORS+=("NICO_RMS_NGC_API_KEY / REGISTRY_PULL_SECRET not set - the default rms-api image is entitlement-gated on NGC; set a key, or point NICO_RMS_IMAGE_REPO at your own mirror")
+    fi
+    # Even with a key set: the default image path needs NGC rms-dev org
+    # entitlement, which standard site keys do not carry. Most sites should
+    # build or mirror the image into their own registry instead (README:
+    # "Building the RMS image") and set NICO_RMS_IMAGE_REPO.
+    if [[ -z "${NICO_RMS_IMAGE_REPO:-}" ]]; then
+        WARNINGS+=("NICO_RMS_IMAGE_REPO not set - the default rms-api image (nvcr.io/0837451325059433/rms-dev/rms-api) requires NGC rms-dev entitlement, which most site keys lack. If the pull lands in ImagePullBackOff, build/mirror the image into your registry (helm-prereqs/README.md: Building the RMS image)")
     fi
 fi
 
