@@ -209,8 +209,8 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		}
 	}
 
-	for i := range existingMachines {
-		existingCloudMachineIDMap[existingMachines[i].ID] = &existingMachines[i]
+	for _, machine := range existingMachines {
+		existingCloudMachineIDMap[machine.ID] = &machine
 	}
 
 	miDAO := cdbm.NewMachineInterfaceDAO(mm.dbSession)
@@ -439,7 +439,9 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			if wasDeleted && site.IsTimeWithinStaleInventoryThreshold(*existingCloudMachine.Deleted) {
 				// A snapshot collected before the delete can arrive after it. Wait until the
 				// delete is older than the inventory staleness threshold before restoring.
-				slogger.Info().Msg("not undeleting Machine yet because it was deleted more recently than the inventory interval")
+				slogger.Info().
+					Str("Machine ID", existingCloudMachine.ID).
+					Msg("not undeleting Machine yet because it was deleted more recently than the inventory interval")
 				continue
 			}
 
