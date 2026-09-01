@@ -110,7 +110,6 @@ func (mvp ManageVpcPeering) UpdateVpcPeeringsInDB(
 		vpcPeering := existingVpcPeeringIDMap[controllerVpcPeeringID]
 
 		if vpcPeering == nil {
-
 			vpcPeering = mvp.createOrUpdateVpcPeeringFromSite(ctx, site, controllerVpcPeering)
 			if vpcPeering == nil {
 				continue
@@ -199,11 +198,28 @@ func (mvp ManageVpcPeering) createOrUpdateVpcPeeringFromSite(
 		return nil
 	}
 
-	vpcPeering, err := cdb.WithTxResult(ctx, mvp.dbSession, func(tx *cdb.Tx) (*cdbm.VpcPeering, error) {
-		vpcDAO := cdbm.NewVpcDAO(mvp.dbSession)
-		vpcPeeringDAO := cdbm.NewVpcPeeringDAO(mvp.dbSession)
-		statusDetailDAO := cdbm.NewStatusDetailDAO(mvp.dbSession)
+	vpcDAO := cdbm.NewVpcDAO(mvp.dbSession)
+	vpcPeeringDAO := cdbm.NewVpcPeeringDAO(mvp.dbSession)
+	statusDetailDAO := cdbm.NewStatusDetailDAO(mvp.dbSession)
 
+	// Check for duplicate VPC Peering
+	peerings, _, err := vpcPeeringDAO.GetAll(ctx, nil, cdbm.VpcPeeringFilterInput{
+		VpcIDs: []uuid.UUID{reportedVpcPeering.Vpc1ID},
+	}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to get VPC Peerings for VPC from DB")
+		return nil
+	}
+
+	for _, peering := range peerings {
+		// The filter matches either end, so one side is already vpc1 and only the other needs checking
+		if peering.Vpc1ID == reportedVpcPeering.Vpc2ID || peering.Vpc2ID == reportedVpcPeering.Vpc2ID {
+			logger.Warn().Msgf("unable to create VPC Peering found on Site: an existing VPC Peering already connects the VPCs of VPC Peering: %s", controllerVpcPeeringID)
+			return nil
+		}
+	}
+
+	vpcPeering, err := cdb.WithTxResult(ctx, mvp.dbSession, func(tx *cdb.Tx) (*cdbm.VpcPeering, error) {
 		vpcs, _, vpcErr := vpcDAO.GetAll(ctx, tx, cdbm.VpcFilterInput{
 			VpcIDs:  []uuid.UUID{reportedVpcPeering.Vpc1ID, reportedVpcPeering.Vpc2ID},
 			SiteIDs: []uuid.UUID{site.ID},

@@ -618,6 +618,27 @@ func TestManageVpcPeering_CreateOrUpdateVpcPeeringFromSite(t *testing.T) {
 			},
 			expectedRecovered: false,
 		},
+		{
+			// The REST create path answers a duplicate pair with 409, so recovery must not add a
+			// second peering for the same VPCs under a different ID.
+			name: "skips VPC Peering when another already connects the same VPCs",
+			prepare: func(t *testing.T, f *fixture) {
+				t.Helper()
+
+				existingID := uuid.New()
+				_, err := cdbm.NewVpcPeeringDAO(f.dbSession).Create(f.ctx, nil, cdbm.VpcPeeringCreateInput{
+					VpcPeeringID: &existingID,
+					Vpc1ID:       f.vpc1.ID,
+					Vpc2ID:       f.vpc2.ID,
+					SiteID:       f.site.ID,
+					TenantID:     &f.tenant.ID,
+					Status:       cdbm.VpcPeeringStatusReady,
+					CreatedByID:  f.site.CreatedBy,
+				})
+				require.NoError(t, err)
+			},
+			expectedRecovered: false,
+		},
 	}
 
 	for _, test := range tests {
