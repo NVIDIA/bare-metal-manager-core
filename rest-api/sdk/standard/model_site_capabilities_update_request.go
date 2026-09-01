@@ -28,7 +28,7 @@ type SiteCapabilitiesUpdateRequest struct {
 	NetworkSecurityGroup NullableBool `json:"networkSecurityGroup,omitempty"`
 	// Enable or disable NVLink partition support for the Site
 	NvLinkPartition NullableBool `json:"nvLinkPartition,omitempty"`
-	// Enable or disable NICo Flow for the Site. Site inventory may overwrite this value.
+	// Enable or disable NICo Flow for the Site. Compatible Site Agent inventory overwrites this value (`true` when initialized, `false` when disabled); older agents leave it unchanged.
 	Flow NullableBool `json:"flow,omitempty"`
 	// Enable or disable image-based operating system support for the Site
 	ImageBasedOperatingSystem NullableBool `json:"imageBasedOperatingSystem,omitempty"`

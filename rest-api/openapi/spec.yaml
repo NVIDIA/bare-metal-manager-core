@@ -18479,7 +18479,7 @@ components:
           type:
             - boolean
             - 'null'
-          description: Enable or disable NICo Flow for the Site. Site inventory may overwrite this value.
+          description: Enable or disable NICo Flow for the Site. Compatible Site Agent inventory overwrites this value (`true` when initialized, `false` when disabled); older agents leave it unchanged.
         imageBasedOperatingSystem:
           type:
             - boolean
