@@ -54,23 +54,11 @@ func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Co
 		return err
 	}
 
-	// Clone the process-level metadata because Flow availability is evaluated for each
-	// inventory run. The publisher is registered before the Flow client necessarily finishes
-	// initializing, and mutating the shared message would also race concurrent activity runs.
-	var siteAgentBuildInfo *corev1.SiteAgentBuildInfo
-	if msi.siteAgentBuildInfo != nil {
-		siteAgentBuildInfo = proto.Clone(msi.siteAgentBuildInfo).(*corev1.SiteAgentBuildInfo)
-		if !msi.inventoryConfig.FlowGrpcEnabled {
-			siteAgentBuildInfo.FlowAvailable = proto.Bool(false)
-		} else if msi.inventoryConfig.FlowGrpcAtomicClient != nil &&
-			msi.inventoryConfig.FlowGrpcAtomicClient.GetClient() != nil {
-			siteAgentBuildInfo.FlowAvailable = proto.Bool(true)
-		}
-	}
-
 	inventory := &corev1.SiteConfigInventory{
 		CoreBuildInfo:      coreBuildInfo,
-		SiteAgentBuildInfo: siteAgentBuildInfo,
+		SiteAgentBuildInfo: msi.siteAgentBuildInfo,
+		FlowAvailable: proto.Bool(msi.inventoryConfig.FlowGrpcAtomicClient != nil &&
+			msi.inventoryConfig.FlowGrpcAtomicClient.GetClient() != nil),
 	}
 
 	workflowOptions := tClient.StartWorkflowOptions{

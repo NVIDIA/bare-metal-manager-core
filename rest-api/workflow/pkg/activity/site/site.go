@@ -77,11 +77,11 @@ type ManageSite struct {
 
 // Activity functions
 
-// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB. A nil
-// siteAgentBuildInfo, or an omitted field within it, leaves the corresponding stored Site Agent
-// value alone rather than erasing what an older report established.
+// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB. Nil Site Agent
+// metadata or Flow availability leaves the corresponding stored value alone rather than erasing
+// what an older report established.
 func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, coreBuildInfo *corev1.BuildInfo,
-	siteAgentBuildInfo *corev1.SiteAgentBuildInfo) error {
+	siteAgentBuildInfo *corev1.SiteAgentBuildInfo, flowAvailable *bool) error {
 	logger := log.With().Str("Activity", "UpdateSiteInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -113,15 +113,14 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, core
 		}
 	}
 
-	// Flow availability is presence-aware for rolling upgrades: older Site Agents and enabled
-	// clients that have not initialized omit it. Once reported, inventory owns the value and
-	// reconciles either direction, including an existing REST-configured value.
-	if siteAgentBuildInfo != nil && siteAgentBuildInfo.FlowAvailable != nil &&
-		(site.Config == nil || site.Config.Flow != siteAgentBuildInfo.GetFlowAvailable()) {
+	// Flow availability is presence-aware for rolling upgrades: older Site Agents omit it.
+	// Once reported, inventory owns the value and reconciles either direction, including an
+	// existing REST-configured value.
+	if flowAvailable != nil && (site.Config == nil || site.Config.Flow != *flowAvailable) {
 		if updateInput.Config == nil {
 			updateInput.Config = &cdbm.SiteConfigUpdateInput{}
 		}
-		updateInput.Config.Flow = siteAgentBuildInfo.FlowAvailable
+		updateInput.Config.Flow = flowAvailable
 	}
 
 	// Update build version for Site when Core reports a changed, non-empty value.

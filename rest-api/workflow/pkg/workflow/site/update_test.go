@@ -124,9 +124,10 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 
 			if tt.expectUpdateSiteInDB {
 				env.RegisterActivity(siteManager.UpdateSiteInDB)
-				// V1 carries no Site Agent build info, so the activity receives a typed nil.
+				// V1 carries no Site Agent build info or Flow availability, so the activity
+				// receives typed nils for both.
 				env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo,
-					(*corev1.SiteAgentBuildInfo)(nil)).Return(tt.updateSiteInDBErr)
+					(*corev1.SiteAgentBuildInfo)(nil), (*bool)(nil)).Return(tt.updateSiteInDBErr)
 			}
 			if tt.expectUpdateIPBlocks {
 				env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
@@ -168,6 +169,7 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 		prefixes             []string
 		buildVersion         string
 		siteAgentBuildInfo   *corev1.SiteAgentBuildInfo
+		flowAvailable        *bool
 		updateSiteInDBErr    error
 		updateIPBlocksErr    error
 		wantErr              bool
@@ -186,8 +188,8 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
 				InventoryInterval: durationpb.New(time.Minute),
-				FlowAvailable:     proto.Bool(true),
 			},
+			flowAvailable:        proto.Bool(true),
 			expectUpdateSiteInDB: true,
 			expectUpdateIPBlocks: true,
 			expectRecordLatency:  true,
@@ -267,6 +269,7 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 			inventory := &corev1.SiteConfigInventory{
 				CoreBuildInfo:      buildInfo,
 				SiteAgentBuildInfo: tt.siteAgentBuildInfo,
+				FlowAvailable:      tt.flowAvailable,
 			}
 
 			var siteManager siteActivity.ManageSite
@@ -277,7 +280,7 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 				// A message without Site Agent build info reaches the activity as a typed nil,
 				// which is what the pointer carries here when the case leaves it unset.
 				env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo,
-					tt.siteAgentBuildInfo).Return(tt.updateSiteInDBErr)
+					tt.siteAgentBuildInfo, tt.flowAvailable).Return(tt.updateSiteInDBErr)
 			}
 			if tt.expectUpdateIPBlocks {
 				env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)

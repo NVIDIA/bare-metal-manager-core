@@ -29,7 +29,6 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	tests := []struct {
 		name                string
 		coreClientMissing   bool
-		flowGrpcEnabled     bool
 		flowClientConnected bool
 		siteAgentBuildInfo  *corev1.SiteAgentBuildInfo
 		wantFlowAvailable   *bool
@@ -37,7 +36,6 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	}{
 		{
 			name:                "publishes connected Flow as available",
-			flowGrpcEnabled:     true,
 			flowClientConnected: true,
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
@@ -48,14 +46,9 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 		{
 			// The Site Agent leaves the interval unset when it cannot derive one, so Cloud can
 			// tell that apart from a real value and stay on its own default.
-			name:               "publishes explicitly disabled Flow as unavailable",
+			name:               "publishes an absent Flow client as unavailable",
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: "2.0.0"},
 			wantFlowAvailable:  proto.Bool(false),
-		},
-		{
-			name:               "omits Flow while an enabled client is not initialized",
-			flowGrpcEnabled:    true,
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: "2.0.0"},
 		},
 		{
 			name:               "fails when the Core gRPC client is not connected",
@@ -100,7 +93,6 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 				SiteID:                siteID,
 				CoreGrpcAtomicClient:  coreGrpcAtomicClient,
 				FlowGrpcAtomicClient:  flowGrpcAtomicClient,
-				FlowGrpcEnabled:       tt.flowGrpcEnabled,
 				TemporalPublishClient: tc,
 				TemporalPublishQueue:  "test-queue",
 			}, tt.siteAgentBuildInfo)
@@ -134,15 +126,8 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 				"Version request must set DisplayConfig, Core omits the runtime config without it")
 			assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())
 
-			reportedSiteAgentBuildInfo := inventory.GetSiteAgentBuildInfo()
-			require.NotNil(t, reportedSiteAgentBuildInfo)
-			assert.Equal(t, tt.siteAgentBuildInfo.GetVersion(), reportedSiteAgentBuildInfo.GetVersion())
-			assert.True(t, proto.Equal(
-				tt.siteAgentBuildInfo.GetInventoryInterval(),
-				reportedSiteAgentBuildInfo.GetInventoryInterval(),
-			))
-			assert.Equal(t, tt.wantFlowAvailable, reportedSiteAgentBuildInfo.FlowAvailable)
-			assert.Nil(t, tt.siteAgentBuildInfo.FlowAvailable, "inventory collection must not mutate shared process metadata")
+			assert.True(t, proto.Equal(tt.siteAgentBuildInfo, inventory.GetSiteAgentBuildInfo()))
+			assert.Equal(t, tt.wantFlowAvailable, inventory.FlowAvailable)
 		})
 	}
 }

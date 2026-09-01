@@ -48,7 +48,6 @@ func (api *API) RegisterPublisher() error {
 		SiteID:                siteID,
 		CoreGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.CoreGrpc.Client,
 		FlowGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.FlowGrpc.Client,
-		FlowGrpcEnabled:       ManagerAccess.Conf.EB.FlowGrpc.Enabled,
 		TemporalPublishClient: ManagerAccess.Data.EB.Managers.Workflow.Temporal.Publisher,
 		TemporalPublishQueue:  ManagerAccess.Conf.EB.Temporal.TemporalPublishQueue,
 	}, siteAgentBuildInfo)

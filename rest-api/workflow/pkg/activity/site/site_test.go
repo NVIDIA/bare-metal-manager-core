@@ -1258,6 +1258,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 		existingInterval      *int
 		buildInfo             *corev1.BuildInfo
 		siteAgentBuildInfo    *corev1.SiteAgentBuildInfo
+		flowAvailable         *bool
 		wantVersion           *string
 		wantVpcSlaac          bool
 		wantFlow              bool
@@ -1423,32 +1424,28 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			wantDBUpdate:    true,
 		},
 		{
-			name:            "enables Flow when the Site Agent reports it available",
-			existingVersion: cutil.GetPtr("1.0.0"),
-			existingConfig:  &cdbm.SiteConfig{},
-			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
-				Version:       existingAgentVersion,
-				FlowAvailable: proto.Bool(true),
-			},
-			wantVersion:  cutil.GetPtr("1.0.0"),
-			wantFlow:     true,
-			wantDBUpdate: true,
+			name:               "enables Flow when Site inventory reports it available",
+			existingVersion:    cutil.GetPtr("1.0.0"),
+			existingConfig:     &cdbm.SiteConfig{},
+			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
+			flowAvailable:      proto.Bool(true),
+			wantVersion:        cutil.GetPtr("1.0.0"),
+			wantFlow:           true,
+			wantDBUpdate:       true,
 		},
 		{
-			name:            "disables Flow when the Site Agent reports it disabled",
-			existingVersion: cutil.GetPtr("1.0.0"),
-			existingConfig:  &cdbm.SiteConfig{Flow: true},
-			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
-				Version:       existingAgentVersion,
-				FlowAvailable: proto.Bool(false),
-			},
-			wantVersion:  cutil.GetPtr("1.0.0"),
-			wantDBUpdate: true,
+			name:               "disables Flow when Site inventory reports it unavailable",
+			existingVersion:    cutil.GetPtr("1.0.0"),
+			existingConfig:     &cdbm.SiteConfig{Flow: true},
+			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
+			flowAvailable:      proto.Bool(false),
+			wantVersion:        cutil.GetPtr("1.0.0"),
+			wantDBUpdate:       true,
 		},
 		{
-			name:               "preserves Flow when an older Site Agent omits availability",
+			name:               "preserves Flow when older Site inventory omits availability",
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{Flow: true},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
@@ -1457,16 +1454,14 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			wantFlow:           true,
 		},
 		{
-			name:            "skips update when reported Flow availability matches",
-			existingVersion: cutil.GetPtr("1.0.0"),
-			existingConfig:  &cdbm.SiteConfig{Flow: true},
-			buildInfo:       &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
-				Version:       existingAgentVersion,
-				FlowAvailable: proto.Bool(true),
-			},
-			wantVersion: cutil.GetPtr("1.0.0"),
-			wantFlow:    true,
+			name:               "skips update when reported Flow availability matches",
+			existingVersion:    cutil.GetPtr("1.0.0"),
+			existingConfig:     &cdbm.SiteConfig{Flow: true},
+			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
+			flowAvailable:      proto.Bool(true),
+			wantVersion:        cutil.GetPtr("1.0.0"),
+			wantFlow:           true,
 		},
 		{
 			name:            "initializes nil config with advertised VPC SLAAC",
@@ -1526,7 +1521,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 				siteID = uuid.New()
 			}
 
-			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo, tt.siteAgentBuildInfo)
+			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo, tt.siteAgentBuildInfo, tt.flowAvailable)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantNonRetryable {
