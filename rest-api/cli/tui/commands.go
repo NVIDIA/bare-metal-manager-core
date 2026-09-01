@@ -40,6 +40,7 @@ func AllCommands() []Command {
 		{Name: "vpc update", Description: "Update a VPC", Run: cmdVPCUpdate},
 		{Name: "vpc virtualization update", Description: "Update VPC virtualization", Run: cmdVPCVirtualizationUpdate},
 		{Name: "vpc delete", Description: "Delete a VPC", Run: cmdVPCDelete},
+		{Name: "vpc-peering create", Description: "Create VPC peerings", Run: cmdVPCPeeringCreate},
 
 		{Name: "subnet list", Description: "List all subnets", Run: cmdSubnetList},
 		{Name: "subnet get", Description: "Get subnet details", Run: cmdSubnetGet},
