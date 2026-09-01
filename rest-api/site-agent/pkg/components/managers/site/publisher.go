@@ -29,7 +29,8 @@ func (api *API) RegisterPublisher() error {
 	}
 
 	siteAgentBuildInfo := &corev1.SiteAgentBuildInfo{
-		Version: metadata.Version,
+		Version:     metadata.Version,
+		FlowEnabled: ManagerAccess.Conf.EB.FlowGrpc.Enabled,
 	}
 
 	// Cloud decides when reported data is stale from this interval, so an unparseable schedule
@@ -47,7 +48,6 @@ func (api *API) RegisterPublisher() error {
 	inventoryManager := swa.NewManageSiteConfigInventory(swa.ManageInventoryConfig{
 		SiteID:                siteID,
 		CoreGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.CoreGrpc.Client,
-		FlowGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.FlowGrpc.Client,
 		TemporalPublishClient: ManagerAccess.Data.EB.Managers.Workflow.Temporal.Publisher,
 		TemporalPublishQueue:  ManagerAccess.Conf.EB.Temporal.TemporalPublishQueue,
 	}, siteAgentBuildInfo)

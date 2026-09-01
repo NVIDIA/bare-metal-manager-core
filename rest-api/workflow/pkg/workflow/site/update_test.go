@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -124,10 +123,9 @@ func TestUpdateSiteConfigInventory(t *testing.T) {
 
 			if tt.expectUpdateSiteInDB {
 				env.RegisterActivity(siteManager.UpdateSiteInDB)
-				// V1 carries no Site Agent build info or Flow availability, so the activity
-				// receives typed nils for both.
+				// V1 carries no Site Agent build info, so the activity receives a typed nil.
 				env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo,
-					(*corev1.SiteAgentBuildInfo)(nil), (*bool)(nil)).Return(tt.updateSiteInDBErr)
+					(*corev1.SiteAgentBuildInfo)(nil)).Return(tt.updateSiteInDBErr)
 			}
 			if tt.expectUpdateIPBlocks {
 				env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)
@@ -169,7 +167,6 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 		prefixes             []string
 		buildVersion         string
 		siteAgentBuildInfo   *corev1.SiteAgentBuildInfo
-		flowAvailable        *bool
 		updateSiteInDBErr    error
 		updateIPBlocksErr    error
 		wantErr              bool
@@ -188,8 +185,8 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
 				InventoryInterval: durationpb.New(time.Minute),
+				FlowEnabled:       true,
 			},
-			flowAvailable:        proto.Bool(true),
 			expectUpdateSiteInDB: true,
 			expectUpdateIPBlocks: true,
 			expectRecordLatency:  true,
@@ -269,7 +266,6 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 			inventory := &corev1.SiteConfigInventory{
 				CoreBuildInfo:      buildInfo,
 				SiteAgentBuildInfo: tt.siteAgentBuildInfo,
-				FlowAvailable:      tt.flowAvailable,
 			}
 
 			var siteManager siteActivity.ManageSite
@@ -280,7 +276,7 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 				// A message without Site Agent build info reaches the activity as a typed nil,
 				// which is what the pointer carries here when the case leaves it unset.
 				env.OnActivity(siteManager.UpdateSiteInDB, mock.Anything, siteID, buildInfo,
-					tt.siteAgentBuildInfo, tt.flowAvailable).Return(tt.updateSiteInDBErr)
+					tt.siteAgentBuildInfo).Return(tt.updateSiteInDBErr)
 			}
 			if tt.expectUpdateIPBlocks {
 				env.RegisterActivity(siteManager.UpdateIPBlocksInDBFromFabricPrefixes)

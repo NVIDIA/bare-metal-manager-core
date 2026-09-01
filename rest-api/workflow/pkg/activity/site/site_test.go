@@ -45,7 +45,6 @@ import (
 	tosv1mock "go.temporal.io/api/operatorservicemock/v1"
 	twsv1mock "go.temporal.io/api/workflowservicemock/v1"
 	tmocks "go.temporal.io/sdk/mocks"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -1258,7 +1257,6 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 		existingInterval      *int
 		buildInfo             *corev1.BuildInfo
 		siteAgentBuildInfo    *corev1.SiteAgentBuildInfo
-		flowAvailable         *bool
 		wantVersion           *string
 		wantVpcSlaac          bool
 		wantFlow              bool
@@ -1424,42 +1422,30 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			wantDBUpdate:    true,
 		},
 		{
-			name:               "enables Flow when Site inventory reports it available",
+			name:               "enables Flow when Site Agent reports it enabled",
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
-			flowAvailable:      proto.Bool(true),
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: true},
 			wantVersion:        cutil.GetPtr("1.0.0"),
 			wantFlow:           true,
 			wantDBUpdate:       true,
 		},
 		{
-			name:               "disables Flow when Site inventory reports it unavailable",
+			name:               "disables Flow when Site Agent reports it disabled",
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{Flow: true},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
-			flowAvailable:      proto.Bool(false),
 			wantVersion:        cutil.GetPtr("1.0.0"),
 			wantDBUpdate:       true,
 		},
 		{
-			name:               "preserves Flow when older Site inventory omits availability",
+			name:               "skips update when reported Flow configuration matches",
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{Flow: true},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
-			wantVersion:        cutil.GetPtr("1.0.0"),
-			wantFlow:           true,
-		},
-		{
-			name:               "skips update when reported Flow availability matches",
-			existingVersion:    cutil.GetPtr("1.0.0"),
-			existingConfig:     &cdbm.SiteConfig{Flow: true},
-			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
-			flowAvailable:      proto.Bool(true),
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: true},
 			wantVersion:        cutil.GetPtr("1.0.0"),
 			wantFlow:           true,
 		},
@@ -1521,7 +1507,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 				siteID = uuid.New()
 			}
 
-			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo, tt.siteAgentBuildInfo, tt.flowAvailable)
+			err = mst.UpdateSiteInDB(ctx, siteID, tt.buildInfo, tt.siteAgentBuildInfo)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantNonRetryable {

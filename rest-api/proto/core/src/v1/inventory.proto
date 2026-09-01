@@ -42,6 +42,8 @@ message SiteAgentBuildInfo {
   // How often the Site Agent collects inventory, derived from its configured schedule.
   // Cloud compares object timestamps against this to decide whether an inventory is stale.
   google.protobuf.Duration inventory_interval = 2;
+  // Whether Flow is enabled in the Site Agent configuration
+  bool flow_enabled = 3;
 }
 
 // SiteConfigInventory - Site configuration reported periodically. Site-level reporting is
@@ -52,9 +54,6 @@ message SiteConfigInventory {
   forge.BuildInfo core_build_info = 1;
   // Build metadata and configuration owned by the Site Agent itself
   SiteAgentBuildInfo site_agent_build_info = 2;
-  // Whether Flow is available at the Site. A connected Flow client means the startup Version
-  // handshake succeeded; no client means Flow is disabled. Older Site Agents omit this field.
-  optional bool flow_available = 3;
 }
 
 // DpuExtensionServiceInventory - inventory of all DPU Extension Services on Site, collected periodically

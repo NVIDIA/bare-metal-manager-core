@@ -27,28 +27,24 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                string
-		coreClientMissing   bool
-		flowClientConnected bool
-		siteAgentBuildInfo  *corev1.SiteAgentBuildInfo
-		wantFlowAvailable   *bool
-		wantErr             error
+		name               string
+		coreClientMissing  bool
+		siteAgentBuildInfo *corev1.SiteAgentBuildInfo
+		wantErr            error
 	}{
 		{
-			name:                "publishes connected Flow as available",
-			flowClientConnected: true,
+			name: "publishes Site Agent build info",
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
 				InventoryInterval: durationpb.New(3 * time.Minute),
+				FlowEnabled:       true,
 			},
-			wantFlowAvailable: proto.Bool(true),
 		},
 		{
 			// The Site Agent leaves the interval unset when it cannot derive one, so Cloud can
 			// tell that apart from a real value and stay on its own default.
-			name:               "publishes an absent Flow client as unavailable",
+			name:               "publishes an absent inventory interval",
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: "2.0.0"},
-			wantFlowAvailable:  proto.Bool(false),
 		},
 		{
 			name:               "fails when the Core gRPC client is not connected",
@@ -70,11 +66,6 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 				mockCoreService.BuildCapabilities = buildCapabilities
 			}
 
-			flowGrpcAtomicClient := cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})
-			if tt.flowClientConnected {
-				flowGrpcAtomicClient.SwapClient(cClient.NewMockFlowGrpcClient())
-			}
-
 			siteID := uuid.New()
 			wrun := &tmocks.WorkflowRun{}
 			wrun.On("GetID").Return("test-workflow-id")
@@ -92,7 +83,6 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 			manageSiteConfigInventory := NewManageSiteConfigInventory(ManageInventoryConfig{
 				SiteID:                siteID,
 				CoreGrpcAtomicClient:  coreGrpcAtomicClient,
-				FlowGrpcAtomicClient:  flowGrpcAtomicClient,
 				TemporalPublishClient: tc,
 				TemporalPublishQueue:  "test-queue",
 			}, tt.siteAgentBuildInfo)
@@ -127,7 +117,6 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 			assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())
 
 			assert.True(t, proto.Equal(tt.siteAgentBuildInfo, inventory.GetSiteAgentBuildInfo()))
-			assert.Equal(t, tt.wantFlowAvailable, inventory.FlowAvailable)
 		})
 	}
 }

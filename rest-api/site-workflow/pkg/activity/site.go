@@ -11,7 +11,6 @@ import (
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/rs/zerolog/log"
 	tClient "go.temporal.io/sdk/client"
-	"google.golang.org/protobuf/proto"
 )
 
 const updateSiteConfigInventoryWorkflowName = "UpdateSiteConfigInventoryV2"
@@ -57,8 +56,6 @@ func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Co
 	inventory := &corev1.SiteConfigInventory{
 		CoreBuildInfo:      coreBuildInfo,
 		SiteAgentBuildInfo: msi.siteAgentBuildInfo,
-		FlowAvailable: proto.Bool(msi.inventoryConfig.FlowGrpcAtomicClient != nil &&
-			msi.inventoryConfig.FlowGrpcAtomicClient.GetClient() != nil),
 	}
 
 	workflowOptions := tClient.StartWorkflowOptions{

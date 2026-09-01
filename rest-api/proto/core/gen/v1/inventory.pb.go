@@ -167,8 +167,10 @@ type SiteAgentBuildInfo struct {
 	// How often the Site Agent collects inventory, derived from its configured schedule.
 	// Cloud compares object timestamps against this to decide whether an inventory is stale.
 	InventoryInterval *durationpb.Duration `protobuf:"bytes,2,opt,name=inventory_interval,json=inventoryInterval,proto3" json:"inventory_interval,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whether Flow is enabled in the Site Agent configuration
+	FlowEnabled   bool `protobuf:"varint,3,opt,name=flow_enabled,json=flowEnabled,proto3" json:"flow_enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SiteAgentBuildInfo) Reset() {
@@ -215,6 +217,13 @@ func (x *SiteAgentBuildInfo) GetInventoryInterval() *durationpb.Duration {
 	return nil
 }
 
+func (x *SiteAgentBuildInfo) GetFlowEnabled() bool {
+	if x != nil {
+		return x.FlowEnabled
+	}
+	return false
+}
+
 // SiteConfigInventory - Site configuration reported periodically. Site-level reporting is
 // added to this message rather than as another workflow argument, so extending it does not
 // require a new workflow.
@@ -224,11 +233,8 @@ type SiteConfigInventory struct {
 	CoreBuildInfo *BuildInfo `protobuf:"bytes,1,opt,name=core_build_info,json=coreBuildInfo,proto3" json:"core_build_info,omitempty"`
 	// Build metadata and configuration owned by the Site Agent itself
 	SiteAgentBuildInfo *SiteAgentBuildInfo `protobuf:"bytes,2,opt,name=site_agent_build_info,json=siteAgentBuildInfo,proto3" json:"site_agent_build_info,omitempty"`
-	// Whether Flow is available at the Site. A connected Flow client means the startup Version
-	// handshake succeeded; no client means Flow is disabled. Older Site Agents omit this field.
-	FlowAvailable *bool `protobuf:"varint,3,opt,name=flow_available,json=flowAvailable,proto3,oneof" json:"flow_available,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SiteConfigInventory) Reset() {
@@ -273,13 +279,6 @@ func (x *SiteConfigInventory) GetSiteAgentBuildInfo() *SiteAgentBuildInfo {
 		return x.SiteAgentBuildInfo
 	}
 	return nil
-}
-
-func (x *SiteConfigInventory) GetFlowAvailable() bool {
-	if x != nil && x.FlowAvailable != nil {
-		return *x.FlowAvailable
-	}
-	return false
 }
 
 // DpuExtensionServiceInventory - inventory of all DPU Extension Services on Site, collected periodically
@@ -2114,15 +2113,14 @@ const file_inventory_proto_rawDesc = "" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1f\n" +
 	"\vtotal_items\x18\x04 \x01(\x05R\n" +
 	"totalItems\x12\x19\n" +
-	"\bitem_ids\x18\x05 \x03(\tR\aitemIds\"x\n" +
+	"\bitem_ids\x18\x05 \x03(\tR\aitemIds\"\x9b\x01\n" +
 	"\x12SiteAgentBuildInfo\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12H\n" +
-	"\x12inventory_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x11inventoryInterval\"\xe0\x01\n" +
+	"\x12inventory_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x11inventoryInterval\x12!\n" +
+	"\fflow_enabled\x18\x03 \x01(\bR\vflowEnabled\"\xa1\x01\n" +
 	"\x13SiteConfigInventory\x128\n" +
 	"\x0fcore_build_info\x18\x01 \x01(\v2\x10.forge.BuildInfoR\rcoreBuildInfo\x12P\n" +
-	"\x15site_agent_build_info\x18\x02 \x01(\v2\x1d.inventory.SiteAgentBuildInfoR\x12siteAgentBuildInfo\x12*\n" +
-	"\x0eflow_available\x18\x03 \x01(\bH\x00R\rflowAvailable\x88\x01\x01B\x11\n" +
-	"\x0f_flow_available\"\xd1\x02\n" +
+	"\x15site_agent_build_info\x18\x02 \x01(\v2\x1d.inventory.SiteAgentBuildInfoR\x12siteAgentBuildInfo\"\xd1\x02\n" +
 	"\x1cDpuExtensionServiceInventory\x12E\n" +
 	"\x10inventory_status\x18\x01 \x01(\x0e2\x1a.inventory.InventoryStatusR\x0finventoryStatus\x12\x1d\n" +
 	"\n" +
@@ -2468,7 +2466,6 @@ func file_inventory_proto_init() {
 	file_common_nico_proto_init()
 	file_machine_discovery_nico_proto_init()
 	file_nico_nico_proto_init()
-	file_inventory_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -184,8 +184,8 @@ func (Managers *Manager) Start() {
 	ManagerAccess.Data.EB.Log.Info().Msg("Managers: Starting all the managers")
 	Managers.CoreGrpc().Start()
 	Managers.Bootstrap().Start()
-	Managers.FlowGrpc().Start()
 	Managers.Orchestrator().Start()
+	Managers.FlowGrpc().Start()
 }
 
 // StartMetricServer - Start serving Metric Server

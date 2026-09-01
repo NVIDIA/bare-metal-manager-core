@@ -44,7 +44,7 @@ func UpdateSiteConfigInventory(ctx workflow.Context, siteIDStr string, coreBuild
 	var manageSite siteActivity.ManageSite
 
 	// An older Site Agent reports no build info of its own, so the stored values are left alone.
-	siteUpdateErr := workflow.ExecuteActivity(ctx, manageSite.UpdateSiteInDB, siteID, coreBuildInfo, nil, nil).Get(ctx, nil)
+	siteUpdateErr := workflow.ExecuteActivity(ctx, manageSite.UpdateSiteInDB, siteID, coreBuildInfo, nil).Get(ctx, nil)
 	if siteUpdateErr != nil {
 		logger.Warn().Err(siteUpdateErr).Msg("failed to execute UpdateSiteInDB activity")
 	}
@@ -101,7 +101,7 @@ func UpdateSiteConfigInventoryV2(ctx workflow.Context, siteIDStr string, invento
 	var manageSite siteActivity.ManageSite
 
 	siteUpdateErr := workflow.ExecuteActivity(ctx, manageSite.UpdateSiteInDB, siteID, coreBuildInfo,
-		inventory.GetSiteAgentBuildInfo(), inventory.FlowAvailable).Get(ctx, nil)
+		inventory.GetSiteAgentBuildInfo()).Get(ctx, nil)
 	if siteUpdateErr != nil {
 		logger.Warn().Err(siteUpdateErr).Msg("failed to execute UpdateSiteInDB activity")
 	}

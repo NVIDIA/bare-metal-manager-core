@@ -52,7 +52,6 @@ const (
 type ManageInventoryConfig struct {
 	SiteID                uuid.UUID
 	CoreGrpcAtomicClient  *cClient.CoreGrpcAtomicClient
-	FlowGrpcAtomicClient  *cClient.FlowGrpcAtomicClient
 	TemporalPublishClient tClient.Client
 	TemporalPublishQueue  string
 	SitePageSize          int
