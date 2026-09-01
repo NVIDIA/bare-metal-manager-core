@@ -450,6 +450,9 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			}
 
 			if wasDeleted {
+				// Clear bumps Updated, so restored Machines bypass the staleness check below
+				// for this inventory. The update below refreshes the row and keeps Updated
+				// recent; a subsequent inventory within the threshold may be deferred.
 				existingCloudMachine, err = mDAO.Clear(ctx, txn, cdbm.MachineClearInput{
 					MachineID: existingCloudMachine.ID,
 					Deleted:   true,

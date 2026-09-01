@@ -4,6 +4,7 @@
 package machine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1470,6 +1472,100 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 		assert.Equal(t, cdbm.MachineStatusReady, statusDetails[0].Status)
 		require.NotNil(t, statusDetails[0].Message)
 		assert.Equal(t, "Machine is ready for assignment", *statusDetails[0].Message)
+	})
+
+	t.Run("leaves an unreported soft-deleted Machine untouched", func(t *testing.T) {
+		ctx := context.Background()
+		tombstoneSite := testMachineBuildSite(t, dbSession, ip, "test-machine-tombstone-site", cdbm.SiteStatusRegistered)
+		tombstone := testMachineBuildMachine(
+			t,
+			dbSession,
+			ip.ID,
+			tombstoneSite.ID,
+			nil,
+			nil,
+			false,
+			nil,
+			false,
+			nil,
+			cutil.GetPtr(cdbm.MachineStatusReady),
+		)
+
+		machineDAO := cdbm.NewMachineDAO(dbSession)
+		_, err := machineDAO.Update(ctx, nil, cdbm.MachineUpdateInput{
+			MachineID:        tombstone.ID,
+			IsUsableByTenant: cutil.GetPtr(true),
+		})
+		require.NoError(t, err)
+		require.NoError(t, machineDAO.Delete(ctx, nil, tombstone.ID, false))
+
+		getTombstone := func() *cdbm.Machine {
+			t.Helper()
+			machines, total, getErr := machineDAO.GetAll(
+				ctx,
+				nil,
+				cdbm.MachineFilterInput{
+					MachineIDs:     []string{tombstone.ID},
+					IncludeDeleted: true,
+				},
+				cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+				nil,
+			)
+			require.NoError(t, getErr)
+			require.Equal(t, 1, total)
+			require.Len(t, machines, 1)
+			require.NotNil(t, machines[0].Deleted)
+			return &machines[0]
+		}
+
+		before := getTombstone()
+		statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
+		_, statusDetailCountBefore, err := statusDetailDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.StatusDetailFilterInput{EntityIDs: []string{tombstone.ID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		)
+		require.NoError(t, err)
+
+		var logOutput bytes.Buffer
+		originalLogger := log.Logger
+		log.Logger = zerolog.New(&logOutput)
+		defer func() {
+			log.Logger = originalLogger
+		}()
+
+		manager := ManageMachine{
+			dbSession:      dbSession,
+			siteClientPool: tSiteClientPool,
+		}
+		emptyInventory := &corev1.MachineInventory{
+			Machines:        []*corev1.MachineInfo{},
+			Timestamp:       timestamppb.Now(),
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		}
+
+		for range 2 {
+			err = manager.UpdateMachinesInDB(ctx, tombstoneSite.ID.String(), emptyInventory)
+			require.NoError(t, err)
+		}
+
+		after := getTombstone()
+		assert.Equal(t, before.Deleted, after.Deleted)
+		assert.True(t, after.Updated.Equal(before.Updated))
+		assert.Equal(t, before.Status, after.Status)
+		assert.Equal(t, before.IsMissingOnSite, after.IsMissingOnSite)
+		assert.Equal(t, before.IsUsableByTenant, after.IsUsableByTenant)
+
+		_, statusDetailCountAfter, err := statusDetailDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.StatusDetailFilterInput{EntityIDs: []string{tombstone.ID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, statusDetailCountBefore, statusDetailCountAfter)
+		assert.NotContains(t, logOutput.String(), "failed to update missing on Site flag in DB")
 	})
 }
 
