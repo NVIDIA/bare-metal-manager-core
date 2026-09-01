@@ -11,6 +11,9 @@ source "$UNIT_TEST_DIR/../upgrade/on-server/upgrade-lib.sh"
 _tmpdir="$(mktemp -d)"
 trap 'rm -rf "$_tmpdir"' EXIT
 
+# A known-hosts path is mandatory (the lib fails closed without one).
+UPGRADE_KNOWN_HOSTS="$_tmpdir/known_hosts"
+
 echo "=== key mode ==="
 _key="$_tmpdir/id_test"
 touch "$_key"
@@ -34,12 +37,10 @@ echo ""
 echo "=== known-hosts handling ==="
 build_upgrade_ssh_opts password
 _opts=" ${UPGRADE_SSH_OPTS[*]} "
-assert_true  "defaults to /dev/null"       "[[ \"\$_opts\" == *'UserKnownHostsFile=/dev/null'* ]]"
-UPGRADE_KNOWN_HOSTS="$_tmpdir/known_hosts"
-build_upgrade_ssh_opts password
-_opts=" ${UPGRADE_SSH_OPTS[*]} "
-assert_true  "honors UPGRADE_KNOWN_HOSTS"  "[[ \"\$_opts\" == *'UserKnownHostsFile=$_tmpdir/known_hosts'* ]]"
-unset UPGRADE_KNOWN_HOSTS
+assert_true  "uses UPGRADE_KNOWN_HOSTS"    "[[ \"\$_opts\" == *'UserKnownHostsFile=$_tmpdir/known_hosts'* ]]"
+assert_false "never falls back to /dev/null" "[[ \"\$_opts\" == *'UserKnownHostsFile=/dev/null'* ]]"
+assert_false "fails closed when unset"     "(unset UPGRADE_KNOWN_HOSTS; build_upgrade_ssh_opts password)"
+assert_false "fails closed when empty"     "(UPGRADE_KNOWN_HOSTS=''; build_upgrade_ssh_opts key '$_key')"
 
 echo ""
 echo "=== error cases ==="

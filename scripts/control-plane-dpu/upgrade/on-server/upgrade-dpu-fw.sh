@@ -207,7 +207,10 @@ fi
 
 trap cleanup EXIT
 cd "$SCRIPT_DIR"
-mkdir -p "$TOUCHFILES_DIR" "$SCRIPT_DIR/backup"
+mkdir -p "$TOUCHFILES_DIR"
+# backup/ holds the DPU config, its live password hash, and the pinned host
+# key — root-only, regardless of the ambient umask.
+install -d -m 700 "$SCRIPT_DIR/backup"
 
 TOUCHFILE_UPGRADE_BACKUP="$TOUCHFILES_DIR/upgradebackup"
 BACKUP_STARTUP_YAML="$SCRIPT_DIR/backup/startup.yaml"
@@ -294,11 +297,13 @@ upgrade_backup() {
         # never reaches the log.
         local _xt=false
         case "$-" in *x*) _xt=true; set +x ;; esac
+        # Pre-create the shadow file 0600 so the hash is never on disk with
+        # permissive modes, even briefly (awk's > truncates, keeping the mode).
+        install -m 600 /dev/null "$BACKUP_UBUNTU_SHADOW"
         awk -v marker="$_shadow_marker" -v yaml="$_tmp" -v shadow="$BACKUP_UBUNTU_SHADOW" \
             '$0 == marker {found=1; next} !found {print > yaml} found {print > shadow}' "$_raw"
         rm -f "$_raw"
         if [ -s "$BACKUP_UBUNTU_SHADOW" ]; then
-            chmod 600 "$BACKUP_UBUNTU_SHADOW"
             local _live_hash
             _live_hash="$(cut -d: -f2 "$BACKUP_UBUNTU_SHADOW")"
             if [ "${_live_hash#\$}" != "$_live_hash" ]; then
