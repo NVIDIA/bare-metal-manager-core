@@ -2757,14 +2757,18 @@ pub async fn handle_maintenance(
                     })
                     .await;
 
-                delete_rack_maintenance_access_token(ctx.services.credential_manager.as_ref(), id)
-                    .await;
-
                 // Invalid requests cannot succeed on retry. Backend submission
-                // failures remain handler errors so the Start state is retried.
+                // failures remain handler errors, with the token retained so
+                // the Start state can resubmit the request.
                 let job = match submit_result {
                     Ok(job) => job,
                     Err(ComponentManagerError::InvalidArgument(cause)) => {
+                        delete_rack_maintenance_access_token(
+                            ctx.services.credential_manager.as_ref(),
+                            id,
+                        )
+                        .await;
+
                         return transition_to_rack_error(id, state, &cause, ctx).await;
                     }
                     Err(ComponentManagerError::Internal(cause))
@@ -2773,6 +2777,9 @@ pub async fn handle_maintenance(
                     }
                     Err(error) => return Err(StateHandlerError::GenericError(eyre::eyre!(error))),
                 };
+
+                delete_rack_maintenance_access_token(ctx.services.credential_manager.as_ref(), id)
+                    .await;
 
                 let mut txn = ctx.services.db_pool.begin().await?;
                 clear_nvos_update_statuses(txn.as_mut(), &switch_inventory.switch_ids).await?;
