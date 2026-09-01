@@ -5,6 +5,7 @@
 .dpf-src/
 # Same for the nv-rms source clone cached by setup.sh --install-rms.
 .rms-src/
+nv-rms/
 .git/
 .gitignore
 *.bak

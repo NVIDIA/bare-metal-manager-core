@@ -102,15 +102,13 @@
 #   NICO_SKIP_RMS          Skip the NVIDIA Rack Manager Service (rack-manager
 #                          chart, phase 5c), which installs by DEFAULT.
 #                          Same as --skip-rms. (NICO_INSTALL_RMS=false honored too.)
-#   NICO_RMS_VERSION       nv-rms git ref (tag, branch, or full commit SHA) to
-#                          clone the rack-manager chart from — same model as
-#                          NICO_DPF_VERSION. Default: a pinned main commit;
-#                          switch to release tags once upstream cuts them.
-#   NICO_RMS_SRC_DIR       Where the nv-rms clone is cached.
-#                          Default: helm-prereqs/.rms-src
 #   NICO_RMS_CHART         Local rack-manager chart path (directory or .tgz),
-#                          e.g. an nv-rms checkout's helm/ dir. When set, no
-#                          clone happens. Default: unset (clone NICO_RMS_VERSION).
+#                          e.g. your own nv-rms checkout's helm/ dir. Default:
+#                          unset - the chart comes from the helm-prereqs/nv-rms
+#                          git submodule, pinned by this repo (initialized
+#                          automatically when git and network are available;
+#                          on airgapped hosts, clone nv-rms yourself and set
+#                          this variable).
 #   NICO_RMS_IMAGE_REPO    RMS API server image repository. Default: the NGC
 #                          rms-dev image, nvcr.io/0837451325059433/rms-dev/rms-api
 #                          (still entitlement-gated; point at your mirror
@@ -341,14 +339,12 @@ NICO_DPF_NICO_NGC_API_KEY="${NICO_DPF_NICO_NGC_API_KEY:-${NICO_DPF_NGC_API_KEY}}
 # to the chart version (NICO_DPF_VERSION) but can differ for a self-built image.
 NICO_DPF_IMAGE_REPO="${NICO_DPF_IMAGE_REPO:-nvcr.io/nvidia/doca/dpf-system}"
 NICO_DPF_IMAGE_TAG="${NICO_DPF_IMAGE_TAG:-${NICO_DPF_VERSION}}"
-# RMS (rack-manager chart, phase 5c). The chart is cloned from the open-source
-# nv-rms repo at a pinned ref, mirroring the DPF doca-platform clone. Upstream
-# has no release tags yet, so the default pin is a main commit SHA; image tags
-# are git-describe style and decoupled from the chart — NICO_RMS_IMAGE_TAG has
-# no default and preflight requires it when RMS install is enabled.
+# RMS (rack-manager chart, phase 5c). The chart ships as the helm-prereqs/nv-rms
+# git submodule, pinned to a reviewed nv-rms commit (bump the pin to move
+# versions). Image tags are git-describe style and decoupled from the chart -
+# NICO_RMS_IMAGE_TAG has no default and preflight requires it when RMS install
+# is enabled.
 NICO_RMS_CHART="${NICO_RMS_CHART:-}"
-NICO_RMS_VERSION="${NICO_RMS_VERSION:-5db9c6b3c3805a8549920111c097358d67b4c2c4}"
-NICO_RMS_SRC_DIR="${NICO_RMS_SRC_DIR:-${SCRIPT_DIR}/.rms-src}"
 NICO_RMS_IMAGE_REPO="${NICO_RMS_IMAGE_REPO:-nvcr.io/0837451325059433/rms-dev/rms-api}"
 NICO_RMS_IMAGE_TAG="${NICO_RMS_IMAGE_TAG:-}"
 NICO_RMS_NGC_API_KEY="${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}"
@@ -1284,40 +1280,29 @@ if "${INSTALL_RMS}"; then
         echo "NICO_RMS_NGC_API_KEY not set — skipping rms-pull-secret (mirror or pre-loaded registry)."
     fi
 
-    # 5c.3 Resolve the chart: local checkout/tarball via NICO_RMS_CHART, or a
-    #      cached shallow clone of the open-source nv-rms repo at the pinned
-    #      ref — the same model as the doca-platform clone in 5b. `git fetch
-    #      <ref>` + FETCH_HEAD handles tags, branches, and full commit SHAs
-    #      uniformly (upstream has no release tags yet, so the default pin is
-    #      a commit).
+    # 5c.3 Resolve the chart: an explicit NICO_RMS_CHART override, or the
+    #      pinned helm-prereqs/nv-rms git submodule. The submodule is the
+    #      supply-chain boundary: the commit is pinned and reviewed in this
+    #      repo, and git verifies the hash on init - setup.sh never clones an
+    #      arbitrary ref. Airgapped hosts clone nv-rms out-of-band and point
+    #      NICO_RMS_CHART at it.
     if [[ -n "${NICO_RMS_CHART}" ]]; then
         _RMS_CHART="${NICO_RMS_CHART}"
         echo "Using local rack-manager chart: ${_RMS_CHART}"
     else
-        if [[ -d "${NICO_RMS_SRC_DIR}/.git" ]]; then
-            echo "Reusing nv-rms clone at ${NICO_RMS_SRC_DIR} (ref ${NICO_RMS_VERSION})..."
-        else
-            # Mirror the DPF clone guard: never auto-delete a path that is
-            # not our own clone, and reject dangerous override values.
-            case "${NICO_RMS_SRC_DIR}" in
-                ""|"/"|"${HOME}"|"${HOME}/")
-                    echo "ERROR: refusing to use NICO_RMS_SRC_DIR='${NICO_RMS_SRC_DIR}' — set it to a dedicated clone dir."
-                    exit 1 ;;
-            esac
-            if [[ -e "${NICO_RMS_SRC_DIR}" ]]; then
-                echo "ERROR: '${NICO_RMS_SRC_DIR}' exists but is not an nv-rms Git clone."
-                echo "  Remove it explicitly and re-run (refusing to auto-delete a non-clone path)."
+        _RMS_SUBMODULE="${SCRIPT_DIR}/nv-rms"
+        if [[ ! -f "${_RMS_SUBMODULE}/helm/Chart.yaml" ]]; then
+            echo "Initializing the nv-rms submodule (pinned by this repo)..."
+            if ! git -C "${SCRIPT_DIR}/.." submodule update --init -- helm-prereqs/nv-rms; then
+                echo "Error: could not initialize the nv-rms submodule."
+                echo "  → On an airgapped host, clone https://github.com/dsx-ai-factory/nv-rms"
+                echo "    at the pinned commit (git -C ${SCRIPT_DIR}/.. submodule status) and"
+                echo "    set NICO_RMS_CHART=<clone>/helm."
                 exit 1
             fi
-            echo "Cloning nv-rms ${NICO_RMS_VERSION}..."
-            git init -q "${NICO_RMS_SRC_DIR}"
-            git -C "${NICO_RMS_SRC_DIR}" remote add origin \
-                https://github.com/dsx-ai-factory/nv-rms.git
         fi
-        git -C "${NICO_RMS_SRC_DIR}" fetch --depth 1 origin "${NICO_RMS_VERSION}"
-        git -C "${NICO_RMS_SRC_DIR}" checkout -q -f FETCH_HEAD
-        _RMS_CHART="${NICO_RMS_SRC_DIR}/helm"
-        echo "rack-manager chart: ${_RMS_CHART}"
+        _RMS_CHART="${_RMS_SUBMODULE}/helm"
+        echo "rack-manager chart: ${_RMS_CHART} ($(git -C "${_RMS_SUBMODULE}" rev-parse --short HEAD 2>/dev/null || echo pinned))"
     fi
 
     # 5c.4 Wait for the ESO-synced DB credentials. The rms database/user are

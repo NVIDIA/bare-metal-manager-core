@@ -478,7 +478,7 @@ fi
 if [[ "${INSTALL_RMS:-true}" == "true" ]]; then
     if [[ -z "${NICO_RMS_CHART:-}" ]]; then
         command -v git &>/dev/null || \
-            ERRORS+=("RMS requires 'git' to clone nv-rms — install it, or set NICO_RMS_CHART to a local chart path")
+            ERRORS+=("RMS requires 'git' to initialize the nv-rms submodule - install it, or set NICO_RMS_CHART to a local chart path")
     fi
     [[ -z "${NICO_RMS_IMAGE_TAG:-}" ]] && \
         ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required unless --skip-rms)")
