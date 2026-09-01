@@ -17,7 +17,9 @@
 
 //! DPUFlavor configuration for HBN.
 
-use carbide_libmlx_model::nvconfig::DpuNvConfigProfile;
+use std::collections::BTreeSet;
+
+use carbide_libmlx_model::nvconfig::{DpuNvConfigProfile, GB200_B3240_V1_PF_TOTAL_SF};
 use kube::core::ObjectMeta;
 use sha2::{Digest, Sha256};
 
@@ -1194,10 +1196,15 @@ fn get_bf4_astra_config_files(
 }
 
 fn get_default_nvconfig(deployment_type: DpuDeploymentType) -> DpuFlavorNvconfig {
+    let pf_total_sf = if deployment_type == DpuDeploymentType::Bf3Gb200 {
+        GB200_B3240_V1_PF_TOTAL_SF
+    } else {
+        30
+    };
     let mut parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=30".to_string(),
+        format!("PF_TOTAL_SF={pf_total_sf}"),
         "PF_SF_BAR_SIZE=10".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
@@ -1214,9 +1221,15 @@ fn get_default_nvconfig(deployment_type: DpuDeploymentType) -> DpuFlavorNvconfig
     ];
 
     if deployment_type == DpuDeploymentType::Bf3Gb200 {
+        let configured_parameter_names = parameters
+            .iter()
+            .map(|parameter| nvconfig_parameter_name(parameter).to_string())
+            .collect::<BTreeSet<_>>();
+
         // DPF v26.4 accepts at most 32 parameters. These two assignments set
         // values that DPF already restores to their firmware default of 0, so
-        // omitting them preserves the required platform state.
+        // omitting them preserves the required platform state. Values already
+        // present in the BF3 base stay in their native DPF representation.
         // TODO(chet): Add PCI_SWITCH0_UPSTREAM_PORT_BUS=0 and
         // PCI_SWITCH0_UPSTREAM_PORT_PEX=0 after DPF accepts more than 32
         // NVConfig parameters.
@@ -1225,10 +1238,11 @@ fn get_default_nvconfig(deployment_type: DpuDeploymentType) -> DpuFlavorNvconfig
                 .parameters()
                 .iter()
                 .filter(|parameter| {
-                    !matches!(
-                        **parameter,
-                        "PCI_SWITCH0_UPSTREAM_PORT_BUS=0" | "PCI_SWITCH0_UPSTREAM_PORT_PEX=0"
-                    )
+                    !configured_parameter_names.contains(nvconfig_parameter_name(parameter))
+                        && !matches!(
+                            **parameter,
+                            "PCI_SWITCH0_UPSTREAM_PORT_BUS=0" | "PCI_SWITCH0_UPSTREAM_PORT_PEX=0"
+                        )
                 })
                 .map(|parameter| (*parameter).to_string()),
         );
@@ -1239,6 +1253,12 @@ fn get_default_nvconfig(deployment_type: DpuDeploymentType) -> DpuFlavorNvconfig
         device: Some(DpuFlavorNvconfigDevice::KopiumVariant0), //"*"
         parameters: Some(parameters),
     }
+}
+
+fn nvconfig_parameter_name(parameter: &str) -> &str {
+    parameter
+        .split_once('=')
+        .map_or(parameter, |(name, _)| name)
 }
 
 fn get_bf4_astra_nvconfig() -> DpuFlavorNvconfig {
@@ -2117,10 +2137,17 @@ mod tests {
             |deployment_type| get_default_nvconfig(deployment_type).parameters.unwrap();
         let bf3 = parameters(DpuDeploymentType::Bf3);
         let gb200 = parameters(DpuDeploymentType::Bf3Gb200);
+        let expected_gb200_base = bf3
+            .iter()
+            .map(|parameter| match parameter.as_str() {
+                "PF_TOTAL_SF=30" => "PF_TOTAL_SF=128".to_string(),
+                _ => parameter.clone(),
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(bf3.len(), 16);
         assert_eq!(gb200.len(), 32);
-        assert_eq!(&gb200[..bf3.len()], bf3.as_slice());
+        assert_eq!(&gb200[..bf3.len()], expected_gb200_base.as_slice());
         assert_eq!(
             &gb200[bf3.len()..],
             [

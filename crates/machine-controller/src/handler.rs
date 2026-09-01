@@ -3650,7 +3650,23 @@ async fn handle_dpu_reprovision(
                 .with_txn(txn),
             )
         }
-        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::do_nothing()),
+        ReprovisionState::NotUnderReprovision => {
+            if !dpf::deployment_migration_is_parked(state) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            // Deployment migration is host scoped, while this handler is
+            // called once per DPU. Run it only for the first snapshot so one
+            // controller iteration observes and changes the DPF graph once.
+            if state.dpu_snapshots.first().map(|dpu| &dpu.id) != Some(dpu_machine_id) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            let dpf = dpf_sdk.ok_or_else(|| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "DPF deployment migration reached but DPF is not configured"
+                ))
+            })?;
+            dpf::handle_dpf_deployment_migration(state, ctx, dpf).await
+        }
     }
 }
 

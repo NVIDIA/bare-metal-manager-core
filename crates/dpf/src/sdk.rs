@@ -102,6 +102,11 @@ const SERVICE_CR_NAME_HASH_BYTES: usize = 16;
 /// DPUDeployment. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
 
+/// Returns DPF's canonical ownership label value for one DPUDeployment.
+fn dpu_deployment_owner_label_value(namespace: &str, deployment_name: &str) -> String {
+    format!("{namespace}_{deployment_name}")
+}
+
 pub(crate) const RESTART_ANNOTATION: &str =
     "provisioning.dpu.nvidia.com/dpunode-external-reboot-required";
 pub(crate) const HOLD_ANNOTATION: &str = "provisioning.dpu.nvidia.com/wait-for-external-nodeeffect";
@@ -1707,6 +1712,90 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
         }))
     }
 
+    /// Moves one DPUNode from its source DPUDeployment selector to its target
+    /// selector.
+    ///
+    /// Labels shared by both deployments and labels outside either selector
+    /// are preserved. The transfer uses the DPUNode's `resourceVersion`, so a
+    /// concurrent update returns a Kubernetes conflict instead of being
+    /// overwritten. Repeating a completed transfer does nothing. A DPUNode that
+    /// matches neither selector is rejected rather than assigned to the target
+    /// deployment.
+    pub async fn transfer_dpu_node_deployment_labels(
+        &self,
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace)
+            .await?
+            .ok_or_else(|| DpfError::not_found("DPUNode", node_name))?;
+        let source_labels = self
+            .labeler
+            .node_labels_for_deployment_type(source_deployment_type)?;
+        let target_labels = self
+            .labeler
+            .node_labels_for_deployment_type(target_deployment_type)?;
+        if source_labels.is_empty() || target_labels.is_empty() || source_labels == target_labels {
+            return Err(DpfError::ConfigError(format!(
+                "deployment label transfer requires distinct, nonempty selectors for \
+                 {source_deployment_type:?} and {target_deployment_type:?}"
+            )));
+        }
+        let current_labels = node.metadata.labels.unwrap_or_default();
+        let matches_selector = |selector: &BTreeMap<String, String>| {
+            selector
+                .iter()
+                .all(|(key, value)| current_labels.get(key) == Some(value))
+        };
+        let matches_source = matches_selector(&source_labels);
+        let matches_target = matches_selector(&target_labels);
+        if !matches_source && !matches_target {
+            return Err(DpfError::InvalidState(format!(
+                "DPUNode {node_name} labels match neither the {source_deployment_type:?} nor the \
+                 {target_deployment_type:?} deployment selector"
+            )));
+        }
+
+        let has_source_only_label = source_labels
+            .keys()
+            .any(|key| !target_labels.contains_key(key) && current_labels.contains_key(key));
+        let target_selector_differs = target_labels
+            .iter()
+            .any(|(key, value)| current_labels.get(key) != Some(value));
+        if !has_source_only_label && !target_selector_differs {
+            return Ok(());
+        }
+
+        let resource_version = node.metadata.resource_version.ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "DPUNode {node_name} has no resourceVersion for deployment label transfer"
+            ))
+        })?;
+        let mut label_changes: serde_json::Map<String, serde_json::Value> = source_labels
+            .keys()
+            .filter(|key| !target_labels.contains_key(*key))
+            .map(|key| (key.clone(), serde_json::Value::Null))
+            .collect();
+        label_changes.extend(
+            target_labels
+                .into_iter()
+                .map(|(key, value)| (key, serde_json::Value::String(value))),
+        );
+
+        // The transfer must not leave the DPUNode matching both deployment
+        // selectors. One merge patch makes the removal and addition atomic,
+        // while `resourceVersion` prevents this read from overwriting a
+        // concurrent DPUNode update.
+        let patch = json!({
+            "metadata": {
+                "resourceVersion": resource_version,
+                "labels": label_changes,
+            }
+        });
+        DpuNodeRepository::patch(&*self.repo, node_name, &self.namespace, patch).await
+    }
+
     /// Check if reboot is required for a DPU node.
     pub async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError> {
         let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
@@ -1782,7 +1871,9 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
     ///
     /// In the DPUDeployment (M4) model the operator creates DPU from DPUDevice; deleting the DPU
     /// CR causes the operator to remove it and create a new DPU (same name) that waits on node
-    /// effect. The DPUDevice CR is left in place.
+    /// effect. The DPUDevice CR is left in place. A missing DPU CR means deletion is already
+    /// complete. Treating that as success keeps retries safe when an earlier attempt deleted the
+    /// DPU but did not persist its next state, and when a DPUSet deletes it during label transfer.
     pub async fn reprovision_dpu(
         &self,
         dpu_device_name: &str,
@@ -1790,7 +1881,193 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
     ) -> Result<(), DpfError> {
         let dpf_id = node_id_from_dpu_node_cr_name(node_name);
         let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
-        DpuRepository::delete(&*self.repo, &cr_name, &self.namespace).await
+        match DpuRepository::delete(&*self.repo, &cr_name, &self.namespace).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.is_not_found() => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+impl<R: DpuRepository + DpuDeploymentRepository, L: ResourceLabeler> DpfSdk<R, L> {
+    /// Read every requested DPU phase only when one deployment owns the full set.
+    ///
+    /// A DPU that is not Ready may not report its installed BFB yet, so ownership
+    /// is sufficient until that phase. A Ready DPU must also match the flavor and
+    /// BFB declared by the deployment. `None` means at least one requested DPU is
+    /// missing, is being deleted, belongs to another deployment, or has no status.
+    pub async fn get_dpu_phases_for_deployment_type(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<Option<BTreeMap<String, DpuPhase>>, DpfError> {
+        let (deployment_name, deployment) = self.deployment_for_type(deployment_type).await?;
+        if !dpu_deployment_is_ready(&deployment) {
+            return Ok(None);
+        }
+        let expected_flavor = deployment.spec.dpus.flavor.as_deref().ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "DPUDeployment {deployment_name} has no comparable DPUFlavor"
+            ))
+        })?;
+        let expected_bfb_cr_name = deployment.spec.dpus.bfb.as_deref().ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "DPUDeployment {deployment_name} has no comparable BFB"
+            ))
+        })?;
+        let expected_bfb_filename = format!("{}-{expected_bfb_cr_name}.bfb", self.namespace);
+
+        let expected_owner = dpu_deployment_owner_label_value(&self.namespace, &deployment_name);
+        let owner_selector = format!("{DPU_OWNED_BY_DEPLOYMENT_LABEL}={expected_owner}");
+        let dpf_id = node_id_from_dpu_node_cr_name(node_name);
+        let mut dpus_by_name =
+            DpuRepository::list(&*self.repo, &self.namespace, Some(&owner_selector))
+                .await?
+                .into_iter()
+                .filter_map(|dpu| Some((dpu.metadata.name.clone()?, dpu)))
+                .collect::<HashMap<_, _>>();
+        let mut phases = BTreeMap::new();
+
+        for dpu_device_name in dpu_device_names {
+            let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
+            let Some(dpu) = dpus_by_name.remove(&cr_name) else {
+                return Ok(None);
+            };
+            let has_expected_owner = dpu
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
+                == Some(&expected_owner);
+            if !has_expected_owner || dpu.metadata.deletion_timestamp.is_some() {
+                return Ok(None);
+            }
+
+            let Some(status) = dpu.status.as_ref() else {
+                return Ok(None);
+            };
+            let phase = DpuPhase::from(status.phase.clone());
+            if phase == DpuPhase::Ready {
+                let installed_bfb = status
+                    .bfb_file
+                    .as_deref()
+                    .map(bfb_file_basename)
+                    .ok_or_else(|| {
+                        DpfError::InvalidState(format!(
+                            "Ready DPU {cr_name} does not report an installed BFB"
+                        ))
+                    })?;
+                if dpu.spec.dpu_flavor != expected_flavor || installed_bfb != expected_bfb_filename
+                {
+                    return Err(DpfError::InvalidState(format!(
+                        "Ready DPU {cr_name} does not match DPUDeployment {deployment_name}; \
+                         expected flavor {expected_flavor} and BFB {expected_bfb_filename}"
+                    )));
+                }
+            }
+            phases.insert(dpu_device_name.clone(), phase);
+        }
+
+        Ok(Some(phases))
+    }
+
+    /// Delete source deployment DPU CRs without deleting target replacements.
+    ///
+    /// Each delete carries the observed DPU UID as a Kubernetes precondition.
+    /// If a source DPU disappears and a target DPU reuses its deterministic name,
+    /// a retry preserves the replacement. A DPU owned by any deployment other
+    /// than the declared source or target is rejected.
+    pub async fn delete_source_dpus_for_deployment_migration(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        let (source_deployment_name, _) = self.deployment_for_type(source_deployment_type).await?;
+        let (target_deployment_name, _) = self.deployment_for_type(target_deployment_type).await?;
+        let source_owner =
+            dpu_deployment_owner_label_value(&self.namespace, &source_deployment_name);
+        let target_owner =
+            dpu_deployment_owner_label_value(&self.namespace, &target_deployment_name);
+        let dpf_id = node_id_from_dpu_node_cr_name(node_name);
+        let mut dpus_by_name = DpuRepository::list(&*self.repo, &self.namespace, None)
+            .await?
+            .into_iter()
+            .filter_map(|dpu| Some((dpu.metadata.name.clone()?, dpu)))
+            .collect::<HashMap<_, _>>();
+
+        for dpu_device_name in dpu_device_names {
+            let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
+            let Some(dpu) = dpus_by_name.remove(&cr_name) else {
+                continue;
+            };
+            let owner = dpu
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(DPU_OWNED_BY_DEPLOYMENT_LABEL));
+            if owner == Some(&target_owner) {
+                continue;
+            }
+            if owner != Some(&source_owner) {
+                return Err(DpfError::InvalidState(format!(
+                    "DPU {cr_name} is owned by neither DPUDeployment \
+                     {source_deployment_name} nor {target_deployment_name}"
+                )));
+            }
+            let uid = dpu.metadata.uid.as_deref().ok_or_else(|| {
+                DpfError::InvalidState(format!(
+                    "DPU {cr_name} has no UID for deployment migration deletion"
+                ))
+            })?;
+            match DpuRepository::delete_if_uid(&*self.repo, &cr_name, &self.namespace, uid).await {
+                Ok(()) => {}
+                Err(error) if error.is_not_found() => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find the one live DPUDeployment whose DPUSet selects a deployment type.
+    async fn deployment_for_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<(String, DPUDeployment), DpfError> {
+        let required_labels = self
+            .labeler
+            .node_labels_for_deployment_type(deployment_type)?;
+        if required_labels.is_empty() {
+            return Err(DpfError::ConfigError(format!(
+                "DPUDeployment selector for {deployment_type:?} is empty"
+            )));
+        }
+
+        let deployments = DpuDeploymentRepository::list(&*self.repo, &self.namespace).await?;
+        let mut matching_deployments = deployments.into_iter().filter(|deployment| {
+            deployment.metadata.deletion_timestamp.is_none()
+                && dpu_deployment_selects_labels(deployment, &required_labels)
+        });
+        let deployment = matching_deployments.next().ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "no DPUDeployment selects {deployment_type:?} DPU nodes"
+            ))
+        })?;
+        if matching_deployments.next().is_some() {
+            return Err(DpfError::InvalidState(format!(
+                "multiple DPUDeployments select {deployment_type:?} DPU nodes"
+            )));
+        }
+        let deployment_name = deployment.metadata.name.clone().ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "DPUDeployment selecting {deployment_type:?} DPU nodes has no name"
+            ))
+        })?;
+
+        Ok((deployment_name, deployment))
     }
 }
 
@@ -1938,6 +2215,32 @@ fn dpu_deployment_is_ready(d: &DPUDeployment) -> bool {
         return false;
     };
     cond.status == "True" && cond.observed_generation == Some(generation)
+}
+
+/// Returns true when one DPUSet in a deployment contains every required
+/// DPUNode selector label.
+fn dpu_deployment_selects_labels(
+    deployment: &DPUDeployment,
+    required_labels: &BTreeMap<String, String>,
+) -> bool {
+    deployment
+        .spec
+        .dpus
+        .dpu_sets
+        .as_ref()
+        .is_some_and(|dpu_sets| {
+            dpu_sets.iter().any(|dpu_set| {
+                dpu_set
+                    .dpu_node_selector
+                    .as_ref()
+                    .and_then(|selector| selector.match_labels.as_ref())
+                    .is_some_and(|labels| {
+                        required_labels
+                            .iter()
+                            .all(|(key, value)| labels.get(key) == Some(value))
+                    })
+            })
+        })
 }
 
 impl<R: DpuNodeMaintenanceRepository, L> DpfSdk<R, L> {
@@ -2901,6 +3204,21 @@ mod tests {
         async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
             self.dpus.write().unwrap().remove(&Self::ns_key(ns, name));
             Ok(())
+        }
+        async fn delete_if_uid(&self, name: &str, ns: &str, uid: &str) -> Result<(), DpfError> {
+            let current_uid = self
+                .dpus
+                .read()
+                .unwrap()
+                .get(&Self::ns_key(ns, name))
+                .and_then(|dpu| dpu.metadata.uid.as_deref().map(str::to_owned))
+                .ok_or_else(|| DpfError::not_found("DPU", name))?;
+            if current_uid != uid {
+                return Err(DpfError::InvalidState(format!(
+                    "DPU {name} UID changed before deletion"
+                )));
+            }
+            DpuRepository::delete(self, name, ns).await
         }
         fn watch<F, Fut>(
             &self,

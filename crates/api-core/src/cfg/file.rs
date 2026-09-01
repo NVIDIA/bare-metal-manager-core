@@ -80,6 +80,7 @@ const DPF_DERIVED_NAME_HASH_BYTES: usize = 16;
 const DPF_FLAVOR_HASH_SUFFIX_LENGTH: usize = 17;
 const KUBERNETES_DNS_LABEL_MAX_LENGTH: usize = 63;
 const KUBERNETES_LABEL_NAME_MAX_LENGTH: usize = 63;
+const DPU_ENABLED_NODE_LABEL: &str = "feature.node.kubernetes.io/dpu-enabled";
 const GB200_RESOURCE_SUFFIX: &str = "-gb200";
 // The DPUDeployment CRD allows only 20 characters. The default BF3 name already
 // uses 18, so `-g` is the longest suffix that preserves it without truncation.
@@ -1901,6 +1902,8 @@ impl DpfDeploymentsConfig {
     }
 
     /// Validates the final Kubernetes identifiers and their uniqueness.
+    /// `DPU_ENABLED_NODE_LABEL` is reserved for the shared DPF node marker and
+    /// cannot be used as the `node_label_key` for an individual deployment.
     /// Returns every error so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
         let bf3_gb200 = self.bf3.bf3_gb200();
@@ -1962,6 +1965,11 @@ impl DpfDeploymentsConfig {
             if !is_valid_kubernetes_label_key(label_key) {
                 errors.push(format!(
                     "node_label_key {label_key:?} for deployment {deployment:?} is not a valid Kubernetes label key"
+                ));
+            }
+            if *label_key == DPU_ENABLED_NODE_LABEL {
+                errors.push(format!(
+                    "node_label_key {label_key:?} for deployment {deployment:?} is reserved for the shared DPF node marker"
                 ));
             }
         }
@@ -6779,6 +6787,36 @@ node_label_key = "carbide.nvidia.com/astra"
             services: None,
             extra_services: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn validate_dpf_deployment_node_label_keys() {
+        check_values(
+            [
+                Check {
+                    scenario: "deployment-specific label",
+                    input: "carbide.nvidia.com/bf3",
+                    expect: true,
+                },
+                Check {
+                    scenario: "shared DPF node marker",
+                    input: DPU_ENABLED_NODE_LABEL,
+                    expect: false,
+                },
+            ],
+            |node_label_key| {
+                DpfDeploymentsConfig {
+                    bf3: DpfDeploymentConfig {
+                        node_label_key: node_label_key.to_string(),
+                        ..Default::default()
+                    },
+                    bf4_generic: None,
+                    bf4_astra: None,
+                }
+                .validate_unique_identifiers()
+                .is_ok()
+            },
+        );
     }
 
     #[test]
