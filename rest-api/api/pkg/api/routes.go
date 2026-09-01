@@ -161,7 +161,7 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/tenant/current/routing-profiles",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetCurrentTenantRoutingProfilesHandler(dbSession, scp),
+			Handler: apiHandler.NewGetCurrentTenantRoutingProfileHandler(dbSession, scp),
 		},
 		// Tenant Instance Type Stats endpoint
 		{

@@ -224,17 +224,17 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 
 // ~~~~~ Get Current Routing Profiles Handler ~~~~~ //
 
-// GetCurrentTenantRoutingProfilesHandler retrieves the routing profiles the
+// GetCurrentTenantRoutingProfileHandler retrieves the routing profiles the
 // current Tenant may use at one Site.
-type GetCurrentTenantRoutingProfilesHandler struct {
+type GetCurrentTenantRoutingProfileHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewGetCurrentTenantRoutingProfilesHandler initializes the routing-profile handler.
-func NewGetCurrentTenantRoutingProfilesHandler(dbSession *cdb.Session, scp *sc.ClientPool) GetCurrentTenantRoutingProfilesHandler {
-	return GetCurrentTenantRoutingProfilesHandler{
+// NewGetCurrentTenantRoutingProfileHandler initializes the routing-profile handler.
+func NewGetCurrentTenantRoutingProfileHandler(dbSession *cdb.Session, scp *sc.ClientPool) GetCurrentTenantRoutingProfileHandler {
+	return GetCurrentTenantRoutingProfileHandler{
 		dbSession:  dbSession,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
@@ -251,7 +251,7 @@ func NewGetCurrentTenantRoutingProfilesHandler(dbSession *cdb.Session, scp *sc.C
 // @Param siteId query string true "ID of Site"
 // @Success 200 {object} model.APITenantRoutingProfiles
 // @Router /v2/org/{org}/nico/tenant/current/routing-profiles [get]
-func (gctrph GetCurrentTenantRoutingProfilesHandler) Handle(c echo.Context) error {
+func (gctrph GetCurrentTenantRoutingProfileHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TenantRoutingProfiles", "GetCurrent", c, gctrph.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
