@@ -3712,6 +3712,14 @@ pub struct DpuConfig {
     #[serde(default)]
     pub num_of_vfs: u32,
 
+    /// Number of deterministic HBN interfaces reserved for service-VPC attachments.
+    #[serde(default)]
+    pub service_vpc_slot_count: u32,
+
+    /// Additional SF capacity that is not assigned to an HBN interface.
+    #[serde(default)]
+    pub additional_managed_sf: u32,
+
     /// Restart OVS on DPU agents whenever the host switches between
     /// admin and tenant networking. Required in some environments to
     /// ensure OVS picks up the changed network configuration.
@@ -3760,6 +3768,10 @@ impl<'de> Deserialize<'de> for DpuConfig {
             #[serde(default)]
             num_of_vfs: Option<u32>,
             #[serde(default)]
+            service_vpc_slot_count: Option<u32>,
+            #[serde(default)]
+            additional_managed_sf: Option<u32>,
+            #[serde(default)]
             restart_ovs_on_use_admin_network_change: Option<bool>,
         }
 
@@ -3790,6 +3802,12 @@ impl<'de> Deserialize<'de> for DpuConfig {
                 .dpu_enable_secure_boot
                 .unwrap_or(default.dpu_enable_secure_boot),
             num_of_vfs,
+            service_vpc_slot_count: partial
+                .service_vpc_slot_count
+                .unwrap_or(default.service_vpc_slot_count),
+            additional_managed_sf: partial
+                .additional_managed_sf
+                .unwrap_or(default.additional_managed_sf),
             restart_ovs_on_use_admin_network_change: partial
                 .restart_ovs_on_use_admin_network_change
                 .unwrap_or(default.restart_ovs_on_use_admin_network_change),
@@ -3920,6 +3938,8 @@ impl Default for DpuConfig {
             ],
             dpu_enable_secure_boot: false,
             num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
+            service_vpc_slot_count: 0,
+            additional_managed_sf: 0,
             restart_ovs_on_use_admin_network_change: false,
         }
     }
@@ -6541,6 +6561,8 @@ mqtt_endpoint = "mqtt.forge"
 bootstrap_ca_source = "embedded"
 dpu_enable_secure_boot = true
 num_of_vfs = 64
+service_vpc_slot_count = 5
+additional_managed_sf = 2
 "#;
 
         let config: CarbideConfig = Figment::new()
@@ -6555,6 +6577,8 @@ num_of_vfs = 64
         );
         assert!(config.dpu_config.dpu_enable_secure_boot);
         assert_eq!(config.dpu_config.num_of_vfs, 64);
+        assert_eq!(config.dpu_config.service_vpc_slot_count, 5);
+        assert_eq!(config.dpu_config.additional_managed_sf, 2);
         assert!(!config.dpu_config.dpu_models.is_empty());
     }
 

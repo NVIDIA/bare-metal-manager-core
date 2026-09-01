@@ -74,7 +74,7 @@ The following table maps the sections on this page to what the run does:
 | §3.2–3.4 CRs  | [DPFOperatorConfig](#32-dpfoperatorconfig) (API VIP/port derived from the `kubernetes` Endpoints unless `NICO_DPF_K8S_API_VIP/PORT` are set), [DPUCluster](#33-dpucluster), and the optional [VIP LoadBalancer Service](#34-vip-loadbalancer-service-and-endpoints) are applied from `helm-prereqs/operators/dpf/`. |
 | §3.5 [Site config](#35-enable-dpf-in-the-nico-site-config) + §4 [Enablement](#4-restart-carbide-api-to-create-the-dpf-initialization-objects) | **Two-phase (phase 6b).** The site-wide BMC root password can only be set through a running carbide-api, so DPF cannot be enabled on the very first Core deploy.<br/><br/>`setup.sh` deploys Core with `[dpf]` **off**, sets the BMC root password via `nico-admin-cli` (see below), upgrades Core to `[dpf]` **on**, then **restarts carbide-api**.<br/><br/>The upgrade only rewrites the ConfigMap; `[dpf]` is read at startup only. The restart ensures that the DPF SDK initializes and creates the BFB, DPUFlavor, and DPUDeployment. |
 
-[Per-host enablement](#36-mark-hosts-as-dpf-managed-in-expected-machines) (§3.6) and the [CLI appendix](#appendix-nico-admin-cli-dpf-command-reference) still apply unchanged. The sections below remain the reference for what is being installed, for manual installs, and for environments not using `setup.sh`.
+[Per-host enablement](#37-mark-hosts-as-dpf-managed-in-expected-machines) (§3.7) and the [CLI appendix](#appendix-nico-admin-cli-dpf-command-reference) still apply unchanged. The sections below remain the reference for what is being installed, for manual installs, and for environments not using `setup.sh`.
 
 ### BMC root precondition (why the enablement is two-phase)
 
@@ -626,7 +626,7 @@ subsets:
 What this does and why it looks unusual:
 
 - The `Service` is type `LoadBalancer` with a fixed `loadBalancerIP` (the same VIP used by the `DPUCluster` keepalived). The `metallb.io/address-pool: REPLACE_ME` annotation should be updated with a correct pool name. It tells MetalLB to pull the IP from the updated pool defined elsewhere.
-- A **manually-created `Endpoints`** object with a single dummy RFC 5737 IP (`192.0.2.10`) is created **with the same name** as the Service. This is a Kubernetes idiom: when an `Endpoints` resource has the same name as a Service that has **no selector**, the kubelet uses those Endpoints verbatim.  Putting a dummy IP here means: *"reserve the VIP via MetalLB, but route nothing — keepalived is the actual front-end."*
+- A **manually-created `Endpoints`** object with a single dummy RFC 5737 IP (`192.0.2.10`) is created **with the same name** as the Service. This is a Kubernetes idiom: when an `Endpoints` resource has the same name as a Service that has **no selector**, the kubelet uses those Endpoints verbatim. Putting a dummy IP here means: *"reserve the VIP via MetalLB, but route nothing — keepalived is the actual front-end."*
 - Net effect: MetalLB advertises the VIP to the network so external machines (DPUs, BMCs) can reach it, while keepalived handles the actual TCP termination.
 
 If your environment uses a different LoadBalancer mechanism (kube-vip, a cloud-provider LB, etc.), use it to expose the VIP and point the `DPUCluster`'s `keepalived.vip` at the same address.
@@ -797,6 +797,35 @@ Per-deployment field reference:
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
 | `extra_services` | no | none | Optional deployment-local field overrides for extra services. Only extras supported by this deployment type are used. |
+
+##### Service VPC and additional SF capacity
+
+Two global `[dpu_config]` fields reserve SFs for BF3 and generic BF4:
+
+- `service_vpc_slot_count` generates stable HBN interface names from
+  `iface_svc_0` through `iface_svc_{N-1}`. These interfaces are added to HBN's
+  `DPUServiceConfiguration`, startup configuration, and `nvidia.com/bf_sf`
+  request. The generated and topology-derived HBN interfaces must total no more
+  than 32.
+- `additional_managed_sf` reserves SF capacity without generating an HBN
+  interface.
+
+NICo adds both values to the managed SF count. With intercept bridging, they
+increase `PF_TOTAL_SF`, change the `DPUFlavor`, and require controlled DPU
+reprovisioning. Without intercept bridging, they consume the unchanged legacy
+`pf_total_sf_reserved` pool; carbide-api rejects an overcommit at startup. BF4
+Astra ignores both fields.
+
+NICo does not create a bridge for now, or a `DPUServiceInterface`, service
+chain, IPAM, or application-service CR for these slots. An external controller
+must coordinate which service uses each deterministic interface. The values are
+read when carbide-api starts, so restart the API after changing them.
+
+```toml
+[dpu_config]
+service_vpc_slot_count = 5
+additional_managed_sf = 2
+```
 
 **Per-deployment services override.** By default every deployment inherits the
 top-level `[dpf.services]` mandatory services. A deployment can pin its own
