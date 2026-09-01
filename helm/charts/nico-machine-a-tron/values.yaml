@@ -73,6 +73,39 @@ service:
   metrics:
     port: 9090
 
+## =============================================================================
+## DHCP Relay Mode
+## =============================================================================
+## When enabled, machine-a-tron obtains IP addresses through UDP relay to a
+## DHCP server instead of the Carbide API. This exercises the real DHCP packet
+## path in Kubernetes deployments.
+##
+## Prerequisites:
+##   - nico-dhcp must be deployed (default: nico-system namespace)
+##   - A dedicated K8s ServiceCIDR for relay IPs (e.g., mat-dhcp-services)
+##
+## Each pod gets a unique ClusterIP Service for receiving DHCP replies:
+##   - Pod 0 (mat-0): baseIP + 0 (e.g., 10.96.127.10)
+##   - Pod 1 (mat-1): baseIP + 1 (e.g., 10.96.127.11)
+##
+## WARNING: Kubernetes ClusterIP addresses are immutable. Changing baseIP
+## after initial deployment requires deleting and recreating the Services.
+##
+dhcpRelay:
+  ## Base IP address for DHCP relay Services. Setting this enables relay mode.
+  ## Each pod's ClusterIP = baseIP + podIndex.
+  ## Must be from a ServiceCIDR available to the cluster.
+  ## Leave empty to use API mode (default).
+  baseIP: ""
+
+  ## UDP port for receiving DHCP replies. Must match the DHCP server's
+  ## relay response port (typically 67).
+  listenPort: 67
+
+  ## DHCP server address (host:port). Default: nico-dhcp.nico-system.svc.cluster.local:67
+  ## Override if nico-dhcp is deployed in a different namespace or uses a non-standard port.
+  serverAddress: ""
+
 certificate:
   serviceName: ""
   spiffeServiceName: ""
@@ -101,9 +134,9 @@ envFrom:
 
 # startupProbe gates the livenessProbe until MAT has bound its redfish port.
 # MAT binds the port only after registering all expected machines via the API,
-# which takes O(hosts) time. Without a startupProbe the kubelet kills the pod
-# mid-registration (exit 137) once livenessProbe failures exceed failureThreshold
-# (issue #4298). Scale the failureThreshold to cover your largest deployment:
+# which can take a while for large deployments (time scales with host count).
+# Without a startupProbe the kubelet kills the pod mid-registration (exit 137)
+# Scale the failureThreshold to cover your largest deployment:
 #   hosts=2300  → default (20 * 30s = 10 min)
 #   hosts=4500  → failureThreshold: 60  (30 min)
 #   hosts=13500 → failureThreshold: 1200 (10 h, see machine-a-tron-scale.yaml)
@@ -150,12 +183,9 @@ ufmMock:
 ## =============================================================================
 machineATron:
   nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
-  interface: "NOTUSED"
-  tuiEnabled: false
   logFile: ""
   # Kubernetes log collectors consume structured logs from stdout.
   logFormat: "logfmt"
-  useSingleBmcMock: true
   mockBmcSshServer: true
   mockBmcSshPort: 2222
   configureBmcProxyHost: ""
@@ -174,8 +204,6 @@ machineATron:
 ## Override per-group by specifying the value in pods.*.machines.*.
 ##
 machineDefaults:
-  vpcCount: 0
-  subnetsPerVpc: 0
   dpuRebootDelay: 1
   hostRebootDelay: 1
   ## Positive multiplier applied after timing overrides. Default 1.0; values below 1 speed up the simulation.
@@ -186,8 +214,13 @@ machineDefaults:
   runIntervalWorking: "1s"
   runIntervalIdle: "10s"
   networkStatusRunInterval: "20s"
-  networkVirtualizationType: ""
   dpusInNicMode: false
+  ## Host firmware upgrade simulation. Set initial BMC/UEFI versions here to
+  ## apply to all machine groups. Override per-group in pods.*.machines.*.
+  ## When set, NICo detects version delta and triggers the upgrade flow.
+  # hostFirmwareVersions:
+  #   bmc: "24.08.00"
+  #   uefi: "01.04.00"
 
 ## =============================================================================
 ## MAC Address Pool - Standalone MACs for BMC and management interfaces
@@ -291,6 +324,14 @@ pods:
         dpuPerHostCount: 2
         oobDhcpRelayAddress: "192.168.192.1"
         adminDhcpRelayAddress: "192.168.176.1"
+        ## Host firmware upgrade simulation (optional).
+        ## Set initial versions older than the API's desired versions to trigger
+        ## the upgrade flow: version detection -> upload -> task polling ->
+        ## power-cycle -> inventory verification.
+        ## Supported platforms: DGX H100, Wiwynn GB200, Lenovo GB300, Dell R750/R760.
+        # hostFirmwareVersions:
+        #   bmc: "24.08.00"
+        #   uefi: "01.04.00"
 
 ## =============================================================================
 ## Multi-Pod Example (mat-k8s-controller.enabled is required)
@@ -349,11 +390,8 @@ configFiles:
   # matConfigs:
   #   default: |
   #     carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
-  #     interface = "NOTUSED"
-  #     tui_enabled = false
   #     log_format = "logfmt"
   #     bmc_mock_port = 1266
-  #     use_single_bmc_mock = true
   #     mock_bmc_ssh_server = true
   #     mock_bmc_ssh_port = 2222
   #     cleanup_on_quit = false

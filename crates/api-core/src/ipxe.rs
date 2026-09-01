@@ -210,7 +210,7 @@ impl PxeInstructions {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
                     InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
-                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url]"),
+                        command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url] ds=nocloud;s=${{scout-cloudinit-url}}"),
                         initrd: None,
                     }
                 }
@@ -218,7 +218,7 @@ impl PxeInstructions {
                      // For the DPUs, bfks => BlueField Kick Start script
                      InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/carbide.efi".to_string(),
-                        command_line: format!("console=tty0 console=ttyS0,115200 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{cloudinit-url}}/user-data machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url]"),
+                        command_line: format!("console=tty0 console=ttyS0,115200 console=ttyAMA0 console=hvc0 ip=dhcp cli_cmd=auto-detect bfnet=oob_net0:dhcp bfks=${{dpu-cloudinit-url}}/user-data machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url]"),
                         initrd: Some("${base-url}/internal/aarch64/carbide.root".to_string()),
                     }
                 }
@@ -226,7 +226,7 @@ impl PxeInstructions {
             rpc::MachineArchitecture::X86 => {
                 InstructionGenerator {
                     kernel: "${base-url}/internal/x86_64/scout.efi".to_string(),
-                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url]"),
+                    command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] pxe_uri=[pxe_url] ds=nocloud;s=${{scout-cloudinit-url}}"),
                     initrd: None,
                 }
             }
@@ -601,7 +601,8 @@ exit ||
                                         qcow_imaging_ipxe += format!(" efifs_uuid={x}").as_str();
                                     }
                                     if instance.config.os.user_data.is_some() {
-                                        qcow_imaging_ipxe += " ds=nocloud-net;s=${cloudinit-url}";
+                                        qcow_imaging_ipxe +=
+                                            " ds=nocloud-net;s=${tenant-cloudinit-url}";
                                     }
                                     qcow_imaging_ipxe += "\r\nboot";
                                     qcow_imaging_ipxe

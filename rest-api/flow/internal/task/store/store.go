@@ -54,6 +54,10 @@ type Store interface {
 	// ListTasks lists tasks matching the given criteria.
 	ListTasks(ctx context.Context, options *taskcommon.TaskListOptions, pagination *dbquery.Pagination) ([]*taskdef.Task, int32, error)
 
+	// ListNonTerminalTasksForRacks returns Waiting, Pending, and Running tasks
+	// for the requested racks.
+	ListNonTerminalTasksForRacks(ctx context.Context, rackIDs []uuid.UUID) ([]*taskdef.Task, error)
+
 	// UpdateScheduledTask updates task scheduling information (execution ID, executor type).
 	UpdateScheduledTask(ctx context.Context, task *taskdef.Task) error
 

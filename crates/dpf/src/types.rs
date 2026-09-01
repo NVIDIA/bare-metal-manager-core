@@ -20,10 +20,13 @@
 use std::collections::BTreeMap;
 use std::net::IpAddr;
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use serde::{Deserialize, Serialize};
 
-use crate::crds::dpus_generated::DpuStatusPhase;
+use crate::crds::dpus_generated::{
+    DpuStatusAgentStatus, DpuStatusOperationalConditions, DpuStatusPhase,
+};
 
 /// Async provider for BMC passwords used to create and refresh the K8s BMC
 /// secret. Implement this trait to supply credentials dynamically (e.g. from
@@ -50,14 +53,16 @@ pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const DTS_SERVICE_NAME: &str = "dts";
 pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
+/// Number of PF scalable functions (SFs) allocated to the DOCA Weave DHCP Agent.
+pub const DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF: u32 = 8;
+/// Additional PF scalable functions (SFs) reserved for Astra capacity headroom.
+pub const PF_TOTAL_SF_BF4_ASTRA_FUDGE: u32 = 4;
 pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
 pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 /// Hash-stable legacy VF population used by default DPF flavors and SDK initialization.
 pub const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 /// Default SF capacity reserved beyond configured NICo-managed service endpoints.
 pub const DEFAULT_PF_TOTAL_SF_RESERVED: u32 = 30;
-/// Fixed SF capacity required by the BF4 Astra flavor.
-pub(crate) const ASTRA_PF_TOTAL_SF: u32 = 40;
 // Keep direct SDK validation aligned with api-core's general BlueField provisioning bound without
 // coupling this lightweight crate to the complete API configuration model.
 pub(crate) const MAX_BLUEFIELD_VFS_PER_PF: u32 = 126;
@@ -553,6 +558,7 @@ fn validate_ovs_patch_name(name: &str, resource_name: &str) -> Result<(), crate:
 pub struct DpuServiceInterfacePatch {
     pub(crate) peer_bridge: String,
     pub(crate) peer_patch_name: String,
+    pub(crate) peer_external_ids: Option<BTreeMap<String, String>>,
 }
 
 /// Network interface for a DPU service.
@@ -681,6 +687,8 @@ pub struct DpuServiceHelmChartObservation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DpuDeploymentType {
     Bf3,
+    /// BF3 B3240 on a GB200 platform using CPU as Root Complex mode.
+    Bf3Gb200,
     Bf4Generic,
     Bf4Astra,
 }
@@ -885,6 +893,16 @@ pub struct DpuSummary {
     pub spec_dpu_node_name: String,
     pub status_phase: Option<String>,
     pub status_bfb_file: Option<String>,
+    /// `status.conditions`, verbatim. `phase` alone says where a DPU is, not
+    /// why it is stuck there; the conditions carry the reason and message.
+    pub status_conditions: Option<Vec<Condition>>,
+    /// `status.operationalConditions`, verbatim. Separate from `conditions`:
+    /// these describe the DPU's health once provisioned, rather than the
+    /// progress of provisioning itself.
+    pub status_operational_conditions: Option<Vec<DpuStatusOperationalConditions>>,
+    /// `status.agentStatus`, verbatim. What the DPU-side agent reports about
+    /// itself, including its own conditions, kubelet version, and reboot state.
+    pub status_agent_status: Option<DpuStatusAgentStatus>,
 }
 
 /// Service version resolved from a DPUDeployment's services and their DPUServiceTemplate CRs.

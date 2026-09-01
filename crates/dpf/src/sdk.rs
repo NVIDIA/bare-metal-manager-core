@@ -18,13 +18,15 @@
 //! DPF SDK - High-level interface for DPF operations.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
+use model::dpa_interface::DpaInterface;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -91,7 +93,7 @@ use crate::crds::dpuservicetemplates_generated::{
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
-    DpuDeploymentRepository, DpuDeviceRepository, DpuFlavorRepository,
+    DpuDeploymentRepository, DpuDeviceRepository, DpuFlavorRepository, DpuFlavorTemplateRepository,
     DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
     DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceRepository,
     DpuServiceTemplateRepository, K8sConfigRepository,
@@ -99,15 +101,15 @@ use crate::repository::{
 #[cfg(test)]
 use crate::types::DEFAULT_PF_TOTAL_SF_RESERVED;
 use crate::types::{
-    ASTRA_PF_TOTAL_SF, BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType,
-    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
+    BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME,
+    DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF, DPU_AGENT_SERVICE_NAME,
     DPU_ENABLED_NODE_LABEL, DTS_SERVICE_NAME, DetachedDpuServiceDefinition, DpfInterceptBridging,
     DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
     DpuPhase, DpuServiceHelmChartObservation, DpuServiceInterfacePatch,
     DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuServiceObservation,
     DpuServiceVersion, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig,
-    MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
-    ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME, PF_TOTAL_SF_BF4_ASTRA_FUDGE,
+    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -335,6 +337,7 @@ where
     R: BfbRepository
         + BlueFieldSoftwareRepository
         + DpuFlavorRepository
+        + DpuFlavorTemplateRepository
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
@@ -502,11 +505,15 @@ const EXTRA_SCRIPT_CONFIGMAP_KEY: &str = "script";
 const EXTRA_SCRIPT_PLACEHOLDER: &str =
     "#!/usr/bin/env bash\necho \"NICo extra script: nothing to run\"\n";
 
+/// Must match the Astra flavor's `configMapKeyRef` in `flavor.rs`.
+const BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME: &str = "ra2.2-runtime";
+const BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY: &str = "RA2.2-runtime.yaml";
+
 /// ConfigMaps the deployment's flavor references, in run order. Empty for BF3,
 /// which inlines its scripts instead of using `contentFrom`.
 fn extra_script_configmap_names(deployment_type: DpuDeploymentType) -> &'static [&'static str] {
     match deployment_type {
-        DpuDeploymentType::Bf3 => &[],
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 => &[],
         DpuDeploymentType::Bf4Generic => &[
             "extra-script-pre-ovs-bf4-generic",
             "extra-script-post-ovs-bf4-generic",
@@ -546,6 +553,35 @@ async fn create_extra_script_configmaps<R: K8sConfigRepository>(
                 "Extra-script ConfigMap already exists; leaving it untouched"
             );
         }
+    }
+    Ok(())
+}
+
+/// Require the RA2.2 runtime ConfigMap referenced by the BF4 Astra flavor.
+async fn validate_bf4_astra_ra2_2_runtime_configmap<R: K8sConfigRepository>(
+    repo: &R,
+    namespace: &str,
+    deployment_type: DpuDeploymentType,
+) -> Result<(), DpfError> {
+    if deployment_type != DpuDeploymentType::Bf4Astra {
+        return Ok(());
+    }
+
+    let configmap = repo
+        .get_configmap(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME, namespace)
+        .await?
+        .ok_or_else(|| {
+            DpfError::ConfigError(format!(
+                "BF4 Astra requires Spectrum-X runtime ConfigMap {namespace}/{} with key {}; create it before initializing Astra",
+                BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME,
+                BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY,
+            ))
+        })?;
+    if !configmap.contains_key(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY) {
+        return Err(DpfError::ConfigError(format!(
+            "BF4 Astra Spectrum-X runtime ConfigMap {namespace}/{} must contain key {}",
+            BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME, BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY,
+        )));
     }
     Ok(())
 }
@@ -710,6 +746,48 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     }
 }
 
+/// Creates the Astra flavor template with a hash-derived name.
+async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
+    repo: &R,
+    namespace: &str,
+    config: &InitDpfResourcesConfig,
+    resolved: &ResolvedInitialization<'_>,
+) -> Result<String, DpfError> {
+    let mut template =
+        crate::flavor::flavor_bf4_astra(namespace, &config.proxy, resolved.pf_total_sf)?;
+    let name = template.unique_name(&config.flavor_name)?;
+    template.metadata.name = Some(name.clone());
+
+    match DpuFlavorTemplateRepository::create(repo, &template).await {
+        Ok(_) => {
+            tracing::info!(flavor_template = %name, "DPU flavor template created");
+            Ok(name)
+        }
+        Err(DpfError::KubeError(kube::Error::Api(ref err)))
+            if err.is_already_exists() || err.is_conflict() =>
+        {
+            let existing = DpuFlavorTemplateRepository::get(repo, &name, namespace).await?;
+            match existing {
+                None => Err(DpfError::InvalidState(format!(
+                    "DPUFlavorTemplate {name} disappeared after AlreadyExists conflict; \
+                     will retry on next reconcile",
+                ))),
+                Some(template) if template.metadata.deletion_timestamp.is_some() => {
+                    Err(DpfError::InvalidState(format!(
+                        "DPUFlavorTemplate {name} is being deleted (has deletionTimestamp); \
+                         cannot re-create until the old resource is fully removed",
+                    )))
+                }
+                Some(_) => {
+                    tracing::info!(flavor_template = %name, "DPU flavor template already exists");
+                    Ok(name)
+                }
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Short, per-deployment suffix appended to service CR names so that each
 /// DPUDeployment gets its own DPUServiceTemplate/Configuration/NAD CRs. Without
 /// this, two deployments in the same namespace (e.g. BF3 and BF4) would create
@@ -718,10 +796,11 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
 ///
 /// BF3 intentionally uses an empty suffix so its CR names are unchanged — this
 /// keeps existing BF3 clusters untouched (no CR rename / orphaning on upgrade).
-/// Only additional deployments (BF4) are suffixed to avoid colliding with BF3.
+/// Additional deployment classes are suffixed to avoid colliding with BF3.
 pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4generic",
         DpuDeploymentType::Bf4Astra => "bf4astra",
     }
@@ -735,6 +814,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
 fn service_interface_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
     match deployment_type {
         DpuDeploymentType::Bf3 => "bf3",
+        DpuDeploymentType::Bf3Gb200 => "bf3gb200",
         DpuDeploymentType::Bf4Generic => "bf4",
         DpuDeploymentType::Bf4Astra => "astra",
     }
@@ -1016,6 +1096,9 @@ pub fn build_deployment(
             service_mtu: None,
         });
     }
+    if matches!(deployment_type, DpuDeploymentType::Bf4Astra) {
+        all_switches.extend(build_astra_patch_service_chain_switches(interfaces));
+    }
 
     let service_chains = if all_switches.is_empty() {
         None
@@ -1062,7 +1145,8 @@ pub fn build_deployment(
                     dpu_device_selector: None,
                     node_selector: None,
                 }]),
-                flavor: Some(flavor_name.to_string()),
+                flavor: (!matches!(deployment_type, DpuDeploymentType::Bf4Astra))
+                    .then(|| flavor_name.to_string()),
                 node_effect: DpuDeploymentDpusNodeEffect {
                     custom_action: None,
                     custom_label: None,
@@ -1083,7 +1167,8 @@ pub fn build_deployment(
                     DpuProvisioningSource::Bfb(_) => None,
                     DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
                 },
-                flavor_template: None,
+                flavor_template: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
+                    .then(|| flavor_name.to_string()),
             },
             revision_history_limit: None,
             service_chains,
@@ -1091,6 +1176,49 @@ pub fn build_deployment(
         },
         status: None,
     }
+}
+
+fn build_astra_patch_service_chain_switches(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Vec<DpuDeploymentServiceChainsSwitches> {
+    let interface_names = interfaces
+        .iter()
+        .map(|interface| interface.name.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    astra_xplane_group_ids()
+        .iter()
+        .filter_map(|group_id| {
+            let cx_interface = format!("p-brcx-{group_id}-to-br-sfc");
+            let xplane_interface = format!("p-br-xplane-{group_id}-to-br-sfc");
+            (interface_names.contains(cx_interface.as_str())
+                && interface_names.contains(xplane_interface.as_str()))
+            .then(|| DpuDeploymentServiceChainsSwitches {
+                ports: [cx_interface, xplane_interface]
+                    .into_iter()
+                    .map(|interface| DpuDeploymentServiceChainsSwitchesPorts {
+                        service_interface: Some(
+                            DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
+                                match_labels: BTreeMap::from([(
+                                    "interface".to_string(),
+                                    interface,
+                                )]),
+                                ipam: None,
+                            },
+                        ),
+                        service: None,
+                    })
+                    .collect(),
+                service_mtu: None,
+            })
+        })
+        .collect()
+}
+
+fn astra_xplane_group_ids() -> [&'static str; 8] {
+    [
+        "r0swpln0", "r1swpln0", "r0swpln1", "r1swpln1", "r2swpln0", "r3swpln0", "r2swpln1",
+        "r3swpln1",
+    ]
 }
 
 pub fn build_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
@@ -1307,6 +1435,7 @@ pub fn build_effective_dpu_interfaces(
             iface_type: DpuServiceInterfaceTemplateType::Patch(DpuServiceInterfacePatch {
                 peer_bridge: interface.bridge.clone(),
                 peer_patch_name: interface.patch_port.clone(),
+                peer_external_ids: None,
             }),
             pf_id: i64::from(identity.pf_id),
             vf_id: i64::from(identity.vf_id.unwrap_or_default()),
@@ -1314,6 +1443,75 @@ pub fn build_effective_dpu_interfaces(
         }
     }));
     interfaces
+}
+
+/// Builds the static BF4 Astra interface inventory.
+pub fn build_astra_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
+    let mut interfaces = build_dpu_interfaces_vec();
+    interfaces.extend(build_astra_patch_dpu_interfaces_vec());
+    interfaces
+}
+
+/// Adds Astra's NICo-owned patch interfaces to a caller-provided inventory.
+///
+/// The patch names are reserved because the DPUDeployment service chains refer to them by name.
+/// Accepting a caller-provided definition with one of those names could bind a chain to the wrong
+/// interface type or peer bridge.
+fn augment_astra_dpu_interfaces(
+    mut interfaces: Vec<DpuServiceInterfaceTemplateDefinition>,
+) -> Result<Vec<DpuServiceInterfaceTemplateDefinition>, DpfError> {
+    for interface in build_astra_patch_dpu_interfaces_vec() {
+        if let Some(existing) = interfaces
+            .iter()
+            .find(|existing| existing.name == interface.name)
+        {
+            if existing != &interface {
+                return Err(DpfError::ConfigError(format!(
+                    "Astra interface {} is reserved for NICo's CX/xplane patch topology and must use the canonical definition",
+                    interface.name
+                )));
+            }
+        } else {
+            interfaces.push(interface);
+        }
+    }
+    Ok(interfaces)
+}
+
+fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefinition> {
+    astra_xplane_group_ids()
+        .into_iter()
+        .flat_map(|group_id| {
+            [
+                DpuServiceInterfaceTemplateDefinition {
+                    name: format!("p-brcx-{group_id}-to-br-sfc"),
+                    iface_type: DpuServiceInterfaceTemplateType::Patch(DpuServiceInterfacePatch {
+                        peer_bridge: format!("brcx-{group_id}"),
+                        peer_patch_name: String::new(),
+                        peer_external_ids: None,
+                    }),
+                    pf_id: 0,
+                    vf_id: 0,
+                    chained_svc_if: None,
+                },
+                DpuServiceInterfaceTemplateDefinition {
+                    name: format!("p-br-xplane-{group_id}-to-br-sfc"),
+                    iface_type: DpuServiceInterfaceTemplateType::Patch(DpuServiceInterfacePatch {
+                        peer_bridge: "br-xplane".to_string(),
+                        peer_patch_name: String::new(),
+                        peer_external_ids: Some(BTreeMap::from([
+                            ("xplane".to_string(), "true".to_string()),
+                            ("xplane-group-id".to_string(), group_id.to_string()),
+                            ("xplane-downlink".to_string(), "patch".to_string()),
+                        ])),
+                    }),
+                    pf_id: 0,
+                    vf_id: 0,
+                    chained_svc_if: None,
+                },
+            ]
+        })
+        .collect()
 }
 
 /// Calculates BF3 or generic-BF4 SF capacity, preserving the legacy total without topology.
@@ -1361,6 +1559,36 @@ pub fn calculate_pf_total_sf(
              dpf.pf_total_sf_reserved ({reserved}) exceed u32"
         ))
     })
+}
+
+pub(crate) fn calculate_astra_pf_total_sf(
+    interfaces: &[DpuServiceInterfaceTemplateDefinition],
+) -> Result<u32, DpfError> {
+    // Astra has a fixed Weave DHCP Agent allocation and capacity headroom, but no
+    // site-configurable reserve. Its capacity follows the actual NICo-managed endpoints.
+    let managed_endpoints = interfaces.iter().try_fold(0u32, |total, interface| {
+        let interface_endpoints =
+            u32::try_from(interface.chained_svc_if.as_ref().map_or(0, Vec::len)).map_err(|_| {
+                DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
+            })?;
+        total.checked_add(interface_endpoints).ok_or_else(|| {
+            DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
+        })
+    })?;
+    let managed_and_dhcp_agent = managed_endpoints
+        .checked_add(DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF)
+        .ok_or_else(|| {
+            DpfError::ConfigError(format!(
+                "calculated Astra PF_TOTAL_SF plus DOCA Weave DHCP Agent PF SFs ({DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF}) exceed u32"
+            ))
+        })?;
+    managed_and_dhcp_agent
+        .checked_add(PF_TOTAL_SF_BF4_ASTRA_FUDGE)
+        .ok_or_else(|| {
+            DpfError::ConfigError(format!(
+                "calculated Astra PF_TOTAL_SF plus PF_TOTAL_SF_FUDGE ({PF_TOTAL_SF_BF4_ASTRA_FUDGE}) exceed u32"
+            ))
+        })
 }
 
 /// Validated initialization state that borrows caller-provided interfaces and owns SDK defaults.
@@ -1450,23 +1678,28 @@ fn resolve_initialization_inventory<'a>(
     } else if config.interfaces.is_empty() {
         // Astra retains its established static inventory and ignores site topology policy.
         Cow::Owned(match config.deployment_type {
-            DpuDeploymentType::Bf4Astra => build_dpu_interfaces_vec(),
-            DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => {
+            DpuDeploymentType::Bf4Astra => build_astra_dpu_interfaces_vec(),
+            DpuDeploymentType::Bf3
+            | DpuDeploymentType::Bf3Gb200
+            | DpuDeploymentType::Bf4Generic => {
                 build_effective_dpu_interfaces(config.num_of_vfs, None)
             }
         })
+    } else if matches!(config.deployment_type, DpuDeploymentType::Bf4Astra) {
+        Cow::Owned(augment_astra_dpu_interfaces(config.interfaces.clone())?)
     } else {
         Cow::Borrowed(config.interfaces.as_slice())
     };
 
     let pf_total_sf = match config.deployment_type {
-        // Astra owns a fixed BF4+CX9 flavor outside the site inventory contract.
-        DpuDeploymentType::Bf4Astra => ASTRA_PF_TOTAL_SF,
-        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => calculate_pf_total_sf(
-            interfaces.as_ref(),
-            config.intercept_bridging.as_ref(),
-            config.pf_total_sf_reserved,
-        )?,
+        DpuDeploymentType::Bf4Astra => calculate_astra_pf_total_sf(interfaces.as_ref())?,
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
+            calculate_pf_total_sf(
+                interfaces.as_ref(),
+                config.intercept_bridging.as_ref(),
+                config.pf_total_sf_reserved,
+            )?
+        }
     };
 
     Ok(ResolvedInitialization {
@@ -1542,8 +1775,9 @@ fn build_service_interface_with_scope(
             None,
             Some(DpuServiceInterfaceTemplateSpecTemplateSpecPatch {
                 peer_bridge: patch.peer_bridge.clone(),
-                peer_external_i_ds: None,
-                peer_patch_name: Some(patch.peer_patch_name.clone()),
+                peer_external_i_ds: patch.peer_external_ids.clone(),
+                peer_patch_name: (!patch.peer_patch_name.is_empty())
+                    .then(|| patch.peer_patch_name.clone()),
             }),
         ),
     };
@@ -1637,6 +1871,7 @@ async fn create_flavor_services_and_deployment<
         + DpuServiceConfigurationRepository
         + DpuDeploymentRepository
         + DpuFlavorRepository
+        + DpuFlavorTemplateRepository
         + DpuServiceNADRepository
         + crate::repository::DpuServiceInterfaceRepository,
     L: ResourceLabeler,
@@ -1658,7 +1893,14 @@ async fn create_flavor_services_and_deployment<
         )));
     }
 
-    let flavor_name = create_dpu_flavor(repo, namespace, config, resolved).await?;
+    let flavor_name = match deployment_type {
+        DpuDeploymentType::Bf4Astra => {
+            create_dpu_flavor_template(repo, namespace, config, resolved).await?
+        }
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf3Gb200 | DpuDeploymentType::Bf4Generic => {
+            create_dpu_flavor(repo, namespace, config, resolved).await?
+        }
+    };
 
     let interface_suffix = if config.deployment_scoped_service_interfaces {
         service_interface_cr_suffix(deployment_type)
@@ -1673,7 +1915,7 @@ async fn create_flavor_services_and_deployment<
     //
     // The disabled path must retain the legacy resource names and empty selectors so installing a
     // new NICo release does not trigger a scoping migration for existing BF3/BF4 interfaces. The
-    // enabled path intentionally creates `-bf3`, `-bf4`, and `-astra` resources.
+    // enabled path intentionally creates `-bf3`, `-bf3gb200`, `-bf4`, and `-astra` resources.
     //
     // LABEL-PLANE SAFETY: A DPUServiceInterface node selector is evaluated against Nodes in the
     // remote DPU cluster, not management-cluster DPUNode CRs. DPF propagates its canonical
@@ -1737,6 +1979,7 @@ impl<
     R: BfbRepository
         + BlueFieldSoftwareRepository
         + DpuFlavorRepository
+        + DpuFlavorTemplateRepository
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
         + DpuServiceConfigurationRepository
@@ -1771,6 +2014,13 @@ impl<
         config: &InitDpfResourcesConfig,
         resolved: ResolvedInitialization<'_>,
     ) -> Result<(), DpfError> {
+        validate_bf4_astra_ra2_2_runtime_configmap(
+            &*self.repo,
+            &self.namespace,
+            config.deployment_type,
+        )
+        .await?;
+
         let source = match &config.bluefield_software {
             Some(params) => DpuProvisioningSource::BlueFieldSoftware(
                 create_bluefield_software(&*self.repo, &self.namespace, params).await?,
@@ -1788,7 +2038,6 @@ impl<
         // instantiated in between would point at a ConfigMap that does not exist.
         create_extra_script_configmaps(&*self.repo, &self.namespace, config.deployment_type)
             .await?;
-
         create_flavor_services_and_deployment(
             &*self.repo,
             &self.namespace,
@@ -1989,12 +2238,69 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
         DpuDeviceRepository::patch(&*self.repo, &cr_name, &self.namespace, patch).await
     }
 
+    /// Returns the DPU-cluster node labels on one DPUDevice CR.
+    pub async fn get_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        let cr_name = dpu_device_cr_name(dpu_device_name);
+        let device = DpuDeviceRepository::get(&*self.repo, &cr_name, &self.namespace)
+            .await?
+            .ok_or_else(|| DpfError::not_found("DPUDevice", &cr_name))?;
+        Ok(device
+            .spec
+            .cluster
+            .and_then(|cluster| cluster.node_labels)
+            .unwrap_or_default())
+    }
+
     /// Register a new DPU device.
     ///
     /// This operation is idempotent - if the device already exists, it will be
     /// skipped. This handles state machine retries gracefully.
-    pub async fn register_dpu_device(&self, info: DpuDeviceInfo) -> Result<(), DpfError> {
+    pub async fn register_dpu_device(
+        &self,
+        info: DpuDeviceInfo,
+        astra_nics: Option<Vec<&DpaInterface>>,
+    ) -> Result<(), DpfError> {
         let cr_name = dpu_device_cr_name(&info.device_id);
+
+        // Values are supplied only on creation. In particular, do not require
+        // a complete Astra NIC snapshot when this is an idempotent retry for
+        // an existing DPUDevice.
+        if let Some(existing) =
+            DpuDeviceRepository::get(&*self.repo, &cr_name, &self.namespace).await?
+        {
+            if existing.metadata.deletion_timestamp.is_some() {
+                return Err(DpfError::InvalidState(format!(
+                    "DPUDevice {cr_name} is being deleted (has deletionTimestamp); \
+                     cannot re-register until the old resource is fully removed"
+                )));
+            }
+            if existing.spec.values.is_none()
+                && let Some(nics) = astra_nics.as_ref()
+            {
+                let values = astra_underlay_configuration(&cr_name, nics)?;
+                DpuDeviceRepository::patch(
+                    &*self.repo,
+                    &cr_name,
+                    &self.namespace,
+                    json!({ "spec": { "values": values } }),
+                )
+                .await?;
+                tracing::info!(device_name = %cr_name, "Backfilled Astra DPU device values");
+                return Ok(());
+            }
+            tracing::debug!(device_name = %cr_name, "DPU device already exists");
+            return Ok(());
+        }
+
+        let values = match astra_nics {
+            Some(nics) => Some(astra_underlay_configuration(&cr_name, &nics)?),
+            None => None,
+        };
+
+        tracing::info!(device_name = %cr_name, "Registering DPU device");
 
         let device = DPUDevice {
             metadata: ObjectMeta {
@@ -2021,7 +2327,7 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 bmc_credential_secret_name: None,
                 cluster: None,
                 nic_device_count: None,
-                values: None,
+                values,
             },
             status: None,
         };
@@ -2058,6 +2364,101 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
         let cr_name = dpu_device_cr_name(dpu_device_name);
         DpuDeviceRepository::delete(&*self.repo, &cr_name, &self.namespace).await
     }
+}
+
+/// Builds the Astra DPUDevice values from its eight ordered underlay NICs.
+fn astra_underlay_configuration(
+    device_name: &str,
+    astra_nics: &[&DpaInterface],
+) -> Result<BTreeMap<String, serde_json::Value>, DpfError> {
+    let underlay_ips = astra_nics
+        .iter()
+        .enumerate()
+        .map(|(index, nic)| match nic.underlay_ip {
+            Some(IpAddr::V4(ip)) => Ok(ip),
+            Some(IpAddr::V6(ip)) => Err(DpfError::ConfigError(format!(
+                "Astra underlay NIC {index} has unsupported IPv6 address {ip}; expected IPv4"
+            ))),
+            None => Err(DpfError::ConfigError(format!(
+                "Astra underlay NIC {index} has no underlay IP"
+            ))),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let values = astra_underlay_values_for_ips(&underlay_ips)?;
+    let underlay_ip_strings: Vec<String> =
+        underlay_ips.into_iter().map(|ip| ip.to_string()).collect();
+    tracing::info!(
+        "Setup DPUDevice {device_name} values for Astra with underlay_ips={} (mask=/31, routes=/16,/13)",
+        underlay_ip_strings.join(", ")
+    );
+
+    Ok(values)
+}
+
+/// Builds the per-DPU values consumed by the BF4 Astra `DPUFlavorTemplate`.
+///
+/// `underlay_ips` must contain eight unique IPv4 addresses in this order:
+/// rails 0 through 3 on switch plane 0, followed by rails 0 through 3 on
+/// switch plane 1. For each address, this creates `railX_swpY_ip` as a `/31`
+/// address, `railX_swpY_gw` as its `/31` peer, and `railX_swpY_route1` and
+/// `railX_swpY_route2` as the corresponding `/16` and `/13` route prefixes.
+/// The BF4 Astra template uses these exact values to replace its per-DPU
+/// placeholders when the `DPUDevice` is instantiated.
+fn astra_underlay_values_for_ips(
+    underlay_ips: &[Ipv4Addr],
+) -> Result<BTreeMap<String, serde_json::Value>, DpfError> {
+    const RAIL_SWITCH_PLANES: [(u8, u8); 8] = [
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (0, 1),
+        (1, 1),
+        (2, 1),
+        (3, 1),
+    ];
+
+    if underlay_ips.len() != RAIL_SWITCH_PLANES.len() {
+        tracing::error!(
+            expected_underlay_ip_count = RAIL_SWITCH_PLANES.len(),
+            actual_underlay_ip_count = underlay_ips.len(),
+            "Astra requires exactly eight underlay IPs"
+        );
+        return Err(DpfError::ConfigError(format!(
+            "Astra requires exactly {} underlay IPs, got {}",
+            RAIL_SWITCH_PLANES.len(),
+            underlay_ips.len()
+        )));
+    }
+    let unique_underlay_ip_count = underlay_ips.iter().copied().collect::<BTreeSet<_>>().len();
+    if unique_underlay_ip_count != underlay_ips.len() {
+        tracing::error!(
+            underlay_ip_count = underlay_ips.len(),
+            unique_underlay_ip_count,
+            "Astra underlay IPs must be unique"
+        );
+        return Err(DpfError::ConfigError(
+            "Astra underlay IPs must be unique".to_string(),
+        ));
+    }
+
+    let mut values = BTreeMap::new();
+    for ((rail, switch_plane), ip) in RAIL_SWITCH_PLANES.into_iter().zip(underlay_ips) {
+        let key = format!("rail{rail}_swp{switch_plane}");
+        let octets = ip.octets();
+        let gateway = Ipv4Addr::from(u32::from(*ip) ^ 1);
+        values.insert(format!("{key}_ip"), json!(format!("{ip}/31")));
+        values.insert(format!("{key}_gw"), json!(gateway.to_string()));
+        values.insert(
+            format!("{key}_route1"),
+            json!(format!("{}.{}.0.0/16", octets[0], octets[1])),
+        );
+        values.insert(
+            format!("{key}_route2"),
+            json!(format!("{}.{}.0.0/13", octets[0], octets[1] & 0b1111_1000)),
+        );
+    }
+    Ok(values)
 }
 
 impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
@@ -2162,6 +2563,90 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
         }))
     }
 
+    /// Moves one DPUNode from its source DPUDeployment selector to its target
+    /// selector.
+    ///
+    /// Labels shared by both deployments and labels outside either selector
+    /// are preserved. The transfer uses the DPUNode's `resourceVersion`, so a
+    /// concurrent update returns a Kubernetes conflict instead of being
+    /// overwritten. Repeating a completed transfer does nothing. A DPUNode that
+    /// matches neither selector is rejected rather than assigned to the target
+    /// deployment.
+    pub async fn transfer_dpu_node_deployment_labels(
+        &self,
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace)
+            .await?
+            .ok_or_else(|| DpfError::not_found("DPUNode", node_name))?;
+        let source_labels = self
+            .labeler
+            .node_labels_for_deployment_type(source_deployment_type)?;
+        let target_labels = self
+            .labeler
+            .node_labels_for_deployment_type(target_deployment_type)?;
+        if source_labels.is_empty() || target_labels.is_empty() || source_labels == target_labels {
+            return Err(DpfError::ConfigError(format!(
+                "deployment label transfer requires distinct, nonempty selectors for \
+                 {source_deployment_type:?} and {target_deployment_type:?}"
+            )));
+        }
+        let current_labels = node.metadata.labels.unwrap_or_default();
+        let matches_selector = |selector: &BTreeMap<String, String>| {
+            selector
+                .iter()
+                .all(|(key, value)| current_labels.get(key) == Some(value))
+        };
+        let matches_source = matches_selector(&source_labels);
+        let matches_target = matches_selector(&target_labels);
+        if !matches_source && !matches_target {
+            return Err(DpfError::InvalidState(format!(
+                "DPUNode {node_name} labels match neither the {source_deployment_type:?} nor the \
+                 {target_deployment_type:?} deployment selector"
+            )));
+        }
+
+        let has_source_only_label = source_labels
+            .keys()
+            .any(|key| !target_labels.contains_key(key) && current_labels.contains_key(key));
+        let target_selector_differs = target_labels
+            .iter()
+            .any(|(key, value)| current_labels.get(key) != Some(value));
+        if !has_source_only_label && !target_selector_differs {
+            return Ok(());
+        }
+
+        let resource_version = node.metadata.resource_version.ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "DPUNode {node_name} has no resourceVersion for deployment label transfer"
+            ))
+        })?;
+        let mut label_changes: serde_json::Map<String, serde_json::Value> = source_labels
+            .keys()
+            .filter(|key| !target_labels.contains_key(*key))
+            .map(|key| (key.clone(), serde_json::Value::Null))
+            .collect();
+        label_changes.extend(
+            target_labels
+                .into_iter()
+                .map(|(key, value)| (key, serde_json::Value::String(value))),
+        );
+
+        // The transfer must not leave the DPUNode matching both deployment
+        // selectors. One merge patch makes the removal and addition atomic,
+        // while `resourceVersion` prevents this read from overwriting a
+        // concurrent DPUNode update.
+        let patch = json!({
+            "metadata": {
+                "resourceVersion": resource_version,
+                "labels": label_changes,
+            }
+        });
+        DpuNodeRepository::patch(&*self.repo, node_name, &self.namespace, patch).await
+    }
+
     /// Check if reboot is required for a DPU node.
     pub async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError> {
         let node = DpuNodeRepository::get(&*self.repo, node_name, &self.namespace).await?;
@@ -2237,7 +2722,9 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
     ///
     /// In the DPUDeployment (M4) model the operator creates DPU from DPUDevice; deleting the DPU
     /// CR causes the operator to remove it and create a new DPU (same name) that waits on node
-    /// effect. The DPUDevice CR is left in place.
+    /// effect. The DPUDevice CR is left in place. A missing DPU CR means deletion is already
+    /// complete. Treating that as success keeps retries safe when an earlier attempt deleted the
+    /// DPU but did not persist its next state, and when a DPUSet deletes it during label transfer.
     pub async fn reprovision_dpu(
         &self,
         dpu_device_name: &str,
@@ -2245,7 +2732,187 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
     ) -> Result<(), DpfError> {
         let dpf_id = node_id_from_dpu_node_cr_name(node_name);
         let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
-        DpuRepository::delete(&*self.repo, &cr_name, &self.namespace).await
+        match DpuRepository::delete(&*self.repo, &cr_name, &self.namespace).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.is_not_found() => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+impl<R: DpuRepository + DpuDeploymentRepository, L: ResourceLabeler> DpfSdk<R, L> {
+    /// Read every requested DPU phase only when one deployment owns the full set.
+    ///
+    /// A DPU that is not Ready may not report its installed BFB yet, so ownership
+    /// is sufficient until that phase. A Ready DPU must also match the flavor and
+    /// provisioning source declared by the deployment. `None` means at least one
+    /// requested DPU is missing, is being deleted, belongs to another deployment,
+    /// has no status yet, or does not match the Ready configuration.
+    pub async fn get_dpu_phases_for_deployment_type(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<Option<BTreeMap<String, DpuPhase>>, DpfError> {
+        let (deployment_name, deployment) = self.deployment_for_type(deployment_type).await?;
+        if !dpu_deployment_is_ready(&deployment) {
+            return Ok(None);
+        }
+        if deployment.spec.dpus.flavor.is_none() {
+            return Err(DpfError::InvalidState(format!(
+                "DPUDeployment {deployment_name} uses a DPUFlavorTemplate, which cannot be \
+                 compared with DPU.spec.dpuFlavor"
+            )));
+        }
+
+        let expected_owner = dpu_deployment_owner_label_value(&self.namespace, &deployment_name);
+        let owner_selector = format!("{DPU_OWNED_BY_DEPLOYMENT_LABEL}={expected_owner}");
+        let dpf_id = node_id_from_dpu_node_cr_name(node_name);
+        let mut dpus_by_name =
+            DpuRepository::list(&*self.repo, &self.namespace, Some(&owner_selector))
+                .await?
+                .into_iter()
+                .filter_map(|dpu| Some((dpu.metadata.name.clone()?, dpu)))
+                .collect::<HashMap<_, _>>();
+        let mut phases = BTreeMap::new();
+
+        for dpu_device_name in dpu_device_names {
+            let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
+            let Some(dpu) = dpus_by_name.remove(&cr_name) else {
+                return Ok(None);
+            };
+            let has_expected_owner = dpu
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
+                == Some(&expected_owner);
+            if !has_expected_owner || dpu.metadata.deletion_timestamp.is_some() {
+                return Ok(None);
+            }
+
+            let Some(status) = dpu.status.as_ref() else {
+                return Ok(None);
+            };
+            let phase = DpuPhase::from(status.phase.clone());
+            if phase == DpuPhase::Ready {
+                match dpu_comparison(&self.namespace, &dpu, &deployment) {
+                    DpuComparison::Match => {}
+                    DpuComparison::Mismatch(mismatch) => {
+                        return Err(DpfError::InvalidState(format!(
+                            "Ready DPU {} does not match DPUDeployment {deployment_name}; expected provisioning source {}",
+                            mismatch.dpu_cr_name, mismatch.target_source,
+                        )));
+                    }
+                    DpuComparison::Inconclusive => {
+                        return Err(DpfError::InvalidState(format!(
+                            "DPU {cr_name} cannot be compared with DPUDeployment {deployment_name}"
+                        )));
+                    }
+                }
+            }
+            phases.insert(dpu_device_name.clone(), phase);
+        }
+
+        Ok(Some(phases))
+    }
+
+    /// Delete source deployment DPU CRs without deleting target replacements.
+    ///
+    /// Each delete carries the observed DPU UID as a Kubernetes precondition.
+    /// If a source DPU disappears and a target DPU reuses its deterministic name,
+    /// a retry preserves the replacement. A DPU owned by any deployment other
+    /// than the declared source or target is rejected.
+    pub async fn delete_source_dpus_for_deployment_migration(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        let (source_deployment_name, _) = self.deployment_for_type(source_deployment_type).await?;
+        let (target_deployment_name, _) = self.deployment_for_type(target_deployment_type).await?;
+        let source_owner =
+            dpu_deployment_owner_label_value(&self.namespace, &source_deployment_name);
+        let target_owner =
+            dpu_deployment_owner_label_value(&self.namespace, &target_deployment_name);
+        let dpf_id = node_id_from_dpu_node_cr_name(node_name);
+        let mut dpus_by_name = DpuRepository::list(&*self.repo, &self.namespace, None)
+            .await?
+            .into_iter()
+            .filter_map(|dpu| Some((dpu.metadata.name.clone()?, dpu)))
+            .collect::<HashMap<_, _>>();
+
+        for dpu_device_name in dpu_device_names {
+            let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
+            let Some(dpu) = dpus_by_name.remove(&cr_name) else {
+                continue;
+            };
+            let owner = dpu
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(DPU_OWNED_BY_DEPLOYMENT_LABEL));
+            if owner == Some(&target_owner) {
+                continue;
+            }
+            if owner != Some(&source_owner) {
+                return Err(DpfError::InvalidState(format!(
+                    "DPU {cr_name} is owned by neither DPUDeployment \
+                     {source_deployment_name} nor {target_deployment_name}"
+                )));
+            }
+            let uid = dpu.metadata.uid.as_deref().ok_or_else(|| {
+                DpfError::InvalidState(format!(
+                    "DPU {cr_name} has no UID for deployment migration deletion"
+                ))
+            })?;
+            match DpuRepository::delete_if_uid(&*self.repo, &cr_name, &self.namespace, uid).await {
+                Ok(()) => {}
+                Err(error) if error.is_not_found() => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find the one live DPUDeployment whose DPUSet selects a deployment type.
+    async fn deployment_for_type(
+        &self,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<(String, DPUDeployment), DpfError> {
+        let required_labels = self
+            .labeler
+            .node_labels_for_deployment_type(deployment_type)?;
+        if required_labels.is_empty() {
+            return Err(DpfError::ConfigError(format!(
+                "DPUDeployment selector for {deployment_type:?} is empty"
+            )));
+        }
+
+        let deployments = DpuDeploymentRepository::list(&*self.repo, &self.namespace).await?;
+        let mut matching_deployments = deployments.into_iter().filter(|deployment| {
+            deployment.metadata.deletion_timestamp.is_none()
+                && dpu_deployment_selects_labels(deployment, &required_labels)
+        });
+        let deployment = matching_deployments.next().ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "no DPUDeployment selects {deployment_type:?} DPU nodes"
+            ))
+        })?;
+        if matching_deployments.next().is_some() {
+            return Err(DpfError::InvalidState(format!(
+                "multiple DPUDeployments select {deployment_type:?} DPU nodes"
+            )));
+        }
+        let deployment_name = deployment.metadata.name.clone().ok_or_else(|| {
+            DpfError::InvalidState(format!(
+                "DPUDeployment selecting {deployment_type:?} DPU nodes has no name"
+            ))
+        })?;
+
+        Ok((deployment_name, deployment))
     }
 }
 
@@ -2434,8 +3101,15 @@ fn dpu_comparison(namespace: &str, dpu: &DPU, deployment: &DPUDeployment) -> Dpu
     let Some(cr_name) = dpu.metadata.name.clone() else {
         return DpuComparison::Inconclusive;
     };
-    let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
-    let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
+    // DPUFlavorTemplate is rendered into a per-DPU DPUFlavor by DPF, so the
+    // template name cannot be compared with DPU.spec.dpuFlavor. Only ordinary
+    // DPUFlavor deployments provide a flavor name that is meaningful here.
+    let flavor_matches = deployment
+        .spec
+        .dpus
+        .flavor
+        .as_ref()
+        .is_none_or(|expected_flavor| dpu.spec.dpu_flavor == *expected_flavor);
 
     // A DPUDeployment provisions from either a BFB or a BlueFieldSoftware CR;
     // the DPU CRD enforces that exactly one is set. BFB staleness is read from
@@ -2506,6 +3180,32 @@ fn dpu_deployment_is_ready(d: &DPUDeployment) -> bool {
         return false;
     };
     cond.status == "True" && cond.observed_generation == Some(generation)
+}
+
+/// Returns true when one DPUSet in a deployment contains every required
+/// DPUNode selector label.
+fn dpu_deployment_selects_labels(
+    deployment: &DPUDeployment,
+    required_labels: &BTreeMap<String, String>,
+) -> bool {
+    deployment
+        .spec
+        .dpus
+        .dpu_sets
+        .as_ref()
+        .is_some_and(|dpu_sets| {
+            dpu_sets.iter().any(|dpu_set| {
+                dpu_set
+                    .dpu_node_selector
+                    .as_ref()
+                    .and_then(|selector| selector.match_labels.as_ref())
+                    .is_some_and(|labels| {
+                        required_labels
+                            .iter()
+                            .all(|(key, value)| labels.get(key) == Some(value))
+                    })
+            })
+        })
 }
 
 /// True when a condition's `observedGeneration` matches the object's. Either
@@ -2736,6 +3436,12 @@ impl<R: DpuNodeRepository + DpuDeviceRepository + DpuRepository, L> DpfSdk<R, L>
                     spec_dpu_node_name: d.spec.dpu_node_name.clone(),
                     status_phase: d.status.as_ref().map(|s| format!("{:?}", s.phase)),
                     status_bfb_file: d.status.as_ref().and_then(|s| s.bfb_file.clone()),
+                    status_conditions: d.status.as_ref().and_then(|s| s.conditions.clone()),
+                    status_operational_conditions: d
+                        .status
+                        .as_ref()
+                        .and_then(|s| s.operational_conditions.clone()),
+                    status_agent_status: d.status.as_ref().and_then(|s| s.agent_status.clone()),
                 });
             }
         }
@@ -2986,7 +3692,7 @@ impl<R: DpuRepository, L: ResourceLabeler> DpfSdk<R, L> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::future::Future;
     use std::sync::{Arc, RwLock};
 
@@ -2996,11 +3702,12 @@ mod tests {
 
     use super::*;
     use crate::crds::dpuflavors_generated::DPUFlavor;
+    use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
     use crate::crds::dpus_generated::{DPU, DpuNodeEffect};
     use crate::crds::dpuservices_generated::DPUService;
     use crate::repository::{
-        DpuDeviceRepository, DpuFlavorRepository, DpuNodeRepository, DpuRepository,
-        DpuServiceRepository,
+        DpuDeviceRepository, DpuFlavorRepository, DpuFlavorTemplateRepository, DpuNodeRepository,
+        DpuRepository, DpuServiceRepository,
     };
     use crate::types::{
         DetachedHelmChart, DpfInterceptBridge, DpfInterceptBridging, DpfInterfaceIdentity,
@@ -3015,6 +3722,11 @@ mod tests {
             "BF3" {
                 // BF3 is suffixed too because scoped mode is an explicit namespace-wide migration.
                 DpuDeploymentType::Bf3 => "bf3",
+            }
+
+            "GB200 BF3" {
+                // The specialized flavor needs its own selector and interface resources.
+                DpuDeploymentType::Bf3Gb200 => "bf3gb200",
             }
 
             "generic BF4" {
@@ -3381,6 +4093,101 @@ mod tests {
         assert_eq!(resolved.interfaces.as_ref(), interfaces.as_slice());
     }
 
+    /// Verifies explicit Astra inventories are augmented without changing non-Astra callers.
+    #[test]
+    fn initialization_augments_explicit_astra_interface_projection_only() {
+        let base_interfaces = build_dpu_interfaces_vec();
+        let astra_config = InitDpfResourcesConfig {
+            deployment_scoped_service_interfaces: true,
+            deployment_type: DpuDeploymentType::Bf4Astra,
+            interfaces: base_interfaces.clone(),
+            ..Default::default()
+        };
+
+        let astra_resolved = resolve_initialization_inventory(&astra_config)
+            .expect("explicit Astra inventory must be accepted");
+        assert_eq!(
+            &astra_resolved.interfaces.as_ref()[..base_interfaces.len()],
+            base_interfaces.as_slice()
+        );
+        assert_eq!(
+            astra_resolved.interfaces.len(),
+            base_interfaces.len() + build_astra_patch_dpu_interfaces_vec().len()
+        );
+        assert!(
+            astra_resolved
+                .interfaces
+                .iter()
+                .any(|interface| interface.name == "p-brcx-r0swpln0-to-br-sfc")
+        );
+        assert!(
+            astra_resolved
+                .interfaces
+                .iter()
+                .any(|interface| interface.name == "p-br-xplane-r3swpln1-to-br-sfc")
+        );
+
+        let bf3_config = InitDpfResourcesConfig {
+            interfaces: base_interfaces.clone(),
+            ..Default::default()
+        };
+        let bf3_resolved = resolve_initialization_inventory(&bf3_config)
+            .expect("explicit BF3 inventory must be accepted unchanged");
+        assert_eq!(bf3_resolved.interfaces.as_ref(), base_interfaces.as_slice());
+    }
+
+    /// Astra's NICo-owned patch names cannot be rebound by a direct SDK caller.
+    #[test]
+    fn initialization_rejects_conflicting_astra_patch_interface() {
+        let mut interfaces = build_dpu_interfaces_vec();
+        interfaces.push(DpuServiceInterfaceTemplateDefinition {
+            name: "p-brcx-r0swpln0-to-br-sfc".to_string(),
+            iface_type: DpuServiceInterfaceTemplateType::Physical,
+            pf_id: 0,
+            vf_id: 0,
+            chained_svc_if: None,
+        });
+        let config = InitDpfResourcesConfig {
+            deployment_scoped_service_interfaces: true,
+            deployment_type: DpuDeploymentType::Bf4Astra,
+            interfaces,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            resolve_initialization_inventory(&config),
+            Err(DpfError::ConfigError(message))
+                if message.contains("p-brcx-r0swpln0-to-br-sfc")
+                    && message.contains("reserved")
+        ));
+    }
+
+    /// Astra capacity follows its managed endpoints, the Weave DHCP Agent allocation, and fixed
+    /// headroom; the BF3/generic reserve must not change the Astra flavor.
+    #[test]
+    fn astra_pf_total_sf_ignores_site_reserve() {
+        let config = InitDpfResourcesConfig {
+            deployment_scoped_service_interfaces: true,
+            deployment_type: DpuDeploymentType::Bf4Astra,
+            // A value that would overflow if Astra incorrectly treated this as additional SF
+            // capacity proves the reserve is not part of Astra's calculation.
+            pf_total_sf_reserved: u32::MAX,
+            ..Default::default()
+        };
+
+        let resolved = resolve_initialization_inventory(&config)
+            .expect("Astra capacity must not consume the BF3/generic SF reserve");
+        let astra_interfaces = build_astra_dpu_interfaces_vec();
+        let managed_endpoints = astra_interfaces
+            .iter()
+            .map(|interface| interface.chained_svc_if.as_ref().map_or(0, Vec::len) as u32)
+            .sum::<u32>();
+        assert_eq!(
+            resolved.pf_total_sf,
+            managed_endpoints + DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF + PF_TOTAL_SF_BF4_ASTRA_FUDGE
+        );
+    }
+
     /// Verifies the public initialization boundary rejects unsupported hardware VF populations.
     #[test]
     fn initialization_rejects_hardware_vf_count_above_platform_limit() {
@@ -3419,10 +4226,58 @@ mod tests {
         assert!(spec.pf.is_none() && spec.vf.is_none() && spec.physical.is_none());
     }
 
+    /// Verifies Astra's static CX patch interfaces serialize the installed controller contract.
+    #[test]
+    fn astra_inventory_serializes_cx_and_xplane_patches() {
+        let interfaces = build_astra_dpu_interfaces_vec();
+        let by_name = |name: &str| {
+            interfaces
+                .iter()
+                .find(|interface| interface.name == name)
+                .unwrap_or_else(|| panic!("Astra interface {name} must exist"))
+        };
+
+        let cx = build_service_interface(by_name("p-brcx-r0swpln0-to-br-sfc"), TEST_NAMESPACE);
+        let cx_patch = cx.spec.template.spec.template.spec.patch.as_ref().unwrap();
+        assert_eq!(cx_patch.peer_bridge, "brcx-r0swpln0");
+        assert!(cx_patch.peer_patch_name.is_none());
+        assert!(cx_patch.peer_external_i_ds.is_none());
+
+        let xplane =
+            build_service_interface(by_name("p-br-xplane-r3swpln1-to-br-sfc"), TEST_NAMESPACE);
+        let xplane_patch = xplane
+            .spec
+            .template
+            .spec
+            .template
+            .spec
+            .patch
+            .as_ref()
+            .unwrap();
+        assert_eq!(xplane_patch.peer_bridge, "br-xplane");
+        assert!(xplane_patch.peer_patch_name.is_none());
+        assert_eq!(
+            xplane_patch.peer_external_i_ds.as_ref(),
+            Some(&BTreeMap::from([
+                ("xplane".to_string(), "true".to_string()),
+                ("xplane-group-id".to_string(), "r3swpln1".to_string()),
+                ("xplane-downlink".to_string(), "patch".to_string()),
+            ]))
+        );
+    }
+
     fn already_exists_error(name: &str) -> DpfError {
         DpfError::KubeError(kube::Error::Api(Box::new(
             kube::core::Status::failure(&format!("{name} already exists"), "AlreadyExists")
                 .with_code(409),
+        )))
+    }
+
+    /// Builds the Kubernetes response returned for an already absent resource.
+    fn not_found_error(name: &str) -> DpfError {
+        DpfError::KubeError(kube::Error::Api(Box::new(
+            kube::core::Status::failure(&format!("{name} was not found"), "NotFound")
+                .with_code(404),
         )))
     }
 
@@ -3485,12 +4340,24 @@ mod tests {
         let svc = ServiceDefinition::new(DOCA_HBN_SERVICE_NAME, "repo", "chart", "1.0.5");
 
         let bf3_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3);
+        let bf3_gb200_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3Gb200);
         let bf4_suffix = deployment_cr_suffix(DpuDeploymentType::Bf4Generic);
 
         // BF3: CR name unchanged.
         let bf3 = build_service_template(&svc, TEST_NAMESPACE, bf3_suffix);
         assert_eq!(bf3.metadata.name.as_deref(), Some(DOCA_HBN_SERVICE_NAME));
         assert_eq!(bf3.spec.deployment_service_name, DOCA_HBN_SERVICE_NAME);
+
+        // GB200 BF3: separate CR name while retaining the same logical service name.
+        let bf3_gb200 = build_service_template(&svc, TEST_NAMESPACE, bf3_gb200_suffix);
+        assert_eq!(
+            bf3_gb200.metadata.name.as_deref(),
+            Some("doca-hbn-bf3gb200")
+        );
+        assert_eq!(
+            bf3_gb200.spec.deployment_service_name,
+            DOCA_HBN_SERVICE_NAME
+        );
 
         // BF4: CR name suffixed, logical name unchanged.
         let bf4 = build_service_template(&svc, TEST_NAMESPACE, bf4_suffix);
@@ -3552,6 +4419,10 @@ mod tests {
                 DpuDeploymentType::Bf3 => ("", None),
             }
 
+            "GB200 BF3 uses its deployment suffix" {
+                DpuDeploymentType::Bf3Gb200 => ("bf3gb200", None),
+            }
+
             "generic BF4 uses its deployment suffix" {
                 DpuDeploymentType::Bf4Generic => ("bf4generic", None),
             }
@@ -3568,8 +4439,11 @@ mod tests {
         nodes: Arc<RwLock<BTreeMap<String, DPUNode>>>,
         dpus: Arc<RwLock<BTreeMap<String, DPU>>>,
         flavors: Arc<RwLock<BTreeMap<String, DPUFlavor>>>,
+        flavor_templates: Arc<RwLock<BTreeMap<String, DPUFlavorTemplate>>>,
         services: Arc<RwLock<BTreeMap<String, DPUService>>>,
         service_patch: Arc<RwLock<Option<(String, String, serde_json::Value)>>>,
+        node_patches: Arc<RwLock<Vec<serde_json::Value>>>,
+        dpu_delete_error: Arc<RwLock<Option<DpfError>>>,
     }
 
     impl SdkMock {
@@ -3683,6 +4557,19 @@ mod tests {
                 .get_mut(&Self::ns_key(ns, name))
                 .ok_or_else(|| DpfError::not_found("DPUDevice", name))?;
 
+            if let Some(values) = patch
+                .pointer("/spec/values")
+                .and_then(serde_json::Value::as_object)
+            {
+                device.spec.values = Some(
+                    values
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                );
+                return Ok(());
+            }
+
             let Some(node_labels) = patch
                 .pointer("/spec/cluster/nodeLabels")
                 .and_then(serde_json::Value::as_object)
@@ -3748,6 +4635,8 @@ mod tests {
             ns: &str,
             patch: serde_json::Value,
         ) -> Result<(), DpfError> {
+            self.node_patches.write().unwrap().push(patch.clone());
+
             if let Some(node) = self.nodes.write().unwrap().get_mut(&Self::ns_key(ns, name)) {
                 if let Some(annos) = patch
                     .pointer("/metadata/annotations")
@@ -3817,8 +4706,26 @@ mod tests {
             Ok(())
         }
         async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+            if let Some(error) = self.dpu_delete_error.write().unwrap().take() {
+                return Err(error);
+            }
             self.dpus.write().unwrap().remove(&Self::ns_key(ns, name));
             Ok(())
+        }
+        async fn delete_if_uid(&self, name: &str, ns: &str, uid: &str) -> Result<(), DpfError> {
+            let current_uid = self
+                .dpus
+                .read()
+                .unwrap()
+                .get(&Self::ns_key(ns, name))
+                .map(|dpu| dpu.metadata.uid.clone())
+                .ok_or_else(|| not_found_error(name))?;
+            if current_uid.as_deref() != Some(uid) {
+                return Err(DpfError::InvalidState(format!(
+                    "DPU {name} UID changed before deletion"
+                )));
+            }
+            DpuRepository::delete(self, name, ns).await
         }
         fn watch<F, Fut>(
             &self,
@@ -3914,6 +4821,32 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl DpuFlavorTemplateRepository for SdkMock {
+        async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUFlavorTemplate>, DpfError> {
+            Ok(self
+                .flavor_templates
+                .read()
+                .unwrap()
+                .get(&Self::ns_key(ns, name))
+                .cloned())
+        }
+        async fn create(
+            &self,
+            template: &DPUFlavorTemplate,
+        ) -> Result<DPUFlavorTemplate, DpfError> {
+            let key = Self::key(template);
+            let mut templates = self.flavor_templates.write().unwrap();
+            if templates.contains_key(&key) {
+                return Err(already_exists_error(
+                    template.meta().name.as_deref().unwrap_or(""),
+                ));
+            }
+            templates.insert(key, template.clone());
+            Ok(template.clone())
+        }
+    }
+
     #[tokio::test]
     async fn test_register_dpu_device() {
         let mock = SdkMock::new();
@@ -3931,13 +4864,134 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
             .unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].spec.serial_number, "SN123456");
+    }
+
+    #[test]
+    fn astra_underlay_values_follow_rail_and_switch_plane_order() {
+        let underlay_ips = [
+            "100.96.0.212",
+            "100.97.0.214",
+            "100.98.0.216",
+            "100.99.0.218",
+            "100.104.0.220",
+            "100.105.0.222",
+            "100.106.0.224",
+            "100.107.0.226",
+        ]
+        .map(|ip| ip.parse::<Ipv4Addr>().unwrap());
+
+        let values = astra_underlay_values_for_ips(&underlay_ips).unwrap();
+        assert_eq!(values.len(), 32);
+        assert_eq!(values["rail0_swp0_ip"].as_str(), Some("100.96.0.212/31"));
+        assert_eq!(values["rail0_swp0_gw"].as_str(), Some("100.96.0.213"));
+        assert_eq!(values["rail0_swp0_route1"].as_str(), Some("100.96.0.0/16"));
+        assert_eq!(values["rail0_swp0_route2"].as_str(), Some("100.96.0.0/13"));
+        assert_eq!(values["rail3_swp1_ip"].as_str(), Some("100.107.0.226/31"));
+        assert_eq!(values["rail3_swp1_gw"].as_str(), Some("100.107.0.227"));
+        assert_eq!(values["rail3_swp1_route1"].as_str(), Some("100.107.0.0/16"));
+        assert_eq!(values["rail3_swp1_route2"].as_str(), Some("100.104.0.0/13"));
+        assert!(astra_underlay_values_for_ips(&underlay_ips[..7]).is_err());
+
+        let mut duplicate_ips = underlay_ips;
+        duplicate_ips[7] = duplicate_ips[0];
+        let error = astra_underlay_values_for_ips(&duplicate_ips).unwrap_err();
+        assert!(
+            matches!(error, DpfError::ConfigError(message) if message == "Astra underlay IPs must be unique")
+        );
+    }
+
+    #[test]
+    fn astra_dpu_device_values_exactly_match_flavor_template_references() {
+        let underlay_ips = [
+            "100.96.0.212",
+            "100.97.0.214",
+            "100.98.0.216",
+            "100.99.0.218",
+            "100.104.0.220",
+            "100.105.0.222",
+            "100.106.0.224",
+            "100.107.0.226",
+        ]
+        .map(|ip| ip.parse::<Ipv4Addr>().unwrap());
+        let values = astra_underlay_values_for_ips(&underlay_ips).unwrap();
+        let value_keys: BTreeSet<_> = values.keys().cloned().collect();
+
+        let template = crate::flavor::flavor_bf4_astra(
+            "astra-ns",
+            &None,
+            calculate_astra_pf_total_sf(build_astra_dpu_interfaces_vec().as_slice()).unwrap(),
+        )
+        .unwrap();
+        let reference_keys: BTreeSet<_> = template
+            .spec
+            .template
+            .split("{{ .")
+            .skip(1)
+            .map(|reference| {
+                reference
+                    .split_once(" }}")
+                    .expect("Astra template reference must be closed")
+                    .0
+                    .to_owned()
+            })
+            .collect();
+
+        assert_eq!(reference_keys, value_keys);
+
+        let mut rendered_template = template.spec.template;
+        for (key, value) in values {
+            rendered_template = rendered_template.replace(
+                &format!("{{{{ .{key} }}}}"),
+                value.as_str().expect("Astra value must be a string"),
+            );
+        }
+        let rendered: serde_yaml::Value = serde_yaml::from_str(&rendered_template).unwrap();
+        let xplane_script = rendered["spec"]["configFiles"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"].as_str() == Some("/etc/mellanox/xplane-bridge.sh"))
+            .and_then(|file| file["raw"].as_str())
+            .unwrap();
+
+        for ((rail, switch_plane), ip) in [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+        ]
+        .into_iter()
+        .zip(underlay_ips)
+        {
+            let octets = ip.octets();
+            let gateway = Ipv4Addr::from(u32::from(ip) ^ 1);
+            let bridge = format!("brcx-r{rail}swpln{switch_plane}");
+            assert!(
+                xplane_script.contains(&format!(
+                    "echo \"    {bridge}:\"\n    echo \"      addresses:\"\n    echo \"        - {ip}/31\""
+                ))
+            );
+            assert!(xplane_script.contains(&format!(
+                "echo \"        - to: {}.{}.0.0/16\"\n    echo \"          via: {gateway}\"",
+                octets[0], octets[1]
+            )));
+            assert!(xplane_script.contains(&format!(
+                "echo \"        - to: {}.{}.0.0/13\"\n    echo \"          via: {gateway}\"",
+                octets[0],
+                octets[1] & 0b1111_1000
+            )));
+        }
     }
 
     #[tokio::test]
@@ -3982,7 +5036,7 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
@@ -4057,6 +5111,209 @@ mod tests {
         }
     }
 
+    /// Supplies selectors with one shared label and one label unique to each
+    /// deployment so transfer tests can distinguish both responsibilities.
+    struct DeploymentTransferLabeler;
+
+    impl ResourceLabeler for DeploymentTransferLabeler {
+        fn node_labels_for_deployment_type(
+            &self,
+            deployment_type: DpuDeploymentType,
+        ) -> Result<BTreeMap<String, String>, crate::DpfError> {
+            let deployment_label = match deployment_type {
+                DpuDeploymentType::Bf3 => "test/deployment-bf3",
+                DpuDeploymentType::Bf3Gb200 => "test/deployment-bf3gb200",
+                DpuDeploymentType::Bf4Generic => "test/deployment-bf4",
+                DpuDeploymentType::Bf4Astra => "test/deployment-astra",
+            };
+            Ok(BTreeMap::from([
+                ("test/shared".to_string(), "true".to_string()),
+                (deployment_label.to_string(), "true".to_string()),
+            ]))
+        }
+    }
+
+    /// Builds the existing DPUNode used to exercise a deployment label
+    /// transfer without involving registration behavior.
+    fn dpu_node_for_deployment_transfer() -> DPUNode {
+        DPUNode {
+            metadata: ObjectMeta {
+                name: Some("node-host-001".to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                resource_version: Some("7".to_string()),
+                labels: Some(BTreeMap::from([
+                    ("test/shared".to_string(), "true".to_string()),
+                    ("test/deployment-bf3".to_string(), "true".to_string()),
+                    ("test/host".to_string(), "host-001".to_string()),
+                    ("external/label".to_string(), "preserved".to_string()),
+                ])),
+                ..Default::default()
+            },
+            spec: DpuNodeSpec {
+                dpus: Some(vec![]),
+                node_dms_address: None,
+                node_reboot_method: None,
+            },
+            status: None,
+        }
+    }
+
+    /// A deployment transfer removes only the source selector, adds the target
+    /// selector, and leaves shared, contextual, and outside labels untouched.
+    #[tokio::test]
+    async fn deployment_label_transfer_is_idempotent_and_preserves_other_labels() {
+        let mock = SdkMock::new();
+        let node = dpu_node_for_deployment_transfer();
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&node), node);
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .with_labeler(DeploymentTransferLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        sdk.transfer_dpu_node_deployment_labels(
+            "node-host-001",
+            DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3Gb200,
+        )
+        .await
+        .unwrap();
+
+        let node = mock
+            .nodes
+            .read()
+            .unwrap()
+            .get(&SdkMock::ns_key(TEST_NAMESPACE, "node-host-001"))
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            node.metadata.labels,
+            Some(BTreeMap::from([
+                ("test/shared".to_string(), "true".to_string()),
+                ("test/deployment-bf3gb200".to_string(), "true".to_string()),
+                ("test/host".to_string(), "host-001".to_string()),
+                ("external/label".to_string(), "preserved".to_string()),
+            ]))
+        );
+        assert_eq!(
+            mock.node_patches.read().unwrap()[0]
+                .pointer("/metadata/resourceVersion")
+                .and_then(serde_json::Value::as_str),
+            Some("7")
+        );
+
+        sdk.transfer_dpu_node_deployment_labels(
+            "node-host-001",
+            DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3Gb200,
+        )
+        .await
+        .unwrap();
+        assert_eq!(mock.node_patches.read().unwrap().len(), 1);
+
+        // Repair a node that was left matching both deployments by removing
+        // the source-only selector even though the target already matches.
+        mock.nodes
+            .write()
+            .unwrap()
+            .get_mut(&SdkMock::ns_key(TEST_NAMESPACE, "node-host-001"))
+            .unwrap()
+            .metadata
+            .labels
+            .as_mut()
+            .unwrap()
+            .insert("test/deployment-bf3".to_string(), "true".to_string());
+        sdk.transfer_dpu_node_deployment_labels(
+            "node-host-001",
+            DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3Gb200,
+        )
+        .await
+        .unwrap();
+
+        let node = mock
+            .nodes
+            .read()
+            .unwrap()
+            .get(&SdkMock::ns_key(TEST_NAMESPACE, "node-host-001"))
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            node.metadata.labels,
+            Some(BTreeMap::from([
+                ("test/shared".to_string(), "true".to_string()),
+                ("test/deployment-bf3gb200".to_string(), "true".to_string()),
+                ("test/host".to_string(), "host-001".to_string()),
+                ("external/label".to_string(), "preserved".to_string()),
+            ]))
+        );
+        assert_eq!(mock.node_patches.read().unwrap().len(), 2);
+    }
+
+    /// A DPUNode outside both selectors cannot be claimed by the target
+    /// deployment through the transfer operation.
+    #[tokio::test]
+    async fn deployment_label_transfer_rejects_unrelated_node() {
+        let mock = SdkMock::new();
+        let mut node = dpu_node_for_deployment_transfer();
+        node.metadata.labels = Some(BTreeMap::from([
+            ("test/shared".to_string(), "true".to_string()),
+            ("external/label".to_string(), "preserved".to_string()),
+        ]));
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&node), node);
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .with_labeler(DeploymentTransferLabeler)
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        let error = sdk
+            .transfer_dpu_node_deployment_labels(
+                "node-host-001",
+                DpuDeploymentType::Bf3,
+                DpuDeploymentType::Bf3Gb200,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, DpfError::InvalidState(_)));
+        assert!(mock.node_patches.read().unwrap().is_empty());
+    }
+
+    /// Empty selectors cannot authorize a deployment transfer, even though an
+    /// empty map would otherwise match every DPUNode.
+    #[tokio::test]
+    async fn deployment_label_transfer_rejects_empty_selectors() {
+        let mock = SdkMock::new();
+        let node = dpu_node_for_deployment_transfer();
+        mock.nodes
+            .write()
+            .unwrap()
+            .insert(SdkMock::key(&node), node);
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        let error = sdk
+            .transfer_dpu_node_deployment_labels(
+                "node-host-001",
+                DpuDeploymentType::Bf3,
+                DpuDeploymentType::Bf3Gb200,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, DpfError::ConfigError(_)));
+        assert!(mock.node_patches.read().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn test_dpu_device_info_labels() {
         let mock = SdkMock::new();
@@ -4075,7 +5332,7 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
@@ -4111,7 +5368,7 @@ mod tests {
             is_primary: true,
         };
 
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
 
         let devices = DpuDeviceRepository::list(&mock, TEST_NAMESPACE)
             .await
@@ -4229,7 +5486,7 @@ mod tests {
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
         };
-        sdk.register_dpu_device(device_info).await.unwrap();
+        sdk.register_dpu_device(device_info, None).await.unwrap();
 
         let dpu_name = "node-dpu-001-device-dpu-001";
         let dpu = DPU {
@@ -4309,6 +5566,54 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(devices.len(), 1, "DPUDevice should remain");
+    }
+
+    /// Reprovision suppresses only the error for a missing DPU so retries are
+    /// safe after the deterministic DPU CR has already been deleted.
+    #[tokio::test]
+    async fn reprovision_dpu_suppresses_only_not_found() {
+        use carbide_test_support::Outcome::{Fails, Yields};
+        use carbide_test_support::{Case, check_cases_async};
+
+        /// Input for checking which DPU deletion errors reprovision suppresses.
+        struct ReprovisionDpuInput {
+            /// Error returned by the mock DPU repository.
+            delete_error: DpfError,
+        }
+
+        let run = |input: ReprovisionDpuInput| async move {
+            let mock = SdkMock::new();
+            *mock.dpu_delete_error.write().unwrap() = Some(input.delete_error);
+            let sdk = DpfSdkBuilder::new(mock, TEST_NAMESPACE, String::new())
+                .build_without_resources()
+                .await
+                .unwrap();
+
+            sdk.reprovision_dpu("dpu-001", "node-host-001")
+                .await
+                .map_err(|error| error.to_string())
+        };
+
+        check_cases_async(
+            [
+                Case {
+                    scenario: "DPU was already deleted",
+                    input: ReprovisionDpuInput {
+                        delete_error: not_found_error("node-host-001-device-dpu-001"),
+                    },
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "DPU deletion failed",
+                    input: ReprovisionDpuInput {
+                        delete_error: DpfError::InvalidState("delete failed".to_string()),
+                    },
+                    expect: Fails,
+                },
+            ],
+            run,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4430,8 +5735,8 @@ mod tests {
             is_primary: false,
         };
 
-        sdk1.register_dpu_device(info1).await.unwrap();
-        sdk2.register_dpu_device(info2).await.unwrap();
+        sdk1.register_dpu_device(info1, None).await.unwrap();
+        sdk2.register_dpu_device(info2, None).await.unwrap();
 
         let devices1 = DpuDeviceRepository::list(&mock, "namespace-1")
             .await
@@ -4507,6 +5812,14 @@ mod tests {
         )
         .await
         .unwrap();
+
+        assert_eq!(
+            sdk.get_dpu_device_node_labels("dpu-001").await.unwrap(),
+            BTreeMap::from([
+                ("nico/extsvc-add".to_string(), "enabled".to_string()),
+                ("other-controller".to_string(), "preserve".to_string()),
+            ])
+        );
 
         let updated = DpuDeviceRepository::get(&mock, &device_name, TEST_NAMESPACE)
             .await
@@ -4900,7 +6213,7 @@ mod tests {
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
         };
-        let err = sdk.register_dpu_device(info).await.unwrap_err();
+        let err = sdk.register_dpu_device(info, None).await.unwrap_err();
         assert!(
             matches!(err, DpfError::InvalidState(_)),
             "expected InvalidState, got: {err:?}"
@@ -4932,7 +6245,7 @@ mod tests {
                 bmc_credential_secret_name: None,
                 cluster: None,
                 nic_device_count: None,
-                values: None,
+                values: Some(BTreeMap::new()),
             },
             status: None,
         };
@@ -4949,7 +6262,9 @@ mod tests {
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
         };
-        sdk.register_dpu_device(info).await.unwrap();
+        // An existing DPUDevice is left untouched, so a retry does not need a
+        // complete Astra NIC snapshot just to re-validate creation-only values.
+        sdk.register_dpu_device(info, Some(vec![])).await.unwrap();
 
         // This branch is a deliberate no-op: an existing, non-terminating device is left
         // alone. `.unwrap()` only said no error came back -- assert no second device was
@@ -5584,7 +6899,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod extra_script_configmap_tests {
+mod configmap_seed_tests {
     use std::collections::BTreeMap;
     use std::sync::Mutex;
 
@@ -5671,14 +6986,74 @@ mod extra_script_configmap_tests {
         }
     }
 
-    /// BF3 inlines its scripts, so it must not create unreferenced ConfigMaps.
+    /// BF3 does not require the Astra Spectrum-X runtime ConfigMap.
     #[tokio::test]
-    async fn bf3_creates_no_configmaps() {
+    async fn bf3_does_not_require_the_astra_runtime_configmap() {
         let mock = ConfigMapMock::default();
         create_extra_script_configmaps(&mock, NS, DpuDeploymentType::Bf3)
             .await
             .expect("seeding succeeds");
+        validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf3)
+            .await
+            .expect("BF3 does not require the Astra runtime ConfigMap");
         assert!(mock.applied_names().is_empty());
+    }
+
+    /// Astra initialization fails rather than creating a placeholder Spectrum-X configuration.
+    #[tokio::test]
+    async fn bf4_astra_requires_the_runtime_configmap() {
+        let mock = ConfigMapMock::default();
+        let error =
+            validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf4Astra)
+                .await
+                .expect_err("Astra must require the site-owned runtime ConfigMap");
+
+        assert!(matches!(
+            error,
+            DpfError::ConfigError(message)
+                if message.contains("dpf-operator-system/ra2.2-runtime")
+                    && message.contains("RA2.2-runtime.yaml")
+        ));
+        assert!(mock.applied_names().is_empty());
+    }
+
+    /// A site-owned runtime configuration must be the one the flavor consumes.
+    #[tokio::test]
+    async fn existing_bf4_astra_runtime_configmap_is_left_alone() {
+        let site_config = "runtimeConfig:\n  roce: []\n";
+        let mock = ConfigMapMock::seeded(
+            BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME,
+            BTreeMap::from([(
+                BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY.to_string(),
+                site_config.to_string(),
+            )]),
+        );
+
+        validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf4Astra)
+            .await
+            .expect("existing site configuration is valid");
+
+        assert!(mock.applied_names().is_empty());
+        assert_eq!(
+            mock.existing.lock().unwrap()[BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME]
+                [BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY],
+            site_config
+        );
+    }
+
+    #[tokio::test]
+    async fn bf4_astra_runtime_configmap_requires_the_referenced_key() {
+        let mock = ConfigMapMock::seeded(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_NAME, BTreeMap::new());
+
+        let error =
+            validate_bf4_astra_ra2_2_runtime_configmap(&mock, NS, DpuDeploymentType::Bf4Astra)
+                .await
+                .expect_err("Astra runtime ConfigMap must contain the referenced key");
+
+        assert!(matches!(
+            error,
+            DpfError::ConfigError(message) if message.contains(BF4_ASTRA_RA2_2_RUNTIME_CONFIGMAP_KEY)
+        ));
     }
 
     /// Names and key must stay in lockstep with the flavors' `configMapKeyRef`.

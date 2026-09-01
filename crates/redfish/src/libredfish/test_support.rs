@@ -36,9 +36,10 @@ use libredfish::model::storage::Drives;
 use libredfish::model::task::Task;
 use libredfish::model::update_service::{ComponentType, TransferProtocolType, UpdateService};
 use libredfish::model::{ODataId, ODataLinks};
+use libredfish::standard::RedfishStandard;
 use libredfish::{
     Assembly, Chassis, Collection, EnabledDisabled, JobState, ManagerResetType, NetworkAdapter,
-    PowerState, Redfish, RedfishError, Resource, SystemPowerControl,
+    PowerState, Redfish, RedfishError, Resource, SpxNicModelAndName, SystemPowerControl,
 };
 use mac_address::MacAddress;
 
@@ -105,6 +106,10 @@ struct RedfishSimState {
     /// (`503`), so callers' error-propagation paths can be exercised distinctly
     /// from an unauthorized rejection.
     get_accounts_error: bool,
+    /// When set, BMC event-log reads succeed with an empty log.
+    bmc_event_log_supported: bool,
+    /// When set, the next BMC event-log read fails with a transient error.
+    bmc_event_log_error_once: bool,
     /// Opt-in password-reuse policy. When on, a password *change* whose new
     /// value equals the account's current password is rejected (`400`), modeling
     /// the real BMCs that refuse a same-value change -- the exact behavior BMC
@@ -409,6 +414,16 @@ impl RedfishSim {
         self.state.lock().unwrap().get_accounts_error = error;
     }
 
+    /// Control whether BMC event-log reads succeed with an empty log.
+    pub fn set_bmc_event_log_supported(&self, supported: bool) {
+        self.state.lock().unwrap().bmc_event_log_supported = supported;
+    }
+
+    /// Fail the next BMC event-log read with a transient simulated error.
+    pub fn fail_next_bmc_event_log_read(&self) {
+        self.state.lock().unwrap().bmc_event_log_error_once = true;
+    }
+
     /// Enable the opt-in password-reuse policy (see
     /// [`RedfishSimState::reject_password_reuse`]): a same-value password change
     /// is rejected, so a caller that must not issue one is held to it.
@@ -647,6 +662,10 @@ impl RedfishSimClient {
 }
 
 impl Redfish for RedfishSimClient {
+    fn std_redfish(&self) -> &RedfishStandard {
+        panic!("RedfishSimClient must implement Redfish operations directly")
+    }
+
     fn get_power_state<'a>(
         &'a self,
     ) -> libredfish::RedfishFuture<'a, Result<libredfish::PowerState, RedfishError>> {
@@ -693,6 +712,35 @@ impl Redfish for RedfishSimClient {
                 .push(RedfishSimAction::BmcReset(reset_type));
             Ok(())
         })
+    }
+
+    fn get_spx_nic_east_west_control_enabled<'a>(
+        &'a self,
+        _nic_index: u8,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<bool>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
+    }
+
+    fn set_spx_nic_east_west_control_enabled<'a>(
+        &'a self,
+        _nic_index: u8,
+        _enabled: bool,
+    ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
+        Box::pin(async move { Ok(()) })
+    }
+
+    fn get_spx_nic_mac_address<'a>(
+        &'a self,
+        _nic_index: u8,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
+    }
+
+    fn get_spx_nic_model_and_name<'a>(
+        &'a self,
+        _nic_index: u8,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<SpxNicModelAndName>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
     }
 
     fn get_thermal_metrics<'a>(
@@ -1610,6 +1658,15 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Vec<libredfish::model::sel::LogEntry>, RedfishError>>
     {
         Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            if std::mem::take(&mut state.bmc_event_log_error_once) {
+                return Err(RedfishError::GenericError {
+                    error: "transient BMC event-log failure".to_string(),
+                });
+            }
+            if state.bmc_event_log_supported {
+                return Ok(Vec::new());
+            }
             Err(RedfishError::NotSupported(
                 "BMC Event Log not supported for tests".to_string(),
             ))

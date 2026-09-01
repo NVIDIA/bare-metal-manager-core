@@ -371,7 +371,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	// Subnet 3 is missing from Site Controller inventory but was not requested by user to be deleted, hence gets missing flag set
 	subnet3 := testSubnetBuildSubnet(t, dbSession, "test-subnet-3", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, cutil.GetPtr("192.0.1.8"), cutil.GetPtr("192.0.1.8"), nil, 24, cdbm.SubnetStatusProvisioning, tnu)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), subnet3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), subnet3.ID.String())
 	assert.NoError(t, err)
 
 	sbPrefix, err = ipam.CreateChildIpamEntryForIPBlock(ctx, nil, dbSession, ipamStorage, ipb, 26)
@@ -417,7 +417,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	for i := 0; i < 38; i++ {
 		subnet := testSubnetBuildSubnet(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", i), tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusProvisioning, tnu)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), subnet.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE subnet SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.DefaultInventoryReceiptInterval)*2), subnet.ID.String())
 		assert.NoError(t, err)
 		pagedSubnets = append(pagedSubnets, subnet)
 		pagedInvIds = append(pagedInvIds, subnet.ControllerNetworkSegmentID.String())
@@ -726,7 +726,7 @@ func Test_SubnetMetrics_Create_PendingToReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -750,7 +750,7 @@ func Test_SubnetMetrics_Create_PendingToReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted with correct duration (150ms)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_subnet_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_subnet_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "create",
 		"from_status":    cdbm.SubnetStatusPending,
 		"to_status":      cdbm.SubnetStatusReady,
@@ -765,7 +765,7 @@ func Test_SubnetMetrics_Create_PendingErrorReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -793,7 +793,7 @@ func Test_SubnetMetrics_Create_PendingErrorReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted with duration t3-t1 (250ms)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_subnet_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_subnet_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "create",
 		"from_status":    cdbm.SubnetStatusPending,
 		"to_status":      cdbm.SubnetStatusReady,
@@ -808,7 +808,7 @@ func Test_SubnetMetrics_Create_ReadyErrorReady(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -835,7 +835,7 @@ func Test_SubnetMetrics_Create_ReadyErrorReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify NO metric was emitted (duplicate ready, no pending->ready transition)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_subnet_operation_latency_seconds", 0, nil, 0)
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_subnet_operation_latency_seconds", 0, nil, 0)
 }
 
 // Test Subnet Metrics - DELETE operations
@@ -847,7 +847,7 @@ func Test_SubnetMetrics_Delete_DeletingOnly(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -867,7 +867,7 @@ func Test_SubnetMetrics_Delete_DeletingOnly(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted with correct duration (180ms)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_subnet_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_subnet_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "delete",
 		"from_status":    cdbm.SubnetStatusDeleting,
 		"to_status":      cdbm.SubnetStatusDeleted,
@@ -882,7 +882,7 @@ func Test_SubnetMetrics_Delete_MultipleDeletingTerminating(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -910,7 +910,7 @@ func Test_SubnetMetrics_Delete_MultipleDeletingTerminating(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify metric was emitted (should use first deleting timestamp, duration 350ms)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_subnet_operation_latency_seconds", 1, map[string]string{
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_subnet_operation_latency_seconds", 1, map[string]string{
 		"operation_type": "delete",
 		"from_status":    cdbm.SubnetStatusDeleting,
 		"to_status":      cdbm.SubnetStatusDeleted,
@@ -925,7 +925,7 @@ func Test_SubnetMetrics_Delete_NoDeleting(t *testing.T) {
 
 	site := util.TestSetupSite(t, dbSession)
 	reg := prometheus.NewRegistry()
-	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession)
+	lifecycleMetrics := NewManageSubnetLifecycleMetrics(reg, dbSession, "nico_rest_workflow")
 	testSubnetID := uuid.New()
 
 	// Set precise timestamps
@@ -944,5 +944,5 @@ func Test_SubnetMetrics_Delete_NoDeleting(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify NO metric was emitted (no deleting status found)
-	util.TestAssertMetricExistsTimes(t, reg, "cloud_workflow_subnet_operation_latency_seconds", 0, nil, 0)
+	util.TestAssertMetricExistsTimes(t, reg, "nico_rest_workflow_subnet_operation_latency_seconds", 0, nil, 0)
 }

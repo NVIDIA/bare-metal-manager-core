@@ -27,6 +27,14 @@ use serde::{Deserialize, Serialize};
 
 mod errors;
 mod machine_validation;
+mod plugin_contract;
+// This foundation is intentionally dormant until the control-plane wiring is
+// introduced in the next PR.
+#[expect(
+    dead_code,
+    reason = "plugin runner is introduced before its opt-in wiring"
+)]
+mod plugin_runner;
 
 pub const MACHINE_VALIDATION_SERVER: &str = "carbide-pxe.forge";
 pub const SCHME: &str = "http";

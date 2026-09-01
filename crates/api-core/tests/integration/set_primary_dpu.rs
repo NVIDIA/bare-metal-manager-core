@@ -166,10 +166,12 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
         .bind(stale_interface_id)
         .execute(&env.api().database_connection)
         .await?;
-    let desired_before =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &host_id)
-            .await?
-            .expect("ingestion should initialize the desired target");
+    let desired_before = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &host_id.try_into().unwrap(),
+    )
+    .await?
+    .expect("ingestion should initialize the desired target");
     sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
         .bind(host_id.to_string())
         .execute(&env.api().database_connection)
@@ -206,10 +208,12 @@ async fn test_set_primary_dpu_rejects_a_stale_host_relationship_without_writes(
         primary_ids
     };
     assert_eq!(primary_ids, vec![original_primary_id]);
-    let desired_after =
-        db::machine_desired_boot_interface::get(&env.api().database_connection, &host_id)
-            .await?
-            .expect("the original desired target should remain");
+    let desired_after = db::machine_desired_boot_interface::get(
+        &env.api().database_connection,
+        &host_id.try_into().unwrap(),
+    )
+    .await?
+    .expect("the original desired target should remain");
     assert_eq!(desired_after.value, desired_before.value);
     assert_eq!(desired_after.version, desired_before.version);
 

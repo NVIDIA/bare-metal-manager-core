@@ -26,10 +26,10 @@ use model::dpa_interface::DpaSearchConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::slas::MachineSlaConfig;
 use model::machine::{
-    self, AttestationMode, DecommissioningState, DpuDiscoveringState, DpuInitState,
-    HostHealthConfig, MachineMaintenanceOperation, MachineValidatingState, ManagedHostState,
-    ManagedHostStateSnapshot, MeasuringState, ReadyBootConfigState, SpdmMeasuringState,
-    ValidationState,
+    self, AttestationMode, ConfigureAstraState, DecommissioningState, DpuDiscoveringState,
+    DpuInitState, HostHealthConfig, MachineMaintenanceOperation, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ReadyBootConfigState,
+    SpdmMeasuringState, ValidationState,
 };
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
@@ -296,6 +296,15 @@ impl StateControllerIO for MachineStateControllerIO {
         }
 
         match state {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => (
+                "configureastra",
+                match configure_astra_state {
+                    ConfigureAstraState::EnableNics => "enablenics",
+                    ConfigureAstraState::WaitingForPowercycle => "waitingforpowercycle",
+                },
+            ),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -334,6 +343,7 @@ impl StateControllerIO for MachineStateControllerIO {
                     ("decommissioning", "suppressingoobdhcp")
                 }
                 DecommissioningState::PowerCyclingHost => ("decommissioning", "powercyclinghost"),
+                DecommissioningState::PoweringOnHost => ("decommissioning", "poweringonhost"),
                 DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                     ("decommissioning", "waitingforoobdhcpacknowledgement")
                 }
@@ -379,6 +389,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::RotatingBmc { .. } => ("rotatingbmc", ""),
             ManagedHostState::RotatingHostUefi { .. } => ("rotatinghostuefi", ""),
             ManagedHostState::RotatingDpuUefi { .. } => ("rotatingdpuuefi", ""),
+            ManagedHostState::RotatingNicLockdown => ("rotatingniclockdown", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }

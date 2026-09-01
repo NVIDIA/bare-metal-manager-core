@@ -30,6 +30,7 @@ use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpuflavortemplates_generated::DPUFlavorTemplate;
 use crate::crds::dpunodemaintenances_generated::DPUNodeMaintenance;
 use crate::crds::dpunodes_generated::DPUNode;
 use crate::crds::dpus_generated::DPU;
@@ -81,6 +82,12 @@ pub trait DpuRepository: Send + Sync {
         patch: serde_json::Value,
     ) -> Result<(), DpfError>;
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError>;
+
+    /// Delete a DPU only when its Kubernetes UID matches `uid`.
+    ///
+    /// The UID check must be part of the delete operation so a DPU recreated
+    /// under the same name cannot be deleted using an earlier observation.
+    async fn delete_if_uid(&self, name: &str, namespace: &str, uid: &str) -> Result<(), DpfError>;
 
     /// Watch for DPU changes and invoke the handler for each object.
     ///
@@ -152,6 +159,14 @@ pub trait DpuNodeMaintenanceRepository: Send + Sync {
 pub trait DpuFlavorRepository: Send + Sync {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUFlavor>, DpfError>;
     async fn create(&self, flavor: &DPUFlavor) -> Result<DPUFlavor, DpfError>;
+}
+
+/// Repository for DPUFlavorTemplate resources.
+#[async_trait]
+pub trait DpuFlavorTemplateRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<DPUFlavorTemplate>, DpfError>;
+    async fn create(&self, template: &DPUFlavorTemplate) -> Result<DPUFlavorTemplate, DpfError>;
 }
 
 /// Repository for DPUSet resources.
@@ -320,6 +335,7 @@ pub trait DpfRepository:
     + DpuNodeRepository
     + DpuNodeMaintenanceRepository
     + DpuFlavorRepository
+    + DpuFlavorTemplateRepository
     + DpuSetRepository
     + DpuClusterRepository
     + DpuDeploymentRepository

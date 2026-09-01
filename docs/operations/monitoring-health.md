@@ -1,4 +1,4 @@
-# Monitoring and Health <Badge intent="launch" minimal>New</Badge>
+# Monitoring and Health
 
 This page covers monitoring and health workflows for NICo sites after
 deployment: hardware health, DPU health, aggregate host health, health
@@ -33,6 +33,7 @@ alerts from a reporting source. Common health sources are:
 | DPU agent | DPU service health, DPU networking health, BGP state, DHCP service health, and agent heartbeat. |
 | Validation and discovery | SKU validation, host validation, endpoint discovery, and inventory checks. |
 | Rack health | Rack-level health input when rack health reporting is configured. |
+| NVLink domain health | NMX-C controller health for an NVLink domain when domain health reporting is configured. |
 | Health overrides | Manual or service-created health reports used for maintenance, repair, validation, or other controlled workflows. |
 
 Each alert has an ID, an optional target, a message, a start time, and one or
@@ -175,8 +176,13 @@ switch config has NMX-C enabled; it does not use BMC or NICo API TLS material.
 For static switch-host endpoints, `switch.nmxc_enabled` controls this target
 eligibility after the `endpoint_role = "host"` and `is_primary = true` checks;
 it defaults to `switch.is_primary` when omitted.
-NMX-C notifications emit log events for tracing, log-file, and OTLP
-log sinks only; Prometheus metrics and switch health reports are separate scope.
+NMX-C notifications emit log events for tracing, log-file, and OTLP log sinks.
+With `[collectors.nmxc]` and `[sinks.nvlink_domain_health_report]` enabled,
+supported `DomainStateInfo` controller health states also produce NVLink domain
+health reports. Both settings are disabled by default. Configuration validation
+rejects enabling the sink with `[collectors.nmxc.schema_override]`. See
+[NVLink Domain Health Reports](./nvlink-domain-health-reports.md) for state
+mapping, identity checks, report persistence, and configuration behavior.
 
 NMX-C collection uses plaintext gRPC over HTTP/2. TLS, certificate
 bypass, custom certificate loading, and mTLS are intentionally separate scope; do not model them with the NICo API SPIFFE certificate fields.

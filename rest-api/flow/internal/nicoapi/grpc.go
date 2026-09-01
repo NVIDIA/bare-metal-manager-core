@@ -57,6 +57,11 @@ const (
 	// zero Core value means the server is unlimited, not that Flow should build
 	// one unbounded response.
 	flowFindByIDsBatchSize = 100
+
+	// coreGRPCMaxRecvMsgSize raises the Go gRPC 4 MiB default for Core responses.
+	// Core's expected-inventory RPCs return complete snapshots in one response,
+	// which can exceed that default for larger sites.
+	coreGRPCMaxRecvMsgSize = 32 * 1024 * 1024
 )
 
 type grpcClient struct {
@@ -171,6 +176,14 @@ func (c *batchingForgeClient) visitPowerShelfBatches(
 
 var testingMsgOnce sync.Once
 
+func coreGRPCDialOptions(transportCredentials credentials.TransportCredentials) []grpc.DialOption {
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(coreGRPCMaxRecvMsgSize)),
+		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
+	}
+}
+
 // NewClient creates a GRPC connection pool to nico-core-api.  Returning success does not mean that we have yet made an actual connection;
 // that happens when making an actual request.
 func NewClient(grpcTimeout time.Duration) (Client, error) {
@@ -194,11 +207,7 @@ func NewClient(grpcTimeout time.Duration) (Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(
-		nicoURL,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
-		grpc.WithChainUnaryInterceptor(grpclog.UnaryClientInterceptor("nico-core-api")),
-	)
+	conn, err := grpc.NewClient(nicoURL, coreGRPCDialOptions(credentials.NewTLS(tlsConfig))...)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to connect to nico-core-api: %w", err)
 	}
@@ -1033,15 +1042,32 @@ func (c *grpcClient) DecommissionMachine(ctx context.Context, machineID string) 
 }
 
 // DecommissionSwitch initiates decommissioning of the given switch via Core.
-// TODO: Core Decommission Switch RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionSwitch(_ context.Context, switchID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionSwitch RPC pending (switch %s)", switchID)
+func (c *grpcClient) DecommissionSwitch(ctx context.Context, switchID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionSwitch(ctx, &corev1.DecommissionSwitchRequest{
+		SwitchId: &corev1.SwitchId{Id: switchID},
+	})
+	if err != nil {
+		return fmt.Errorf("decommission switch %s: %w", switchID, err)
+	}
+	return nil
 }
 
 // DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
-// TODO: Core Decommission PowerShelf RPC pending — stub returns not-implemented.
-func (c *grpcClient) DecommissionPowerShelf(_ context.Context, shelfID string) error {
-	return fmt.Errorf("not yet implemented: Core DecommissionPowerShelf RPC pending (shelf %s)", shelfID)
+func (c *grpcClient) DecommissionPowerShelf(ctx context.Context, shelfID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.grpcTimeout)
+	defer cancel()
+
+	_, err := c.gclient.DecommissionPowerShelf(ctx, &corev1.DecommissionPowerShelfRequest{
+		PowerShelfId: &corev1.PowerShelfId{Id: shelfID},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to decommission power shelf %s: %w", shelfID, err)
+	}
+
+	return nil
 }
 
 // AllowIngestionAndPowerOn opens NICo's power-on gate for a

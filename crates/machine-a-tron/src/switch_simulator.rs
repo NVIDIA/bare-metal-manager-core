@@ -26,7 +26,6 @@ use bmc_mock::{
     BmcCommand, Callbacks, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
     POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -38,7 +37,6 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::switch_fsm::{Action, DhcpEndpoint, Event, SwitchFsm, Timer};
-use crate::tui::UiUpdate;
 
 fn abandon_nvos_dhcp_on_power_change(actions: &mut VecDeque<Action>) {
     actions.retain(|action| !matches!(action, Action::Dhcp(DhcpEndpoint::Nvos)));
@@ -401,6 +399,8 @@ impl SwitchActor {
             Arc::new(SwitchHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if let Some(password) = self.app_context.app_config.host_bmc_password.as_deref() {
             bmc_mock
@@ -541,13 +541,6 @@ pub(crate) struct SwitchHandle(Arc<SwitchActorHandle>);
 impl SwitchHandle {
     pub(crate) fn mat_id(&self) -> Uuid {
         self.0.mat_id
-    }
-
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
     }
 
     pub(crate) fn pause(&self) -> eyre::Result<()> {

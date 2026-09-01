@@ -20,8 +20,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use carbide_authn::middleware::ConnectionAttributes;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use chrono::{DateTime, Utc};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId, StableHostMachineId};
+use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine_with_reporter};
 use common::api_fixtures::{
@@ -32,11 +32,13 @@ use config_version::ConfigVersion;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::hardware_info::{HardwareInfo, PciDeviceProperties, TpmEkCertificate};
+use model::machine::ManagedHostState;
 use model::machine::machine_id::from_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine_boot_interface::BootInterfaceSelectionSource;
 use model::network_segment::NetworkSegmentType;
 use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
 
@@ -50,10 +52,17 @@ use crate::tests::common::api_fixtures::tpm_attestation::{
     AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, EK_PUB_SERIALIZED,
 };
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
+use crate::tests::common::postgres::wait_for_blocked_query;
 
 fn secure_discovery_config() -> crate::cfg::file::CarbideConfig {
     let mut config = common::api_fixtures::get_config();
     config.allow_insecure_discovery = false;
+    config
+}
+
+fn scout_reconciliation_config() -> crate::cfg::file::CarbideConfig {
+    let mut config = common::api_fixtures::get_config();
+    config.scout_boot_interface_correction_enabled = true;
     config
 }
 
@@ -89,21 +98,21 @@ fn discovery_request_from(
     request
 }
 
-/// Snapshot of the selection fields that the Scout PCI test must not rewrite.
-#[derive(Debug, PartialEq, sqlx::FromRow)]
+/// Fields these scout reconciliation tests compare across a request.
+#[derive(Clone, Debug, PartialEq, sqlx::FromRow)]
 struct ScoutPciSelectionState {
     current_primary_mac_address: Option<MacAddress>,
+    current_primary_address: Option<String>,
+    network_config_version: ConfigVersion,
+    controller_state: String,
+    controller_queued: bool,
     desired_mac_address: Option<MacAddress>,
     desired_interface_id: Option<String>,
     desired_version: Option<ConfigVersion>,
     selection_source: Option<BootInterfaceSelectionSource>,
-    selection_updated_at: Option<DateTime<Utc>>,
 }
 
-/// Loads the selection fields that the Scout PCI observer must leave unchanged.
-///
-/// This query keeps the handler test focused on the current primary interface
-/// and the stored boot interface decision.
+/// Loads only the primary, address, network, state, queue, and desired boot interface selection fields.
 async fn load_scout_pci_selection_state(
     pool: &sqlx::PgPool,
     host_machine_id: MachineId,
@@ -115,11 +124,26 @@ async fn load_scout_pci_selection_state(
                     WHERE machine_id = machine.id
                       AND primary_interface
                 ) AS current_primary_mac_address,
+                (
+                    SELECT address.address::text
+                    FROM machine_interface_addresses address
+                    JOIN machine_interfaces interface ON interface.id = address.interface_id
+                    WHERE interface.machine_id = machine.id
+                      AND interface.primary_interface
+                    ORDER BY address.address::text
+                    LIMIT 1
+                ) AS current_primary_address,
+                machine.network_config_version,
+                machine.controller_state::text AS controller_state,
+                EXISTS (
+                    SELECT 1
+                    FROM machine_state_controller_queued_objects queued
+                    WHERE queued.object_id = machine.id::text
+                ) AS controller_queued,
                 boot_interface.desired_mac_address,
                 boot_interface.desired_interface_id,
                 boot_interface.desired_version,
-                boot_interface.selection_source,
-                boot_interface.selection_updated_at
+                boot_interface.selection_source
          FROM machines machine
          LEFT JOIN machine_boot_interfaces boot_interface
            ON boot_interface.machine_id = machine.id
@@ -129,6 +153,215 @@ async fn load_scout_pci_selection_state(
     .fetch_one(pool)
     .await?;
     Ok(state)
+}
+
+#[derive(Clone, Copy)]
+struct ScoutPciInterfaces {
+    current_id: MachineInterfaceId,
+    current_mac: MacAddress,
+    alternate_mac: MacAddress,
+}
+
+async fn load_scout_pci_interfaces(
+    pool: &sqlx::PgPool,
+    host_machine_id: MachineId,
+) -> Result<ScoutPciInterfaces, Box<dyn std::error::Error>> {
+    let machine = db::machine::find_one(pool, &host_machine_id, MachineSearchConfig::default())
+        .await?
+        .expect("managed host must exist");
+    let interfaces = machine
+        .status
+        .interfaces
+        .iter()
+        .filter(|interface| {
+            interface.network_segment_type == Some(NetworkSegmentType::Admin)
+                && interface.attached_dpu_machine_id.is_some()
+        })
+        .map(|interface| {
+            (
+                interface.id,
+                interface.mac_address,
+                interface.primary_interface,
+            )
+        })
+        .collect_vec();
+    assert_eq!(
+        interfaces.len(),
+        2,
+        "fixture must have two Admin interfaces with an attached_dpu_machine_id"
+    );
+    let current = interfaces
+        .iter()
+        .find(|(_, _, primary)| *primary)
+        .expect("fixture must have one current primary interface");
+    let alternate = interfaces
+        .iter()
+        .find(|(_, _, primary)| !primary)
+        .expect("fixture must have one alternate interface");
+    Ok(ScoutPciInterfaces {
+        current_id: current.0,
+        current_mac: current.1,
+        alternate_mac: alternate.1,
+    })
+}
+
+fn scout_pci_report(host_config: &ManagedHostConfig, winning_mac: MacAddress) -> HardwareInfo {
+    let mut hardware_info = HardwareInfo::from(host_config);
+    for (index, dpu) in host_config.dpus.iter().enumerate() {
+        let interface = hardware_info
+            .network_interfaces
+            .iter_mut()
+            .find(|interface| interface.mac_address == dpu.host_mac_address)
+            .expect("each fixture DPU must have one scout interface");
+        let bus = if interface.mac_address == winning_mac {
+            2
+        } else {
+            10 + index
+        };
+        interface.pci_properties = Some(PciDeviceProperties {
+            vendor: "0x15b3".to_string(),
+            device: "0xa2dc".to_string(),
+            path: format!("/devices/pci0000:00/0000:{bus:02x}:00.0/net/dpu{index}"),
+            numa_node: 0,
+            description: Some("DPU-backed host interface".to_string()),
+            slot: Some(format!("0000:{bus:02x}:00.0")),
+        });
+    }
+    hardware_info
+}
+
+async fn set_scout_test_source(
+    pool: &sqlx::PgPool,
+    host_machine_id: MachineId,
+    source: BootInterfaceSelectionSource,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE machine_boot_interfaces
+         SET selection_source = $1,
+             selection_updated_at = TIMESTAMPTZ '2024-07-24 00:00:00+00'
+         WHERE machine_id = $2",
+    )
+    .bind(source)
+    .bind(host_machine_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn clear_scout_test_queue(
+    pool: &sqlx::PgPool,
+    host_machine_id: MachineId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
+        .bind(host_machine_id.to_string())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+async fn create_scout_test_host(
+    env: &common::api_fixtures::TestEnv,
+    source: BootInterfaceSelectionSource,
+) -> Result<(ManagedHostConfig, MachineId, ScoutPciInterfaces), Box<dyn std::error::Error>> {
+    let host_config = env.managed_host_config().with_dpu_count(2);
+    let host = create_managed_host_with_config(env, host_config.clone()).await;
+    let host_machine_id = host.host().id;
+    let interfaces = load_scout_pci_interfaces(&env.pool, host_machine_id).await?;
+    set_scout_test_source(&env.pool, host_machine_id, source).await?;
+    clear_scout_test_queue(&env.pool, host_machine_id).await?;
+    Ok((host_config, host_machine_id, interfaces))
+}
+
+async fn submit_scout_pci_report(
+    api: &crate::api::Api,
+    host_machine_id: MachineId,
+    caller_interface_id: MachineInterfaceId,
+    hardware_info: HardwareInfo,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut discovery_info = rpc::DiscoveryInfo::try_from(hardware_info)?;
+    discovery_info.attest_key_info = Some(rpc::machine_discovery::AttestKeyInfo {
+        ek_pub: EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: AK_PUB_SERIALIZED.to_vec(),
+        ak_name: AK_NAME_SERIALIZED.to_vec(),
+    });
+
+    let (response, logs) = carbide_instrument::testing::capture_logs_async(api.discover_machine(
+        Request::new(rpc::MachineDiscoveryInfo {
+            machine_interface_id: Some(caller_interface_id),
+            discovery_data: Some(rpc::DiscoveryData::Info(discovery_info)),
+            create_machine: true,
+            discovery_reporter: rpc::MachineDiscoveryReporter::Scout as i32,
+            discovery_reporter_version: None,
+        }),
+    ))
+    .await;
+    let response = response?.into_inner();
+    assert_eq!(response.machine_id, Some(host_machine_id));
+    assert_eq!(response.machine_interface_id, Some(caller_interface_id));
+
+    Ok(scout_pci_comparisons(&logs, host_machine_id))
+}
+
+fn scout_pci_comparisons(
+    logs: &[carbide_instrument::testing::CapturedLog],
+    host_machine_id: MachineId,
+) -> Vec<String> {
+    let host_machine_id = host_machine_id.to_string();
+    logs.iter()
+        .filter(|log| {
+            log.field("event_name") == Some("scout_pci_evaluated")
+                && log.field("machine_id") == Some(host_machine_id.as_str())
+        })
+        .map(|log| {
+            assert_eq!(
+                log.field("metric_name"),
+                Some("carbide_scout_pci_evaluations_total")
+            );
+            log.field("result")
+                .expect("scout PCI comparison must record its classification")
+                .to_string()
+        })
+        .collect()
+}
+
+async fn run_scout_pci_reconciliation(
+    api: &crate::api::Api,
+    host_machine_id: MachineId,
+    hardware_info: &HardwareInfo,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let host_machine_id = StableHostMachineId::try_from(host_machine_id)?;
+    Ok(
+        crate::handlers::update_primary_interface_from_scout_for_test(
+            api,
+            host_machine_id,
+            hardware_info,
+        )
+        .await?,
+    )
+}
+
+fn scout_test_allocation_request(
+    host_machine_id: MachineId,
+    segment_id: NetworkSegmentId,
+) -> rpc::InstanceAllocationRequest {
+    rpc::InstanceAllocationRequest {
+        instance_id: None,
+        machine_id: Some(host_machine_id),
+        instance_type_id: None,
+        config: Some(rpc::InstanceConfig {
+            tenant: Some(default_tenant_config()),
+            os: Some(default_os_config()),
+            network: Some(single_interface_network_config(segment_id)),
+            infiniband: None,
+            network_security_group_id: None,
+            dpu_extension_services: None,
+            nvlink: None,
+            spxconfig: None,
+            power_profile: None,
+        }),
+        metadata: None,
+        allow_unhealthy_machine: false,
+    }
 }
 
 async fn allocated_host_for_secure_discovery(
@@ -1153,152 +1386,264 @@ async fn test_discovery_rejects_interface_owned_by_different_stable_identity(
     Ok(())
 }
 
-/// A valid Scout PCI report may disagree with the selected Redfish interface.
-/// The handler records that fact without treating the report as a command.
+/// With reconciliation disabled by default, a differing fallback selection does not change the host.
 #[crate::sqlx_test]
-async fn test_scout_pci_disagreement_does_not_reconfigure_host(
+async fn test_scout_pci_default_off_observes_fallback_selection(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config().with_dpu_count(2);
-    let managed_host = create_managed_host_with_config(&env, host_config.clone()).await;
-    let host_machine_id = managed_host.host().id;
-
-    let stored_machine =
-        db::machine::find_one(&env.pool, &host_machine_id, MachineSearchConfig::default())
-            .await?
-            .expect("managed host must exist");
-    let selected_interface = stored_machine
-        .status
-        .interfaces
-        .iter()
-        .find(|interface| {
-            interface.network_segment_type == Some(NetworkSegmentType::Admin)
-                && interface.attached_dpu_machine_id.is_some()
-                && interface.primary_interface
-        })
-        .expect("host with two DPUs must have one selected DPU interface");
-    assert_eq!(
-        selected_interface.mac_address, host_config.dpus[0].host_mac_address,
-        "the Redfish fixture must select the first reported DPU",
-    );
-    let caller_interface_id = selected_interface.id;
-
+    let (host_config, host_machine_id, interfaces) =
+        create_scout_test_host(&env, BootInterfaceSelectionSource::RedfishChassisId).await?;
     let before = load_scout_pci_selection_state(&env.pool, host_machine_id).await?;
+    let comparisons = submit_scout_pci_report(
+        &env.api,
+        host_machine_id,
+        interfaces.current_id,
+        scout_pci_report(&host_config, interfaces.alternate_mac),
+    )
+    .await?;
+    assert_eq!(comparisons, ["differs_from_stored"]);
     assert_eq!(
-        before.current_primary_mac_address,
-        Some(host_config.dpus[0].host_mac_address),
-        "the fixture must start with the first DPU as its current primary interface",
+        load_scout_pci_selection_state(&env.pool, host_machine_id).await?,
+        before,
+        "disabled reconciliation must not change primary_interface state",
     );
-    assert_eq!(
-        before.desired_mac_address,
-        Some(host_config.dpus[0].host_mac_address),
-        "the stored Redfish target must match the selected first DPU",
-    );
-    assert_eq!(
-        before.selection_source,
-        Some(BootInterfaceSelectionSource::RedfishUefiPci),
-        "the fixture target must retain the complete Redfish UEFI selection source",
-    );
-    assert!(
-        before.desired_interface_id.is_some(),
-        "the stored Redfish target must include its interface id",
-    );
-    assert!(
-        before.desired_version.is_some(),
-        "the stored Redfish target must have a configuration version",
-    );
-    assert!(
-        before.selection_updated_at.is_some(),
-        "the stored Redfish target must have a selection time",
-    );
-    let mut hardware_info = HardwareInfo::from(&host_config);
-    let [first_reported_dpu, second_reported_dpu, ..] =
-        hardware_info.network_interfaces.as_mut_slice()
-    else {
-        panic!("discovery report for two DPUs must include both DPU interfaces")
-    };
-    assert_eq!(
-        first_reported_dpu.mac_address,
-        host_config.dpus[0].host_mac_address
-    );
-    assert_eq!(
-        second_reported_dpu.mac_address,
-        host_config.dpus[1].host_mac_address
-    );
-    first_reported_dpu.pci_properties = Some(PciDeviceProperties {
-        vendor: "0x15b3".to_string(),
-        device: "0xa2dc".to_string(),
-        path: "/devices/pci0000:00/0000:0a:00.0/net/enp10s0f0".to_string(),
-        numa_node: 0,
-        description: Some("selected DPU".to_string()),
-        slot: Some("0000:0a:00.0".to_string()),
-    });
-    second_reported_dpu.pci_properties = Some(PciDeviceProperties {
-        vendor: "0x15b3".to_string(),
-        device: "0xa2dc".to_string(),
-        path: "/devices/pci0000:00/0000:02:00.0/net/enp2s0f0".to_string(),
-        numa_node: 0,
-        description: Some("lower PCI slot".to_string()),
-        slot: Some("0000:02:00.0".to_string()),
-    });
 
-    let mut discovery_info = rpc::DiscoveryInfo::try_from(hardware_info)?;
-    discovery_info.attest_key_info = Some(rpc::machine_discovery::AttestKeyInfo {
-        ek_pub: EK_PUB_SERIALIZED.to_vec(),
-        ak_pub: AK_PUB_SERIALIZED.to_vec(),
-        ak_name: AK_NAME_SERIALIZED.to_vec(),
-    });
+    Ok(())
+}
 
-    let metrics = carbide_instrument::testing::MetricsCapture::start();
-    let (response, logs) = carbide_instrument::testing::capture_logs_async(
-        env.api
-            .discover_machine(Request::new(rpc::MachineDiscoveryInfo {
-                machine_interface_id: Some(caller_interface_id),
-                discovery_data: Some(rpc::DiscoveryData::Info(discovery_info)),
-                create_machine: true,
-                discovery_reporter: rpc::MachineDiscoveryReporter::Scout as i32,
-                discovery_reporter_version: None,
-            })),
+/// A matching comparison records scout as the source without replacing the stored Redfish pair.
+#[crate::sqlx_test]
+async fn test_scout_pci_same_target_updates_only_source(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(scout_reconciliation_config()),
     )
     .await;
-    let response = response?.into_inner();
-    let disagreement_count = metrics.counter_delta(
-        "carbide_scout_pci_evaluations_total",
-        &[("result", "disagreement")],
+    let (host_config, host_machine_id, interfaces) =
+        create_scout_test_host(&env, BootInterfaceSelectionSource::RedfishSerialNumber).await?;
+    let refreshed_interface_id = "NIC.Slot.99-1-1";
+    let updated_interfaces = sqlx::query(
+        "UPDATE machine_interfaces
+         SET boot_interface_id = $1
+         WHERE id = $2",
+    )
+    .bind(refreshed_interface_id)
+    .bind(interfaces.current_id)
+    .execute(&env.pool)
+    .await?;
+    assert_eq!(updated_interfaces.rows_affected(), 1);
+    let before = load_scout_pci_selection_state(&env.pool, host_machine_id).await?;
+    let stored_desired_interface_id = before
+        .desired_interface_id
+        .as_deref()
+        .expect("the fixture must have a stored desired interface pair");
+    assert_ne!(
+        stored_desired_interface_id, refreshed_interface_id,
+        "the current interface row must carry newer Redfish identity than the stored desired pair",
     );
-    drop(metrics);
+    assert!(!before.controller_queued);
 
-    let host_machine_id_string = host_machine_id.to_string();
-    let evaluation_logs = logs
-        .iter()
-        .filter(|log| {
-            log.field("event_name") == Some("scout_pci_evaluated")
-                && log.field("machine_id") == Some(host_machine_id_string.as_str())
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(response.machine_id, Some(host_machine_id));
-    assert_eq!(response.machine_interface_id, Some(caller_interface_id));
-    assert_eq!(evaluation_logs.len(), 1);
+    let comparisons = submit_scout_pci_report(
+        &env.api,
+        host_machine_id,
+        interfaces.current_id,
+        scout_pci_report(&host_config, interfaces.current_mac),
+    )
+    .await?;
+    assert_eq!(comparisons, ["matches_stored"]);
+    let after = load_scout_pci_selection_state(&env.pool, host_machine_id).await?;
+    let mut expected = before;
+    expected.selection_source = Some(BootInterfaceSelectionSource::ScoutReportPci);
     assert_eq!(
-        evaluation_logs[0].field("metric_name"),
-        Some("carbide_scout_pci_evaluations_total")
-    );
-    assert_eq!(evaluation_logs[0].field("result"), Some("disagreement"));
-    // MetricsCapture serializes metric assertions, but a future discovery test
-    // could emit the same process global series without capturing it. The scoped
-    // log above proves this request emitted exactly once.
-    assert!(
-        disagreement_count >= 1.0,
-        "the incoming PCI winner must emit a disagreement metric",
+        after, expected,
+        "a matching comparison must preserve the target, generations, and controller work",
     );
 
+    Ok(())
+}
+
+/// A different complete scout candidate moves the coupled state once and queues the controller
+/// after the transaction commits.
+#[crate::sqlx_test]
+async fn test_scout_pci_different_target_updates_ready_host_and_queues_controller(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(scout_reconciliation_config()),
+    )
+    .await;
+    let (host_config, host_machine_id, interfaces) =
+        create_scout_test_host(&env, BootInterfaceSelectionSource::RedfishChassisId).await?;
+
+    let comparisons = submit_scout_pci_report(
+        &env.api,
+        host_machine_id,
+        interfaces.current_id,
+        scout_pci_report(&host_config, interfaces.alternate_mac),
+    )
+    .await?;
+    assert_eq!(comparisons, ["differs_from_stored"]);
     let after = load_scout_pci_selection_state(&env.pool, host_machine_id).await?;
     assert_eq!(
-        after, before,
-        "Scout PCI comparison must not change the current primary interface or the stored target, version, source, and time",
+        after.current_primary_mac_address,
+        Some(interfaces.alternate_mac)
     );
+    assert!(after.controller_queued);
+    assert_eq!(after.desired_mac_address, Some(interfaces.alternate_mac));
+    assert_eq!(
+        after.selection_source,
+        Some(BootInterfaceSelectionSource::ScoutReportPci),
+    );
+
+    Ok(())
+}
+
+/// Instance allocation and scout reconciliation serialize on the Machine row. Whichever commits
+/// first leaves the other request a complete state to validate.
+#[crate::sqlx_test]
+async fn test_scout_pci_reconciliation_serializes_with_instance_allocation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(scout_reconciliation_config()),
+    )
+    .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Queue reconciliation first behind a locked Machine row, then queue allocation behind it.
+    let (reconciliation_host_config, reconciliation_host_id, reconciliation_interfaces) =
+        create_scout_test_host(&env, BootInterfaceSelectionSource::RedfishChassisId).await?;
+    let mut reconciliation_machine_blocker = env.pool.begin().await?;
+    let reconciliation_blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reconciliation_machine_blocker)
+        .await?;
+    sqlx::query("SELECT id FROM machines WHERE id = $1 FOR UPDATE")
+        .bind(reconciliation_host_id)
+        .fetch_one(&mut *reconciliation_machine_blocker)
+        .await?;
+
+    let reconciliation_api = env.api.clone();
+    let reconciliation_report = scout_pci_report(
+        &reconciliation_host_config,
+        reconciliation_interfaces.alternate_mac,
+    );
+    let reconciliation_task = tokio::spawn(async move {
+        run_scout_pci_reconciliation(
+            &reconciliation_api,
+            reconciliation_host_id,
+            &reconciliation_report,
+        )
+        .await
+        .expect("scout reconciliation must succeed")
+    });
+    let reconciliation_pid = wait_for_blocked_query(
+        &env.pool,
+        reconciliation_blocker_pid,
+        "machine.version AS machine_version",
+    )
+    .await;
+
+    let reconciliation_allocation_api = env.api.clone();
+    let reconciliation_allocation_request =
+        scout_test_allocation_request(reconciliation_host_id, segment_id);
+    let reconciliation_allocation_task = tokio::spawn(async move {
+        reconciliation_allocation_api
+            .allocate_instance(Request::new(reconciliation_allocation_request))
+            .await
+    });
+    wait_for_blocked_query(&env.pool, reconciliation_pid, "SELECT row_to_json(m.*)").await;
+    reconciliation_machine_blocker.commit().await?;
+
+    assert!(
+        reconciliation_task.await?,
+        "scout reconciliation must commit before allocation resumes",
+    );
+    let allocation_error = reconciliation_allocation_task
+        .await?
+        .expect_err("allocation must reject the committed pending boot configuration");
+    assert_eq!(allocation_error.code(), Code::FailedPrecondition);
+    assert!(
+        allocation_error
+            .message()
+            .contains("pending boot configuration")
+    );
+    let reconciliation_host_instances: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM instances WHERE machine_id = $1")
+            .bind(reconciliation_host_id)
+            .fetch_one(&env.pool)
+            .await?;
+    assert_eq!(reconciliation_host_instances, 0);
+
+    // Reverse the queue: allocation waits first, and scout waits behind allocation.
+    let (allocation_host_config, allocation_host_id, allocation_interfaces) =
+        create_scout_test_host(&env, BootInterfaceSelectionSource::RedfishSerialNumber).await?;
+    let allocation_before = load_scout_pci_selection_state(&env.pool, allocation_host_id).await?;
+
+    let mut allocation_machine_blocker = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *allocation_machine_blocker)
+        .await?;
+    sqlx::query("SELECT id FROM machines WHERE id = $1 FOR UPDATE")
+        .bind(allocation_host_id)
+        .fetch_one(&mut *allocation_machine_blocker)
+        .await?;
+
+    let allocation_api = env.api.clone();
+    let allocation_request = scout_test_allocation_request(allocation_host_id, segment_id);
+    let allocation_task = tokio::spawn(async move {
+        allocation_api
+            .allocate_instance(Request::new(allocation_request))
+            .await
+    });
+    let allocation_pid =
+        wait_for_blocked_query(&env.pool, blocker_pid, "SELECT row_to_json(m.*)").await;
+
+    let scout_api = env.api.clone();
+    let scout_report =
+        scout_pci_report(&allocation_host_config, allocation_interfaces.alternate_mac);
+    let scout_task = tokio::spawn(async move {
+        run_scout_pci_reconciliation(&scout_api, allocation_host_id, &scout_report)
+            .await
+            .expect("scout reconciliation must succeed")
+    });
+    wait_for_blocked_query(
+        &env.pool,
+        allocation_pid,
+        "machine.version AS machine_version",
+    )
+    .await;
+    allocation_machine_blocker.commit().await?;
+
+    allocation_task
+        .await?
+        .expect("allocation that owns the Machine lock must commit first");
+    let reconciliation_needed = scout_task.await?;
+    assert!(!reconciliation_needed);
+    let allocation_after = load_scout_pci_selection_state(&env.pool, allocation_host_id).await?;
+    let mut expected = allocation_before;
+    expected.controller_state = allocation_after.controller_state.clone();
+    expected.controller_queued = allocation_after.controller_queued;
+    assert_eq!(
+        allocation_after, expected,
+        "the live Instance must leave primary_interface selection unchanged",
+    );
+    // Allocation persists the Instance before machine-controller advances Ready to Assigned.
+    // The live Instance must remain protected from scout during that intermediate state.
+    assert!(matches!(
+        serde_json::from_str::<ManagedHostState>(&allocation_after.controller_state)?,
+        ManagedHostState::Ready
+    ));
+    let allocation_host_instances: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM instances WHERE machine_id = $1")
+            .bind(allocation_host_id)
+            .fetch_one(&env.pool)
+            .await?;
+    assert_eq!(allocation_host_instances, 1);
 
     Ok(())
 }

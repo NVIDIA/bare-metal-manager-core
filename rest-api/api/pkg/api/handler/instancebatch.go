@@ -22,9 +22,11 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	powerutil "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -48,16 +50,18 @@ type BatchCreateInstanceHandler struct {
 	tc         temporalClient.Client
 	scp        *sc.ClientPool
 	cfg        *config.Config
+	dps        dpsclient.PowerProvisioner
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewBatchCreateInstanceHandler initializes and returns a new handler for batch creating Instances
-func NewBatchCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config) BatchCreateInstanceHandler {
+func NewBatchCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, scp *sc.ClientPool, cfg *config.Config, dps dpsclient.PowerProvisioner) BatchCreateInstanceHandler {
 	return BatchCreateInstanceHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
 		cfg:        cfg,
+		dps:        dps,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -344,7 +348,6 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Err(verr).Msg("error validating batch instance creation request data")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating batch instance creation request data", verr)
 	}
-
 	// Set default for TopologyOptimized if not provided
 	// Default to true for better performance and locality
 	topologyOptimized := true
@@ -352,7 +355,10 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		topologyOptimized = *apiRequest.TopologyOptimized
 	}
 
-	logger.Info().Int("Count", apiRequest.Count).Bool("TopologyOptimized", topologyOptimized).Msg("Input validation completed for batch Instance creation request")
+	logger.Info().Int("Count", apiRequest.Count).
+		Bool("TopologyOptimized", topologyOptimized).
+		Interface("MachineLabelSelector", apiRequest.MachineLabelSelector).
+		Msg("Input validation completed for batch Instance creation request")
 
 	// Validate the tenant for which these Instances are being created
 	tenant, err := common.GetTenantForOrg(ctx, nil, bcih.dbSession, org)
@@ -418,7 +424,6 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
 	}
-
 	// Validate request fields that depend on the resolved VPC (e.g.
 	// `autoNetwork` requires a Flat VPC).
 	verr = apiRequest.ValidateForVpc(vpc)
@@ -459,7 +464,30 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			Msg("The Site where Instances are being created is not in Registered state")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The Site where Instances are being created is not in Registered state", nil)
 	}
+
+	// A non-empty label selector can narrow placement to a single Machine, so it
+	// require the same site-scoped privilege as an explicit Machine ID.
+	if len(apiRequest.MachineLabelSelector) > 0 {
+		privilegedAccess, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, bcih.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify capability for Site", nil)
+		}
+		if !privilegedAccess {
+			logger.Warn().Msg("tenant does not have capability to create instances using Machine label selector")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using Machine label selector", nil)
+		}
+	}
+
 	if apiErr := util.ValidateSitePowerManagement(site.Config, apiRequest.PowerProfile); apiErr != nil {
+		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
+	if bcih.cfg.GetDPSEnabled() && apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Power profile cannot be specified when creating Instances if VPC doesn't have power resource group populated.", nil)
+	}
+	apiErr := model.ValidatePowerProfile(ctx, bcih.cfg.GetDPSEnabled(), bcih.dps, apiRequest.PowerProfile)
+	if apiErr != nil {
+		logger.Warn().Err(apiErr.Diagnosis()).Msg("failed to validate batch Instance power profile")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
 	// Load and validate subnets and VPC prefixes (batch query for efficiency)
@@ -1255,8 +1283,35 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// the DB tx unwinds before we make the second remote call. nil means
 	// no timeout occurred and the normal flow continues.
 	var timeoutResp func() error
+	var dpsRollback func() error
 
 	err = cdb.WithTx(ctx, bcih.dbSession, func(tx *cdb.Tx) error {
+		if bcih.cfg.GetDPSEnabled() {
+			lockErr := powerutil.AcquireVPCPowerLock(ctx, tx, vpc.ID)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to serialize DPS operations for VPC")
+				return cutil.NewAPIError(http.StatusConflict, "Another power operation is already in progress for the VPC", nil)
+			}
+			lockedVPC, lockErr := cdbm.NewVpcDAO(bcih.dbSession).GetByID(ctx, tx, vpc.ID, nil)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("vpcID", vpc.ID.String()).Msg("failed to reload VPC after acquiring its power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload VPC power configuration", nil)
+			}
+			vpc = lockedVPC
+			lockedSite, lockErr := siteDAO.GetByID(ctx, tx, vpc.SiteID, nil, false)
+			if lockErr != nil {
+				logger.Error().Err(lockErr).Str("siteID", vpc.SiteID.String()).Msg("failed to reload Site after acquiring the VPC power lock")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to reload Site power configuration", nil)
+			}
+			apiErr := util.ValidateSitePowerManagement(lockedSite.Config, apiRequest.PowerProfile)
+			if apiErr != nil {
+				return apiErr
+			}
+			if apiRequest.PowerProfile != nil && vpc.PowerResourceGroup == nil {
+				return cutil.NewAPIError(http.StatusBadRequest, "Power profile cannot be specified when creating Instances if VPC doesn't have power resource group populated.", nil)
+			}
+		}
+
 		// ==================== Step 4: Machine Selection ====================
 
 		// Acquire the shared quota lock for this tenant/site/instance-type pool.
@@ -1318,9 +1373,24 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Allocate machines with topology optimization
-		machines, apiErr := allocateMachinesForBatch(ctx, tx, bcih.dbSession, instancetype, apiRequest.Count, topologyOptimized, logger)
+		machines, apiErr := allocateMachinesForBatch(ctx, tx, bcih.dbSession, instancetype, apiRequest.Count, topologyOptimized, apiRequest.MachineLabelSelector, logger)
 		if apiErr != nil {
 			return apiErr
+		}
+		if bcih.cfg.GetDPSEnabled() && vpc.PowerResourceGroup != nil {
+			assignments := make([]powerutil.MachinePowerAssignment, 0, len(machines))
+			for _, machine := range machines {
+				assignment := powerutil.MachinePowerAssignment{MachineID: machine.ID}
+				if apiRequest.PowerProfile != nil {
+					assignment.PowerProfile = *apiRequest.PowerProfile
+				}
+				assignments = append(assignments, assignment)
+			}
+			dpsRollback, serr = powerutil.ProvisionMachineBatchPower(ctx, bcih.dps, *vpc.PowerResourceGroup, assignments)
+			if serr != nil {
+				logger.Error().Err(serr).Str("powerResourceGroup", *vpc.PowerResourceGroup).Msg("DPS rejected batch Instance allocation")
+				return cutil.NewAPIError(http.StatusServiceUnavailable, "DPS rejected batch Instance power allocation", nil)
+			}
 		}
 
 		// ==================== Step 5: Batch Instance Creation (Optimized with Batch DB Operations) ====================
@@ -1820,11 +1890,24 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	if err != nil {
 		var apiErr *cutil.APIError
 		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			if dpsRollback != nil {
+				rollbackErr := dpsRollback()
+				if rollbackErr != nil {
+					logger.Error().Err(rollbackErr).Msg("failed to compensate DPS after batch Instance creation failure")
+				}
+			}
 			return common.HandleTxError(c, logger, err, "Failed to create batch Instances, DB transaction error")
 		}
 	}
 	if timeoutResp != nil {
-		return timeoutResp()
+		responseErr := timeoutResp()
+		if dpsRollback != nil {
+			rollbackErr := dpsRollback()
+			if rollbackErr != nil {
+				logger.Error().Err(rollbackErr).Msg("failed to compensate DPS after batch Instance creation failure")
+			}
+		}
+		return responseErr
 	}
 
 	// ==================== Step 7: Response ====================
@@ -1860,6 +1943,7 @@ func allocateMachinesForBatch(
 	instancetype *cdbm.InstanceType,
 	count int,
 	topologyOptimized bool,
+	machineLabelSelector map[string]string,
 	logger zerolog.Logger,
 ) ([]cdbm.Machine, *cutil.APIError) {
 	if instancetype == nil || count <= 0 {
@@ -1877,6 +1961,7 @@ func allocateMachinesForBatch(
 		InstanceTypeIDs: []uuid.UUID{instancetype.ID},
 		IsAssigned:      cutil.GetPtr(false),
 		Statuses:        []string{cdbm.MachineStatusReady},
+		Labels:          machineLabelSelector,
 	}
 	machines, _, err := mcDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -1966,7 +2051,7 @@ func allocateMachinesForBatch(
 		}
 
 		// Re-obtain the Machine record to ensure it is still available
-		umc, err := mcDAO.GetByID(ctx, tx, mc.ID, nil, false)
+		umc, err := mcDAO.GetByID(ctx, tx, mc.ID, nil, true)
 		if err != nil {
 			continue
 		}
@@ -1976,6 +2061,10 @@ func allocateMachinesForBatch(
 		}
 
 		if umc.IsAssigned {
+			continue
+		}
+
+		if !umc.MatchesLabelSelector(machineLabelSelector) {
 			continue
 		}
 
@@ -2009,6 +2098,7 @@ func allocateMachinesForBatch(
 		nvlinkDomainDistribution[domainID]++
 	}
 	logger.Info().Interface("nvlinkDomainDistribution", nvlinkDomainDistribution).
+		Interface("MachineLabelSelector", machineLabelSelector).
 		Bool("topologyOptimized", topologyOptimized).
 		Int("nvlinkDomainCount", len(nvlinkDomainDistribution)).
 		Int("machinesAllocated", len(allocatedMachines)).

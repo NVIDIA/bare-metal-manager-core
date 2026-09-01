@@ -394,10 +394,7 @@ section "NICo Flow"
 FLOW_NS="${FLOW_NS:-flow}"
 if kc get ns "${FLOW_NS}" &>/dev/null; then
   _check_deployment "${FLOW_NS}" flow
-  for _S in psm-vault-token nsm-vault-token \
-            flow.nico.nico-pg-cluster.credentials \
-            psm.nico.nico-pg-cluster.credentials \
-            nsm.nico.nico-pg-cluster.credentials \
+  for _S in flow.nico.nico-pg-cluster.credentials \
             flow-certificate temporal-client-certs nico-roots; do
     _check_secret_exists "${FLOW_NS}" "${_S}"
   done
@@ -407,10 +404,6 @@ fi
 
 section "NICo Jobs"
 _check_job_complete "${NICO_NS}" vault-pki-config
-if kc get job -n "${NICO_NS}" flow-vault-tokens &>/dev/null; then
-  _check_job_complete "${NICO_NS}" flow-vault-tokens
-fi
-
 # Migration job: find by label (name includes a random suffix)
 _MIG_JOB=$(kc get jobs -n "${NICO_NS}" -l 'app.kubernetes.io/name=nico-api-migrate' \
   --sort-by=.metadata.creationTimestamp \

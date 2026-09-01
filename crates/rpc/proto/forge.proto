@@ -111,8 +111,11 @@ service Forge {
   rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
   rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
   rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
+  // Starts the decommissioning workflow for a Ready managed power shelf.
+  rpc DecommissionPowerShelf(DecommissionPowerShelfRequest) returns (DecommissionPowerShelfResponse);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
-  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  // Force deletes a Power Shelf and optionally its associated interfaces
+  // and BMC suppressions from the database.
   rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
   // Request a maintenance operation (PowerOn / PowerOff) for a Power Shelf.
   // When the power shelf is in Ready state, the power shelf state controller
@@ -124,6 +127,9 @@ service Forge {
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
   rpc FindSwitchesByIds(SwitchesByIdsRequest) returns (SwitchList);
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+  // Starts managed-switch decommissioning. The switch must be Ready and the
+  // Component Manager switch backend must be RMS.
+  rpc DecommissionSwitch(DecommissionSwitchRequest) returns (DecommissionSwitchResponse);
   // Force deletes a Switch and optionally its associated interfaces from the database.
   rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
@@ -246,8 +252,11 @@ service Forge {
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
+  rpc FindPowerShelfHealthHistories(PowerShelfHealthHistoriesRequest) returns (HealthHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackHealthHistories(RackHealthHistoriesRequest) returns (HealthHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
@@ -406,6 +415,11 @@ service Forge {
   // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
   // credential that a prior sweep already rotated.
   rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this host's NIC lockdown keys now" escape hatch
+  // for a single host. This is asynchronous: the handler only persists (Set) or
+  // removes (Clear) a flag maintained per host to determine whether to initiate NIC lockdown key rotation. 
+  // A later machine-controller sweep observes a set flag and facilitates rotation.
+  rpc TriggerNicLockdownCredentialRotation(NicLockdownCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -1071,6 +1085,7 @@ service Forge {
 // Indicates the lifecycle state of a resource that is controlled by a state controller
 message LifecycleStatus {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The current state of the resource
   string state = 1;
   // The state version. This version number is incremented each time the resource transitions into a new state
@@ -1457,6 +1472,10 @@ enum RotationCredentialType {
   ROTATION_DPU_UEFI = 3;
   ROTATION_NVOS = 4;
   ROTATION_LOCKDOWN_IKM = 5;
+  // BF4 DPU BMC `service` account password. Only BF4 DPUs expose this account;
+  // other devices are never enrolled, so a rotation converges just the BF4 DPU
+  // BMCs.
+  ROTATION_DPU_BMC_SERVICE = 6;
 }
 
 message RotateCredentialRequest {
@@ -1626,7 +1645,8 @@ message RuntimeConfig {
 
   repeated string dpu_nic_firmware_update_versions=37;
 
-  bool dpa_enabled = 38;
+  reserved 38;
+  reserved "dpa_enabled";
   string mqtt_endpoint = 39;
 
   optional string sitename = 40;
@@ -1651,6 +1671,10 @@ message RuntimeConfig {
   string compile_time_docker_version = 52;
   bool restart_ovs_on_use_admin_network_change = 53;
   uint32 max_site_prefixes_per_tenant = 54;
+
+  bool svpc_enabled = 55;
+  bool astra_enabled = 56;
+  bool ewethers_enabled = 57;
 }
 
 message EchoRequest {
@@ -2391,6 +2415,13 @@ message PowerShelfCreationRequest {
   optional common.PowerShelfId id = 2;
 }
 
+message DecommissionPowerShelfRequest {
+  common.PowerShelfId power_shelf_id = 1;
+}
+
+message DecommissionPowerShelfResponse {
+}
+
 message PowerShelfDeletionRequest {
   common.PowerShelfId id = 1;
 }
@@ -2419,6 +2450,14 @@ message PowerShelfMaintenanceRequest {
 
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
+}
+
+message PowerShelfHealthHistoriesRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message PowerShelfQuery {
@@ -2614,6 +2653,13 @@ message SwitchDeletionRequest {
 message SwitchDeletionResult {
 }
 
+message DecommissionSwitchRequest {
+  common.SwitchId switch_id = 1;
+}
+
+message DecommissionSwitchResponse {
+}
+
 // The state that a object/resource had at a certain point in time
 message StateHistoryRecord {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
@@ -2628,6 +2674,14 @@ message StateHistoryRecords {
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
+}
+
+message SwitchHealthHistoriesRequest {
+  repeated common.SwitchId switch_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message StateHistories {
@@ -3261,6 +3315,7 @@ message InstanceDpuExtensionServicesConfig {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated InstanceDpuExtensionServiceConfig service_configs = 1;
 }
+
 // Desired nvlink configuration for an instance
 message InstanceNVLinkConfig {
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
@@ -4436,6 +4491,7 @@ message ControllerStateSourceReference {
 
 message StateSla {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   // The SLA for the current state
   // This field will be absent if there is no SLA defined for a field
   // A value of 0 (instead of absent) will indicate the `time_in_state` will always
@@ -5741,12 +5797,18 @@ message CloudInitDiscoveryInstructions {
   // How the DPU obtains the CA used to authenticate Carbide. The zero value
   // preserves the legacy download behavior for rolling upgrades.
   BootstrapCaSource bootstrap_ca_source = 13;
+
+  // Fixed platform mlxconfig profile to apply while provisioning the DPU.
+  // Omitting this field is equivalent to DPU_NV_CONFIG_PROFILE_UNSPECIFIED
+  // and applies no additional platform settings.
+  DpuNvConfigProfile dpu_nvconfig_profile = 14;
 }
 
 message CloudInitMetaData {
   string instance_id = 1;
   string cloud_name = 2;
   string platform = 3;
+  optional string local_hostname = 4;
 }
 
 message CloudInitInstructionsRequest {
@@ -6369,6 +6431,18 @@ message UefiCredentialRotationRequest {
   // `machine_id` as a cross-check (they must identify the same machine). At
   // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
   optional string bmc_mac = 3;
+}
+
+message NicLockdownCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  common.MachineId machine_id = 2;
 }
 
 message HostReprovisioningListRequest {
@@ -8423,6 +8497,14 @@ message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
 }
 
+message RackHealthHistoriesRequest {
+  repeated common.RackId rack_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
+}
+
 message DeleteRackRequest {
   string id = 1;
 }
@@ -9090,7 +9172,22 @@ enum DpuExtensionServiceType {
   option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
   option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
   KUBERNETES_POD = 0;
-  // Add supported service types in the future
+  DPF_HELM_CHART = 1;
+}
+
+// Enumerates the lifecycle states of an extension service registration.
+//
+// This is distinct from DpuExtensionServiceDeploymentStatus, which describes
+// an individual service deployment on an instance.
+enum DpuExtensionServiceLifecycleState {
+  option (carbide.codegen.v1.enum_derive) = "serde::Serialize";
+  option (carbide.codegen.v1.enum_derive) = "serde::Deserialize";
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_CREATING = 0;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_READY = 1;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_UPDATING = 2;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETING = 3;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETED = 4;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
 }
 
 message UsernamePassword {
@@ -9150,6 +9247,10 @@ message DpuExtensionService {
   string description = 8;
   string created = 9;
   string updated = 10;
+
+  // The lifecycle of the extension service registration itself. This is
+  // independent from deployment status on individual instances.
+  LifecycleStatus lifecycle_status = 11;
 }
 
 message CreateDpuExtensionServiceRequest {
@@ -9952,7 +10053,12 @@ message AdminForceDeleteSwitchRequest {
   // The Switch ID to force delete.
   common.SwitchId switch_id = 1;
   // Should we delete the machine interfaces associated with this switch?
+  // When set, also deletes interfaces whose MACs match the switch BMC MAC or
+  // declared NVOS MACs.
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (DHCP and Site Explorer) for the switch
+  // BMC MAC and declared NVOS MACs?
+  bool delete_bmc_suppressions = 3;
 }
 
 message AdminForceDeleteSwitchResponse {
@@ -9962,12 +10068,16 @@ message AdminForceDeleteSwitchResponse {
   uint32 interfaces_deleted = 2;
 }
 
-// Force deletes a Power Shelf and optionally its associated interfaces.
+// Force deletes a Power Shelf and optionally its associated interfaces
+// and BMC suppressions.
 message AdminForceDeletePowerShelfRequest {
   // The Power Shelf ID to force delete.
   common.PowerShelfId power_shelf_id = 1;
   // Should we delete the machine interfaces associated with this power shelf?
   bool delete_interfaces = 2;
+  // Should we delete BMC suppressions (site explorer and DHCP) for this power
+  // shelf's BMC MAC?
+  bool delete_bmc_suppressions = 3;
 }
 
 message AdminForceDeletePowerShelfResponse {
@@ -10538,4 +10648,12 @@ message InterfaceAddressConfig {
   // and debugging; the tenant is not expected to access this address. Writers
   // must set this value on at most one family entry.
   optional string tenant_vrf_loopback_ip = 7;
+}
+
+// Selects a fixed, versioned mlxconfig profile for DPU provisioning.
+enum DpuNvConfigProfile {
+  // No platform profile is selected.
+  DPU_NV_CONFIG_PROFILE_UNSPECIFIED = 0;
+  // Version 1 of the validated GB200/B3240 CPU as Root Complex profile.
+  DPU_NV_CONFIG_PROFILE_GB200_B3240_V1 = 1;
 }

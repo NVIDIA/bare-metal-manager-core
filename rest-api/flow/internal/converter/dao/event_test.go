@@ -16,7 +16,7 @@ import (
 
 func TestEventRoundTrip(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
-	plannedAt := now.Add(time.Second)
+	local := time.FixedZone("PDT", -7*60*60)
 	event := &eventrule.Event{
 		ID:            uuid.New(),
 		Key:           eventrule.EventKey{SourceName: "collector", SourceKey: "event-1"},
@@ -30,11 +30,12 @@ func TestEventRoundTrip(t *testing.T) {
 		Observations:   2,
 		CreatedAt:      now,
 		LastObservedAt: now.Add(time.Second),
-		PlannedAt:      &plannedAt,
 	}
 
 	persisted, err := EventTo(event)
 	require.NoError(t, err)
+	persisted.CreatedAt = persisted.CreatedAt.In(local)
+	persisted.LastObservedAt = persisted.LastObservedAt.In(local)
 
 	roundTripped, err := EventFrom(persisted)
 	require.NoError(t, err)

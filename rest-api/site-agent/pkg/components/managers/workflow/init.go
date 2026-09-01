@@ -27,9 +27,9 @@ func (wflow *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricTemporalConnStatus,
-			Help:      "temporal health status of the elektra_site_agent",
+			Help:      "Temporal health status of the Site Agent",
 		},
 			func() float64 {
 				return float64(ManagerAccess.Data.EB.Managers.Workflow.State.HealthStatus.Load())
@@ -38,9 +38,9 @@ func (wflow *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricTemporalConnAttempted,
-			Help:      "temporal connection attempted of elektra_site_agent",
+			Help:      "Temporal connections attempted by the Site Agent",
 		},
 			func() float64 {
 				return float64(ManagerAccess.Data.EB.Managers.Workflow.State.ConnectionAttempted.Load())
@@ -48,9 +48,9 @@ func (wflow *API) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricTemporalConnSucc,
-			Help:      "temporal connection succeded of elektra_site_agent",
+			Help:      "Temporal connections succeeded by the Site Agent",
 		},
 			func() float64 {
 				return float64(ManagerAccess.Data.EB.Managers.Workflow.State.ConnectionSucc.Load())

@@ -37,9 +37,9 @@ use forge_tls::client_config::{
 };
 use mac_address::MacAddress;
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, ControlState, DeviceStatusConfig, DhcpClient, MachineATron,
-    MachineATronArgs, MachineATronConfig, MachineATronContext, SimulatorLifecycle, Tui,
-    TuiHostLogs, api_throttler, append_control_routes,
+    BmcMockRegistry, ControlState, DeviceStatusConfig, DhcpClient, MachineATron, MachineATronArgs,
+    MachineATronConfig, MachineATronContext, SimulatorLifecycle, api_throttler,
+    append_control_routes,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -60,17 +60,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app_config: MachineATronConfig = fig.extract()?;
     app_config.validate()?;
     let ufm_config = app_config.ufm_mock.clone();
-    let tui_host_logs = if app_config.tui_enabled {
-        Some(TuiHostLogs::start_new(100))
-    } else {
-        None
-    };
 
-    init_logging(
-        app_config.log_format,
-        app_config.log_file.as_deref(),
-        tui_host_logs.as_ref(),
-    )?;
+    init_logging(app_config.log_format, app_config.log_file.as_deref())?;
 
     let file_config = get_config_from_file();
 
@@ -117,7 +108,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let bmc_mock_port = app_config.bmc_mock_port;
-    let tui_enabled = app_config.tui_enabled;
     let hw_mac_address_ranges = app_config
         .hw_mac_address_ranges
         .as_ref()
@@ -225,63 +215,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
     };
 
-    // Run TUI
-    let (app_tx, app_rx) = mpsc::channel(5000);
-    let (tui_handle, tui_event_tx, tui_quit_tx) = if tui_enabled {
-        let (ui_tx, ui_rx) = mpsc::channel(5000);
-        let (quit_tx, quit_rx) = mpsc::channel(1);
+    let (stop_tx, stop_rx) = mpsc::channel(1);
+    // Create a signal stream for SIGTERM and SIGINT.
+    let mut sigterm =
+        signal(SignalKind::terminate()).expect("Failed to create SIGTERM signal stream");
+    let mut sigint =
+        signal(SignalKind::interrupt()).expect("Failed to create SIGINT signal stream");
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = sigterm.recv() => {}
+            _ = sigint.recv() => {}
+        }
+        stop_tx.send(()).await.ok();
+    });
 
-        let tui_handle = Some(tokio::spawn(async {
-            let mut tui = Tui::new(ui_rx, quit_rx, app_tx, tui_host_logs);
-            _ = tui.run().await.inspect_err(|e| {
-                let estr = format!("Error running TUI: {e}");
-                tracing::error!(error = %e, "TUI failed");
-                eprintln!("{estr}"); // dump it to stderr in case logs are getting redirected
-            })
-        }));
-        (tui_handle, Some(ui_tx), Some(quit_tx))
-    } else {
-        // Create a signal stream for SIGTERM and SIGINT.
-        let mut sigterm =
-            signal(SignalKind::terminate()).expect("Failed to create SIGTERM signal stream");
-        let mut sigint =
-            signal(SignalKind::interrupt()).expect("Failed to create SIGINT signal stream");
-
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = sigterm.recv() => {}
-                _ = sigint.recv() => {}
-            }
-            app_tx.send(AppEvent::Quit).await.ok();
-        });
-
-        (None, None, None)
-    };
-
-    let mat_result = mat.run(simulators, tui_event_tx.clone(), app_rx).await;
+    let mat_result = mat.run(simulators, stop_rx).await;
 
     if let Some(hosted_ufm) = hosted_ufm {
         hosted_ufm.shutdown().await?;
-    }
-
-    if let Some(tui_handle) = tui_handle {
-        if let Some(tui_quit_tx) = tui_quit_tx.as_ref() {
-            _ = tui_quit_tx.try_send(()).inspect_err(|e| {
-                tracing::warn!(
-                    error = %e,
-                    "Could not send quit signal to TUI",
-                )
-            });
-        }
-        tui_handle
-            .await
-            .inspect_err(|e| {
-                tracing::warn!(
-                    error = %e,
-                    "Error running TUI",
-                )
-            })
-            .ok();
     }
 
     server_handle.stop().await?;

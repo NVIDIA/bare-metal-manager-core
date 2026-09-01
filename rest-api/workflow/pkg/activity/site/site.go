@@ -30,6 +30,7 @@ import (
 	csm "github.com/NVIDIA/infra-controller/rest-api/site-manager/pkg/sitemgr"
 
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
@@ -67,16 +68,20 @@ func getSiteFabricIPBlockLockID(dbSite *cdbm.Site) uint64 {
 // ManageSite is an activity wrapper for managing Site lifecycle that allows
 // injecting DB access
 type ManageSite struct {
-	dbSession      *cdb.Session
-	siteClientPool *sc.ClientPool
-	tc             client.Client
-	cfg            *config.Config
+	dbSession         *cdb.Session
+	siteClientPool    *sc.ClientPool
+	tc                client.Client
+	cfg               *config.Config
+	siteHealthMetrics *cwm.SiteHealthMetrics
 }
 
 // Activity functions
 
-// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB.
-func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buildInfo *corev1.BuildInfo) error {
+// UpdateSiteInDB is a Temporal activity that updates the Site metadata in the DB. A nil
+// siteAgentBuildInfo, which is what an older Site Agent reports, leaves the stored Site Agent
+// values alone rather than erasing what an earlier report established.
+func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, coreBuildInfo *corev1.BuildInfo,
+	siteAgentBuildInfo *corev1.SiteAgentBuildInfo) error {
 	logger := log.With().Str("Activity", "UpdateSiteInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -94,7 +99,7 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buil
 		return err
 	}
 
-	vpcSlaac := slices.Contains(buildInfo.GetCapabilities(), corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC)
+	vpcSlaac := slices.Contains(coreBuildInfo.GetCapabilities(), corev1.BuildCapability_BUILD_CAPABILITY_VPC_SLAAC)
 	updateInput := cdbm.SiteUpdateInput{
 		SiteID: site.ID,
 	}
@@ -109,12 +114,25 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, buil
 	}
 
 	// Update build version for Site when Core reports a changed, non-empty value.
-	siteControllerVersion := buildInfo.GetBuildVersion()
+	siteControllerVersion := coreBuildInfo.GetBuildVersion()
 	if siteControllerVersion != "" && (site.SiteControllerVersion == nil || (site.SiteControllerVersion != nil && *site.SiteControllerVersion != siteControllerVersion)) {
 		updateInput.SiteControllerVersion = &siteControllerVersion
 	}
 
-	if updateInput.Config == nil && updateInput.SiteControllerVersion == nil {
+	siteAgentVersion := siteAgentBuildInfo.GetVersion()
+	if siteAgentVersion != "" && (site.SiteAgentVersion == nil || *site.SiteAgentVersion != siteAgentVersion) {
+		updateInput.SiteAgentVersion = &siteAgentVersion
+	}
+
+	// The Site Agent leaves the interval unset when it cannot derive one from its schedule, and
+	// a sub-second interval cannot come from a cron schedule, so neither is worth storing.
+	inventoryIntervalSeconds := int(siteAgentBuildInfo.GetInventoryInterval().AsDuration().Seconds())
+	if inventoryIntervalSeconds > 0 && (site.InventoryIntervalSeconds == nil || *site.InventoryIntervalSeconds != inventoryIntervalSeconds) {
+		updateInput.InventoryIntervalSeconds = &inventoryIntervalSeconds
+	}
+
+	if updateInput.Config == nil && updateInput.SiteControllerVersion == nil &&
+		updateInput.SiteAgentVersion == nil && updateInput.InventoryIntervalSeconds == nil {
 		return nil
 	}
 
@@ -597,14 +615,44 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 	// Get all Sites
 	siteDAO := cdbm.NewSiteDAO(mst.dbSession)
 
-	sites, _, err := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{Statuses: []string{string(cdbm.SiteStatusRegistered)}}, cdbp.PageInput{Limit: ccu.GetPtr(cdbp.TotalLimit)}, nil)
+	// Error Sites are included alongside Registered ones because the check below
+	// moves a disconnected Site to Error. Querying Registered alone would drop it
+	// from the gauges on the very next cycle, resolving the alert three minutes
+	// into an outage that is still going.
+	sites, _, err := siteDAO.GetAll(
+		ctx,
+		nil,
+		cdbm.SiteFilterInput{Statuses: []string{cdbm.SiteStatusRegistered, cdbm.SiteStatusError}},
+		cdbp.PageInput{Limit: ccu.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Sites from DB")
 		return err
 	}
 
+	// Publish health before the checks below, so the gauges reflect every
+	// monitored Site even when a later status update fails.
+	reports := make([]cwm.SiteHealthReport, 0, len(sites))
+	for _, site := range sites {
+		reports = append(reports, cwm.SiteHealthReport{
+			SiteID:            site.ID,
+			SiteName:          site.Name,
+			InventoryReceived: site.InventoryReceived,
+			AgentCertExpiry:   site.AgentCertExpiry,
+		})
+	}
+	mst.siteHealthMetrics.SetSiteHealth(reports)
+
 	// Loop through Sites
 	for _, site := range sites {
+		// Only a Registered Site can trip into Error. An Error Site is already
+		// reported, so re-running this would repeat the Slack message and add a
+		// StatusDetail row on every cycle for as long as the outage lasts.
+		if site.Status != cdbm.SiteStatusRegistered {
+			continue
+		}
+
 		// Get Site's last inventory receipt
 		if site.InventoryReceived == nil {
 			logger.Warn().Str("Site ID", site.ID.String()).Msg("Site has Registered status but hasn't received inventory yet")
@@ -624,29 +672,6 @@ func (mst ManageSite) MonitorInventoryReceiptForAllSites(ctx context.Context) er
 				err := sc.SendSlackNotification(sm)
 				if err != nil {
 					logger.Error().Err(err).Msg("failed to send Slack notification for Site down event")
-				}
-			}
-
-			if mst.cfg.GetNotificationsPagerDutyEnabled() {
-				// Send PagerDuty notification
-				pc := util.NewPagerDutyClient(mst.cfg.GetNotificationsPagerDutyIntegrationKey())
-				customDetails := map[string]string{
-					"site_id":             site.ID.String(),
-					"site_name":           site.Name,
-					"threshold_minutes":   fmt.Sprintf("%.0f", SiteInventoryReceiptThreshold.Minutes()),
-					"last_inventory_time": site.InventoryReceived.Format(time.RFC3339),
-					"time_since_last":     time.Since(*site.InventoryReceived).String(),
-					"description":         fmt.Sprintf("Site hasn't received Machine inventory for longer than threshold period of: %v minutes", SiteInventoryReceiptThreshold.Minutes()),
-				}
-				err := pc.SendPagerDutyAlertWithDedupeKey(
-					ctx,
-					fmt.Sprintf("Site Disconnection Detected: %s", site.Name),
-					"cloud-workflow-monitor",
-					fmt.Sprintf("site-disconnection-%s", site.ID.String()),
-					customDetails,
-				)
-				if err != nil {
-					logger.Error().Err(err).Msg("failed to send PagerDuty notification for Site down event")
 				}
 			}
 
@@ -1060,11 +1085,12 @@ func (mst ManageSite) UpdateIPBlocksInDBFromFabricPrefixes(ctx context.Context, 
 }
 
 // NewManageSite returns a new ManageSite activity
-func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc client.Client, cfg *config.Config) ManageSite {
+func NewManageSite(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc client.Client, cfg *config.Config, siteHealthMetrics *cwm.SiteHealthMetrics) ManageSite {
 	return ManageSite{
-		dbSession:      dbSession,
-		siteClientPool: siteClientPool,
-		tc:             tc,
-		cfg:            cfg,
+		dbSession:         dbSession,
+		siteClientPool:    siteClientPool,
+		tc:                tc,
+		cfg:               cfg,
+		siteHealthMetrics: siteHealthMetrics,
 	}
 }

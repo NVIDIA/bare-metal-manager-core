@@ -333,6 +333,15 @@ pub struct RunOptions {
     pub fmds_grpc_server: Option<String>,
     #[clap(
         long,
+        default_value = "3",
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "Seconds to wait for one connection attempt to --fmds-grpc-server. The agent \
+                reconnects on every main-loop iteration, so this bounds how long an unreachable \
+                FMDS can hold the loop up. Ignored without --fmds-grpc-server."
+    )]
+    pub fmds_connect_timeout_secs: u64,
+    #[clap(
+        long,
         default_value = "container-exec",
         help = "Set the configuration mode for HBN. Specify \"container-exec\" or \"nvue-rest\".",
         env = "HBN_CONFIG_MODE"

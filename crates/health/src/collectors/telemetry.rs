@@ -133,6 +133,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for TelemetryCollector<B> {
         let Some(telemetry_service) = service_root.telemetry_service().await? else {
             tracing::debug!(
                 bmc_address = ?self.endpoint.addr,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "BMC exposes no telemetry service; skipping iteration"
             );
             return Ok(IterationResult {
@@ -167,6 +168,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for TelemetryCollector<B> {
                         ?error,
                         report = %link.odata_id(),
                         bmc_address = ?self.endpoint.addr,
+                        rack_id = self.event_context.rack_id().map(tracing::field::display),
                         "Failed to fetch metric report"
                     );
                 }
@@ -216,6 +218,7 @@ impl<B: Bmc + 'static> TelemetryCollector<B> {
                 tracing::debug!(
                     ?error,
                     bmc_address = ?self.endpoint.addr,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Telemetry service published no metric definitions; \
                      readings will be recorded without units"
                 );
@@ -246,6 +249,7 @@ impl<B: Bmc + 'static> TelemetryCollector<B> {
             tracing::debug!(
                 report_id,
                 bmc_address = ?self.endpoint.addr,
+                rack_id = self.event_context.rack_id().map(tracing::field::display),
                 "Skipping metric report marked stale by the NVIDIA OEM extension"
             );
             return 0;
@@ -318,6 +322,7 @@ impl<B: Bmc + 'static> TelemetryCollector<B> {
                 tracing::debug!(
                     ?error,
                     bmc_address = ?self.endpoint.addr,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Failed to read NVIDIA OEM extension on metric report"
                 );
                 false

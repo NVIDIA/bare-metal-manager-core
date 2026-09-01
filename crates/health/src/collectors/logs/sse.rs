@@ -284,7 +284,14 @@ fn record_to_log(
         .as_ref()
         .map(|log_entry_ref| log_entry_ref.odata_id().to_string());
 
-    let mut attributes = vec![(Cow::Borrowed("message_id"), record.message_id.clone())];
+    let mut attributes = vec![
+        (Cow::Borrowed("message_id"), record.message_id.clone()),
+        (
+            Cow::Borrowed("event_record_id"),
+            record.base.odata_id().to_string(),
+        ),
+    ];
+
     if let Some(event_type) = redfish_event_type_string(Some(&record.event_type)) {
         attributes.push((Cow::Borrowed("event_type"), event_type));
     }
@@ -536,7 +543,9 @@ mod tests {
             attribute(record, "redfish.event.severity"),
             Some("Critical")
         );
+
         assert_eq!(attribute(record, "event_type"), Some("Alert"));
+        assert_eq!(attribute(record, "event_record_id"), Some(path));
     }
 
     #[tokio::test(start_paused = true)]

@@ -83,8 +83,6 @@ pub struct MachineConfig {
     #[serde(default = "default_hardware_type")]
     pub hw_type: HardwareType,
     pub host_count: u32,
-    pub vpc_count: u32,
-    pub subnets_per_vpc: u32,
     pub dpu_per_host_count: u32,
     /// Deprecated: superseded by platform-specific defaults in `PlatformTimingProfile`.
     /// Still parsed so existing configs remain valid; no longer used by the lifecycle FSM.
@@ -145,14 +143,6 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub network_status_run_interval: Duration,
-    /// Network virtualization type for VPCs created by this config section. Accepted values:
-    /// "etv" (EthernetVirtualizer, default), "etv_nvue" (EthernetVirtualizer with NVUE), or
-    /// "fnn" (Forge Native Networking). When set to "fnn", network segments will include both
-    /// an IPv4 and an IPv6 prefix, enabling dual-stack IP allocation for machine interfaces.
-    /// TODO(chet): Technically etv_nvue is RIP, but I'm leaving it in here for now.. but will
-    /// clean it up soon in its own PR.
-    #[serde(default)]
-    pub network_virtualization_type: Option<String>,
     /// If true, DPUs will run in "nic mode" and will not PXE boot, and their BMC JSON will reflect as such
     #[serde(default)]
     pub dpus_in_nic_mode: bool,
@@ -233,8 +223,6 @@ pub struct WiwynnGb200RackConfig {
     )]
     pub network_status_run_interval: Duration,
     #[serde(default)]
-    pub network_virtualization_type: Option<String>,
-    #[serde(default)]
     pub dpus_in_nic_mode: bool,
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
@@ -255,8 +243,6 @@ impl WiwynnGb200RackConfig {
             rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
-            vpc_count: 0,
-            subnets_per_vpc: 0,
             dpu_per_host_count,
             dpu_reboot_delay: self.dpu_reboot_delay,
             host_reboot_delay: self.host_reboot_delay,
@@ -270,7 +256,6 @@ impl WiwynnGb200RackConfig {
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
             network_status_run_interval: self.network_status_run_interval,
-            network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
             host_firmware_versions: None,
@@ -332,8 +317,6 @@ pub struct LenovoGb300RackConfig {
     )]
     pub network_status_run_interval: Duration,
     #[serde(default)]
-    pub network_virtualization_type: Option<String>,
-    #[serde(default)]
     pub dpus_in_nic_mode: bool,
     #[serde(default)]
     pub dpu_firmware_versions: Option<DpuFirmwareVersions>,
@@ -354,8 +337,6 @@ impl LenovoGb300RackConfig {
             rack_placement: Some(rack_placement),
             hw_type,
             host_count: 1,
-            vpc_count: 0,
-            subnets_per_vpc: 0,
             dpu_per_host_count,
             dpu_reboot_delay: self.dpu_reboot_delay,
             host_reboot_delay: self.host_reboot_delay,
@@ -369,7 +350,6 @@ impl LenovoGb300RackConfig {
             run_interval_working: self.run_interval_working,
             run_interval_idle: self.run_interval_idle,
             network_status_run_interval: self.network_status_run_interval,
-            network_virtualization_type: self.network_virtualization_type.clone(),
             dpus_in_nic_mode: self.dpus_in_nic_mode,
             dpu_firmware_versions: self.dpu_firmware_versions.clone(),
             host_firmware_versions: None,
@@ -507,8 +487,6 @@ pub struct MachineATronConfig {
     /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
     #[serde(default)]
     pub dhcp: DhcpType,
-    #[serde(default = "default_true")]
-    pub tui_enabled: bool,
 
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
@@ -1040,8 +1018,6 @@ mod tests {
             r#"
 carbide_api_url = "https://carbide-api.forge:443"
 log_file = "mat.log"
-interface = "br-77cbb29de011"
-tui_enabled = true
 pxe_server_host = "192.168.176.7"
 pxe_server_port = "8080"
 bmc_mock_port = 1266
@@ -1055,11 +1031,9 @@ host_count = 10
 dpu_per_host_count = 2
 dpu_reboot_delay = 1 # in units of seconds
 host_reboot_delay = 1 # in units of seconds
-vpc_count = 0
 underlay_dhcp_relay_address = "192.168.176.1"
 host_inband_dhcp_relay_address = "192.168.177.1"
 bmc_dhcp_relay_address = "192.168.192.1"
-subnets_per_vpc = 0
 run_interval_working = "100ms"
 run_interval_idle = "1s"
 network_status_run_interval = "5s"
@@ -1083,7 +1057,6 @@ scout_run_interval = "5s"
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
             network_status_run_interval: machine.network_status_run_interval,
-            network_virtualization_type: machine.network_virtualization_type.clone(),
             dpus_in_nic_mode: machine.dpus_in_nic_mode,
             dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
             dpu_agent_version: machine.dpu_agent_version.clone(),
@@ -1104,7 +1077,6 @@ scout_run_interval = "5s"
             run_interval_working: machine.run_interval_working,
             run_interval_idle: machine.run_interval_idle,
             network_status_run_interval: machine.network_status_run_interval,
-            network_virtualization_type: machine.network_virtualization_type.clone(),
             dpus_in_nic_mode: machine.dpus_in_nic_mode,
             dpu_firmware_versions: machine.dpu_firmware_versions.clone(),
             dpu_agent_version: machine.dpu_agent_version.clone(),

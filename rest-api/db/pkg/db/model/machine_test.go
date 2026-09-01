@@ -71,6 +71,52 @@ func testMachineBuildMachineInstanceType(t *testing.T, dbSession *db.Session, ma
 	return m
 }
 
+func TestMachine_MatchesLabelSelector(t *testing.T) {
+	tests := []struct {
+		name    string
+		machine *Machine
+		filters map[string]string
+		want    bool
+	}{
+		{
+			name: "nil Machine",
+		},
+		{
+			name:    "empty filters",
+			machine: &Machine{},
+			want:    true,
+		},
+		{
+			name:    "exact match",
+			machine: &Machine{Labels: map[string]string{"failure-domain": "fd-a"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+			want:    true,
+		},
+		{
+			name:    "subset match",
+			machine: &Machine{Labels: map[string]string{"failure-domain": "fd-a", "power-domain": "pd-2"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+			want:    true,
+		},
+		{
+			name:    "missing key",
+			machine: &Machine{Labels: map[string]string{"power-domain": "pd-2"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+		},
+		{
+			name:    "different value",
+			machine: &Machine{Labels: map[string]string{"failure-domain": "fd-b"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, test.machine.MatchesLabelSelector(test.filters))
+		})
+	}
+}
+
 func TestMachineSQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testInstanceTypeInitDB(t)
@@ -809,6 +855,14 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
+	// Give one Machine a distinct placement label for exact label-filter tests.
+	ms1[1].Labels["failure-domain"] = "fd-a"
+	_, err = msd.Update(ctx, nil, MachineUpdateInput{
+		MachineID: ms1[1].ID,
+		Labels:    ms1[1].Labels,
+	})
+	assert.NoError(t, err)
+
 	// set one of machines in set 2 to be missing on site
 	ms2[0].IsMissingOnSite = true
 	_, err = msd.Update(ctx, nil, MachineUpdateInput{
@@ -874,6 +928,26 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 				IsAssigned: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
+			expectedError: false,
+		},
+		{
+			desc: "GetAll with exact Machine label selector returns matching objects",
+			filter: MachineFilterInput{
+				Labels: map[string]string{
+					"failure-domain": "fd-a",
+					"key1":           "value1",
+				},
+			},
+			expectedCount: 1,
+			firstEntry:    &ms1[1],
+			expectedError: false,
+		},
+		{
+			desc: "GetAll with a non-matching Machine label value returns no objects",
+			filter: MachineFilterInput{
+				Labels: map[string]string{"failure-domain": "missing"},
+			},
+			expectedCount: 0,
 			expectedError: false,
 		},
 		{

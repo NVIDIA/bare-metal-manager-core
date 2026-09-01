@@ -40,7 +40,7 @@ use strum_macros::EnumIter;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use super::StateSla;
 use super::instance::snapshot::InstanceSnapshot;
-use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
+use super::instance::status::extension_service::InstanceExtensionServiceStatusObservationByType;
 use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
@@ -200,7 +200,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             instance.observations.network =
                 InstanceNetworkStatusObservation::aggregate_instance_observation(&dpu_snapshots);
             instance.observations.extension_services =
-                InstanceExtensionServiceStatusObservation::aggregate_instance_observation(
+                InstanceExtensionServiceStatusObservationByType::aggregate_instance_observation(
                     &dpu_snapshots,
                 );
         }
@@ -372,15 +372,12 @@ impl ManagedHostStateSnapshot {
     /// Those sites intentionally inspect both sides of this, so simply relying
     /// on this might not be what they'd want (at least for now).
     ///
-    /// NOTE(chet): When called from state-controller handlers (anything reached
-    /// via `MachineStateHandler::handle_object_state`), there is an upstream
-    /// guard that short-circuits with an error if topology reports DPUs but
-    /// `dpu_snapshots` is empty -- i.e. the DPU snapshots failed to load.
-    /// That guard runs before the `ManagedHostState` dispatch, so by the time
-    /// a state handler asks `has_managed_dpus()`, the potential bug of "topology
-    /// has DPUs, but snapshots are empty, so we think it has none" has
-    /// already been filtered out. A `false` return in that context means
-    /// genuinely no managed DPUs (both topology and snapshots agree).
+    /// NOTE(chet): State-controller handlers normally reject a topology with
+    /// no loaded DPU snapshots before dispatch, so `false` means no managed DPUs.
+    /// `ManagedHostState::BootConfiguring` is the exception: it must dispatch so
+    /// `ReadyBootConfigState::LockHost` can restore lockdown and
+    /// `ReadyBootConfigState::Prepare` can wait for a
+    /// `MachineNetworkStatusObservation` from every DPU in the host topology.
     ///
     /// Now, callers OUTSIDE the state-controller path DON'T get that upstream
     /// guard; if you need the stronger guarantee there, you'll need to
@@ -440,12 +437,20 @@ impl ManagedHostStateSnapshot {
     }
 
     // We are examining the dpa_interface_snapshots of the MH to see if has
-    // any NICs of type Astra. This function cannot be used during machine ingestion
-    // when the dpa_interfaces table does not yet have any entries for the host.
+    // any NICs of type Astra.
     pub fn has_astra_nics(&self) -> bool {
         self.dpa_interface_snapshots
             .iter()
             .any(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
+    }
+
+    // Returns the Astra NICs found in the MH's dpa_interface_snapshots. Only
+    // interfaces whose interface_type is Astra are returned.
+    pub fn astra_nics(&self) -> Vec<&DpaInterface> {
+        self.dpa_interface_snapshots
+            .iter()
+            .filter(|nic| matches!(nic.interface_type, DpaInterfaceType::Astra))
+            .collect()
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
@@ -644,20 +649,27 @@ impl ManagedHostStateSnapshot {
         self.aggregate_health = output;
     }
 
-    /// Returns true if the desired managedhost networking configuration had been synced
-    /// to **all** DPUs.
+    /// Returns true when every DPU in the host topology has applied the current
+    /// host network configuration.
     ///
-    /// Each DPU's check compares the host-level `network_config.version`
-    /// against the version that DPU agent reported observing.
+    /// Each topology DPU must have a `MachineNetworkStatusObservation` whose
+    /// `network_config_version` matches `host_snapshot.network_config.version`.
+    /// Matching by machine ID prevents an empty or partial `dpu_snapshots` load
+    /// from appearing current. A host with no topology DPUs is already current.
     pub fn managed_host_network_config_version_synced(&self) -> bool {
         let host_version = self.host_snapshot.network_config.version;
-        for dpu_snapshot in self.dpu_snapshots.iter() {
-            if !dpu_snapshot.managed_host_network_config_version_synced(host_version) {
-                return false;
-            }
-        }
 
-        true
+        self.host_snapshot
+            .associated_dpu_machine_ids()
+            .into_iter()
+            .all(|dpu_machine_id| {
+                self.dpu_snapshots
+                    .iter()
+                    .find(|dpu_snapshot| dpu_snapshot.id == dpu_machine_id)
+                    .is_some_and(|dpu_snapshot| {
+                        dpu_snapshot.managed_host_network_config_version_synced(host_version)
+                    })
+            })
     }
 
     /// Sort the DPUs by pci address and then make sure the primary DPU is the first.
@@ -861,6 +873,10 @@ pub struct Machine {
     /// credential on its next sweep,
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub uefi_credential_rotation_requested: bool,
+
+    /// Force the rotation of the NIC lockdown keys on this host.
+    /// Bypasses the site-config flag for NIC lockdown rotation.
+    pub lockdown_ikm_credential_rotation_requested: bool,
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
@@ -1246,7 +1262,7 @@ pub enum ManagedHostState {
     /// An unassigned Ready host is converging its Redfish boot configuration
     /// to the desired boot interface persisted on the machine.
     ///
-    /// The desired target and version are captured when the repair starts.
+    /// The desired target and version are captured when convergence starts.
     /// The controller checks that version before issuing new Redfish writes,
     /// uses the captured target while work is in flight, and records it
     /// verified only when the version is still current after final observation.
@@ -1284,6 +1300,12 @@ pub enum ManagedHostState {
     /// A dummy state used to create DPU in beginning. State will sync to Init when host will be
     /// created.
     Created,
+
+    /// Enable Astra on CX9 NICs if necessary
+    ConfigureAstra {
+        #[serde(default)]
+        configure_astra_state: ConfigureAstraState,
+    },
 
     /// Machine moved to failed state. Recovery will be based on FailedCause
     Failed {
@@ -1358,6 +1380,12 @@ pub enum ManagedHostState {
         dpu_machine_id: MachineId,
     },
 
+    /// The host is rekeying its NIC lockdown keys to the staged
+    /// site-wide `lockdown_ikm` target. This host state drives the
+    /// cards through a tenant-free `RotateKeyUnlocking -> RotateKeyLocking`
+    /// cycle and waits for them to converge.
+    RotatingNicLockdown,
+
     /// State used to indicate the API is currently waiting on the
     /// machine to send attestation measurements, or waiting for
     /// measurements to match a valid/approved measurement bundle,
@@ -1400,6 +1428,8 @@ pub enum DecommissioningState {
     SuppressingOobDhcp,
     /// Power-cycles the host to force OOB rediscovery against the pre-cycle suppression.
     PowerCyclingHost,
+    /// Powers the host back on after the cycle so OOB rediscovery can proceed.
+    PoweringOnHost,
     /// Waiting for the pre-cycle OOB DHCP suppression to be acknowledged.
     WaitingForOobDhcpAcknowledgement,
     /// BMC DHCP is suppressed before the BMC factory reset.
@@ -1501,11 +1531,14 @@ pub enum MachineValidatingState {
     },
 }
 
-/// `ReadyBootConfigTerminalFailure` defers a terminal condition until Ready
-/// boot convergence restores lockdown.
+/// Action to take after Ready boot convergence restores lockdown.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-pub enum ReadyBootConfigTerminalFailure {
+pub enum ReadyBootConfigPostLockAction {
+    /// Return to `Prepare` after cleanup, even if DPU network status becomes
+    /// current while lockdown is being restored.
+    #[serde(rename = "return_to_prepare")]
+    ReturnToPrepare,
     /// The boot-config convergence flow could not complete automatically.
     Convergence { failure: String },
     /// An independent host or DPU failure appeared while lockdown was open.
@@ -1514,6 +1547,27 @@ pub enum ReadyBootConfigTerminalFailure {
         machine_id: MachineId,
         details: FailureDetails,
     },
+}
+
+/// Progress while a newly ingested host enables Astra (EastWestControl) on
+/// its CX9 NICs and waits for the required AC power cycle to take effect.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum ConfigureAstraState {
+    /// PATCH Oem.Nvidia.EastWestControlEnabled on each declared CX9 NIC.
+    #[default]
+    EnableNics,
+    /// Wait for the host AC power cycle issued after enabling CX9 NICs.
+    WaitingForPowercycle,
+}
+
+impl Display for ConfigureAstraState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EnableNics => write!(f, "EnableNics"),
+            Self::WaitingForPowercycle => write!(f, "WaitingForPowercycle"),
+        }
+    }
 }
 
 /// `ReadyBootConfigState` persists progress while an unassigned Ready host
@@ -1525,14 +1579,15 @@ pub enum ReadyBootConfigTerminalFailure {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum ReadyBootConfigState {
-    /// Observe the target, then inspect lockdown only when a repair may write.
+    /// Observe the target, then inspect lockdown only when convergence may
+    /// require a write.
     Prepare,
     /// Disable lockdown, including any vendor-specific reboot and wait.
     UnlockHost {
         #[serde(default)]
         unlock_host_state: UnlockHostState,
     },
-    /// Observe BIOS and boot order and select the smallest required repair.
+    /// Observe BIOS and boot order and select the smallest required update.
     CheckHostConfig,
     /// Run `machine_setup` for the desired boot interface.
     ConfigureBios {
@@ -1554,10 +1609,15 @@ pub enum ReadyBootConfigState {
     /// marking the desired boot-interface version verified or surfacing a
     /// terminal convergence failure.
     LockHost {
-        /// Failure deferred until lockdown has been restored. Absent on the
-        /// successful convergence path.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        terminal_failure: Option<ReadyBootConfigTerminalFailure>,
+        /// Action deferred until lockdown has been restored. Absent on the
+        /// successful convergence path. The persisted field keeps its original
+        /// name for compatibility with existing controller state.
+        #[serde(
+            rename = "terminal_failure",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        post_lock_action: Option<ReadyBootConfigPostLockAction>,
     },
     /// Automated convergence could not complete safely after lockdown was
     /// restored. The host remains unavailable until an operator changes its
@@ -1597,14 +1657,19 @@ impl ManagedHostState {
         Self::Maintenance { operation }
     }
 
-    pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
+    /// Returns the DPU reprovision states embedded in either host allocation mode.
+    pub fn dpu_reprovision_states(&self) -> Option<&DpuReprovisionStates> {
         match self {
-            ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
-            ManagedHostState::Assigned {
+            ManagedHostState::DPUReprovision { dpu_states }
+            | ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision { dpu_states },
-            } => dpu_states.states.get(dpu_id),
+            } => Some(dpu_states),
             _ => None,
         }
+    }
+
+    pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
+        self.dpu_reprovision_states()?.states.get(dpu_id)
     }
 
     pub fn suppress_dpu_alerts(&self) -> bool {
@@ -2694,6 +2759,7 @@ impl Display for DecommissioningState {
             DecommissioningState::DeconfiguringDpus { .. } => write!(f, "DeconfiguringDpus"),
             DecommissioningState::SuppressingOobDhcp => write!(f, "SuppressingOobDhcp"),
             DecommissioningState::PowerCyclingHost => write!(f, "PowerCyclingHost"),
+            DecommissioningState::PoweringOnHost => write!(f, "PoweringOnHost"),
             DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                 write!(f, "WaitingForOobDhcpAcknowledgement")
             }
@@ -2713,6 +2779,11 @@ impl Display for DecommissioningState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => {
+                write!(f, "ConfigureAstra/{configure_astra_state}")
+            }
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -2791,6 +2862,7 @@ impl Display for ManagedHostState {
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
                 write!(f, "RotatingDpuUefi/{dpu_machine_id}")
             }
+            ManagedHostState::RotatingNicLockdown => write!(f, "RotatingNicLockdown"),
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2831,6 +2903,9 @@ impl Display for ManagedHostState {
 impl ManagedHostState {
     pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
         match self {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => format!("ConfigureAstra/{configure_astra_state}"),
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_id)
@@ -2897,6 +2972,7 @@ impl ManagedHostState {
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
             ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
             ManagedHostState::RotatingDpuUefi { .. } => "RotatingDpuUefi".to_string(),
+            ManagedHostState::RotatingNicLockdown => "RotatingNicLockdown".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -3022,6 +3098,9 @@ pub fn state_sla(
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
+        ManagedHostState::ConfigureAstra { .. } => {
+            StateSla::with_sla(slas::CONFIGURE_ASTRA, time_in_state)
+        }
         ManagedHostState::DpuDiscoveringState { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
             // because of this.
@@ -3079,6 +3158,9 @@ pub fn state_sla(
             }
             DecommissioningState::PowerCyclingHost => {
                 StateSla::with_sla(slas::DECOMMISSIONING_POWER_CYCLING_HOST, time_in_state)
+            }
+            DecommissioningState::PoweringOnHost => {
+                StateSla::with_sla(slas::DECOMMISSIONING_POWERING_ON_HOST, time_in_state)
             }
             DecommissioningState::WaitingForOobDhcpAcknowledgement => StateSla::with_sla(
                 slas::DECOMMISSIONING_WAITING_FOR_OOB_DHCP_ACKNOWLEDGEMENT,
@@ -3151,6 +3233,9 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingDpuUefi { .. } => {
             StateSla::with_sla(slas::ROTATING_DPU_UEFI, time_in_state)
+        }
+        ManagedHostState::RotatingNicLockdown => {
+            StateSla::with_sla(slas::ROTATING_NIC_LOCKDOWN, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
@@ -3497,6 +3582,30 @@ pub fn dpf_based_dpu_provisioning_possible(
         return false;
     }
 
+    // Flipping a host to DPF also flips the extension-service delivery path
+    // from the DPU agent to DPUDevice placement labels. Attachments admitted
+    // against the agent path cannot follow that flip -- only a detach moves
+    // them -- so keep such a host on the legacy path rather than stranding
+    // services the new path will never reconcile. Any service attached to a
+    // host that is not yet DPF-managed is agent-delivered by admission, so no
+    // service-type lookup is needed here.
+    if reprovisioning_case
+        && !state.host_snapshot.config.dpf.used_for_ingestion
+        && state.instance.as_ref().is_some_and(|instance| {
+            !instance
+                .config
+                .extension_services
+                .service_configs
+                .is_empty()
+        })
+    {
+        tracing::warn!(
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU reprovisioning is not possible for host because its instance has attached extension services; detach them before migrating the host to DPF.",
+        );
+        return false;
+    }
+
     // All DPUs should not be Bluefield 2.
     if state.dpu_snapshots.iter().any(|dpu| {
         dpu.status
@@ -3606,6 +3715,41 @@ mod tests {
     }
 
     #[test]
+    fn managed_host_network_config_sync_requires_every_expected_dpu() {
+        enum DpuNetworkConfigCase {
+            ZeroDpu,
+            AllExpectedCurrent,
+            MissingSnapshots,
+            PartialSnapshots,
+        }
+
+        value_scenarios!(run = |case| {
+                let mut state = managed_host_state_snapshot();
+
+                match case {
+                    DpuNetworkConfigCase::ZeroDpu => {
+                        for interface in &mut state.host_snapshot.status.interfaces {
+                            interface.attached_dpu_machine_id = None;
+                        }
+                        state.dpu_snapshots.clear();
+                    }
+                    DpuNetworkConfigCase::AllExpectedCurrent => {}
+                    DpuNetworkConfigCase::MissingSnapshots => state.dpu_snapshots.clear(),
+                    DpuNetworkConfigCase::PartialSnapshots => state.dpu_snapshots.truncate(1),
+                }
+
+                state.managed_host_network_config_version_synced()
+            };
+            "DPU network configuration" {
+                DpuNetworkConfigCase::ZeroDpu => true,
+                DpuNetworkConfigCase::AllExpectedCurrent => true,
+                DpuNetworkConfigCase::MissingSnapshots => false,
+                DpuNetworkConfigCase::PartialSnapshots => false,
+            }
+        );
+    }
+
+    #[test]
     fn ready_boot_config_defaults_survive_persisted_state_loading() {
         scenarios!(
             run = |json| serde_json::from_str::<ReadyBootConfigState>(json).map_err(drop);
@@ -3629,14 +3773,23 @@ mod tests {
 
             "lockdown restoration defaults to the success path" {
                 r#"{"state":"lockhost"}"# => Yields(ReadyBootConfigState::LockHost {
-                    terminal_failure: None,
+                    post_lock_action: None,
                 }),
+            }
+
+            "existing convergence failure field remains readable" {
+                r#"{"state":"lockhost","terminal_failure":{"kind":"convergence","failure":"stopped"}}"# =>
+                    Yields(ReadyBootConfigState::LockHost {
+                        post_lock_action: Some(ReadyBootConfigPostLockAction::Convergence {
+                            failure: "stopped".to_string(),
+                        }),
+                    }),
             }
         );
     }
 
     #[test]
-    fn ready_boot_config_terminal_outcomes_round_trip() {
+    fn ready_boot_config_post_lock_actions_round_trip() {
         let machine_id =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
                 .unwrap();
@@ -3651,9 +3804,16 @@ mod tests {
         check_values(
             [
                 Check {
+                    scenario: "stale DPU network status returns to Prepare after cleanup",
+                    input: ReadyBootConfigState::LockHost {
+                        post_lock_action: Some(ReadyBootConfigPostLockAction::ReturnToPrepare),
+                    },
+                    expect: true,
+                },
+                Check {
                     scenario: "convergence failure waits for lockdown",
                     input: ReadyBootConfigState::LockHost {
-                        terminal_failure: Some(ReadyBootConfigTerminalFailure::Convergence {
+                        post_lock_action: Some(ReadyBootConfigPostLockAction::Convergence {
                             failure: "BIOS job retries exhausted".to_string(),
                         }),
                     },
@@ -3662,7 +3822,7 @@ mod tests {
                 Check {
                     scenario: "independent machine failure keeps its attribution",
                     input: ReadyBootConfigState::LockHost {
-                        terminal_failure: Some(ReadyBootConfigTerminalFailure::Machine {
+                        post_lock_action: Some(ReadyBootConfigPostLockAction::Machine {
                             machine_id,
                             details: failure_details,
                         }),
@@ -3684,6 +3844,41 @@ mod tests {
                 .unwrap()
                     == state
             },
+        );
+
+        assert_eq!(
+            serde_json::to_value(ReadyBootConfigState::LockHost {
+                post_lock_action: Some(ReadyBootConfigPostLockAction::ReturnToPrepare),
+            })
+            .unwrap(),
+            serde_json::json!({
+                "state": "lockhost",
+                "terminal_failure": { "kind": "return_to_prepare" },
+            }),
+        );
+    }
+
+    #[test]
+    fn configure_astra_defaults_survive_persisted_state_loading() {
+        scenarios!(
+            run = |json| serde_json::from_str::<ManagedHostState>(json).map_err(drop);
+            "legacy unit-shaped ConfigureAstra starts at EnableNics" {
+                r#"{"state":"configureastra"}"# => Yields(ManagedHostState::ConfigureAstra {
+                    configure_astra_state: ConfigureAstraState::EnableNics,
+                }),
+            }
+            "explicit EnableNics substate round-trips" {
+                r#"{"state":"configureastra","configure_astra_state":{"state":"enablenics"}}"# =>
+                    Yields(ManagedHostState::ConfigureAstra {
+                        configure_astra_state: ConfigureAstraState::EnableNics,
+                    }),
+            }
+            "WaitingForPowercycle substate round-trips" {
+                r#"{"state":"configureastra","configure_astra_state":{"state":"waitingforpowercycle"}}"# =>
+                    Yields(ManagedHostState::ConfigureAstra {
+                        configure_astra_state: ConfigureAstraState::WaitingForPowercycle,
+                    }),
+            }
         );
     }
 
@@ -4885,6 +5080,47 @@ mod tests {
         assert!(
             !sla.time_in_state_above_sla,
             "a freshly entered RotatingBmc state is within its SLA"
+        );
+    }
+
+    #[test]
+    fn rotating_nic_lockdown_state_serde_display_and_sla() {
+        // The unit variant pins to the bare `state` tag with no payload; the
+        // `parse -> serialize -> reparse` run pins serializer symmetry and the
+        // stable Display label.
+        scenarios!(
+            run = |s| {
+                let parsed = serde_json::from_str::<ManagedHostState>(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip =
+                    serde_json::from_str::<ManagedHostState>(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed.clone(), roundtrip, parsed.to_string()))
+            };
+            "bare tag round-trips" {
+                r#"{"state":"rotatingniclockdown"}"# => Yields((
+                    ManagedHostState::RotatingNicLockdown,
+                    ManagedHostState::RotatingNicLockdown,
+                    "RotatingNicLockdown".to_string(),
+                )),
+            }
+        );
+
+        // It carries the dedicated rekey SLA (not a default), and a freshly
+        // entered state is within it.
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let sla = state_sla(
+            &machine_id,
+            &ManagedHostState::RotatingNicLockdown,
+            &ConfigVersion::initial(),
+            &health_report_with_alerts(vec![]),
+            &slas::MachineSlaConfig::default(),
+        );
+        assert_eq!(sla.sla, Some(slas::ROTATING_NIC_LOCKDOWN));
+        assert!(
+            !sla.time_in_state_above_sla,
+            "a freshly entered RotatingNicLockdown state is within its SLA"
         );
     }
 

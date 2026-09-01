@@ -112,6 +112,7 @@ Path: `deploy/nico-base/api/`
   - Secret `<NICO_VAULT_TOKEN_SECRET>` or AppRole secret with `VAULT_ROLE_ID` / `VAULT_SECRET_ID`
   - ConfigMap `<VAULT_CLUSTER_INFO_CONFIGMAP>` with
     - `VAULT_SERVICE`
+    - Optional `VAULT_NAMESPACE` (Vault Enterprise/HCP Vault Dedicated only; not a Kubernetes namespace)
     - `NICO_VAULT_MOUNT`
     - `NICO_VAULT_PKI_MOUNT`
 - **Root CA bundle**

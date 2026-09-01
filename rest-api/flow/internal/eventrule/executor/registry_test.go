@@ -39,18 +39,11 @@ func TestNew(t *testing.T) {
 			mutate:  func(config *Config) { config.TaskManager = nil },
 			wantErr: "task manager is required",
 		},
-		"rejects missing execution task store": {
-			mutate:  func(config *Config) { config.ExecutionTasks = nil },
-			wantErr: "execution task store is required",
-		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			config := Config{
-				TaskManager:    &recordingTaskManager{},
-				ExecutionTasks: newExecutionTaskStore(),
-			}
+			config := Config{TaskManager: &recordingTaskManager{}}
 			if test.mutate != nil {
 				test.mutate(&config)
 			}
@@ -129,7 +122,7 @@ func TestNoopExecutor_Execute(t *testing.T) {
 		"completed": {},
 		"rejects wrong plan": {
 			mutate: func(r *ExecutionRequest) {
-				r.Execution.Plan = &eventrule.SendAlertPlan{Severity: eventrule.SeverityWarning}
+				r.Plan = &eventrule.SendAlertPlan{Severity: eventrule.SeverityWarning}
 			},
 			wantErr: "received plan",
 		},
@@ -138,9 +131,7 @@ func TestNoopExecutor_Execute(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			input := request
-			execution := *input.Execution
-			execution.Plan = eventrule.CloneExecutionPlan(input.Execution.Plan)
-			input.Execution = &execution
+			input.Plan = eventrule.CloneExecutionPlan(request.Plan)
 
 			if test.mutate != nil {
 				test.mutate(&input)

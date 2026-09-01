@@ -91,6 +91,7 @@ impl<B: Bmc + 'static> FirmwareCollector<B> {
             let Some(version) = firmware_data.version.clone().flatten() else {
                 tracing::debug!(
                     firmware_id = %firmware_data.base.id,
+                    rack_id = self.event_context.rack_id().map(tracing::field::display),
                     "Skipping firmware with no version"
                 );
                 continue;

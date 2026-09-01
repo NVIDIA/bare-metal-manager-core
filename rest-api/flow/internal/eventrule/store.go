@@ -6,6 +6,9 @@ package eventrule
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -32,13 +35,104 @@ var ErrExecutionNotFound = errors.New("execution not found")
 // ErrEventNotFound identifies an unsuccessful durable event lookup.
 var ErrEventNotFound = errors.New("event not found")
 
-// ErrEventAlreadyPlanned identifies an attempt to replace a committed event
-// plan.
-var ErrEventAlreadyPlanned = errors.New("event already planned")
-
 // ErrExecutionAlreadyExists identifies an execution identity that existed
 // before its event plan was committed.
 var ErrExecutionAlreadyExists = errors.New("execution already exists")
+
+// ErrExecutionClaimLost identifies a fenced update from a worker that no
+// longer owns the execution attempt.
+var ErrExecutionClaimLost = errors.New("execution claim lost")
+
+// ErrExecutionNotClaimable identifies an execution whose current state does
+// not permit acquiring a claim.
+var ErrExecutionNotClaimable = errors.New("execution is not claimable")
+
+// ErrInvalidExecutionInput identifies invalid arguments passed to an
+// execution operation.
+var ErrInvalidExecutionInput = errors.New("invalid execution input")
+
+const maxExecutionClaimOwnerRunes = 128
+
+// ValidateExecutionClaimOwner checks that a claim owner is a bounded, nonempty
+// identity.
+func ValidateExecutionClaimOwner(owner string) error {
+	if err := validateRequiredString("execution claim owner", owner); err != nil {
+		return err
+	}
+	if utf8.RuneCountInString(owner) > maxExecutionClaimOwnerRunes {
+		return fmt.Errorf(
+			"execution claim owner exceeds %d characters",
+			maxExecutionClaimOwnerRunes,
+		)
+	}
+
+	return nil
+}
+
+// ExecutionClaimRequest bounds one atomic scheduler-store selection.
+type ExecutionClaimRequest struct {
+	Owner         string
+	Limit         int
+	ClaimDuration time.Duration
+	MaxAttempts   int
+}
+
+// Validate checks the owner, batch limit, claim duration, and attempt bound.
+func (r ExecutionClaimRequest) Validate() error {
+	if err := ValidateExecutionClaimOwner(r.Owner); err != nil {
+		return err
+	}
+	if r.Limit <= 0 {
+		return fmt.Errorf("execution claim limit must be positive")
+	}
+	if r.ClaimDuration <= 0 {
+		return fmt.Errorf("execution claim duration must be positive")
+	}
+	if r.MaxAttempts <= 0 {
+		return fmt.Errorf("execution claim max attempts must be positive")
+	}
+
+	return nil
+}
+
+// ClaimedExecution contains one running execution and its ownership fence.
+// Token is not a downstream idempotency key.
+type ClaimedExecution struct {
+	Execution Execution
+	Token     uuid.UUID
+}
+
+// ExecutionClaimBatch contains claims produced by one bounded candidate scan.
+// ScanLimitReached means the store inspected request.Limit eligible rows, so
+// additional work may remain even when exhausted rows reduced Claims.
+type ExecutionClaimBatch struct {
+	Claims           []ClaimedExecution
+	ScanLimitReached bool
+}
+
+// Validate checks the running execution and ownership fence.
+func (c ClaimedExecution) Validate() error {
+	if err := c.Execution.Validate(); err != nil {
+		return fmt.Errorf("execution: %w", err)
+	}
+
+	if c.Execution.Status != ExecutionStatusRunning {
+		return fmt.Errorf(
+			"claimed execution %s has status %q, want %q",
+			c.Execution.ID,
+			c.Execution.Status,
+			ExecutionStatusRunning,
+		)
+	}
+	if c.Token == uuid.Nil {
+		return fmt.Errorf("execution claim token is required")
+	}
+	if c.Execution.ClaimToken != c.Token {
+		return fmt.Errorf("execution claim token does not match running execution")
+	}
+
+	return nil
+}
 
 // RuleFilter limits rules returned by a store.
 type RuleFilter struct {
@@ -47,20 +141,28 @@ type RuleFilter struct {
 	Enabled   *bool
 }
 
+// IncludesOrigin reports whether the filter permits rules from origin. A nil
+// origin filter permits every origin.
+func (f RuleFilter) IncludesOrigin(origin RuleOrigin) bool {
+	return f.Origin == nil || *f.Origin == origin
+}
+
 // Matches reports whether a rule satisfies every configured filter field.
 func (f RuleFilter) Matches(rule *Rule) bool {
 	if rule == nil {
 		return false
 	}
+
 	if f.EventType != nil && rule.EventType != *f.EventType {
 		return false
 	}
-	if f.Origin != nil && rule.Origin != *f.Origin {
+	if !f.IncludesOrigin(rule.Origin) {
 		return false
 	}
 	if f.Enabled != nil && rule.Enabled != *f.Enabled {
 		return false
 	}
+
 	return true
 }
 
@@ -103,53 +205,56 @@ type BindingStore interface {
 	GetForScope(context.Context, Type, Scope) (*Binding, error)
 }
 
-// EventStore owns source-event deduplication and observation accounting.
-// ObserveEvent returns (nil, nil) when the source event has not been persisted.
-// CreateEvent returns the newly inserted event. A concurrent duplicate is
-// recorded as another observation and returns (nil, nil).
-type EventStore interface {
+// EventPlanStore owns the source-event duplicate fast path and atomic event-plan
+// commit. Implementations own all persistence timestamps.
+type EventPlanStore interface {
+	// ObserveEvent records an existing event observation and returns (nil, nil)
+	// when no event is persisted.
 	ObserveEvent(context.Context, EventKey) (*Event, error)
-	CreateEvent(context.Context, Event) (*Event, error)
-}
-
-// ExecutionStore atomically commits an event's complete ordered plan and
-// persists attempt results. CommitEventPlan creates every execution and marks
-// the event planned in one transaction. It returns executions in the same
-// order as planned and rejects replacement of a committed or partial plan.
-// TransitionExecution returns ErrExecutionNotFound for an unknown
-// execution ID. Implementations own planning, transition, and retry-scheduling
-// timestamps.
-type ExecutionStore interface {
-	// CommitEventPlan is all-or-nothing: on success it persists one execution
-	// per planned action, in the supplied order, and marks the event planned in
-	// the same transaction. It returns those executions in the same order. On
-	// error it persists no execution and leaves the event unplanned.
+	// CommitEventPlan is all-or-nothing: it persists the event and one execution
+	// per planned action in the same transaction. A concurrent duplicate records
+	// another observation and returns (nil, nil). Any error persists nothing.
 	CommitEventPlan(
 		ctx context.Context,
-		eventID uuid.UUID,
+		event Event,
 		planned []PlannedExecution,
-	) ([]Execution, error)
-	TransitionExecution(
+	) (*Event, error)
+}
+
+// ExecutionStore owns scheduler claims and fenced attempt outcomes.
+// Implementations own all persistence and retry timestamps.
+type ExecutionStore interface {
+	// ClaimPendingExecutions atomically selects at most request.Limit pending
+	// rows, moves them to running, allocates attempts, and assigns request.Owner
+	// with fencing tokens and store-timed expirations.
+	ClaimPendingExecutions(
+		ctx context.Context,
+		request ExecutionClaimRequest,
+	) (ExecutionClaimBatch, error)
+	// ClaimRetryExecutions atomically scans at most request.Limit due deferred or
+	// expired running rows. Expired rows whose attempt budget is exhausted are
+	// failed and may reduce the returned claim count; ScanLimitReached tells the
+	// caller to schedule another bounded scan.
+	ClaimRetryExecutions(
+		ctx context.Context,
+		request ExecutionClaimRequest,
+	) (ExecutionClaimBatch, error)
+	// TransitionClaimedExecution persists an attempt outcome only while token
+	// owns the running execution. Expiration permits reclamation but does not
+	// invalidate the token before a reclaimer replaces it.
+	TransitionClaimedExecution(
 		ctx context.Context,
 		executionID uuid.UUID,
+		token uuid.UUID,
 		result ExecutionResult,
 	) error
 }
 
-// ExecutionTaskStore persists the normalized one-to-many relationship between
-// executions and their rack-partitioned downstream tasks.
-type ExecutionTaskStore interface {
-	// GetExecutionTask returns the task associated with one execution and rack.
-	// A missing association returns (nil, nil).
-	GetExecutionTask(
-		ctx context.Context,
-		executionID uuid.UUID,
-		rackID uuid.UUID,
-	) (*ExecutionTask, error)
-	// CreateExecutionTask atomically creates an association or returns the
-	// existing association for the same execution and rack.
-	CreateExecutionTask(
-		ctx context.Context,
-		association ExecutionTask,
-	) (*ExecutionTask, error)
+// Store is the complete persistence boundary required by the event-rule
+// manager.
+type Store interface {
+	RuleStore
+	BindingStore
+	EventPlanStore
+	ExecutionStore
 }

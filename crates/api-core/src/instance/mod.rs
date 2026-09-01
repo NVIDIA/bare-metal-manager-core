@@ -23,6 +23,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_network::ip::IpAddressFamily;
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
@@ -40,11 +41,15 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
 use model::dpa_interface::{DpaInterface, DpaSearchConfig};
+use model::extension_service::{
+    ExtensionService, ExtensionServiceLifecycleState, ExtensionServiceType,
+};
 use model::hardware_info::InfinibandInterface;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IbMembership};
 use model::ib_partition::PartitionKey;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
+use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     InstanceInterfaceIpFamilyMode, InstanceNetworkConfig, InterfaceFunctionId, Ipv6InterfaceConfig,
@@ -1543,6 +1548,135 @@ pub(crate) async fn allocate_instance(
         .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
 }
 
+/// Loads and locks the extension-service rows and their live versions for
+/// `service_ids`, keyed by service ID. Soft-deleted services and versions are
+/// left out, so a missing entry reads as "does not exist" to callers.
+#[allow(clippy::type_complexity)]
+pub(crate) async fn load_extension_services(
+    txn: &mut db::Transaction<'_>,
+    service_ids: &[ExtensionServiceId],
+) -> Result<
+    (
+        HashMap<ExtensionServiceId, ExtensionService>,
+        HashMap<ExtensionServiceId, Vec<ConfigVersion>>,
+    ),
+    CarbideError,
+> {
+    let services = extension_service::find_by_ids(txn, service_ids, false, true)
+        .await?
+        .into_iter()
+        .map(|service| (service.id, service))
+        .collect();
+    let versions = extension_service::find_versions_by_service_ids(txn, service_ids, true).await?;
+
+    Ok((services, versions))
+}
+
+/// Validates the durable extension-service configuration an instance is moving to.
+///
+/// `extension_services` should include both new active and terminating service
+/// configs.
+///
+/// The mixed-path rule is the exception and spans every entry: a terminating
+/// attachment still occupies the DPU-agent or the DPF delivery path until its
+/// cleanup finishes, so an instance may never straddle both.
+pub(crate) fn validate_instance_extension_services(
+    machine_id: MachineId,
+    is_dpf_managed_host: bool,
+    extension_services: &InstanceExtensionServicesConfig,
+    services: &HashMap<ExtensionServiceId, ExtensionService>,
+    versions: &HashMap<ExtensionServiceId, Vec<ConfigVersion>>,
+    existing_active_service_ids: &HashSet<ExtensionServiceId>,
+) -> Result<(), CarbideError> {
+    let active_services = extension_services.active_services();
+
+    let unique_service_ids: HashSet<_> = active_services
+        .iter()
+        .map(|config| config.service_id)
+        .collect();
+    if unique_service_ids.len() != active_services.len() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "duplicate extension services in configuration. only one version of each service is allowed. (machine {machine_id})"
+        )));
+    }
+
+    for config in &active_services {
+        let service = services.get(&config.service_id).ok_or_else(|| {
+            CarbideError::FailedPrecondition(format!(
+                "extension service {} does not exist",
+                config.service_id,
+            ))
+        })?;
+
+        // A service type can only be attached to the host model able to
+        // reconcile it. DPF Helm services use DPUDevice labels and never reach
+        // the DPU agent; Kubernetes Pod services are agent-only. The host flag
+        // is authoritative here: the site-wide DPF switch is enforced when a
+        // service is created, and no host can be DPF-managed without it.
+        match (is_dpf_managed_host, &service.service_type) {
+            (true, ExtensionServiceType::KubernetesPod) => {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "DPU extension services are not supported on DPF-managed host {machine_id}"
+                )));
+            }
+            (false, ExtensionServiceType::DpfHelmChart) => {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "DPF helm chart extension services require a DPF-managed host {machine_id}"
+                )));
+            }
+            _ => {}
+        }
+
+        // A DPF Helm chart service is only reconcilable while its DPUService
+        // exists. Attachments made before it left Ready stay valid so that a
+        // detach is not blocked by the state it is being detached for.
+        if service.service_type == ExtensionServiceType::DpfHelmChart
+            && !existing_active_service_ids.contains(&config.service_id)
+            && service.status.controller_state.value != ExtensionServiceLifecycleState::Ready
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "DPF helm chart extension service {} can only be attached while ready; current state is {:?}",
+                config.service_id, service.status.controller_state.value,
+            )));
+        }
+
+        if !versions
+            .get(&config.service_id)
+            .is_some_and(|service_versions| service_versions.contains(&config.version))
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "extension service {} version {} does not exist or is deleted",
+                config.service_id, config.version,
+            )));
+        }
+    }
+
+    let mut has_dpf_helm_chart = false;
+    let mut has_kubernetes_pod = false;
+    for config in &extension_services.service_configs {
+        // Every referenced service is expected to resolve: deleting one is
+        // refused while any live instance still lists it, terminating entries
+        // included. An unresolvable entry has no delivery path to account for
+        // rather than being worth panicking over.
+        match services
+            .get(&config.service_id)
+            .map(|service| &service.service_type)
+        {
+            Some(ExtensionServiceType::KubernetesPod) => has_kubernetes_pod = true,
+            Some(ExtensionServiceType::DpfHelmChart) => has_dpf_helm_chart = true,
+            None => {}
+        }
+    }
+    if has_dpf_helm_chart && has_kubernetes_pod {
+        return Err(CarbideError::FailedPrecondition(
+            "DPF helm chart and kubernetes pod extension services cannot be attached to the same instance"
+                .to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn not_allocatable_error(machine_id: MachineId, reason: NotAllocatableReason) -> CarbideError {
     match reason {
         NotAllocatableReason::InvalidState(state) => CarbideError::InvalidArgument(format!(
@@ -1772,14 +1906,6 @@ pub(crate) async fn batch_allocate_instances(
             }
             return Err(not_allocatable_error(machine_id, e));
         }
-
-        if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
-            && !request.config.extension_services.service_configs.is_empty()
-        {
-            return Err(CarbideError::FailedPrecondition(format!(
-                "DPU extension services are not supported on DPF-managed host {machine_id}"
-            )));
-        }
     }
 
     // ==== Phase 5: Validate shared resources ====
@@ -1814,62 +1940,30 @@ pub(crate) async fn batch_allocate_instances(
         }
     }
 
-    // Collect all unique extension service configs for validation
-    let all_service_configs: Vec<_> = requests
+    // Collect every requested service ID before resolving them while their
+    // service and version rows are locked.
+    let service_ids = requests
         .iter()
-        .flat_map(|r| r.config.extension_services.service_configs.iter())
-        .collect();
+        .flat_map(|request| request.config.extension_services.service_configs.iter())
+        .map(|service| service.service_id)
+        .unique()
+        .collect_vec();
 
-    if !all_service_configs.is_empty() {
-        // Validate no duplicate service IDs within each request
+    if !service_ids.is_empty() {
+        let (services, versions) = load_extension_services(&mut txn, &service_ids).await?;
+
         for request in &requests {
-            let service_ids: Vec<_> = request
-                .config
-                .extension_services
-                .service_configs
-                .iter()
-                .map(|s| s.service_id)
-                .collect();
-            let unique_service_ids: HashSet<_> = service_ids.iter().collect();
-            if service_ids.len() != unique_service_ids.len() {
-                return Err(CarbideError::InvalidArgument(format!(
-                    "duplicate extension services in configuration. only one version of each service is allowed. (machine {})",
-                    request.machine_id
-                )));
-            }
-        }
-
-        // Collect all unique service IDs across all requests
-        let unique_service_ids: Vec<_> = all_service_configs
-            .iter()
-            .map(|s| s.service_id)
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-
-        // Batch query all extension services
-        let services =
-            extension_service::find_versions_by_service_ids(&mut txn, &unique_service_ids, true)
-                .await?;
-
-        // Validate each service config
-        for service in all_service_configs {
-            if !services.contains_key(&service.service_id) {
-                return Err(CarbideError::FailedPrecondition(format!(
-                    "extension service {} does not exist",
-                    service.service_id,
-                )));
-            }
-            if !services
-                .get(&service.service_id)
-                .unwrap()
-                .contains(&service.version)
-            {
-                return Err(CarbideError::FailedPrecondition(format!(
-                    "extension service {} version {} does not exist or is deleted",
-                    service.service_id, service.version,
-                )));
-            }
+            let mh_snapshot = snapshot_map
+                .get(&request.machine_id)
+                .expect("requested managed-host snapshot was validated above");
+            validate_instance_extension_services(
+                request.machine_id,
+                mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
+                &request.config.extension_services,
+                &services,
+                &versions,
+                &HashSet::new(),
+            )?;
         }
     }
 

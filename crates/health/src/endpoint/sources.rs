@@ -40,6 +40,7 @@ use crate::metrics::BmcLatencyMetrics;
 fn parse_static_nvlink_domain_uuid(
     value: Option<&str>,
     endpoint_kind: &str,
+    rack_id: Option<&str>,
 ) -> Option<NvLinkDomainId> {
     value.and_then(|value| match NvLinkDomainId::from_str(value) {
         Ok(domain_uuid) => Some(domain_uuid),
@@ -47,6 +48,7 @@ fn parse_static_nvlink_domain_uuid(
             tracing::warn!(
                 ?error,
                 nvlink_domain_uuid = ?value,
+                rack_id = rack_id.map(tracing::field::display),
                 "Invalid {endpoint_kind}.nvlink_domain_uuid in static endpoint config"
             );
 
@@ -100,6 +102,7 @@ impl StaticEndpointSource {
                     tracing::warn!(
                         ?error,
                         bmc_mac_address = ?cfg.mac,
+                        rack_id = cfg.rack_id.as_deref().map(tracing::field::display),
                         "Invalid MAC in static endpoint config"
                     );
                     continue;
@@ -113,6 +116,7 @@ impl StaticEndpointSource {
                         tracing::warn!(
                             ?error,
                             power_shelf_id = ?id,
+                            rack_id = cfg.rack_id.as_deref().map(tracing::field::display),
                             "Invalid power_shelf.id in static endpoint config"
                         );
                         None
@@ -132,6 +136,7 @@ impl StaticEndpointSource {
                         tracing::warn!(
                             ?error,
                             switch_id = ?id,
+                            rack_id = cfg.rack_id.as_deref().map(tracing::field::display),
                             "Invalid switch.id in static endpoint config"
                         );
                         None
@@ -143,9 +148,12 @@ impl StaticEndpointSource {
                     .or_else(|| switch.id.clone())
                     .unwrap_or_else(|| cfg.mac.clone());
 
-                let nvlink_domain_uuid =
-                    parse_static_nvlink_domain_uuid(switch.nvlink_domain_uuid.as_deref(), "switch")
-                        .filter(|domain_uuid| domain_uuid != &NvLinkDomainId::nil());
+                let nvlink_domain_uuid = parse_static_nvlink_domain_uuid(
+                    switch.nvlink_domain_uuid.as_deref(),
+                    "switch",
+                    cfg.rack_id.as_deref(),
+                )
+                .filter(|domain_uuid| domain_uuid != &NvLinkDomainId::nil());
 
                 let endpoint_role = match switch.endpoint_role {
                     StaticSwitchEndpointRole::Bmc => SwitchEndpointRole::Bmc,
@@ -170,7 +178,13 @@ impl StaticEndpointSource {
                 let machine_id = machine.id.as_deref().and_then(|id| match id.parse() {
                     Ok(machine_id) => Some(machine_id),
                     Err(error) => {
-                        tracing::warn!(?error, ?id, "Invalid machine.id in static endpoint config");
+                        tracing::warn!(
+                            ?error,
+                            ?id,
+                            rack_id = cfg.rack_id.as_deref().map(tracing::field::display),
+                            "Invalid machine.id in static endpoint config"
+                        );
+
                         None
                     }
                 });
@@ -178,6 +192,7 @@ impl StaticEndpointSource {
                 let nvlink_domain_uuid = parse_static_nvlink_domain_uuid(
                     machine.nvlink_domain_uuid.as_deref(),
                     "machine",
+                    cfg.rack_id.as_deref(),
                 );
 
                 let driver_version = machine
@@ -231,6 +246,7 @@ impl StaticEndpointSource {
                     tracing::warn!(
                         ?error,
                         bmc_address = ?addr,
+                        rack_id = rack_id.as_ref().map(tracing::field::display),
                         "Failed to construct BmcClient for static endpoint"
                     );
                     continue;

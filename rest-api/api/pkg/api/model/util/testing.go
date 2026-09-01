@@ -113,18 +113,18 @@ autoinstall:
 var TestCommonPhoneHomeSegment = `
 phone_home:
   empty_key_for_validation:
-  url: http://169.254.169.254:7777/latest/meta-data/phone_home
+  url: http://169.254.169.254/latest/meta-data/phone_home
   post: all`
 
 var TestCommonPhoneHomeCloudInit = `#cloud-config
 package_update: true
 phone_home:
-  url: http://169.254.169.254:7777/latest/meta-data/phone_home #TestCommonPhoneHomeCloudInit
+  url: http://169.254.169.254/latest/meta-data/phone_home #TestCommonPhoneHomeCloudInit
   post: all`
 
 var TestCommonPhoneHomeOnlyCloudInit = `#cloud-config
 phone_home:
-  url: http://169.254.169.254:7777/latest/meta-data/phone_home
+  url: http://169.254.169.254/latest/meta-data/phone_home
   post: all`
 
 var TestCommonXMLUserData = `<?xml version="1.0" encoding="UTF-8"?>

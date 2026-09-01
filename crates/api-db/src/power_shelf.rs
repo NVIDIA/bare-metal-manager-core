@@ -125,6 +125,7 @@ pub async fn create(
         deleted: None,
         bmc_mac_address: new_power_shelf.bmc_mac_address,
         bmc_credential_rotation_requested: false,
+        decommission_requested: false,
         bmc_info: None,
         controller_state: Versioned {
             value: state,
@@ -337,6 +338,37 @@ pub async fn set_power_shelf_maintenance_requested(
         .await
         .map_err(|e| DatabaseError::new("set_power_shelf_maintenance_requested", e))?;
     Ok(())
+}
+
+/// Records a request to start decommissioning when the power shelf is Ready.
+pub async fn set_decommission_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    const QUERY: &str =
+        "UPDATE power_shelves SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(QUERY)
+        .bind(power_shelf_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("set_decommission_requested", error))
+}
+
+pub async fn clear_decommission_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    const QUERY: &str = "UPDATE power_shelves
+        SET decommission_requested = FALSE
+        WHERE id = $1
+        RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(QUERY)
+        .bind(power_shelf_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("clear_decommission_requested", error))
 }
 
 pub async fn clear_power_shelf_maintenance_requested(
@@ -1220,6 +1252,22 @@ mod tests {
         clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;
         let reloaded = find_by_id(&mut txn, &shelf.id).await?.unwrap();
         assert!(reloaded.power_shelf_maintenance_requested.is_none());
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_set_decommission_requested(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let shelf = create_seeded(&mut txn, 6, "Decommission request shelf").await?;
+
+        set_decommission_requested(&mut txn, shelf.id).await?;
+        let reloaded = find_by_id(&mut txn, &shelf.id)
+            .await?
+            .expect("power shelf should still exist");
+        assert!(reloaded.decommission_requested);
 
         Ok(())
     }

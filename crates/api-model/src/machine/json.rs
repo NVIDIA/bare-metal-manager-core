@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::bmc_info::BmcInfo;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::hardware_info::{MachineInventory, MachineNvLinkInfo};
+use crate::instance::status::extension_service::InstanceExtensionServiceStatusObservationByType;
 use crate::machine::health_override::HealthReportSources;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
@@ -68,6 +69,8 @@ pub struct MachineSnapshotPgJson {
     pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
     pub spx_status_observation: Option<MachineSpxStatusObservation>,
+    #[serde(default)]
+    pub extension_service_status_observations: InstanceExtensionServiceStatusObservationByType,
     pub controller_state_version: String,
     pub controller_state: ManagedHostState,
     pub last_discovery_time: Option<DateTime<Utc>>,
@@ -86,6 +89,9 @@ pub struct MachineSnapshotPgJson {
     pub bmc_credential_rotation_requested: bool,
     #[serde(default)]
     pub uefi_credential_rotation_requested: bool,
+    /// is there a forced NIC lockdown rotation requested for this host
+    #[serde(default)]
+    pub lockdown_ikm_credential_rotation_requested: bool,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -367,6 +373,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
                 infiniband_status_observation: value.infiniband_status_observation,
                 nvlink_status_observation: value.nvlink_status_observation,
                 spx_status_observation: value.spx_status_observation,
+                extension_service_status_observations: value.extension_service_status_observations,
                 slot_number: value.slot_number,
                 tray_index: value.tray_index,
                 power_options: value.power_options,
@@ -389,6 +396,8 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             decommission_requested: value.decommission_requested,
             bmc_credential_rotation_requested: value.bmc_credential_rotation_requested,
             uefi_credential_rotation_requested: value.uefi_credential_rotation_requested,
+            lockdown_ikm_credential_rotation_requested: value
+                .lockdown_ikm_credential_rotation_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }

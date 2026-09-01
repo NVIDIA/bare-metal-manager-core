@@ -1181,11 +1181,6 @@ mod tests {
     use crate::weave_ew_vpc_client::proto::state::Phase as WeaveEwVpcPhase;
     use crate::weave_ew_vpc_client::proto::{self, State};
 
-    #[ctor::ctor(unsafe)]
-    fn setup() {
-        carbide_host_support::init_logging("nico-dpu-agent").unwrap();
-    }
-
     #[derive(Default)]
     struct RecordedWeaveEwVpcCalls {
         list_virtual_networks: usize,

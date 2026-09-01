@@ -66,6 +66,7 @@ pub(super) mod mlx_admin;
 pub(super) mod network_devices;
 pub(super) mod network_security_group;
 pub(super) mod network_segment;
+pub(super) mod nic_lockdown_credential_rotation;
 pub(super) mod nmxc_browse;
 pub(super) mod nvl_partition;
 pub(super) mod nvlink_domain;
@@ -107,10 +108,22 @@ pub(crate) async fn resolve_machine_interface_for_test(
     client_resolution::resolve_machine_interface(conn, client_ip).await
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) async fn process_scout_req_for_test(
     api: &crate::Api,
     machine_id: carbide_uuid::machine::MachineId,
 ) -> crate::CarbideResult<rpc::forge_agent_control_response::Action> {
     svpc::process_scout_req(api, machine_id).await
+}
+
+/// Exposes the private scout update path to crate-level database race tests.
+#[cfg(test)]
+pub(crate) async fn update_primary_interface_from_scout_for_test(
+    api: &crate::Api,
+    machine_id: carbide_uuid::machine::StableHostMachineId,
+    hardware_info: &model::hardware_info::HardwareInfo,
+) -> crate::CarbideResult<bool> {
+    primary_interface::update_primary_interface_from_scout(api, machine_id, hardware_info)
+        .await
+        .map(|update| update.reconciliation_needed)
 }

@@ -408,6 +408,8 @@ func newTaskForRack(req *operation.Request, targetRack *rack.Rack) taskdef.Task 
 		ExecutorType:   taskcommon.ExecutorTypeUnknown,
 		ExecutionID:    "",
 		IdempotencyKey: req.IdempotencyKey,
+		TriggerType:    req.TriggerType,
+		TriggerID:      req.TriggerID,
 	}
 }
 

@@ -22,6 +22,7 @@ use std::net::{IpAddr, SocketAddr};
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc};
 use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
+use carbide_secrets::SecretsError;
 use carbide_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialReader, CredentialType,
     Credentials, NicLockdownIkm,
@@ -102,12 +103,11 @@ pub(crate) async fn create_credential(
                         },
                     )
                     .await
-                    .map_err(|e| {
-                        CarbideError::internal(format!(
-                            "error setting credential for ufm {}: {:?} ",
-                            username.clone(),
-                            e
-                        ))
+                    .map_err(|error| {
+                        map_ufm_credential_mutation_error(
+                            format!("error setting credential for ufm {username}"),
+                            error,
+                        )
                     })?;
             } else if req.username.is_none() && password.is_empty() && req.vendor.is_some() {
                 write_ufm_certs(api, req.vendor.unwrap_or_default()).await?;
@@ -348,12 +348,11 @@ pub(crate) async fn delete_credential(
                         },
                     )
                     .await
-                    .map_err(|e| {
-                        CarbideError::internal(format!(
-                            "error deleting credential for ufm {}: {:?} ",
-                            username.clone(),
-                            e
-                        ))
+                    .map_err(|error| {
+                        map_ufm_credential_mutation_error(
+                            format!("error deleting credential for ufm {username}"),
+                            error,
+                        )
                     })?;
             } else {
                 return Err(CarbideError::InvalidArgument("missing UFM url".to_string()).into());
@@ -404,6 +403,15 @@ pub(crate) async fn delete_credential(
     };
 
     Ok(Response::new(rpc::CredentialDeletionResult {}))
+}
+
+fn map_ufm_credential_mutation_error(context: String, error: SecretsError) -> CarbideError {
+    match error {
+        error @ SecretsError::UfmCredentialMutationBlocked { .. } => {
+            CarbideError::FailedPrecondition(error.to_string())
+        }
+        error => CarbideError::internal(format!("{context}: {error:?}")),
+    }
 }
 
 pub(crate) async fn update_machine_credentials(
@@ -623,7 +631,7 @@ async fn set_sitewide_bmc_root_credentials(
 async fn set_sitewide_nic_lockdown_ikm(api: &Api, password: String) -> Result<(), CarbideError> {
     let credential_key = CredentialKey::NicLockdownIkm {
         credential_type: NicLockdownIkm::SiteWide {
-            version: crate::dpa::lockdown::CURRENT_LOCKDOWN_IKM_VERSION,
+            version: crate::dpa::lockdown::SEED_LOCKDOWN_IKM_VERSION,
         },
     };
 

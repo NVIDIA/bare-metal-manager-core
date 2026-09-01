@@ -14,6 +14,12 @@ import (
 // in which the app is running.
 type RunInEnvironment int
 
+// DefaultMetricsNamespace prefixes every metric the Site Agent exposes and
+// matches its nico-rest-site-agent Helm service name. Operators override it with
+// METRICS_NAMESPACE, which the config manager resolves once so the six manager
+// packages that declare metrics all read the same value.
+const DefaultMetricsNamespace = "nico_rest_site_agent"
+
 const (
 	// RunningInUnknown - Running In Unknown Env
 	RunningInUnknown RunInEnvironment = iota
@@ -108,6 +114,7 @@ type Config struct {
 	PodNamespace     string        `json:"podNamespace"`
 	TemporalSecret   string        `json:"temporalSecret"`
 	MetricsPort      string        `json:"metricsPort"`
+	MetricsNamespace string        `json:"metricsNamespace"`
 	SiteVersion      string        `json:"siteVersion"`
 	CloudVersion     string        `json:"cloudVersion"`
 	RunningIn        RunInEnvironment

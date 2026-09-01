@@ -20,30 +20,28 @@ type TaskManager interface {
 	SubmitTask(context.Context, *operation.Request) ([]uuid.UUID, error)
 }
 
-// TaskExecutor submits one idempotent task per persisted rack target. The
-// execution-task association remains temporary until generic task trigger
-// provenance is introduced.
+// TaskExecutor submits one idempotent task per persisted rack target.
 type TaskExecutor struct {
-	manager      TaskManager
-	associations eventrule.ExecutionTaskStore
+	manager TaskManager
 }
 
-// Execute submits every unrecorded rack target from the immutable plan.
+// Execute submits every rack target from the immutable plan. The task manager
+// returns the existing task when a retry repeats an idempotency key.
 func (e *TaskExecutor) Execute(ctx context.Context, request ExecutionRequest) error {
-	if e == nil || e.manager == nil || e.associations == nil {
-		return terminalError(fmt.Errorf("task manager and execution task store are required"))
+	if e == nil || e.manager == nil {
+		return terminalError(fmt.Errorf("task manager is required"))
 	}
 
-	plan, ok := request.Execution.Plan.(*eventrule.SubmitTaskPlan)
+	plan, ok := request.Plan.(*eventrule.SubmitTaskPlan)
 	if !ok || plan == nil {
 		return terminalError(fmt.Errorf(
 			"task executor received plan %T",
-			request.Execution.Plan,
+			request.Plan,
 		))
 	}
 
 	for _, target := range plan.Targets {
-		if err := e.submitTarget(ctx, *request.Execution, plan, target); err != nil {
+		if err := e.submitTarget(ctx, request.ExecutionID, plan, target); err != nil {
 			return err
 		}
 	}
@@ -53,24 +51,11 @@ func (e *TaskExecutor) Execute(ctx context.Context, request ExecutionRequest) er
 
 func (e *TaskExecutor) submitTarget(
 	ctx context.Context,
-	execution eventrule.Execution,
+	executionID uuid.UUID,
 	plan *eventrule.SubmitTaskPlan,
 	target operation.RackExecutionTarget,
 ) error {
-	associated, err := e.associations.GetExecutionTask(ctx, execution.ID, target.RackID)
-	if err != nil {
-		return retryableError("load execution task association", err)
-	}
-
-	if associated != nil {
-		if err := validateTaskAssociation(associated, execution.ID, target.RackID); err != nil {
-			return terminalError(err)
-		}
-
-		return nil
-	}
-
-	request, err := operationRequest(execution.ID, plan, target)
+	request, err := operationRequest(executionID, plan, target)
 	if err != nil {
 		return terminalError(err)
 	}
@@ -82,53 +67,6 @@ func (e *TaskExecutor) submitTarget(
 
 	if len(taskIDs) != 1 || taskIDs[0] == uuid.Nil {
 		return terminalError(errors.New("task submission did not return exactly one valid task id"))
-	}
-
-	requested := eventrule.ExecutionTask{
-		ExecutionID: execution.ID,
-		RackID:      target.RackID,
-		TaskID:      taskIDs[0],
-	}
-
-	associated, err = e.associations.CreateExecutionTask(ctx, requested)
-	if err != nil {
-		return retryableError("persist execution task association", err)
-	}
-
-	if associated == nil {
-		return terminalError(errors.New("execution task store returned a nil association"))
-	}
-
-	if err := validateTaskAssociation(associated, execution.ID, target.RackID); err != nil {
-		return terminalError(err)
-	}
-
-	if associated.TaskID != requested.TaskID {
-		return terminalError(fmt.Errorf(
-			"execution task association returned task %s, submitted task was %s",
-			associated.TaskID,
-			requested.TaskID,
-		))
-	}
-
-	return nil
-}
-
-func validateTaskAssociation(
-	association *eventrule.ExecutionTask,
-	executionID uuid.UUID,
-	rackID uuid.UUID,
-) error {
-	if err := association.Validate(); err != nil {
-		return fmt.Errorf("invalid execution task association: %w", err)
-	}
-
-	if association.ExecutionID != executionID || association.RackID != rackID {
-		return fmt.Errorf(
-			"execution task association identity does not match execution %s rack %s",
-			executionID,
-			rackID,
-		)
 	}
 
 	return nil
@@ -152,6 +90,8 @@ func operationRequest(
 		ConflictStrategy: plan.ConflictStrategy,
 		RuleID:           operations.ExtractRuleID(plan.Operation.Info),
 		RequiredRackID:   target.RackID,
+		TriggerType:      operation.TriggerTypeEventRuleExecution,
+		TriggerID:        &executionID,
 		IdempotencyKey:   taskIdempotencyKey(executionID, target.RackID),
 	}
 

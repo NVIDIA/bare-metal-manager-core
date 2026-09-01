@@ -24,6 +24,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use carbide_extension_service_controller::context::ExtensionServiceStateHandlerServices;
+use carbide_extension_service_controller::handler::ExtensionServiceStateHandler;
+use carbide_extension_service_controller::io::ExtensionServiceStateControllerIO;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::IBFabricManagerImpl;
 use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
@@ -45,9 +48,6 @@ use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
 use carbide_nvlink_manager::{
     NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
 };
-use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
-use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
-use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_rack::rms_client::test_support::RmsSim;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
@@ -100,15 +100,12 @@ use model::machine::{
 };
 use model::metadata::Metadata;
 use model::network_security_group;
-use model::rack_type::{
-    RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
-};
+use model::rack_type::{RackProfile, RackProfileConfig};
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
 use model::test_support::dpu::{DPU_BF3_INFO_JSON, DPU_BF4_INFO_JSON};
-use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
+use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig, rms_rack_profiles};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -282,8 +279,8 @@ pub(crate) struct TestEnv {
     pub(in crate::tests) machine_state_handler: SwapHandler<MachineStateHandler>,
     network_segment_controller: Arc<Mutex<StateController<NetworkSegmentStateControllerIO>>>,
     vpc_prefix_controller: Arc<Mutex<StateController<VpcPrefixStateControllerIO>>>,
+    extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
-    power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
     switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub(in crate::tests) reachability_params: ReachabilityParams,
@@ -348,6 +345,13 @@ impl TestEnv {
             ),
             dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                 db::credential_rotation::CredentialRotationType::DpuUefi,
+            ),
+            dpu_bmc_service_rotation_gate:
+                carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::DpuBmcService,
+                ),
+            nic_lockdown_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::LockdownIkm,
             ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
@@ -455,6 +459,7 @@ impl TestEnv {
                 retry_count,
             },
             ManagedHostState::DPUReprovision { .. } => state.clone(),
+            ManagedHostState::ConfigureAstra { .. } => state.clone(),
             ManagedHostState::Measuring { .. } => state.clone(),
             ManagedHostState::PostAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
@@ -464,6 +469,7 @@ impl TestEnv {
             ManagedHostState::RotatingHostUefi { .. } => state.clone(),
             ManagedHostState::Decommissioning { .. } => state.clone(),
             ManagedHostState::RotatingDpuUefi { .. } => state.clone(),
+            ManagedHostState::RotatingNicLockdown => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
@@ -606,6 +612,17 @@ impl TestEnv {
             .await;
     }
 
+    /// Runs one periodic-scan and processor iteration of the extension-service
+    /// state controller with the services in this test environment.
+    pub(in crate::tests) async fn run_extension_service_controller_iteration(&self) {
+        self.extension_service_controller
+            .lock()
+            .await
+            .run_single_iteration()
+            .boxed()
+            .await;
+    }
+
     /// Runs one iteration of the SPDM state controller handler with the services
     /// in this test environment
     pub(in crate::tests) async fn run_spdm_controller_iteration(&self) {
@@ -637,17 +654,6 @@ impl TestEnv {
             .await
             .run_single_iteration()
             .boxed()
-            .await;
-    }
-
-    /// Runs one iteration of the power shelf state controller handler with the services
-    /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
-    pub(in crate::tests) async fn run_power_shelf_controller_iteration(&self) {
-        self.power_shelf_controller
-            .lock()
-            .await
-            .run_single_iteration()
             .await;
     }
 
@@ -1042,41 +1048,12 @@ pub(in crate::tests) fn get_config() -> CarbideConfig {
     default_config::get()
 }
 
-/// Rack profile ID used by RMS-ready test fixtures.
-pub(in crate::tests) const TEST_RMS_RACK_PROFILE_ID: &str = "NVL72";
+pub(in crate::tests) use model::test_support::TEST_RMS_RACK_PROFILE_ID;
 
 /// Returns the default test config plus an RMS-ready NVL72 rack profile.
 pub(in crate::tests) fn get_config_with_rack_profiles() -> CarbideConfig {
     let mut config = get_config();
-    config.rack_profiles = RackProfileConfig {
-        rack_profiles: [(
-            TEST_RMS_RACK_PROFILE_ID.to_string(),
-            RackProfile {
-                product_family: Some(RackProductFamily::Gb200),
-                rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
-                rack_capabilities: RackCapabilitiesSet {
-                    compute: RackCapabilityCompute {
-                        count: 18,
-                        vendor: Some("NVIDIA".to_string()),
-                        ..Default::default()
-                    },
-                    switch: RackCapabilitySwitch {
-                        count: 9,
-                        vendor: Some("NVIDIA".to_string()),
-                        ..Default::default()
-                    },
-                    power_shelf: RackCapabilityPowerShelf {
-                        count: 8,
-                        vendor: Some("LiteOn".to_string()),
-                        ..Default::default()
-                    },
-                },
-                ..Default::default()
-            },
-        )]
-        .into_iter()
-        .collect(),
-    };
+    config.rack_profiles = rms_rack_profiles();
 
     config
 }
@@ -1558,6 +1535,14 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                 dpu_uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 ),
+                dpu_bmc_service_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::DpuBmcService,
+                    ),
+                nic_lockdown_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::LockdownIkm,
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,
             }
@@ -1655,28 +1640,20 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build VpcPrefixStateController");
 
-    let power_shelf_controller = StateController::builder()
+    let extension_service_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
-        .meter("carbide_power_shelves", test_meter.meter())
+        .meter("carbide_extension_services", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
-            PowerShelfStateHandlerServices {
+            ExtensionServiceStateHandlerServices {
                 db_pool: db_pool.clone(),
-                component_manager: test_component_manager.clone(),
-                credential_manager: credential_manager.clone(),
-                per_object_metrics_registry: per_object_metrics_registry.clone(),
-                rack_firmware_reprovisioning_enabled: false,
-                redfish_client_pool: redfish_sim.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
-                    db::credential_rotation::CredentialRotationType::Bmc,
-                ),
-                bmc_rotation_enabled: false,
+                dpf_sdk: api.dpf_sdk.clone(),
             }
             .into(),
         )
-        .state_handler(Arc::new(PowerShelfStateHandler::default()))
+        .state_handler(Arc::new(ExtensionServiceStateHandler))
         .build_for_manual_iterations(cancel_token.clone())
-        .expect("Unable to build PowerShelfStateController");
+        .expect("Unable to build ExtensionServiceStateController");
 
     let switch_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
@@ -1852,7 +1829,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
-        power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
+        extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),
         rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,
         attestation_enabled,

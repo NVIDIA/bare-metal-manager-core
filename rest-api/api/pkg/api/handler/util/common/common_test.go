@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
@@ -357,6 +358,7 @@ func TestGetInfrastructureProviderForOrg(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func TestGRPCStatusMessage(t *testing.T) {
@@ -515,6 +517,7 @@ func TestGetTenantForOrg(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 func TestGetTenantFromTenantIDOrOrg(t *testing.T) {
@@ -1047,6 +1050,13 @@ func TestGetUnallocatedMachineForInstanceType(t *testing.T) {
 
 		mc := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cutil.GetPtr(inst1.ID), uuid.New(), nil, nil, nil, mcStatus)
 		assert.NotNil(t, mc)
+		if i == 21 || i == 22 {
+			_, err := cdbm.NewMachineDAO(dbSession).Update(ctx, nil, cdbm.MachineUpdateInput{
+				MachineID: mc.ID,
+				Labels:    map[string]string{"failure-domain": "fd-a"},
+			})
+			assert.NoError(t, err)
+		}
 
 		mit := testCommonBuildMachineInstanceType(t, dbSession, mc.ID, inst1.ID)
 		assert.NotNil(t, mit)
@@ -1055,8 +1065,25 @@ func TestGetUnallocatedMachineForInstanceType(t *testing.T) {
 	tests := []struct {
 		name         string
 		instancetype *cdbm.InstanceType
+		request      *cam.APIInstanceCreateRequest
 		expectErr    bool
 	}{
+		{
+			name:         "error when no Machine matches label selector",
+			instancetype: inst1,
+			request: &cam.APIInstanceCreateRequest{
+				MachineLabelSelector: map[string]string{"failure-domain": "missing"},
+			},
+			expectErr: true,
+		},
+		{
+			name:         "success when Machine matches all label selector",
+			instancetype: inst1,
+			request: &cam.APIInstanceCreateRequest{
+				MachineLabelSelector: map[string]string{"failure-domain": "fd-a"},
+			},
+			expectErr: false,
+		},
 		{
 			name:         "success when machine and machine instance type exists",
 			instancetype: inst1,
@@ -1070,13 +1097,85 @@ func TestGetUnallocatedMachineForInstanceType(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s, err := GetUnallocatedMachineForInstanceType(ctx, zerolog.Nop(), tx, dbSession, tc.instancetype, nil)
+			s, err := GetUnallocatedMachineForInstanceType(ctx, zerolog.Nop(), tx, dbSession, tc.instancetype, tc.request)
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err == nil {
 				assert.NotNil(t, s)
+				if tc.request != nil {
+					assert.True(t, s.MatchesLabelSelector(tc.request.MachineLabelSelector))
+				}
 			}
 		})
 	}
+
+	t.Run("rechecks labels after a concurrent update", func(t *testing.T) {
+		concurrentInstanceType := testCommonBuildInstanceType(t, dbSession, "concurrent-label-update", site1, ip, tnuser)
+		machine := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, cutil.GetPtr(concurrentInstanceType.ID), uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
+		_, err := cdbm.NewMachineDAO(dbSession).Update(ctx, nil, cdbm.MachineUpdateInput{
+			MachineID: machine.ID,
+			Labels:    map[string]string{"failure-domain": "fd-a"},
+		})
+		require.NoError(t, err)
+		testCommonBuildMachineInstanceType(t, dbSession, machine.ID, concurrentInstanceType.ID)
+
+		labelTx, err := cdb.BeginTx(ctx, dbSession, nil)
+		require.NoError(t, err)
+		_, err = cdbm.NewMachineDAO(dbSession).Update(ctx, labelTx, cdbm.MachineUpdateInput{
+			MachineID: machine.ID,
+			Labels:    map[string]string{"failure-domain": "fd-b"},
+		})
+		require.NoError(t, err)
+
+		allocationTx, err := cdb.BeginTx(ctx, dbSession, nil)
+		require.NoError(t, err)
+		labelTxFinished := false
+		defer func() {
+			if !labelTxFinished {
+				assert.NoError(t, labelTx.Rollback())
+			}
+			require.NoError(t, allocationTx.Rollback())
+		}()
+		var allocationBackendPID int
+		err = allocationTx.GetBunTx().NewSelect().ColumnExpr("pg_backend_pid()").Scan(ctx, &allocationBackendPID)
+		require.NoError(t, err)
+
+		type allocationResult struct {
+			machine *cdbm.Machine
+			err     error
+		}
+		resultCh := make(chan allocationResult, 1)
+		go func() {
+			selected, selectionErr := GetUnallocatedMachineForInstanceType(
+				ctx,
+				zerolog.Nop(),
+				allocationTx,
+				dbSession,
+				concurrentInstanceType,
+				&cam.APIInstanceCreateRequest{MachineLabelSelector: map[string]string{"failure-domain": "fd-a"}},
+			)
+			resultCh <- allocationResult{machine: selected, err: selectionErr}
+		}()
+
+		require.Eventually(t, func() bool {
+			var waitEventType string
+			queryErr := dbSession.DB.QueryRowContext(ctx, `
+				SELECT COALESCE(wait_event_type, '')
+				FROM pg_catalog.pg_stat_activity
+				WHERE pid = ?
+			`, allocationBackendPID).Scan(&waitEventType)
+			return queryErr == nil && waitEventType == "Lock"
+		}, 5*time.Second, 10*time.Millisecond, "Machine selection did not wait for the concurrent label update")
+
+		require.NoError(t, labelTx.Commit())
+		labelTxFinished = true
+		select {
+		case result := <-resultCh:
+			require.Nil(t, result.machine)
+			require.Error(t, result.err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Machine selection did not resume after the concurrent label update committed")
+		}
+	})
 }
 
 func TestGetSiteMachineCountStats(t *testing.T) {

@@ -98,7 +98,7 @@ make test-workflow
 make test-auth
 make test-common
 make test-cert-manager
-make test-site-agent        # requires mock gRPC servers
+make test-site-agent        # starts mock Core and Flow gRPC servers first
 make test-site-manager
 make test-site-workflow
 make test-ipam
@@ -112,6 +112,20 @@ make migrate                # run database migrations against test DB
 
 Tests require a PostgreSQL container (postgres:14.4-alpine) on port 30432.
 The Makefile manages this automatically via `ensure-postgres`.
+
+Use these targets rather than calling `go test` yourself, because they start what the tests
+need and skipping that setup does not fail fast:
+
+- `make test-site-agent` starts mock Core and Flow gRPC servers. Without them the
+  `site-agent/pkg/components` tests retry the connection on a `40s` backoff until the `10m`
+  test timeout, so a bare `go test ./site-agent/...` looks like a hang rather than an error.
+  That target also scopes to `site-agent/pkg/components` and sets `CGO_ENABLED=1` for `-race`,
+  so it is not the same package set or the same build.
+- `test-api`, `test-auth`, `test-db`, `test-flow`, `test-ipam`, `test-nvswitch-manager`,
+  `test-powershelf-manager`, and `test-workflow` call `ensure-postgres` first.
+- Every Postgres-backed package resets the schema, so packages running in parallel drop and
+  recreate the same tables and fail in `TestSetupSchema`. Pass `-p 1` whenever you do run
+  `go test` against more than one of them directly.
 
 ### Linting and Formatting
 
@@ -250,6 +264,22 @@ verification expectations.
   arguments. If it's used only once or breaks the flow of reading the caller code,
   it is often better to keep the logic inline
 
+### Interactive CLI review checks
+
+- When an option consumes a separate value, test that another option token is
+  rejected instead of consumed as that value.
+- Propagate terminal restoration errors. Restore the terminal successfully
+  before starting another interactive selector. Return one non-nil error
+  unchanged. Use `errors.Join` only when the operation and restoration both
+  fail. Treat only a direct cancellation sentinel as successful so a joined
+  restoration failure propagates. Test normal PTY, cancellation, and
+  restoration-failure paths.
+- Table-test shell argument quoting with empty input, whitespace, quotes,
+  backslashes, control characters, non-ASCII text, and shell metacharacters.
+- When a mutation success message reads fields from a response object, reject
+  malformed JSON, `null`, empty objects, and missing display fields before
+  printing success.
+
 ### REST endpoints through the Core gRPC proxy
 
 When building or converting a REST endpoint that calls on-site NICo Core through
@@ -378,6 +408,8 @@ When registering a new route:
   same change. System and public discovery routes that are intentionally outside
   that surface are exempt. Keep operation IDs, summaries, handler constructors,
   handler godoc, and SDK-facing names aligned.
+- When an OpenAPI tag or operation ID changes, build the generated CLI command
+  tree and run the affected `nicocli ... --help` paths to catch alias collisions.
 
 Endpoint tests should follow the changed surface, not just compile it:
 
@@ -398,6 +430,9 @@ Endpoint tests should follow the changed surface, not just compile it:
   that transition.
 - Route tests and OpenAPI checks are part of the endpoint change; generated SDK
   updates belong in the same change only when the repo workflow requires them.
+- When one response model serves endpoints with different nullability
+  contracts, preserve each endpoint's schema in its constructor or use distinct
+  models. Test unavailable values at every affected response boundary.
 
 ### Prefer range-based iteration over C-style `for` loops
 
@@ -829,8 +864,8 @@ All commits **must** meet the following signing requirement:
 - Before requesting review for a Go change, run `make lint-go` and inspect its
   complete analyzer output. Its `golangci-lint` command uses
   `--issues-exit-code 0`, so a successful command does not mean the output is
-  clean. Run `go tool golangci-lint run <changed-packages>` without that
-  override and fix every finding in the changed package.
+  clean. Run `go tool golangci-lint run` with the changed Go package patterns
+  as arguments, without that override, and fix every finding in those packages.
 - When CLI flags override configuration, copy the complete configured object
   first and overlay only explicitly set flags. Test no override, one override,
   and unset configured fields so unrelated options cannot be discarded.

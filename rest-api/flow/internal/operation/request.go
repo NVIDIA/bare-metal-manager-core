@@ -102,6 +102,12 @@ type Request struct {
 	// IdempotencyKey, when set, makes submission create or return one task for
 	// this request. It is only valid for requests constrained to one rack.
 	IdempotencyKey string
+
+	// TriggerType and TriggerID identify the upstream resource that caused this
+	// request. Each supported trigger type defines whether an occurrence ID is
+	// required or prohibited.
+	TriggerType TriggerType
+	TriggerID   *uuid.UUID
 }
 
 func (r *Request) HasIdempotencyKey() bool {
@@ -123,6 +129,10 @@ func (r *Request) Validate() error {
 
 	if r.HasIdempotencyKey() && r.RequiredRackID == uuid.Nil {
 		return fmt.Errorf("idempotency key requires RequiredRackID")
+	}
+
+	if err := ValidateTrigger(r.TriggerType, r.TriggerID); err != nil {
+		return err
 	}
 
 	return nil

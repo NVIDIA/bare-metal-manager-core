@@ -183,6 +183,17 @@ impl EnvBuilder {
                 std::time::Duration::ZERO,
                 db::credential_rotation::CredentialRotationType::DpuUefi,
             ),
+            // Zero TTL for the same reason as the BMC gate above.
+            dpu_bmc_service_rotation_gate:
+                carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                    std::time::Duration::ZERO,
+                    db::credential_rotation::CredentialRotationType::DpuBmcService,
+                ),
+            nic_lockdown_rotation_gate:
+                carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                    std::time::Duration::ZERO,
+                    db::credential_rotation::CredentialRotationType::LockdownIkm,
+                ),
             per_object_metrics_registry,
             per_object_info: None,
         };

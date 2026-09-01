@@ -35,7 +35,6 @@ func EventTo(event *eventrule.Event) (*dbmodel.Event, error) {
 		Observations:    event.Observations,
 		CreatedAt:       event.CreatedAt,
 		LastObservedAt:  event.LastObservedAt,
-		PlannedAt:       event.PlannedAt,
 	}, nil
 }
 
@@ -62,9 +61,8 @@ func EventFrom(persisted *dbmodel.Event) (*eventrule.Event, error) {
 		EffectivePolicy: policy,
 		Summary:         persisted.Summary,
 		Observations:    persisted.Observations,
-		CreatedAt:       persisted.CreatedAt,
-		LastObservedAt:  persisted.LastObservedAt,
-		PlannedAt:       persisted.PlannedAt,
+		CreatedAt:       timeFromPersistence(persisted.CreatedAt),
+		LastObservedAt:  timeFromPersistence(persisted.LastObservedAt),
 	}
 
 	if err := event.Validate(); err != nil {

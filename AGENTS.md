@@ -137,6 +137,13 @@ no concrete answer, merge it into existing coverage or delete it.
 changes written by agents, the rules above for choosing cases replace its
 recommendation to enumerate every branch and input variant.
 
+For state-machine branch tests, reload persisted state after the controller
+iteration and assert the branch-owned fields or counters. An unchanged visible
+state or absence of an external action does not prove which branch ran.
+For retry tests, inject the claimed transient failure and assert that a later
+iteration retries it while preserving the expected externally visible state. A
+simulator's default unsupported response does not prove transient recovery.
+
 For user-visible CLI table changes, exercise the public command in a test and
 assert the rendered headers plus populated and empty cell values. Helper-only
 tests do not prove the table contract.
@@ -183,7 +190,7 @@ services. It delegates to cargo-make or `rest-api/Makefile`.
 make help                # default goal: list available targets
 make core/check-isolated-package-builds # optional independent default-feature builds
 make rest-build          # build rest-api Go binaries
-make rest-test           # run rest-api unit tests
+make rest-test           # run rest-api unit tests (starts Postgres and mock gRPC servers)
 make rest-lint           # lint rest-api
 make rest-fmt            # go fmt check on rest-api
 make rest-helm-lint      # helm lint rest charts
@@ -191,6 +198,13 @@ make rest-docker-build-local
 make rest-kind-reset     # spin up the local kind dev cluster (~10 min)
 make rest-api/<target>   # pass any target through to rest-api/Makefile
 ```
+
+Test the `rest-api/` Go services through these targets or the `rest-api/Makefile` ones they
+delegate to, not by calling `go test` yourself. The targets start the PostgreSQL container and
+the mock Core and Flow gRPC servers the tests connect to, and skipping that setup does not fail
+fast: the `site-agent` tests retry on a `40s` backoff until the `10m` test timeout. See the
+[Testing section in `rest-api/AGENTS.md`](rest-api/AGENTS.md#testing) for which target covers
+which module.
 
 Published container artifacts must pin external base images by immutable
 digest. When architecture-specific targets share a base image, define one

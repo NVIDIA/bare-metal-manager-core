@@ -27,7 +27,6 @@ use bmc_mock::{
     MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -39,7 +38,6 @@ use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::power_shelf_fsm::{Action, Event, PowerShelfFsm, Timer};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
-use crate::tui::UiUpdate;
 
 #[derive(Debug)]
 struct PowerShelfLiveState {
@@ -357,6 +355,8 @@ impl PowerShelfActor {
             Arc::new(PowerShelfHostname),
             self.mat_id,
             self.bmc_injection.clone(),
+            // no lifecycle timing profile for this device kind yet
+            None,
         );
         if self.host_info.hw_type != HardwareType::LiteOnPowerShelf
             && let Some(password) = self.app_context.app_config.host_bmc_password.as_deref()
@@ -495,13 +495,6 @@ pub(crate) struct PowerShelfHandle(Arc<PowerShelfActorHandle>);
 impl PowerShelfHandle {
     pub(crate) fn mat_id(&self) -> Uuid {
         self.0.mat_id
-    }
-
-    pub(crate) fn attach_to_tui(
-        &self,
-        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-    ) -> eyre::Result<()> {
-        Ok(())
     }
 
     pub(crate) fn pause(&self) -> eyre::Result<()> {

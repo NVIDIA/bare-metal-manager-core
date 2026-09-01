@@ -23,7 +23,7 @@ use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
 use carbide_site_explorer::EndpointExplorationServiceError;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{InvalidMachineType, MachineId};
 use config_version::ConfigVersionParseError;
 use db::credential_rotation::CredentialRotationType;
 use db::ip_allocator::DhcpError;
@@ -262,6 +262,12 @@ pub enum CarbideError {
     AttestationError(String),
 }
 
+impl From<InvalidMachineType> for CarbideError {
+    fn from(err: InvalidMachineType) -> Self {
+        Self::InvalidArgument(err.to_string())
+    }
+}
+
 impl From<libnmxc::NmxcError> for CarbideError {
     fn from(e: libnmxc::NmxcError) -> Self {
         match e {
@@ -382,6 +388,7 @@ impl From<IbError> for CarbideError {
             IbError::IBFabricError(msg) => Self::IBFabricError(msg),
             IbError::NotFoundError { kind, id } => Self::NotFoundError { kind, id },
             IbError::InvalidArgument(e) => Self::InvalidArgument(e),
+            IbError::CredentialConfigurationError(e) => Self::FailedPrecondition(e),
             IbError::NotImplemented => Self::NotImplemented,
             IbError::Internal { message } => Self::Internal { message },
         }

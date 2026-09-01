@@ -250,7 +250,6 @@ type Client interface {
 	DecommissionSwitch(ctx context.Context, switchID string) error
 
 	// DecommissionPowerShelf initiates decommissioning of the given power shelf via Core.
-	// TODO: Core Decommission PowerShelf RPC pending.
 	DecommissionPowerShelf(ctx context.Context, shelfID string) error
 
 	// The following are only valid in the mock environment and should only be called by unit tests

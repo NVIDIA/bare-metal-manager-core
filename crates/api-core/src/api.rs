@@ -412,6 +412,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_by_ids(self, request).await
     }
 
+    async fn decommission_power_shelf(
+        &self,
+        request: Request<rpc::DecommissionPowerShelfRequest>,
+    ) -> Result<Response<rpc::DecommissionPowerShelfResponse>, Status> {
+        crate::handlers::power_shelf::decommission_power_shelf(self, request).await
+    }
+
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,
@@ -459,6 +466,13 @@ impl Forge for Api {
         request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
         crate::handlers::switch::delete_switch(self, request).await
+    }
+
+    async fn decommission_switch(
+        &self,
+        request: Request<rpc::DecommissionSwitchRequest>,
+    ) -> Result<Response<rpc::DecommissionSwitchResponse>, Status> {
+        crate::handlers::switch::decommission_switch(self, request).await
     }
 
     async fn admin_force_delete_switch(
@@ -941,6 +955,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_power_shelf_state_histories(self, request).await
     }
 
+    async fn find_power_shelf_health_histories(
+        &self,
+        request: Request<rpc::PowerShelfHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::power_shelf::find_power_shelf_health_histories(self, request).await
+    }
+
     async fn find_rack_state_histories(
         &self,
         request: tonic::Request<rpc::RackStateHistoriesRequest>,
@@ -948,11 +969,25 @@ impl Forge for Api {
         crate::handlers::rack::find_rack_state_histories(self, request).await
     }
 
+    async fn find_rack_health_histories(
+        &self,
+        request: Request<rpc::RackHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::rack::find_rack_health_histories(self, request).await
+    }
+
     async fn find_switch_state_histories(
         &self,
         request: Request<rpc::SwitchStateHistoriesRequest>,
     ) -> Result<Response<rpc::StateHistories>, Status> {
         crate::handlers::switch::find_switch_state_histories(self, request).await
+    }
+
+    async fn find_switch_health_histories(
+        &self,
+        request: Request<rpc::SwitchHealthHistoriesRequest>,
+    ) -> Result<Response<rpc::HealthHistories>, Status> {
+        crate::handlers::switch::find_switch_health_histories(self, request).await
     }
 
     async fn find_machine_health_histories(
@@ -1414,6 +1449,16 @@ impl Forge for Api {
     ) -> Result<Response<()>, Status> {
         crate::handlers::uefi_credential_rotation::trigger_uefi_credential_rotation(self, request)
             .await
+    }
+
+    async fn trigger_nic_lockdown_credential_rotation(
+        &self,
+        request: Request<rpc::NicLockdownCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nic_lockdown_credential_rotation::trigger_nic_lockdown_credential_rotation(
+            self, request,
+        )
+        .await
     }
 
     async fn mark_manual_firmware_upgrade_complete(
@@ -3709,6 +3754,7 @@ pub struct DefaultCredential {
     _key: String,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl DefaultCredential {
     pub(crate) fn key(&self) -> &str {
         &self._key

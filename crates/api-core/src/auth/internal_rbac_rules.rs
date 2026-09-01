@@ -219,7 +219,7 @@ impl InternalRBACRules {
         x.perm("RenewMachineCertificate", vec![Agent]);
         x.perm("DiscoveryCompleted", vec![Machineatron, Scout]);
         x.perm("CleanupMachineCompleted", vec![Machineatron, Scout]);
-        x.perm("ReportForgeScoutError", vec![Scout]);
+        x.perm("ReportForgeScoutError", vec![Anonymous]);
         x.perm("ReportScoutFirmwareUpgradeStatus", vec![Scout]);
         x.perm("DiscoverDhcp", vec![Dhcp, Machineatron]);
         x.perm("ExpireDhcpLease", vec![Dhcp, Machineatron]);
@@ -310,6 +310,10 @@ impl InternalRBACRules {
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
+            "DecommissionSwitch",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
             "AdminForceDeletePowerShelf",
             vec![ForgeAdminCLI, Machineatron],
         );
@@ -338,6 +342,7 @@ impl InternalRBACRules {
         x.perm("GetCredentialRotationStatus", vec![ForgeAdminCLI]);
         x.perm("TriggerBmcCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("TriggerUefiCredentialRotation", vec![ForgeAdminCLI]);
+        x.perm("TriggerNicLockdownCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("GetRouteServers", vec![ForgeAdminCLI]);
         x.perm("AddRouteServers", vec![ForgeAdminCLI]);
         x.perm("RemoveRouteServers", vec![ForgeAdminCLI]);
@@ -502,6 +507,7 @@ impl InternalRBACRules {
         x.perm("GetIpxeTemplate", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ListIpxeTemplates", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindRackStateHistories", vec![ForgeAdminCLI, Machineatron]);
+        x.perm("FindRackHealthHistories", vec![ForgeAdminCLI, Machineatron]);
         x.perm("RebootCompleted", vec![Machineatron, Scout]);
         x.perm("PersistValidationResult", vec![Scout, SiteAgent]);
         x.perm(
@@ -733,6 +739,10 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("CreatePowerShelf", vec![ForgeAdminCLI, Machineatron]);
+        x.perm(
+            "DecommissionPowerShelf",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
         x.perm("DeletePowerShelf", vec![ForgeAdminCLI, Machineatron]);
         x.perm(
             "AddExpectedPowerShelf",
@@ -768,6 +778,10 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindPowerShelfStateHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "FindPowerShelfHealthHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm(
@@ -847,6 +861,10 @@ impl InternalRBACRules {
         );
         x.perm(
             "FindSwitchStateHistories",
+            vec![ForgeAdminCLI, Machineatron, Flow],
+        );
+        x.perm(
+            "FindSwitchHealthHistories",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
         x.perm("FindRackIds", vec![ForgeAdminCLI, SiteAgent, Flow]);
@@ -1147,13 +1165,12 @@ mod rbac_rule_tests {
             "ReportForgeScoutError",
             &[Principal::SpiffeMachineIdentifier("foo".to_string())]
         ));
-        assert!(!InternalRBACRules::allowed_from_static(
+        // A machine reporting a pre-registration failure presents no certificate,
+        // so it arrives with no principals at all. That case is the reason this
+        // RPC is public.
+        assert!(InternalRBACRules::allowed_from_static(
             "ReportForgeScoutError",
-            &[Principal::ExternalUser(ExternalUserInfo::new(
-                None,
-                "any".to_string(),
-                None
-            ))]
+            &[]
         ));
         assert!(InternalRBACRules::allowed_from_static(
             "GetCloudInitInstructions",

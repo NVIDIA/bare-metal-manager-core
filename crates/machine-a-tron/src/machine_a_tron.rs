@@ -14,16 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use bmc_mock::HostMachineInfo;
 use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
 use futures::future::try_join_all;
 use model::expected_machine::HostDpuPolicy;
-use rpc::forge::{ExpectedInterface, NetworkSegmentType, VpcVirtualizationType};
+use rpc::forge::{ExpectedInterface, NetworkSegmentType};
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 use crate::PersistedDevice;
 use crate::config::MachineATronContext;
@@ -31,20 +29,10 @@ use crate::device_simulator::{
     DeviceSimulator, MachineSimulator, PowerShelfSimulator, SimulatorLifecycle, SwitchSimulator,
 };
 use crate::host_machine::HostMachine;
-use crate::machine_utils::get_next_free_machine;
 use crate::power_shelf_simulator::PowerShelfActor;
 use crate::simulator_registry::SimulatorRegistry;
 use crate::status::DeviceKind;
-use crate::subnet::Subnet;
 use crate::switch_simulator::SwitchActor;
-use crate::tui::UiUpdate;
-use crate::vpc::Vpc;
-
-#[derive(PartialEq, Eq)]
-pub enum AppEvent {
-    Quit,
-    AllocateInstance,
-}
 
 pub struct MachineATron {
     app_context: Arc<MachineATronContext>,
@@ -364,15 +352,8 @@ impl MachineATron {
     pub async fn run(
         &mut self,
         simulators: SimulatorRegistry,
-        tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
-        mut app_rx: mpsc::Receiver<AppEvent>,
+        mut stop_rx: mpsc::Receiver<()>,
     ) -> eyre::Result<()> {
-        let provisionable_handles = simulators.provisionable_handles();
-        let mut vpc_handles: Vec<Vpc> = Vec::new();
-        let mut subnet_handles: Vec<Subnet> = Vec::new();
-        // Represents the mat_id of machines which are Assigned to a forge Instance
-        let mut assigned_mat_ids: HashSet<Uuid> = HashSet::new();
-
         if let Some(host_str) = self
             .app_context
             .app_config
@@ -395,147 +376,33 @@ impl MachineATron {
                 )
         }
 
-        for config in self.app_context.app_config.machines.values() {
-            let network_virtualization_type =
-                parse_network_virtualization_type(config.network_virtualization_type.as_deref());
-            for _ in 0..config.vpc_count {
-                let app_context = self.app_context.clone();
-                let vpc = Vpc::new(
-                    app_context,
-                    tui_event_tx.clone(),
-                    network_virtualization_type,
-                )
-                .await;
-
-                for _ in 0..config.subnets_per_vpc {
-                    let app_context = self.app_context.clone();
-
-                    match Subnet::new(app_context, tui_event_tx.clone(), &vpc).await {
-                        Ok(subnet) => {
-                            subnet_handles.push(subnet);
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                error = %e,
-                                "Error creating network segment",
-                            );
-                        }
-                    }
-                }
-                vpc_handles.push(vpc);
-            }
-        }
-
         for simulator in simulators.devices() {
-            simulator.attach_to_tui(tui_event_tx.clone())?;
             simulator.resume()?;
         }
 
         tracing::info!("Machine construction complete");
 
-        while let Some(msg) = app_rx.recv().await {
-            match msg {
-                AppEvent::Quit => {
-                    tracing::info!("quit");
-                    let cleanup_on_quit = self.app_context.app_config.cleanup_on_quit;
-                    let persisted_devices =
-                        try_join_all(simulators.devices().iter().cloned().map(|simulator| {
-                            let api_client = self.app_context.api_client();
-                            let persisted = simulator.persisted();
-                            async move {
-                                simulator.shutdown().await?;
-                                if cleanup_on_quit {
-                                    simulator.delete_from_api(api_client).await?;
-                                }
-                                Ok::<PersistedDevice, eyre::Report>(persisted)
-                            }
-                        }))
-                        .await?;
-
-                    // Persist the current state of the machines before quitting
-                    self.app_context
-                        .app_config
-                        .write_persisted_devices(&persisted_devices)?;
-
-                    break;
+        let _ = stop_rx.recv().await;
+        tracing::info!("quit");
+        let cleanup_on_quit = self.app_context.app_config.cleanup_on_quit;
+        let persisted_devices =
+            try_join_all(simulators.devices().iter().cloned().map(|simulator| {
+                let api_client = self.app_context.api_client();
+                let persisted = simulator.persisted();
+                async move {
+                    simulator.shutdown().await?;
+                    if cleanup_on_quit {
+                        simulator.delete_from_api(api_client).await?;
+                    }
+                    Ok::<PersistedDevice, eyre::Report>(persisted)
                 }
+            }))
+            .await?;
 
-                AppEvent::AllocateInstance => {
-                    tracing::info!("Allocating an instance.");
-
-                    let Some(free_machine) =
-                        get_next_free_machine(&provisionable_handles, &assigned_mat_ids).await
-                    else {
-                        tracing::error!("No available machines.");
-                        continue;
-                    };
-
-                    let Some(hid_for_instance) = free_machine.observed_machine_id() else {
-                        tracing::error!("Machine in state Ready but with no machine ID?");
-                        continue;
-                    };
-
-                    // TODO: Remove the hardcoded subnet_0 to be user specified through CLI.
-                    match self
-                        .app_context
-                        .api_client()
-                        .allocate_instance(hid_for_instance, "subnet_0")
-                        .await
-                    {
-                        Ok(_) => {
-                            assigned_mat_ids.insert(free_machine.mat_id());
-                            tracing::info!("allocate_instance was successful. ");
-                        }
-                        Err(e) => {
-                            tracing::info!(
-                                error = %e,
-                                "allocate_instance failed",
-                            );
-                        }
-                    };
-                }
-            }
-        }
-
-        // Following block does not remove the entries from the VPC table due to possible references by other places.
-        // It rather soft deletes the VPCs by updating the deleted column of a vpc.
-        if self.app_context.app_config.cleanup_on_quit {
-            for vpc in vpc_handles {
-                tracing::info!(
-                    vpc_id = %vpc.vpc_id,
-                    "Attempting to delete VPC from database",
-                );
-                if let Err(e) = self
-                    .app_context
-                    .forge_api_client
-                    .delete_vpc(vpc.vpc_id)
-                    .await
-                {
-                    tracing::error!(
-                        error = %e,
-                        "Delete VPC API call failed",
-                    )
-                }
-            }
-
-            for subnet in subnet_handles {
-                tracing::info!(
-                    network_segment_id = %subnet.segment_id,
-                    "Attempting to delete network segment from database",
-                );
-                if let Err(e) = self
-                    .app_context
-                    .forge_api_client
-                    .delete_network_segment(subnet.segment_id)
-                    .await
-                {
-                    tracing::error!(
-                        error = %e,
-                        "Delete network segment API call failed",
-                    )
-                }
-            }
-        }
+        // Persist the current state of the machines before quitting
+        self.app_context
+            .app_config
+            .write_persisted_devices(&persisted_devices)?;
 
         if self
             .app_context
@@ -556,23 +423,6 @@ impl MachineATron {
 
         tracing::info!("machine-a-tron finished");
         Ok(())
-    }
-}
-
-fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizationType> {
-    match s {
-        Some("etv") => Some(VpcVirtualizationType::EthernetVirtualizer),
-        #[allow(deprecated)]
-        Some("etv_nvue") => Some(VpcVirtualizationType::EthernetVirtualizerWithNvue),
-        Some("fnn") => Some(VpcVirtualizationType::Fnn),
-        Some(other) => {
-            tracing::warn!(
-                network_virtualization_type = other,
-                "Unknown network_virtualization_type, defaulting to None (ETV)"
-            );
-            None
-        }
-        None => None,
     }
 }
 

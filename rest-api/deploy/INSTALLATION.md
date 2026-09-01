@@ -712,7 +712,7 @@ The site agent bootstrap flow is:
 | `TEMPORAL_PUBLISH_NAMESPACE` | `site` | Temporal namespace for publishing (site-side workflows) |
 | `TEMPORAL_SUBSCRIBE_NAMESPACE` | `00000000-0000-4000-8000-000000000001` | Per-site Temporal namespace — **must match site UUID** |
 | `TEMPORAL_SUBSCRIBE_QUEUE` | `00000000-0000-4000-8000-000000000001` | Per-site Temporal queue — **must match site UUID** |
-| `TEMPORAL_INVENTORY_SCHEDULE` | `@every 3m` | How often the agent reports hardware inventory |
+| `TEMPORAL_INVENTORY_SCHEDULE` | `@every 3m` | How often the agent reports hardware inventory, as an `@every <duration>` schedule. The agent reports this interval to Cloud as staleness window. A schedule slower than `5m`, or in any other format, is rejected at startup |
 | `TEMPORAL_CERT_PATH` | `/etc/temporal-certs` | Path to mounted Temporal TLS certs |
 
 ### Secrets mounted at runtime

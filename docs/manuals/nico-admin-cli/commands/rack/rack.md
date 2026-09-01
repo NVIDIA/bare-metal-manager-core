@@ -49,6 +49,7 @@ Print help (see a summary with -h)
 | [`profile`](./rack-profile.md) | Rack profile |
 | [`maintenance`](./rack-maintenance.md) | On-demand rack maintenance |
 | [`state-history`](./rack-state-history.md) | Show rack state history |
+| [`health-history`](./rack-health-history.md) | Show rack health history |
 
 ---
 

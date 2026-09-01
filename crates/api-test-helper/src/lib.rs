@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
+mod api_client;
+
 pub mod api_server;
 pub mod domain;
-pub mod grpcurl;
 pub mod instance;
 pub mod machine;
 pub mod machine_a_tron;

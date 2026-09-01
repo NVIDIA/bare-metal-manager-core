@@ -29,7 +29,7 @@ anycast_site_prefixes = ["0.0.0.0/0"]
 # DPU NIC firmware settings.
 dpu_nic_firmware_initial_update_enabled = false
 dpu_nic_firmware_reprovision_update_enabled = true
-dpu_nic_firmware_update_versions = ["24.47.2682", "32.47.2682"]
+dpu_nic_firmware_update_versions = ["24.47.3576", "32.47.3576"]
 # Number of VFs configured per DPU PF during BlueField provisioning.
 num_of_vfs = 16
 
@@ -90,6 +90,18 @@ spiffe_service_base_paths = [
 ]
 spiffe_machine_base_path = "/{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}/machine/"
 additional_issuer_cns = [{{ range $i, $cn := .Values.auth.additionalIssuerCns }}{{ if $i }}, {{ end }}{{ $cn | quote }}{{ end }}]
+
+{{- if not (has .Values.credentials.ufmSource (list "local_first" "backend" "local")) }}
+{{- fail "nico-api.credentials.ufmSource must be one of local_first, backend, or local" }}
+{{- end }}
+[credentials]
+ufm_source = {{ .Values.credentials.ufmSource | quote }}
+
+{{- if .Values.credentials.file.existingSecret.name }}
+[credentials.file]
+path = {{ printf "%s/credentials.yaml" (required "nico-api.credentials.file.mountPath is required when credentials.file.existingSecret.name is set" .Values.credentials.file.mountPath) | quote }}
+poll_interval = {{ required "nico-api.credentials.file.pollInterval is required when credentials.file.existingSecret.name is set" .Values.credentials.file.pollInterval | quote }}
+{{- end }}
 
 [machine_state_controller]
 failure_retry_time = "90m"

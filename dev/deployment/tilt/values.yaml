@@ -218,9 +218,7 @@ nico-machine-a-tron:
     matConfigs:
       mat-0: |
         carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
-        interface = "NOTUSED"
         dhcp = { type = "udp_relay", server_address = "__NICO_DHCP_SERVER_ADDRESS__", listen_address = "0.0.0.0:__MAT_DHCP_LISTEN_PORT__", advertise_address = "__MAT_DHCP_SERVICE_IP__" }
-        tui_enabled = false
         log_format = "logfmt"
         bmc_mock_port = 1266
         mock_bmc_ssh_server = true
@@ -249,8 +247,6 @@ nico-machine-a-tron:
         [machines.rack-machines]
         hw_type = "wiwynn_gb200_nvl"
         host_count = 2
-        vpc_count = 0
-        subnets_per_vpc = 0
         dpu_per_host_count = 2
         dpu_reboot_delay = 1
         host_reboot_delay = 1

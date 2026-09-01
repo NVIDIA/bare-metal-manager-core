@@ -5,8 +5,6 @@ package processor
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/target"
@@ -15,12 +13,11 @@ import (
 
 // Processor orchestrates event enrichment, rule selection, and processing.
 type Processor struct {
-	inventory  *inventoryresolver.Resolver
-	rules      RuleResolver
-	events     eventrule.EventStore
-	executions eventrule.ExecutionStore
-	targets    *target.Registry
-	executors  ExecutorRegistry
+	inventory *inventoryresolver.Resolver
+	rules     RuleResolver
+	store     eventrule.EventPlanStore
+	targets   *target.Registry
+	notifier  ExecutionNotifier
 }
 
 // New constructs an event processor.
@@ -30,41 +27,30 @@ func New(config Config) (*Processor, error) {
 	}
 
 	return &Processor{
-		inventory:  inventoryresolver.New(config.Inventory),
-		rules:      config.Rules,
-		events:     config.Events,
-		executions: config.Executions,
-		targets:    config.Targets,
-		executors:  config.Executors,
+		inventory: inventoryresolver.New(config.Inventory),
+		rules:     config.Rules,
+		store:     config.Store,
+		targets:   config.Targets,
+		notifier:  config.Notifier,
 	}, nil
 }
 
-// Process deduplicates an envelope into a durable event. Only the caller that
-// creates the event plans and dispatches it; duplicates record an observation
-// and stop.
+// Process deduplicates an envelope and atomically persists its complete event
+// plan. The scheduler owns all execution attempts.
 func (p *Processor) Process(ctx context.Context, envelope eventrule.Envelope) error {
 	prepared, err := p.prepare(ctx, envelope)
 	if err != nil || prepared == nil {
 		return err
 	}
 
-	executions, err := p.plan(ctx, prepared)
-	if err != nil {
+	committed, err := p.plan(ctx, prepared)
+	if err != nil || committed == nil {
 		return err
 	}
 
-	var executionErrors []error
-	for i := range executions {
-		if executions[i].Status != eventrule.ExecutionStatusPending {
-			continue
-		}
-
-		if err := p.dispatch(ctx, &executions[i]); err != nil {
-			executionErrors = append(
-				executionErrors,
-				fmt.Errorf("action %q: %w", executions[i].ActionName, err),
-			)
-		}
+	if p.notifier != nil {
+		p.notifier.Notify()
 	}
-	return errors.Join(executionErrors...)
+
+	return nil
 }

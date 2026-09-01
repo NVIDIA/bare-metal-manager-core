@@ -31,6 +31,7 @@ use carbide_dpf::{
     node_id_from_dpu_node_cr_name,
 };
 use carbide_uuid::machine::MachineId;
+use model::dpa_interface::DpaInterface;
 use model::dpu_machine_update::OutdatedDpfDpu;
 use model::machine::{Machine, ManagedHostStateSnapshot};
 use model::machine_pending_action::{MachinePendingAction, MachinePendingActionKind};
@@ -62,7 +63,11 @@ pub const HOST_BMC_IP_LABEL: &str = "carbide.nvidia.com/host-bmc-ip";
 #[async_trait]
 pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Register a DPU device.
-    async fn register_dpu_device(&self, info: DpuDeviceInfo) -> Result<(), DpfError>;
+    async fn register_dpu_device<'a>(
+        &self,
+        info: DpuDeviceInfo,
+        astra_nics: Option<Vec<&'a DpaInterface>>,
+    ) -> Result<(), DpfError>;
 
     /// Register a DPU node.
     async fn register_dpu_node(&self, info: DpuNodeInfo) -> Result<(), DpfError>;
@@ -88,16 +93,34 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         node_name: &str,
     ) -> Result<DpuPhase, DpfError>;
 
+    /// Read every requested DPU phase only when one deployment owns the full
+    /// set and each Ready DPU matches its flavor and provisioning source.
+    async fn get_dpu_phases_for_deployment_type(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<Option<BTreeMap<String, DpuPhase>>, DpfError>;
+
+    /// Delete source deployment DPU CRs while preserving target replacements.
+    async fn delete_source_dpus_for_deployment_migration(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError>;
+
     /// Check if a DPU node is waiting for external reboot.
     async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError>;
 
     /// Mark DPU node as rebooted (clear the external reboot required annotation).
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
-    /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4).
-    /// Returns `Err` when the part number is absent or does not match any known
-    /// generation, so unrecognized hardware never silently routes to a wrong
-    /// deployment.
+    /// Resolve a DPU's base hardware deployment class (BF3 or BF4).
+    ///
+    /// The state handler separately refines BF3 from the host rack and DPU
+    /// profile. This returns `Err` when the DMI product name is absent.
     fn deployment_type_for_dpu(
         &self,
         dpu: &Machine,
@@ -111,6 +134,17 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         node_name: &str,
         deployment_type: DpuDeploymentType,
     ) -> Result<bool, DpfError>;
+
+    /// Atomically moves a DPUNode from one deployment selector to another.
+    ///
+    /// A completed transfer does nothing, while a node matching neither selector
+    /// is rejected.
+    async fn transfer_dpu_node_deployment_labels(
+        &self,
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError>;
 
     /// Curated snapshot of all DPF CRs related to one host (DPUNode +
     /// DPUDevices + DPUs). `node_name` is the full DPUNode CR name.
@@ -176,6 +210,12 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         dpu_device_name: &str,
         changes: BTreeMap<String, Option<String>>,
     ) -> Result<(), DpfError>;
+
+    /// Returns the DPU-cluster node labels on one DPUDevice CR.
+    async fn get_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<BTreeMap<String, String>, DpfError>;
 }
 
 /// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
@@ -595,8 +635,12 @@ impl std::fmt::Debug for DpfSdkOps {
 /// Delegates everything to the underlying DPF SDK.
 #[async_trait]
 impl DpfOperations for DpfSdkOps {
-    async fn register_dpu_device(&self, info: DpuDeviceInfo) -> Result<(), DpfError> {
-        self.sdk.register_dpu_device(info).await
+    async fn register_dpu_device<'a>(
+        &self,
+        info: DpuDeviceInfo,
+        astra_nics: Option<Vec<&'a DpaInterface>>,
+    ) -> Result<(), DpfError> {
+        self.sdk.register_dpu_device(info, astra_nics).await
     }
 
     async fn register_dpu_node(&self, info: DpuNodeInfo) -> Result<(), DpfError> {
@@ -629,6 +673,34 @@ impl DpfOperations for DpfSdkOps {
         node_name: &str,
     ) -> Result<DpuPhase, DpfError> {
         self.sdk.get_dpu_phase(dpu_device_name, node_name).await
+    }
+
+    async fn get_dpu_phases_for_deployment_type(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<Option<BTreeMap<String, DpuPhase>>, DpfError> {
+        self.sdk
+            .get_dpu_phases_for_deployment_type(dpu_device_names, node_name, deployment_type)
+            .await
+    }
+
+    async fn delete_source_dpus_for_deployment_migration(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        self.sdk
+            .delete_source_dpus_for_deployment_migration(
+                dpu_device_names,
+                node_name,
+                source_deployment_type,
+                target_deployment_type,
+            )
+            .await
     }
 
     async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError> {
@@ -671,8 +743,11 @@ impl DpfOperations for DpfSdkOps {
         };
 
         tracing::info!(
-            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}, astra_nics: {astra_nics}",
-            dpu.id
+            machine_id = %dpu.id,
+            product_name,
+            astra_nics,
+            ?deployment_type,
+            "selected base DPF deployment type for DPU"
         );
 
         Ok(deployment_type)
@@ -685,6 +760,21 @@ impl DpfOperations for DpfSdkOps {
     ) -> Result<bool, DpfError> {
         self.sdk
             .verify_node_labels(node_name, deployment_type)
+            .await
+    }
+
+    async fn transfer_dpu_node_deployment_labels(
+        &self,
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        self.sdk
+            .transfer_dpu_node_deployment_labels(
+                node_name,
+                source_deployment_type,
+                target_deployment_type,
+            )
             .await
     }
 
@@ -781,5 +871,12 @@ impl DpfOperations for DpfSdkOps {
         self.sdk
             .merge_dpu_device_node_labels(dpu_device_name, changes)
             .await
+    }
+
+    async fn get_dpu_device_node_labels(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<BTreeMap<String, String>, DpfError> {
+        self.sdk.get_dpu_device_node_labels(dpu_device_name).await
     }
 }

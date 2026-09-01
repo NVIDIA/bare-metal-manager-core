@@ -35,6 +35,10 @@ secrets:
   # and the password is read from /var/secrets/db/password (supports live rotation).
   # Created by nico-prereqs ESO (nico-rest-db-eso) when rest.enabled=true.
   dbCreds: db-creds
+  # -- Name of the existing Kubernetes Secret mounted when direct DPS integration
+  # is enabled. The Secret must contain the keys "token" and "ca.crt". NICo does
+  # not create or renew the token.
+  dpsCreds: ""
 
 config:
   env:
@@ -77,6 +81,19 @@ config:
   tracing:
     enabled: false
     serviceName: nico-rest-api
+  powerProvisioning:
+    dps:
+      # -- Whether NICo makes direct calls to DPS. Disabled by default.
+      enabled: false
+      # -- DPS gRPC endpoint. Required when DPS integration is enabled.
+      endpoint: ""
+      # -- Overall deadline applied independently to each DPS RPC.
+      requestTimeout: 15s
+      tokenPath: /var/secrets/dps/token
+      tls:
+        caPath: /var/secrets/dps/ca.crt
+        # -- Optional TLS server-name override. Empty uses the endpoint host.
+        serverName: ""
   # -- JWT issuers for authentication (mutually exclusive with keycloak)
   # When keycloak is disabled, at least one issuer must be configured.
   # Example:

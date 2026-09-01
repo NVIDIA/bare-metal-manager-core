@@ -633,7 +633,7 @@ async fn test_create_instance_with_os_image_and_verify_pxe_rendering(
         pxe.pxe_script
     );
     assert!(
-        pxe.pxe_script.contains("ds=nocloud-net"),
+        pxe.pxe_script.contains("ds=nocloud-net;"),
         "Expected cloud-init data source when userdata is set, got: {}",
         pxe.pxe_script
     );
