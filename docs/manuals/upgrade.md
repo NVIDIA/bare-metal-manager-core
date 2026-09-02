@@ -70,6 +70,21 @@ kubectl get secret vault-cluster-keys -n vault -o json > vault-cluster-keys-back
 This file contains the plaintext Vault unseal keys **and the Vault root token**. Anyone holding it has full control of Vault. Store it in a secure, offline location and delete the local copy after storing.
 </Warning>
 
+### Back up the secrets KEK
+
+If the site keeps credentials in Postgres (see [Secrets Storage](../configuration/secrets-storage.md)), the database dump below holds only ciphertext, and every key encryption key (KEK) its rows reference is needed to read it back. With an Integrated provider, export every Secret that holds key material your `[secrets.kms]` providers reference, including keys that are no longer routed but are still needed for older rows or older dumps, and store them with the Vault unseal keys. Copy a key supplied from a file or an inline value from its source instead. The command exports one Secret; repeat it for each:
+
+```bash
+umask 077   # keep the backup readable only by you
+kubectl get secret nico-secrets-kek -n nico-system -o json > nico-secrets-kek-backup.json
+```
+
+With a Transit provider the KEK lives in the Transit engine's storage, which the unseal-key export above does not include; take a Vault storage snapshot as well, for example `vault operator raft snapshot save vault-storage.snap`.
+
+<Warning>
+This file contains the plaintext KEK. Anyone holding it together with a database dump can decrypt every stored credential. Store it where you store the unseal keys and delete the local copy.
+</Warning>
+
 ### Back up the databases
 
 Take the backup **before** the upgrade — once the new version's migrations run, the prior image tags alone are no longer a working rollback. There are **two** PostgreSQL instances in the `postgres` namespace, and both need a dump:
@@ -173,7 +188,7 @@ cd helm-prereqs/
 source ./preflight.sh
 ```
 
-Fix all errors before proceeding. Warnings about `NICO_DPF_BMC_ROOT_PASSWORD` being unset are safe to ignore on an upgrade (the credential is already stored in Vault from the initial install).
+Fix all errors before proceeding. Warnings about `NICO_DPF_BMC_ROOT_PASSWORD` being unset are safe to ignore on an upgrade (the credential is already in the credential store from the initial install).
 
 <Warning>
 `setup.sh -y` does **not** stop on preflight errors — with `-y` set, hard errors are printed and the run continues ("Things may fail"). The preflight gate is only enforced interactively, so genuinely resolve every error here rather than relying on the script to stop you.
@@ -274,6 +289,10 @@ Then run the included health check, which covers the full stack (Vault, cert-man
 cd helm-prereqs/
 ./health-check.sh
 ```
+
+## Moving credentials to Postgres
+
+Migrating an existing site's credentials from Vault to Postgres is a configuration walk described in [Secrets Storage](../configuration/secrets-storage.md), and it can be folded into an upgrade window. Two points matter when you do. Every step changes the `nico-api` config and needs `kubectl -n nico-system rollout restart deployment/nico-api`, because the chart does not restart pods on ConfigMap changes and the reference installation has no Reloader. The default rolling update also keeps the old pod running until the new one is ready, so finish each step's rollout before starting the next. Keep `bmc_rotation_enabled` and `uefi_rotation_enabled` at their default `false` until the whole fleet runs one config. Once the writer is Postgres, the KEK backup above belongs in every pre-upgrade checklist.
 
 ## Version-specific upgrade notes
 
