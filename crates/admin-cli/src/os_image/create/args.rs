@@ -27,21 +27,21 @@ EXAMPLES:
 
 Create an OS image entry in a tenant's catalog:
     $ nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 \
-    --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a
+    --url https://images.example.com/ubuntu.qcow2 --digest sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae --tenant-org-id fds34511233a
 
 Create one with a name/description and a Bearer auth token for the image URL:
     $ nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 \
-    --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a \
-    --name ubuntu-22.04 --description \"Ubuntu 22.04 base\" --auth-type Bearer --auth-token <token>
+    --url https://images.example.com/ubuntu.qcow2 --digest sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae --tenant-org-id fds34511233a \
+    --name ubuntu-22.04 --description \"Ubuntu 22.04 base\" --auth-type Bearer --auth-token ZXhhbXBsZS1pbWFnZS10b2tlbg==
 
 Overwrite the smallest whole disk, preferring an EFI disk to break a size tie:
     $ nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 \
-    --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a \
+    --url https://images.example.com/ubuntu.qcow2 --digest sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae --tenant-org-id fds34511233a \
     --boot-disk smallest
 
 Overwrite a disk selected by its stable Linux identifier:
     $ nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 \
-    --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a \
+    --url https://images.example.com/ubuntu.qcow2 --digest sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae --tenant-org-id fds34511233a \
     --boot-disk /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT
 
 ")]

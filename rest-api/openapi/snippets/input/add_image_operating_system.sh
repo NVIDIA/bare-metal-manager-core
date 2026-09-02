@@ -13,7 +13,6 @@ curl -X POST "https://api.example.com/v2/org/{tenant-org-name}/nico/operating-sy
         "imageSha": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
         "imageDisk": "/dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT",
         "rootFsLabel": "cloudimg-rootfs",
-        "isCloudInit": true,
         "phoneHomeEnabled": false,
         "allowOverride": false
       }'

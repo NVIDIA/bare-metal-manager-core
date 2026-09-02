@@ -83,8 +83,9 @@ disables DHCP and IPv6 router advertisements and then reloads systemd-networkd.
 Scout waits roughly 30 seconds for global addresses and routes on those
 interfaces to disappear.
 
-This is MAC-based selection. Scout does not classify an interface as Mellanox
-or non-Mellanox and does not administratively bring the other links down. If
+This networkd cleanup is MAC-based and does not administratively bring the
+other links down. Scout separately classifies auxiliary interfaces during
+registration using Mellanox SF/VF and PCI virtual-function metadata. If
 validation, the networkd reload, or address removal fails, Scout logs the
 reason and continues startup so discovery remains fail-open.
 

@@ -14,7 +14,7 @@
   "rootFsLabel": "cloudimg-rootfs",
   "ipxeScript": null,
   "userData": null,
-  "isCloudInit": true,
+  "isCloudInit": false,
   "phoneHomeEnabled": false,
   "allowOverride": false,
   "siteAssociations": [],
