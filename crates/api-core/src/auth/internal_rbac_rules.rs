@@ -60,13 +60,13 @@ impl InternalRBACRules {
 
         // Add additional permissions to the list below.
         x.perm("Version", vec![Anonymous]);
-        x.perm("CreateDomain", vec![]);
+        x.perm("CreateDomain", vec![SiteAgent]);
         x.perm("CreateDomainLegacy", vec![]);
         x.perm("UpdateDomainLegacy", vec![]);
         x.perm("DeleteDomainLegacy", vec![]);
         x.perm("FindDomainLegacy", vec![ForgeAdminCLI]);
-        x.perm("UpdateDomain", vec![]);
-        x.perm("DeleteDomain", vec![]);
+        x.perm("UpdateDomain", vec![SiteAgent]);
+        x.perm("DeleteDomain", vec![SiteAgent]);
         x.perm("FindDomain", vec![ForgeAdminCLI]);
         x.perm("CreateVpc", vec![SiteAgent, Machineatron]);
         x.perm("UpdateVpc", vec![ForgeAdminCLI, SiteAgent]);
@@ -1130,6 +1130,26 @@ mod rbac_rule_tests {
                 None,
             ))],
         ));
+    }
+
+    #[test]
+    fn site_agent_can_manage_domains() {
+        let site_agent = Principal::SpiffeServiceIdentifier("elektra-site-agent".to_string());
+        let unrelated_service = Principal::SpiffeServiceIdentifier("nico-dns".to_string());
+
+        for method in ["CreateDomain", "UpdateDomain", "DeleteDomain"] {
+            assert!(
+                InternalRBACRules::allowed_from_static(method, std::slice::from_ref(&site_agent)),
+                "{method} should allow the site agent"
+            );
+            assert!(
+                !InternalRBACRules::allowed_from_static(
+                    method,
+                    std::slice::from_ref(&unrelated_service)
+                ),
+                "{method} should reject unrelated services"
+            );
+        }
     }
 
     #[test]
