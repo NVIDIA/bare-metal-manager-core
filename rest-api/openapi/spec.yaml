@@ -21737,6 +21737,12 @@ components:
               deviceInstance: 0
               isPhysical: true
               virtualFunctionId: null
+          spxAttachments:
+            - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'MT2910 Family [ConnectX-7]'
+              deviceInstance: 0
+              attachmentType: Physical
+              virtualFunctionId: null
           nvLinkInterfaces:
             - nvLinkLogicalPartitionId: 2f8676fd-d228-4db5-ac76-1cfc74f48a23
               deviceInstance: 0
@@ -21912,6 +21918,11 @@ components:
           description: Associate one or more Partitions with this Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spxAttachments:
+          type: array
+          description: Associate one or more SPX Partitions with this Instance
+          items:
+            $ref: '#/components/schemas/InstanceSpxAttachmentCreateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to the DPUs of this Instance
@@ -22154,6 +22165,12 @@ components:
               deviceInstance: 2
               isPhysical: false
               virtualFunctionId: null
+          spxAttachments:
+            - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'MT2910 Family [ConnectX-7]'
+              deviceInstance: 0
+              attachmentType: Physical
+              virtualFunctionId: null
           dpuExtensionServiceDeployments:
             - dpuExtensionServiceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
               version: V1-T1761856992374052
@@ -22265,6 +22282,11 @@ components:
           description: Update InfiniBand Interfaces of the Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spxAttachments:
+          type: array
+          description: 'Update SPX Partition attachments of the Instance. Omitting this field leaves the Instance''s SPX attachments unchanged; an explicit (possibly empty) list replaces them entirely.'
+          items:
+            $ref: '#/components/schemas/InstanceSpxAttachmentCreateRequest'
         nvLinkInterfaces:
           type: array
           description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
@@ -22690,6 +22712,49 @@ components:
             - integer
             - 'null'
           description: Must be specified if isPhysical is false
+    InstanceSpxAttachmentCreateRequest:
+      title: InstanceSpxAttachmentCreateRequest
+      type: object
+      examples:
+        - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          device: 'MT2910 Family [ConnectX-7]'
+          deviceInstance: 0
+          attachmentType: Physical
+          virtualFunctionId: null
+        - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          device: 'MT2910 Family [ConnectX-7]'
+          deviceInstance: 3
+          attachmentType: Virtual
+          virtualFunctionId: 2
+      description: Request data to attach an SPX Partition to an Instance
+      properties:
+        spxPartitionId:
+          type: string
+          format: uuid
+          description: ID of the SPX Partition the attachment should associate with
+        device:
+          type: string
+          description: Name of the SPX device to use
+        deviceInstance:
+          type: integer
+          description: 'Index of the device, used to identify which interface card to attach the Partition to'
+        attachmentType:
+          type: string
+          enum:
+            - Physical
+            - Virtual
+            - Ovn
+          description: Type of SPX attachment
+        virtualFunctionId:
+          type:
+            - integer
+            - 'null'
+          description: Must be specified if attachmentType is Virtual
+      required:
+        - spxPartitionId
+        - device
+        - deviceInstance
+        - attachmentType
     NVLinkInterface:
       title: NVLinkInterface
       type: object

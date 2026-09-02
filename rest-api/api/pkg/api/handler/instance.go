@@ -81,6 +81,30 @@ func buildInstanceNetworkConfig(auto bool, interfaceConfigs []*corev1.InstanceIn
 	return nc
 }
 
+var spxAttachmentTypeFromAPI = map[string]corev1.SpxAttachmentType{
+	model.SpxAttachmentTypePhysical: corev1.SpxAttachmentType_Physical,
+	model.SpxAttachmentTypeVirtual:  corev1.SpxAttachmentType_Virtual,
+	model.SpxAttachmentTypeOvn:      corev1.SpxAttachmentType_Ovn,
+}
+
+func buildInstanceSpxConfig(spxAttachments []model.APISpxAttachmentCreateRequest) *corev1.InstanceSpxConfig {
+	spxAttachmentConfigs := make([]*corev1.InstanceSpxAttachment, 0, len(spxAttachments))
+	for _, sac := range spxAttachments {
+		spxAttachmentConfig := &corev1.InstanceSpxAttachment{
+			Device:         sac.Device,
+			DeviceInstance: uint32(sac.DeviceInstance),
+			SpxPartitionId: &corev1.SpxPartitionId{Value: sac.SpxPartitionID},
+			AttachmentType: spxAttachmentTypeFromAPI[sac.AttachmentType],
+		}
+		if sac.VirtualFunctionID != nil {
+			vfID := uint32(*sac.VirtualFunctionID)
+			spxAttachmentConfig.VirtualFunctionId = &vfID
+		}
+		spxAttachmentConfigs = append(spxAttachmentConfigs, spxAttachmentConfig)
+	}
+	return &corev1.InstanceSpxConfig{SpxAttachments: spxAttachmentConfigs}
+}
+
 // loadInstanceInterfaceVpcs validates VPC-selection intent and returns each
 // requested REST VPC keyed by its REST ID.
 func loadInstanceInterfaceVpcs(ctx context.Context, logger *zerolog.Logger, dbSession *cdb.Session, interfaces []model.APIInterfaceCreateOrUpdateRequest, tenantID, siteID uuid.UUID) (map[uuid.UUID]*cdbm.Vpc, *cutil.APIError) {
@@ -1955,6 +1979,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				Nvlink: &corev1.InstanceNVLinkConfig{
 					GpuConfigs: nvlInterfaceConfigs,
 				},
+				Spxconfig: buildInstanceSpxConfig(apiRequest.SpxAttachments),
 			},
 			AllowUnhealthyMachine: allowUnhealthyMachine,
 		}
@@ -4216,6 +4241,10 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 					GpuConfigs: nvlInterfaceConfigs,
 				},
 			},
+		}
+
+		if apiRequest.SpxAttachments != nil {
+			updateInstanceRequest.Config.Spxconfig = buildInstanceSpxConfig(apiRequest.SpxAttachments)
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

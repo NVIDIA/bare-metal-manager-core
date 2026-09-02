@@ -512,6 +512,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 		UserData                       *string
 		Interfaces                     []APIInterfaceCreateOrUpdateRequest
 		InfiniBandInterfaces           []APIInfiniBandInterfaceCreateOrUpdateRequest
+		SpxAttachments                 []APISpxAttachmentCreateRequest
 		DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest
 		NVLinkInterfaces               []APINVLinkInterfaceCreateOrUpdateRequest
 		Labels                         map[string]string
@@ -1114,6 +1115,54 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			wantErr:          true,
 			wantErrorMessage: "deviceInstance: deviceInstance must be between 0 and 3",
 		},
+		{
+			name: "test valid Instance with SPX attachment create request",
+			fields: fields{
+				Name:              "test-name",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    uuid.NewString(),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{
+						SubnetID: cutil.GetPtr(uuid.NewString()),
+					},
+				},
+				SpxAttachments: []APISpxAttachmentCreateRequest{
+					{
+						SpxPartitionID: uuid.NewString(),
+						Device:         "MT2910 Family [ConnectX-7]",
+						DeviceInstance: 0,
+						AttachmentType: SpxAttachmentTypePhysical,
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "test Instance create request failed, invalid SPX attachment type",
+			fields: fields{
+				Name:              "test-name",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    uuid.NewString(),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{
+						SubnetID: cutil.GetPtr(uuid.NewString()),
+					},
+				},
+				SpxAttachments: []APISpxAttachmentCreateRequest{
+					{
+						SpxPartitionID: uuid.NewString(),
+						Device:         "MT2910 Family [ConnectX-7]",
+						DeviceInstance: 0,
+						AttachmentType: "Bogus",
+					},
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1129,6 +1178,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				UserData:                       tt.fields.UserData,
 				Interfaces:                     tt.fields.Interfaces,
 				InfiniBandInterfaces:           tt.fields.InfiniBandInterfaces,
+				SpxAttachments:                 tt.fields.SpxAttachments,
 				DpuExtensionServiceDeployments: tt.fields.DpuExtensionServiceDeployments,
 				NVLinkInterfaces:               tt.fields.NVLinkInterfaces,
 				Labels:                         tt.fields.Labels,
@@ -2072,6 +2122,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 		SecondaryVpcIDs          []string
 		Interfaces               []APIInterfaceCreateOrUpdateRequest
 		InfiniBandInterfaces     []APIInfiniBandInterfaceCreateOrUpdateRequest
+		SpxAttachments           []APISpxAttachmentCreateRequest
 		NVLinkInterfaces         []APINVLinkInterfaceCreateOrUpdateRequest
 		SSHKeyGroupIDs           []string
 		NetworkSecurityGroupID   *string
@@ -2258,6 +2309,36 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 			wantErr:           true,
 			wantUpdateRequest: cutil.GetPtr(true),
 		},
+		{
+			name: "test valid Instance update request, SPX attachments",
+			fields: fields{
+				SpxAttachments: []APISpxAttachmentCreateRequest{
+					{
+						SpxPartitionID:    uuid.NewString(),
+						Device:            "MT2910 Family [ConnectX-7]",
+						DeviceInstance:    0,
+						AttachmentType:    SpxAttachmentTypeVirtual,
+						VirtualFunctionID: cutil.GetPtr(1),
+					},
+				},
+			},
+			wantErr:           false,
+			wantUpdateRequest: cutil.GetPtr(true),
+		},
+		{
+			name: "test invalid Instance update request, SPX attachment missing device",
+			fields: fields{
+				SpxAttachments: []APISpxAttachmentCreateRequest{
+					{
+						SpxPartitionID: uuid.NewString(),
+						DeviceInstance: 0,
+						AttachmentType: SpxAttachmentTypePhysical,
+					},
+				},
+			},
+			wantErr:           true,
+			wantUpdateRequest: cutil.GetPtr(true),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2276,6 +2357,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				SecondaryVpcIDs:          tt.fields.SecondaryVpcIDs,
 				Interfaces:               tt.fields.Interfaces,
 				InfiniBandInterfaces:     tt.fields.InfiniBandInterfaces,
+				SpxAttachments:           tt.fields.SpxAttachments,
 				NVLinkInterfaces:         tt.fields.NVLinkInterfaces,
 				SSHKeyGroupIDs:           tt.fields.SSHKeyGroupIDs,
 				NetworkSecurityGroupID:   tt.fields.NetworkSecurityGroupID,

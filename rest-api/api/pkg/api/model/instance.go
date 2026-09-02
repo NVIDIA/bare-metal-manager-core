@@ -475,6 +475,8 @@ type APIInstanceCreateRequest struct {
 	AutoNetwork bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
+	// SpxAttachments is the list of SPX Partition attachments to create for the Instance
+	SpxAttachments []APISpxAttachmentCreateRequest `json:"spxAttachments"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for the Instance
@@ -642,6 +644,14 @@ func (icr APIInstanceCreateRequest) Validate() error {
 	// Validate InfiniBand Interfaces
 	for _, ibic := range icr.InfiniBandInterfaces {
 		err = ibic.Validate()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Validate SPX Attachments
+	for _, sac := range icr.SpxAttachments {
+		err = sac.Validate()
 		if err != nil {
 			return err
 		}
@@ -1323,6 +1333,9 @@ type APIInstanceUpdateRequest struct {
 	AutoNetwork *bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to update for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
+	// SpxAttachments is the list of SPX Partition attachments to update for the Instance. `nil` leaves
+	// the Instance's SPX attachments unchanged; a non-nil (possibly empty) list replaces them entirely.
+	SpxAttachments []APISpxAttachmentCreateRequest `json:"spxAttachments"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to update for the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to update for the Instance
@@ -1636,6 +1649,7 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 		iur.Interfaces != nil ||
 		iur.AutoNetwork != nil ||
 		iur.InfiniBandInterfaces != nil ||
+		iur.SpxAttachments != nil ||
 		iur.NVLinkInterfaces != nil ||
 		iur.SSHKeyGroupIDs != nil ||
 		iur.NetworkSecurityGroupID != nil ||
@@ -1735,6 +1749,14 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 	// Validate InfiniBand Interfaces
 	for _, ibifc := range iur.InfiniBandInterfaces {
 		err = ibifc.Validate()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Validate SPX Attachments
+	for _, sac := range iur.SpxAttachments {
+		err = sac.Validate()
 		if err != nil {
 			return err
 		}
