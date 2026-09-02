@@ -5125,10 +5125,7 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     periodic: Some(PeriodicLogConfig::default()),
                     auto: Some(AutoModeConfig::default()),
                     ..LogsCollectorConfig::default()
-                } => FailsWith(
-                    "[collectors.logs.auto] should not be set when mode = \"periodic\""
-                        .to_string()
-                ),
+                } => Yields(()), // auto is ignored in periodic mode (warn only)
 
                 LogsCollectorConfig {
                     mode: LogCollectionMode::Periodic,
@@ -5142,9 +5139,7 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     periodic: Some(PeriodicLogConfig::default()),
                     sse: Some(SseLogConfig::default()),
                     ..LogsCollectorConfig::default()
-                } => FailsWith(
-                    "[collectors.logs.sse] should not be set when mode = \"periodic\"".to_string()
-                ),
+                } => Yields(()), // sse is ignored in periodic mode (warn only)
             }
 
             "SSE mode" {
@@ -5163,17 +5158,13 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     mode: LogCollectionMode::Sse,
                     auto: Some(AutoModeConfig::default()),
                     ..LogsCollectorConfig::default()
-                } => FailsWith(
-                    "[collectors.logs.auto] should not be set when mode = \"sse\"".to_string()
-                ),
+                } => Yields(()), // auto is ignored in sse mode (warn only)
 
                 LogsCollectorConfig {
                     mode: LogCollectionMode::Sse,
                     periodic: Some(PeriodicLogConfig::default()),
                     ..LogsCollectorConfig::default()
-                } => FailsWith(
-                    "[collectors.logs.periodic] should not be set when mode = \"sse\"".to_string()
-                ),
+                } => Yields(()), // periodic is ignored in sse mode (warn only)
 
                 LogsCollectorConfig {
                     mode: LogCollectionMode::Sse,
