@@ -136,7 +136,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(
-        find_tenant.permitted_vpc_routing_profile_types,
+        find_tenant.permitted_routing_profile_types,
         vec!["EXTERNAL"]
     );
     let tenant = find_tenant.tenant.unwrap();
@@ -352,7 +352,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(
-        find_tenant.permitted_vpc_routing_profile_types,
+        find_tenant.permitted_routing_profile_types,
         vec!["EXTERNAL", "INTERNAL"]
     );
 
@@ -397,7 +397,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(find_tenant.permitted_vpc_routing_profile_types.is_empty());
+    assert!(find_tenant.permitted_routing_profile_types.is_empty());
     assert_eq!(
         find_tenant.tenant.unwrap().routing_profile_type.as_deref(),
         Some("REMOVED_PROFILE")
@@ -513,7 +513,7 @@ async fn test_tenant_create_without_fnn(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    assert!(find_tenant.permitted_vpc_routing_profile_types.is_empty());
+    assert!(find_tenant.permitted_routing_profile_types.is_empty());
     let tenant = find_tenant.tenant.unwrap();
     assert_eq!(tenant.organization_id, "PreFnnOrg");
     assert_eq!(tenant.routing_profile_type, None);

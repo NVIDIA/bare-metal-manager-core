@@ -630,26 +630,26 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	siteCapabilities, _ := siteRaw["capabilities"].(map[string]interface{})
 	nativeNetworking, _ := siteCapabilities["nativeNetworking"].(bool)
 	if nativeNetworking {
-		profilesResponse, _, requestErr := s.Client.Do("GET", apiPath(s, "tenant/current/routing-profiles"), nil, map[string]string{"siteId": site.ID}, nil)
+		routingProfileResponse, _, requestErr := s.Client.Do("GET", apiPath(s, "tenant/current/routing-profile"), nil, map[string]string{"siteId": site.ID}, nil)
 		if requestErr != nil {
 			return fmt.Errorf("fetching Tenant routing profiles: %w", requestErr)
 		}
-		var profiles struct {
-			TenantDefaultRoutingProfile string   `json:"tenantDefaultRoutingProfile"`
-			PermittedRoutingProfiles    []string `json:"permittedRoutingProfiles"`
+		var tenantRoutingProfile struct {
+			DefaultRoutingProfile    string   `json:"defaultRoutingProfile"`
+			PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
 		}
-		if err := json.Unmarshal(profilesResponse, &profiles); err != nil {
+		if err := json.Unmarshal(routingProfileResponse, &tenantRoutingProfile); err != nil {
 			return fmt.Errorf("parsing Tenant routing profiles: %w", err)
 		}
 		routingProfile, err = PromptChoice(
-			fmt.Sprintf("Routing profile (%s (tenant default))", profiles.TenantDefaultRoutingProfile),
-			profiles.PermittedRoutingProfiles,
-			profiles.TenantDefaultRoutingProfile,
+			fmt.Sprintf("Routing profile (%s (tenant default))", tenantRoutingProfile.DefaultRoutingProfile),
+			tenantRoutingProfile.PermittedRoutingProfiles,
+			tenantRoutingProfile.DefaultRoutingProfile,
 		)
 		if err != nil {
 			return err
 		}
-		if routingProfile != profiles.TenantDefaultRoutingProfile {
+		if routingProfile != tenantRoutingProfile.DefaultRoutingProfile {
 			routingProfileOverride = routingProfile
 			body["routingProfile"] = routingProfileOverride
 		}

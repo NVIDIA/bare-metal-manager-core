@@ -70,35 +70,35 @@ func TestNewAPITenant(t *testing.T) {
 	}
 }
 
-func TestAPITenantRoutingProfilesFromProto(t *testing.T) {
+func TestAPITenantRoutingProfile_FromProto(t *testing.T) {
 	coreResponse := &corev1.FindTenantResponse{
-		Tenant:                          &corev1.Tenant{RoutingProfileType: cutil.GetPtr("INTERNAL")},
-		PermittedVpcRoutingProfileTypes: []string{"EXTERNAL", "INTERNAL", "MAINTENANCE"},
+		Tenant:                       &corev1.Tenant{RoutingProfileType: cutil.GetPtr("INTERNAL")},
+		PermittedRoutingProfileTypes: []string{"EXTERNAL", "INTERNAL", "MAINTENANCE"},
 	}
 
 	t.Run("allows site-scoped alternatives", func(t *testing.T) {
-		response := &APITenantRoutingProfiles{}
+		response := &APITenantRoutingProfile{}
 		response.FromProto(coreResponse, true)
 
-		assert.Equal(t, "internal", response.TenantDefaultRoutingProfile)
+		assert.Equal(t, "internal", response.DefaultRoutingProfile)
 		assert.Equal(t, []string{"external", "internal", "MAINTENANCE"}, response.PermittedRoutingProfiles)
 	})
 
 	t.Run("limits selection to tenant default without privilege", func(t *testing.T) {
-		response := &APITenantRoutingProfiles{}
+		response := &APITenantRoutingProfile{}
 		response.FromProto(coreResponse, false)
 
-		assert.Equal(t, "internal", response.TenantDefaultRoutingProfile)
+		assert.Equal(t, "internal", response.DefaultRoutingProfile)
 		assert.Equal(t, []string{"internal"}, response.PermittedRoutingProfiles)
 	})
 
 	t.Run("keeps response keys stable for missing tenant", func(t *testing.T) {
-		response := &APITenantRoutingProfiles{}
+		response := &APITenantRoutingProfile{}
 		response.FromProto(&corev1.FindTenantResponse{}, true)
 
 		body, err := json.Marshal(response)
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"tenantDefaultRoutingProfile":"","permittedRoutingProfiles":[]}`, string(body))
+		assert.JSONEq(t, `{"defaultRoutingProfile":"","permittedRoutingProfiles":[]}`, string(body))
 	})
 }
 

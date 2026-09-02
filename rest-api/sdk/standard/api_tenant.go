@@ -143,7 +143,7 @@ func (a *TenantAPIService) GetCurrentTenantExecute(r ApiGetCurrentTenantRequest)
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiGetCurrentTenantRoutingProfilesRequest struct {
+type ApiGetCurrentTenantRoutingProfileRequest struct {
 	ctx        context.Context
 	ApiService *TenantAPIService
 	siteId     *string
@@ -151,17 +151,17 @@ type ApiGetCurrentTenantRoutingProfilesRequest struct {
 }
 
 // ID of the Site where the VPC will be created
-func (r ApiGetCurrentTenantRoutingProfilesRequest) SiteId(siteId string) ApiGetCurrentTenantRoutingProfilesRequest {
+func (r ApiGetCurrentTenantRoutingProfileRequest) SiteId(siteId string) ApiGetCurrentTenantRoutingProfileRequest {
 	r.siteId = &siteId
 	return r
 }
 
-func (r ApiGetCurrentTenantRoutingProfilesRequest) Execute() (*TenantRoutingProfiles, *http.Response, error) {
-	return r.ApiService.GetCurrentTenantRoutingProfilesExecute(r)
+func (r ApiGetCurrentTenantRoutingProfileRequest) Execute() (*TenantRoutingProfile, *http.Response, error) {
+	return r.ApiService.GetCurrentTenantRoutingProfileExecute(r)
 }
 
 /*
-GetCurrentTenantRoutingProfiles Retrieve VPC routing profiles for current Tenant
+GetCurrentTenantRoutingProfile Retrieve VPC routing profiles for current Tenant
 
 Retrieve the current Tenant's default VPC routing profile and the profiles it may explicitly select at the specified Site.
 
@@ -169,10 +169,10 @@ User must have authorization role with `TENANT_ADMIN` suffix. Alternative profil
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiGetCurrentTenantRoutingProfilesRequest
+	@return ApiGetCurrentTenantRoutingProfileRequest
 */
-func (a *TenantAPIService) GetCurrentTenantRoutingProfiles(ctx context.Context, org string) ApiGetCurrentTenantRoutingProfilesRequest {
-	return ApiGetCurrentTenantRoutingProfilesRequest{
+func (a *TenantAPIService) GetCurrentTenantRoutingProfile(ctx context.Context, org string) ApiGetCurrentTenantRoutingProfileRequest {
+	return ApiGetCurrentTenantRoutingProfileRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -181,21 +181,21 @@ func (a *TenantAPIService) GetCurrentTenantRoutingProfiles(ctx context.Context, 
 
 // Execute executes the request
 //
-//	@return TenantRoutingProfiles
-func (a *TenantAPIService) GetCurrentTenantRoutingProfilesExecute(r ApiGetCurrentTenantRoutingProfilesRequest) (*TenantRoutingProfiles, *http.Response, error) {
+//	@return TenantRoutingProfile
+func (a *TenantAPIService) GetCurrentTenantRoutingProfileExecute(r ApiGetCurrentTenantRoutingProfileRequest) (*TenantRoutingProfile, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *TenantRoutingProfiles
+		localVarReturnValue *TenantRoutingProfile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAPIService.GetCurrentTenantRoutingProfiles")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TenantAPIService.GetCurrentTenantRoutingProfile")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/tenant/current/routing-profiles"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/tenant/current/routing-profile"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 
 	localVarHeaderParams := make(map[string]string)

@@ -499,29 +499,29 @@ func TestCmdInstanceUpdate_SendsAttributeOnlyPatch(t *testing.T) {
 
 func TestCmdVPCCreate(t *testing.T) {
 	tests := []struct {
-		name                 string
-		profilesResponse     string
-		input                string
-		expectedBody         string
-		expectedLog          string
-		unexpectedLog        string
-		expectedConfirmation string
+		name                   string
+		routingProfileResponse string
+		input                  string
+		expectedBody           string
+		expectedLog            string
+		unexpectedLog          string
+		expectedConfirmation   string
 	}{
 		{
-			name:                 "sends a selected alternative profile",
-			profilesResponse:     `{"tenantDefaultRoutingProfile":"external","permittedRoutingProfiles":["external","internal"]}`,
-			input:                "profile-vpc\n\ninternal\n",
-			expectedBody:         `{"name":"profile-vpc","routingProfile":"internal","siteId":"site-1"}`,
-			expectedLog:          "--routing-profile internal",
-			expectedConfirmation: "routing profile: internal",
+			name:                   "sends a selected alternative profile",
+			routingProfileResponse: `{"defaultRoutingProfile":"external","permittedRoutingProfiles":["external","internal"]}`,
+			input:                  "profile-vpc\n\ninternal\n",
+			expectedBody:           `{"name":"profile-vpc","routingProfile":"internal","siteId":"site-1"}`,
+			expectedLog:            "--routing-profile internal",
+			expectedConfirmation:   "routing profile: internal",
 		},
 		{
-			name:                 "inherits the tenant default without an explicit override",
-			profilesResponse:     `{"tenantDefaultRoutingProfile":"external","permittedRoutingProfiles":["external"]}`,
-			input:                "profile-vpc\n\n\n",
-			expectedBody:         `{"name":"profile-vpc","siteId":"site-1"}`,
-			unexpectedLog:        "--routing-profile",
-			expectedConfirmation: "routing profile: external",
+			name:                   "inherits the tenant default without an explicit override",
+			routingProfileResponse: `{"defaultRoutingProfile":"external","permittedRoutingProfiles":["external"]}`,
+			input:                  "profile-vpc\n\n\n",
+			expectedBody:           `{"name":"profile-vpc","siteId":"site-1"}`,
+			unexpectedLog:          "--routing-profile",
+			expectedConfirmation:   "routing profile: external",
 		},
 	}
 
@@ -543,8 +543,8 @@ func TestCmdVPCCreate(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
-				case "/v2/org/acme/nico/tenant/current/routing-profiles":
-					_, _ = io.WriteString(w, test.profilesResponse)
+				case "/v2/org/acme/nico/tenant/current/routing-profile":
+					_, _ = io.WriteString(w, test.routingProfileResponse)
 				case "/v2/org/acme/nico/vpc":
 					w.WriteHeader(http.StatusCreated)
 					_, _ = io.WriteString(w, `{"id":"vpc-1","name":"profile-vpc"}`)
@@ -571,7 +571,7 @@ func TestCmdVPCCreate(t *testing.T) {
 			mu.Unlock()
 			require.Len(t, got, 2)
 			assert.Equal(t, http.MethodGet, got[0].method)
-			assert.Equal(t, "/v2/org/acme/nico/tenant/current/routing-profiles", got[0].path)
+			assert.Equal(t, "/v2/org/acme/nico/tenant/current/routing-profile", got[0].path)
 			assert.Equal(t, "siteId=site-1", got[0].query)
 			assert.Equal(t, http.MethodPost, got[1].method)
 			assert.Equal(t, "/v2/org/acme/nico/vpc", got[1].path)

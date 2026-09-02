@@ -531,7 +531,7 @@ paths:
 
         User must have authorization role with `TENANT_ADMIN` suffix.
       parameters: []
-  '/v2/org/{org}/nico/tenant/current/routing-profiles':
+  '/v2/org/{org}/nico/tenant/current/routing-profile':
     parameters:
       - schema:
           type: string
@@ -541,7 +541,7 @@ paths:
         description: Name of the Org
     get:
       summary: Retrieve VPC routing profiles for current Tenant
-      operationId: get-current-tenant-routing-profiles
+      operationId: get-current-tenant-routing-profile
       description: |-
         Retrieve the current Tenant's default VPC routing profile and the profiles it may explicitly select at the specified Site.
 
@@ -562,7 +562,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TenantRoutingProfiles'
+                $ref: '#/components/schemas/TenantRoutingProfile'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -17718,25 +17718,25 @@ components:
           deprecated: true
           readOnly: true
           description: Deprecated in favor of TenantAccount.siteCapabilities. On GET `/tenant/current`, the property is present and true only when every Ready Tenant Account enables TargetedInstanceCreation and no Tenant Site explicitly disables it; otherwise it is omitted. It is also omitted from embedded TenantSummary objects.
-    TenantRoutingProfiles:
-      title: TenantRoutingProfiles
+    TenantRoutingProfile:
+      title: TenantRoutingProfile
       type: object
       description: Site-scoped VPC routing profiles available to the current Tenant
       properties:
-        tenantDefaultRoutingProfile:
+        defaultRoutingProfile:
           type: string
           description: Routing profile applied by Core when a VPC omits routingProfile
           example: internal
         permittedRoutingProfiles:
           type: array
-          description: Site-configured routing profiles the Tenant may choose at this Site. Choosing `tenantDefaultRoutingProfile` inherits it by omitting `routingProfile`; other returned values can be sent explicitly when creating a VPC.
+          description: Site-configured routing profiles the Tenant may choose at this Site. Choosing `defaultRoutingProfile` inherits it by omitting `routingProfile`; other returned values can be sent explicitly when creating a VPC.
           items:
             type: string
           example:
             - internal
             - external
       required:
-        - tenantDefaultRoutingProfile
+        - defaultRoutingProfile
         - permittedRoutingProfiles
     TenantStats:
       title: TenantStats
@@ -19280,7 +19280,7 @@ components:
             - 'null'
           minLength: 3
           maxLength: 64
-          description: Specify a Site-configured routing profile returned by GET `/tenant/current/routing-profiles` for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege.
+          description: Specify a Site-configured routing profile returned by GET `/tenant/current/routing-profile` for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege.
         routingProfileOverrides:
           oneOf:
             - $ref: '#/components/schemas/VpcRoutingProfileOverrides'

@@ -5851,7 +5851,7 @@ message FindTenantResponse {
   Tenant tenant = 1;
   // Named VPC routing profiles whose access tier is permitted for this Tenant.
   // Empty when FNN or the Tenant routing profile is not configured.
-  repeated string permitted_vpc_routing_profile_types = 2;
+  repeated string permitted_routing_profile_types = 2;
 }
 
 message TenantKeysetIdentifier {

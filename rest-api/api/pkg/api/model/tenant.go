@@ -51,34 +51,34 @@ type APITenant struct {
 	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
-// APITenantRoutingProfiles describes the routing profiles a Tenant may select
+// APITenantRoutingProfile describes the routing profiles a Tenant may select
 // for VPC creation at one Site.
-type APITenantRoutingProfiles struct {
-	// TenantDefaultRoutingProfile is the profile Core applies when a VPC omits routingProfile.
-	TenantDefaultRoutingProfile string `json:"tenantDefaultRoutingProfile"`
+type APITenantRoutingProfile struct {
+	// DefaultRoutingProfile is the profile Core applies when a VPC omits routingProfile.
+	DefaultRoutingProfile string `json:"defaultRoutingProfile"`
 	// PermittedRoutingProfiles contains the profiles this Tenant may choose during VPC creation.
-	// Choosing TenantDefaultRoutingProfile inherits it without sending an explicit override.
+	// Choosing DefaultRoutingProfile inherits it without sending an explicit override.
 	PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
 }
 
 // FromProto populates the REST response from Core's Tenant lookup. When the
 // Tenant lacks the site-scoped write privilege, only its inheritable default is
 // exposed as selectable.
-func (atrp *APITenantRoutingProfiles) FromProto(response *corev1.FindTenantResponse, allowAlternatives bool) {
-	*atrp = APITenantRoutingProfiles{PermittedRoutingProfiles: []string{}}
+func (atrp *APITenantRoutingProfile) FromProto(response *corev1.FindTenantResponse, allowAlternatives bool) {
+	*atrp = APITenantRoutingProfile{PermittedRoutingProfiles: []string{}}
 	if response == nil || response.GetTenant() == nil {
 		return
 	}
 
-	atrp.TenantDefaultRoutingProfile = NormalizeAPIVpcRoutingProfileFromSite(response.GetTenant().GetRoutingProfileType())
+	atrp.DefaultRoutingProfile = NormalizeAPIVpcRoutingProfileFromSite(response.GetTenant().GetRoutingProfileType())
 	if !allowAlternatives {
-		if atrp.TenantDefaultRoutingProfile != "" {
-			atrp.PermittedRoutingProfiles = append(atrp.PermittedRoutingProfiles, atrp.TenantDefaultRoutingProfile)
+		if atrp.DefaultRoutingProfile != "" {
+			atrp.PermittedRoutingProfiles = append(atrp.PermittedRoutingProfiles, atrp.DefaultRoutingProfile)
 		}
 		return
 	}
 
-	for _, profile := range response.GetPermittedVpcRoutingProfileTypes() {
+	for _, profile := range response.GetPermittedRoutingProfileTypes() {
 		atrp.PermittedRoutingProfiles = append(atrp.PermittedRoutingProfiles, NormalizeAPIVpcRoutingProfileFromSite(profile))
 	}
 }

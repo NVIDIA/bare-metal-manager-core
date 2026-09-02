@@ -222,7 +222,7 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, apiInstance)
 }
 
-// ~~~~~ Get Current Routing Profiles Handler ~~~~~ //
+// ~~~~~ Get Current Routing Profile Handler ~~~~~ //
 
 // GetCurrentTenantRoutingProfileHandler retrieves the routing profiles the
 // current Tenant may use at one Site.
@@ -249,10 +249,10 @@ func NewGetCurrentTenantRoutingProfileHandler(dbSession *cdb.Session, scp *sc.Cl
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param siteId query string true "ID of Site"
-// @Success 200 {object} model.APITenantRoutingProfiles
-// @Router /v2/org/{org}/nico/tenant/current/routing-profiles [get]
+// @Success 200 {object} model.APITenantRoutingProfile
+// @Router /v2/org/{org}/nico/tenant/current/routing-profile [get]
 func (gctrph GetCurrentTenantRoutingProfileHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TenantRoutingProfiles", "GetCurrent", c, gctrph.tracerSpan)
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TenantRoutingProfile", "GetCurrent", c, gctrph.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -336,7 +336,7 @@ func (gctrph GetCurrentTenantRoutingProfileHandler) Handle(c echo.Context) error
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Site", nil)
 	}
 
-	response := &model.APITenantRoutingProfiles{}
+	response := &model.APITenantRoutingProfile{}
 	response.FromProto(coreResponse, allowAlternatives)
 	return c.JSON(http.StatusOK, response)
 }

@@ -78,7 +78,7 @@ impl TryFrom<Tenant> for rpc::forge::FindTenantResponse {
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
         Ok(rpc::forge::FindTenantResponse {
             tenant: Some(value.try_into()?),
-            permitted_vpc_routing_profile_types: vec![],
+            permitted_routing_profile_types: vec![],
         })
     }
 }

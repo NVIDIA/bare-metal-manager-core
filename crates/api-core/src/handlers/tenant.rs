@@ -135,10 +135,10 @@ pub(crate) async fn find(
     {
         None => rpc::FindTenantResponse {
             tenant: None,
-            permitted_vpc_routing_profile_types: vec![],
+            permitted_routing_profile_types: vec![],
         },
         Some(t) => {
-            let permitted_vpc_routing_profile_types = match (
+            let permitted_routing_profile_types = match (
                 t.routing_profile_type.as_deref(),
                 api.runtime_config.fnn.as_ref(),
             ) {
@@ -170,7 +170,7 @@ pub(crate) async fn find(
                 _ => vec![],
             };
             let mut response: rpc::FindTenantResponse = t.try_into().map_err(CarbideError::from)?;
-            response.permitted_vpc_routing_profile_types = permitted_vpc_routing_profile_types;
+            response.permitted_routing_profile_types = permitted_routing_profile_types;
             response
         }
     };
