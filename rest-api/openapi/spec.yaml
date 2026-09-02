@@ -18535,11 +18535,6 @@ components:
             - boolean
             - 'null'
           description: Enable or disable NVLink partition support for the Site
-        flow:
-          type:
-            - boolean
-            - 'null'
-          description: Enable or disable NICo Flow for the Site
         imageBasedOperatingSystem:
           type:
             - boolean

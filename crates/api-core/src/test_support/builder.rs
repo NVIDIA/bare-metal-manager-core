@@ -21,7 +21,7 @@ use arc_swap::ArcSwap;
 use carbide_ib_fabric::ib::IBFabricManager;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::BmcCredentialOps;
 use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_secrets::credentials::CredentialManager;
 use carbide_secrets::test_support::certificates::TestCertificateProvider;
@@ -56,7 +56,7 @@ pub struct TestApiBuilder {
     work_lock_manager: WorkLockManagerHandle,
     runtime_config: Option<Arc<CarbideConfig>>,
     credential_manager: Option<Arc<dyn CredentialManager>>,
-    redfish_pool: Option<Arc<dyn RedfishClientPool>>,
+    redfish_pool: Option<Arc<dyn BmcCredentialOps>>,
     rms_client: Option<Arc<dyn RmsApi>>,
     nmxc_client_pool: Option<Arc<dyn NmxcPool>>,
     eth_data: Option<EthVirtData>,
@@ -107,7 +107,10 @@ impl TestApiBuilder {
         }
     }
 
-    pub fn with_redfish_pool(self, redfish_pool: Arc<dyn RedfishClientPool>) -> Self {
+    /// Installs the Redfish pool the API under test uses. Takes the
+    /// credential-operations handle because tests hand one sim in as both
+    /// the general pool and the ops handle.
+    pub fn with_redfish_pool(self, redfish_pool: Arc<dyn BmcCredentialOps>) -> Self {
         Self {
             redfish_pool: Some(redfish_pool),
             ..self
@@ -199,7 +202,7 @@ impl TestApiBuilder {
         let machine_state_handler_enqueuer = Enqueuer::new(self.db_pool.clone());
         let dpu_health_log_limiter = LogLimiter::default();
 
-        let redfish_pool = self
+        let redfish_pool: Arc<dyn BmcCredentialOps> = self
             .redfish_pool
             .unwrap_or_else(|| Arc::new(RedfishSim::default()));
 
@@ -273,7 +276,9 @@ impl TestApiBuilder {
             credential_manager,
             certificate_provider,
             database_connection: self.db_pool,
-            redfish_pool,
+            // dyn upcast: the ops handle is also the general pool in tests.
+            redfish_pool: redfish_pool.clone(),
+            bmc_credential_ops: redfish_pool,
             eth_data,
             common_pools: self.common_pools,
             ib_fabric_manager,

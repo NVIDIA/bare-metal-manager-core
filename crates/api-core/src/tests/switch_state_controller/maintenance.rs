@@ -127,6 +127,7 @@ fn services_without_component_manager(env: &TestEnv) -> SwitchStateHandlerServic
         switch_mtls_services: super::default_switch_mtls_services(),
         per_object_metrics_registry: env.per_object_metrics_registry(),
         redfish_client_pool: env.redfish_sim.clone(),
+        bmc_credential_ops: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
             db::credential_rotation::CredentialRotationType::Bmc,
         ),
@@ -143,6 +144,7 @@ async fn services_with_component_manager(env: &TestEnv) -> SwitchStateHandlerSer
         switch_mtls_services: super::default_switch_mtls_services(),
         per_object_metrics_registry: env.per_object_metrics_registry(),
         redfish_client_pool: env.redfish_sim.clone(),
+        bmc_credential_ops: env.redfish_sim.clone(),
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
             db::credential_rotation::CredentialRotationType::Bmc,
         ),
