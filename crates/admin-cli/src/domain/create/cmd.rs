@@ -15,20 +15,27 @@
  * limitations under the License.
  */
 
-mod create;
-mod show;
+use ::rpc::admin_cli::output::OutputFormat;
 
-// Cross-module re-exports for jump module
-use clap::Parser;
-pub(crate) use show::args::Args as ShowDomain;
-pub(crate) use show::cmd::handle_show;
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-use crate::cfg::dispatch::Dispatch;
+pub(super) async fn create(
+    args: Args,
+    output_format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
+    let domain = api_client.0.create_domain(args).await?;
 
-#[derive(Parser, Debug, Dispatch)]
-pub(crate) enum Cmd {
-    #[clap(about = "Create Domain")]
-    Create(create::Args),
-    #[clap(about = "Display Domain information")]
-    Show(show::Args),
+    match output_format {
+        OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&domain)?),
+        OutputFormat::AsciiTable => println!(
+            "{}",
+            crate::domain::show::cmd::convert_domain_to_nice_format(&domain)?
+        ),
+        _ => println!("{}", serde_yaml::to_string(&domain)?),
+    }
+
+    Ok(())
 }

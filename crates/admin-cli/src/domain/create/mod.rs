@@ -15,20 +15,17 @@
  * limitations under the License.
  */
 
-mod create;
-mod show;
+mod args;
+mod cmd;
 
-// Cross-module re-exports for jump module
-use clap::Parser;
-pub(crate) use show::args::Args as ShowDomain;
-pub(crate) use show::cmd::handle_show;
+pub(super) use args::Args;
 
-use crate::cfg::dispatch::Dispatch;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-#[derive(Parser, Debug, Dispatch)]
-pub(crate) enum Cmd {
-    #[clap(about = "Create Domain")]
-    Create(create::Args),
-    #[clap(about = "Display Domain information")]
-    Show(show::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::create(self, ctx.config.format, &ctx.api_client).await
+    }
 }

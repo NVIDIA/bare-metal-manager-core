@@ -1,21 +1,24 @@
-# `nico-admin-cli domain`
+# `nico-admin-cli domain create`
 
-_[Network commands](../../network.md) › **domain**_
+_[Network commands](../../network.md) › [domain](./domain.md) › **create**_
 
 ## NAME
 
-nico-admin-cli-domain - Domain related handling
+nico-admin-cli-domain-create - Create Domain
 
 ## SYNOPSIS
 
-**nico-admin-cli domain** \[**--extended**\] \[**--sort-by**\]
-\[**-h**\|**--help**\] \<*subcommands*\>
+**nico-admin-cli domain create** \<**--name**\> \[**--extended**\]
+\[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
-Domain related handling
+Create Domain
 
 ## OPTIONS
+
+**--name** *\<NAME\>*  
+Name of the DNS domain to create
 
 **--extended**  
 Extended result output.
@@ -37,12 +40,11 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-## Subcommands
+## Examples
 
-| Subcommand | Description |
-|---|---|
-| [`create`](./domain-create.md) | Create Domain |
-| [`show`](./domain-show.md) | Display Domain information |
+```sh
+nico-admin-cli domain create --name site.example.com
+```
 
 ---
 

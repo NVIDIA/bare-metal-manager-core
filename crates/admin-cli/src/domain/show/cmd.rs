@@ -42,7 +42,9 @@ fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
     ts.as_ref().unwrap_or(default).to_string()
 }
 
-fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> CarbideCliResult<String> {
+pub(in crate::domain) fn convert_domain_to_nice_format(
+    domain: &::rpc::protos::dns::Domain,
+) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
