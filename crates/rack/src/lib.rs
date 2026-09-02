@@ -18,6 +18,9 @@
 use librms::RackManagerError;
 use state_controller::state_handler::{ExternalServiceError, StateHandlerError};
 
+#[cfg(feature = "test-support")]
+mod rms_sim;
+
 pub mod bms_client;
 pub mod firmware_object;
 pub mod firmware_update;

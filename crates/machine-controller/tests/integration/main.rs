@@ -21,6 +21,7 @@ mod dpu_uefi_rotation;
 mod env;
 mod firmware_upgrade_completion;
 mod host_uefi_rotation;
+mod host_uefi_setup;
 mod maintenance;
 mod power_management;
 mod rack_firmware_upgrade;

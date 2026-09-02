@@ -1,4 +1,4 @@
-# NVOS Password Rotation <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# NVOS Password Rotation <Badge intent="info">v2.0</Badge>
 
 Use this workflow to rotate the NVOS admin password across managed NVLink switches, monitor site-wide convergence, and recover switches that do not reach the published target.
 

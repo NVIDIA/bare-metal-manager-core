@@ -1440,7 +1440,7 @@ pub struct PeriodicLogConfig {
     /// `["Journal"]` to suppress the bmcweb HTTP-access log, which is
     /// high-volume and self-referential. Set to `[]` to collect from every
     /// discovered LogService.
-    #[serde(default)]
+    #[serde(default = "default_excluded_log_services")]
     pub exclude_services: Vec<String>,
 
     /// When true, on the first encounter of a LogService with no saved state,
@@ -1458,10 +1458,14 @@ impl Default for PeriodicLogConfig {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
-            exclude_services: vec!["Journal".to_string()],
+            exclude_services: default_excluded_log_services(),
             skip_initial_history: false,
         }
     }
+}
+
+fn default_excluded_log_services() -> Vec<String> {
+    vec!["Journal".to_string()]
 }
 
 /// downgrade thresholds and periodic fallback for `collectors.logs.mode = "auto"`.
@@ -2471,10 +2475,7 @@ mod tests {
     }
 
     fn parsed_periodic_defaults() -> PeriodicLogConfig {
-        PeriodicLogConfig {
-            exclude_services: vec![],
-            ..PeriodicLogConfig::default()
-        }
+        PeriodicLogConfig::default()
     }
 
     #[test]
@@ -5262,6 +5263,75 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
                         .to_string()
                 ),
+            }
+        );
+    }
+
+    #[test]
+    fn excluded_log_services_config_surface() {
+        scenarios!(run = |toml| {
+            Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(toml))
+                .extract::<Config>()
+                .map_err(|_| ())
+                .and_then(|config| {
+                    config.validate().map_err(|_| ())?;
+                    let logs = config.collectors.logs.as_option().ok_or(())?;
+
+                    Ok(match logs.mode {
+                        LogCollectionMode::Auto => {
+                            logs.auto_periodic_or_default().exclude_services
+                        }
+                        LogCollectionMode::Periodic => {
+                            logs.periodic_or_default().exclude_services
+                        }
+                        LogCollectionMode::Sse => Vec::new(),
+                    })
+                })
+        };
+            "periodic mode" {
+                r#"
+[collectors.logs]
+mode = "periodic"
+[collectors.logs.periodic]
+"# => Yields(vec!["Journal".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "periodic"
+[collectors.logs.periodic]
+exclude_services = ["Journal", "Dump"]
+"# => Yields(vec!["Journal".to_string(), "Dump".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "periodic"
+[collectors.logs.periodic]
+exclude_services = []
+"# => Yields(vec![]),
+            }
+
+            "auto fallback" {
+                r#"
+[collectors.logs]
+mode = "auto"
+[collectors.logs.auto]
+"# => Yields(vec!["Journal".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "auto"
+[collectors.logs.auto]
+exclude_services = ["Journal", "Dump"]
+"# => Yields(vec!["Journal".to_string(), "Dump".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "auto"
+[collectors.logs.auto]
+exclude_services = []
+"# => Yields(vec![]),
             }
         );
     }

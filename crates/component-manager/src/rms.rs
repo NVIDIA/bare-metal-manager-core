@@ -20,7 +20,10 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use carbide_instrument::{Event, emit, red};
-use carbide_rack::firmware_object::rms_access_token_or_noauth;
+use carbide_rack::firmware_object::{
+    ANY_RACK_HARDWARE_TYPE, profile_hardware_type_wire_value, rms_access_token_or_noauth,
+};
+use carbide_rack::firmware_update::{build_new_node_info, firmware_type_for_profile};
 use carbide_rack::rms_node_type::{
     RmsNodeIdentity, compute_node_identity_for_profile,
     firmware_object_component_filters_for_node_identities, power_shelf_node_identity_for_profile,
@@ -35,6 +38,7 @@ use model::component_manager::{
     ComputeTrayComponent, ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent,
     PowerAction, PowerShelfComponent,
 };
+use model::rack::{NvosUpdateJob, NvosUpdateSwitchStatus};
 use model::rack_type::{RackHardwareTopology, RackProfile, RackProfileConfig};
 use model::switch::{FabricManagerState, FabricManagerStatus};
 use serde::Deserialize;
@@ -60,6 +64,7 @@ use crate::power_shelf_manager::{
     PowerShelfPowerStateResult,
 };
 use crate::types::FirmwareUpdateOptions;
+use crate::{NvosUpdateManager, NvosUpdateRequest};
 
 /// Common RMS identity needed to address a device in RMS.
 #[derive(Clone)]
@@ -181,6 +186,163 @@ impl RmsSwitchSystemImageStatusApi for librms::RackManagerApi {
     ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError> {
         Ok(self.client.get_switch_system_image_job_status(cmd).await?)
     }
+}
+
+/// RMS implementation of durable rack-level NVOS operations.
+struct RmsNvosUpdateManager {
+    client: Arc<dyn RmsApi>,
+}
+
+impl crate::nvos_update_manager::sealed::Sealed for RmsNvosUpdateManager {}
+
+#[async_trait::async_trait]
+impl NvosUpdateManager for RmsNvosUpdateManager {
+    async fn start_nvos_update(
+        &self,
+        request: NvosUpdateRequest<'_>,
+    ) -> Result<NvosUpdateJob, ComponentManagerError> {
+        let started_at = chrono::Utc::now();
+
+        let switch_identity = switch_node_identity_for_profile(request.profile)
+            .map_err(|error| ComponentManagerError::InvalidArgument(error.to_string()))?;
+
+        let nodes = request
+            .switches
+            .iter()
+            .map(|switch| build_new_node_info(request.rack_id, switch, &switch_identity))
+            .collect();
+
+        let hardware_type = profile_hardware_type_wire_value(request.profile);
+
+        let hardware_type = if hardware_type.trim().is_empty() {
+            ANY_RACK_HARDWARE_TYPE.to_string()
+        } else {
+            hardware_type
+        };
+
+        let response = self
+            .client
+            .apply_switch_system_image(rms::ApplySwitchSystemImageRequest {
+                rack_id: request.rack_id.to_string(),
+                config_json: request.config_json.to_string(),
+                access_token: Some(rms_access_token_or_noauth(Some(request.access_token))),
+                software_type: firmware_type_for_profile(request.profile).to_string(),
+                hardware_type,
+                nodes: Some(rms::NodeSet { nodes }),
+            })
+            .await
+            .map_err(|error| {
+                let cause = match error {
+                    RackManagerError::ApiInvocationError(status) => status.to_string(),
+                    error => error.to_string(),
+                };
+
+                ComponentManagerError::Internal(format!(
+                    "failed to submit NVOS update to RMS: {cause}"
+                ))
+            })?;
+
+        let batch_response = response.response.as_ref();
+
+        let batch_status = batch_response
+            .map(|batch_response| batch_response.status)
+            .unwrap_or(rms::ReturnCode::Failure as i32);
+
+        let batch_job_id = batch_response
+            .map(|batch_response| batch_response.job_id.as_str())
+            .unwrap_or_default();
+
+        // A failed batch can still contain accepted jobs. Reject only responses
+        // without a durable handle so accepted work remains pollable.
+        if batch_status != rms::ReturnCode::Success as i32
+            && batch_job_id.is_empty()
+            && response.jobs.is_empty()
+        {
+            let message = batch_response
+                .map(|batch_response| batch_response.message.as_str())
+                .unwrap_or_default();
+
+            let message = if message.is_empty() {
+                "RMS returned failure for ApplySwitchSystemImage".to_string()
+            } else {
+                message.to_string()
+            };
+
+            return Err(ComponentManagerError::RejectedBeforeDispatch(message));
+        }
+
+        // RMS may return child handles, a parent handle, or both. Use the parent
+        // when a switch has no child handle so every accepted job can be polled.
+        let parent_job_id = (!batch_job_id.is_empty()).then(|| batch_job_id.to_string());
+
+        let child_jobs = response
+            .jobs
+            .iter()
+            .map(|child| (child.node_id.clone(), child.job_id.clone()))
+            .collect::<HashMap<_, _>>();
+
+        let switches: Vec<_> = request
+            .switches
+            .into_iter()
+            .map(|switch| {
+                let mut status = NvosUpdateSwitchStatus {
+                    node_id: switch.node_id.clone(),
+                    mac: switch.mac,
+                    bmc_ip: switch.bmc_ip,
+                    nvos_ip: switch.os_ip.unwrap_or_default(),
+                    status: "pending".into(),
+                    job_id: child_jobs
+                        .get(&switch.node_id)
+                        .cloned()
+                        .or_else(|| parent_job_id.clone()),
+                    error_message: None,
+                };
+
+                if status.job_id.is_none() {
+                    status.status = "failed".into();
+                    status.error_message =
+                        Some("RMS did not return a switch system image job for this switch".into());
+                }
+
+                status
+            })
+            .collect();
+
+        let total = switches.len();
+
+        let failed = switches
+            .iter()
+            .filter(|switch| switch.status == "failed")
+            .count();
+
+        let all_failed = total > 0 && failed == total;
+
+        Ok(NvosUpdateJob {
+            job_id: parent_job_id,
+            firmware_id: response.object_id,
+            image_filename: response.image_filename,
+            local_file_path: String::new(),
+            version: None,
+            status: Some(
+                if total > failed {
+                    "in_progress"
+                } else if all_failed {
+                    "failed"
+                } else {
+                    "completed"
+                }
+                .into(),
+            ),
+            started_at: Some(started_at),
+            completed_at: all_failed.then(chrono::Utc::now),
+            switches,
+        })
+    }
+}
+
+/// Creates the RMS implementation of durable rack-level NVOS update submission.
+pub fn rms_nvos_update_manager(client: Arc<dyn RmsApi>) -> impl NvosUpdateManager {
+    RmsNvosUpdateManager { client }
 }
 
 impl std::fmt::Debug for RmsBackend {
@@ -3232,6 +3394,7 @@ mod tests {
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::SwitchId;
+    use model::rack::FirmwareUpgradeDeviceInfo;
     use model::rack_type::{
         RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
         RackHardwareTopology, RackProductFamily, RackProfile, RackProfileConfig,
@@ -3302,6 +3465,123 @@ mod tests {
                 9999 => FirmwareState::Unknown,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn rack_nvos_submission_builds_request_and_preserves_job_handles() {
+        let mock = Arc::new(MockRmsApi::new());
+        let rack_id = RackId::new("rack-1");
+        let child_node_id = "switch-1";
+        let parent_node_id = "switch-2";
+
+        let child_switch = FirmwareUpgradeDeviceInfo {
+            node_id: child_node_id.to_string(),
+            mac: SW_MAC_1.to_string(),
+            bmc_ip: "192.0.2.10".to_string(),
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            os_mac: Some("11:22:33:44:55:66".to_string()),
+            os_ip: Some("192.0.2.20".to_string()),
+            os_username: Some("nvos-admin".to_string()),
+            os_password: Some("nvos-password".to_string()),
+            os_hostname: None,
+        };
+
+        let parent_switch = FirmwareUpgradeDeviceInfo {
+            node_id: parent_node_id.to_string(),
+            mac: SW_MAC_2.to_string(),
+            bmc_ip: "192.0.2.11".to_string(),
+            os_mac: Some("22:33:44:55:66:77".to_string()),
+            os_ip: Some("192.0.2.21".to_string()),
+            ..child_switch.clone()
+        };
+
+        mock.enqueue_apply_switch_system_image(Ok(rms::ApplySwitchSystemImageResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                job_id: "nvos-parent-job".to_string(),
+                ..Default::default()
+            }),
+            jobs: vec![rms::SwitchSystemImageUpdateJobInfo {
+                node_id: child_node_id.to_string(),
+                job_id: "nvos-child-job".to_string(),
+            }],
+            object_id: "fw-json".to_string(),
+            image_filename: "nvos.img".to_string(),
+        }))
+        .await;
+
+        let manager = RmsNvosUpdateManager {
+            client: mock.clone(),
+        };
+
+        let job = manager
+            .start_nvos_update(NvosUpdateRequest {
+                rack_id: &rack_id,
+                profile: &test_rms_profile(),
+                config_json: r#"{"Id":"fw-nvos-default"}"#,
+                access_token: "token",
+                switches: vec![child_switch, parent_switch],
+            })
+            .await
+            .expect("NVOS submission should succeed");
+
+        assert_eq!(job.job_id.as_deref(), Some("nvos-parent-job"));
+        assert_eq!(job.switches[0].job_id.as_deref(), Some("nvos-child-job"));
+        assert_eq!(job.switches[1].job_id.as_deref(), Some("nvos-parent-job"));
+        assert_eq!(job.status.as_deref(), Some("in_progress"));
+
+        let calls = mock.apply_switch_system_image_calls().await;
+
+        let [call] = calls.as_slice() else {
+            panic!("expected one ApplySwitchSystemImage request");
+        };
+
+        assert_eq!(call.rack_id, rack_id.to_string());
+        assert_eq!(call.config_json, r#"{"Id":"fw-nvos-default"}"#);
+        assert_eq!(call.access_token.as_deref(), Some("token"));
+        assert_eq!(call.software_type, "prod");
+        assert_eq!(call.hardware_type, ANY_RACK_HARDWARE_TYPE);
+
+        let nodes = call.nodes.as_ref().expect("request nodes");
+
+        let [child_node, parent_node] = nodes.nodes.as_slice() else {
+            panic!("expected two switch nodes");
+        };
+
+        assert_eq!(child_node.node_id, child_node_id);
+        assert_eq!(parent_node.node_id, parent_node_id);
+
+        let bmc_endpoint = child_node.bmc_endpoint.as_ref().expect("BMC endpoint");
+        let bmc_interface = bmc_endpoint.interface.as_ref().expect("BMC interface");
+
+        assert_eq!(bmc_interface.ip_address, "192.0.2.10");
+        assert_eq!(bmc_interface.mac_address, SW_MAC_1);
+
+        assert!(matches!(
+            bmc_endpoint
+                .credentials
+                .as_ref()
+                .and_then(|credentials| credentials.auth.as_ref()),
+            Some(rms::credentials::Auth::UserPass(credentials))
+                if credentials.username == "admin" && credentials.password == "password"
+        ));
+
+        let host_endpoint = child_node.host_endpoint.as_ref().expect("NVOS endpoint");
+        let host_interface = host_endpoint.interface.as_ref().expect("NVOS interface");
+
+        assert_eq!(host_interface.ip_address, "192.0.2.20");
+        assert_eq!(host_interface.mac_address, "11:22:33:44:55:66");
+
+        assert!(matches!(
+            host_endpoint
+                .credentials
+                .as_ref()
+                .and_then(|credentials| credentials.auth.as_ref()),
+            Some(rms::credentials::Auth::UserPass(credentials))
+                if credentials.username == "nvos-admin"
+                    && credentials.password == "nvos-password"
+        ));
     }
 
     #[test]

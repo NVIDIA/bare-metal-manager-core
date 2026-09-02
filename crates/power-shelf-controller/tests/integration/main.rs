@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+mod bmc_rotation;
 mod common;
 mod error_state;
+mod health;
 mod maintenance;
 mod power_shelf_deletion;
 mod reprovisioning;

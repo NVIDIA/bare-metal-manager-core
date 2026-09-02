@@ -133,6 +133,7 @@ mod host_boot_config;
 mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
+mod nic_lockdown_rotation;
 mod power;
 mod rotation;
 mod sku;
@@ -1270,6 +1271,22 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Same lowest-precedence idle-only rule again, for the host's
+                // NIC lockdown keys. A rekey unlocks and relocks each SVPC
+                // card via the DPA state machine + scout, so it must never run
+                // under active tenancy; the site flag / force-converge override
+                // live in `nic_lockdown_rotation::should_enter_nic_lockdown_rotation`.
+                if nic_lockdown_rotation::should_enter_nic_lockdown_rotation(
+                    ctx.services,
+                    mh_snapshot,
+                )
+                .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingNicLockdown,
+                    ));
+                }
+
                 // Releasing a DPF maintenance hold restarts DPU services, so it
                 // belongs with the idle-only work above rather than ahead of it.
                 dpu_action_handler::handle_pending_dpu_actions(
@@ -1314,6 +1331,14 @@ impl MachineStateHandler {
                 }
                 DecommissioningState::PowerCyclingHost => {
                     decommissioning::handle_power_cycling_host(mh_snapshot, ctx).await
+                }
+                DecommissioningState::PoweringOnHost => {
+                    decommissioning::handle_powering_on_host(
+                        mh_snapshot,
+                        ctx,
+                        self.reachability_params.power_down_wait,
+                    )
+                    .await
                 }
                 DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                     decommissioning::handle_waiting_for_oob_dhcp_acknowledgement(mh_snapshot, ctx)
@@ -1438,6 +1463,10 @@ impl MachineStateHandler {
 
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
                 dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
+            }
+
+            ManagedHostState::RotatingNicLockdown => {
+                nic_lockdown_rotation::handle_rotating_nic_lockdown(ctx, mh_snapshot).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {
@@ -4074,7 +4103,23 @@ async fn handle_dpu_reprovision(
                 .with_txn(txn),
             )
         }
-        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::do_nothing()),
+        ReprovisionState::NotUnderReprovision => {
+            if !dpf::deployment_migration_is_parked(state) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            // Deployment migration is host scoped, while this handler is
+            // called once per DPU. Run it only for the first snapshot so one
+            // controller iteration observes and changes the DPF graph once.
+            if state.dpu_snapshots.first().map(|dpu| &dpu.id) != Some(dpu_machine_id) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            let dpf = dpf_sdk.ok_or_else(|| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "DPF deployment migration reached but DPF is not configured"
+                ))
+            })?;
+            dpf::handle_dpf_deployment_migration(state, ctx, dpf).await
+        }
     }
 }
 
@@ -4928,12 +4973,24 @@ impl DpuMachineStateHandler {
 
                 let dpf_managed_bf4 = is_dpf_managed_bf4(state, dpu_snapshot)?;
 
-                let dpu_redfish_client = match ctx
-                    .services
-                    .create_redfish_client_from_machine(dpu_snapshot)
-                    .await
-                {
-                    Ok(client) => client,
+                // One access-info lookup serves both the general client
+                // and the credential op below.
+                let client_result = async {
+                    let access = ctx
+                        .services
+                        .bmc_access_info_for_machine(dpu_snapshot)
+                        .await?;
+                    let client = ctx
+                        .services
+                        .redfish_client_pool
+                        .client_by_info(&access)
+                        .await
+                        .map_err(StateHandlerError::from)?;
+                    Ok::<_, StateHandlerError>((access, client))
+                }
+                .await;
+                let (dpu_bmc_access, dpu_redfish_client) = match client_result {
+                    Ok(v) => v,
                     Err(e) => {
                         let msg = format!(
                             "failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}",
@@ -5018,14 +5075,14 @@ impl DpuMachineStateHandler {
 
                 let dpu_uefi_credentials = resolve_site_uefi_credentials(
                     &ctx.services.db_pool,
-                    ctx.services.redfish_client_pool.credential_reader(),
+                    ctx.services.bmc_credential_ops.credential_reader(),
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 )
                 .await?;
                 let credentials_updated = match ctx
                     .services
-                    .redfish_client_pool
-                    .uefi_setup(dpu_redfish_client.as_ref(), true, dpu_uefi_credentials)
+                    .bmc_credential_ops
+                    .uefi_setup(&dpu_bmc_access, true, dpu_uefi_credentials)
                     .await
                 {
                     Err(e) => {
@@ -7398,14 +7455,13 @@ async fn handle_host_uefi_setup(
                 missing: "bmc_mac",
             })?;
 
-    let redfish_client = ctx
-        .services
-        .create_redfish_client_from_machine(&state.host_snapshot)
-        .await?;
-
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
             if state.host_snapshot.needs_bmc_unlock_for_uefi_setup() {
+                let redfish_client = ctx
+                    .services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
@@ -7426,14 +7482,18 @@ async fn handle_host_uefi_setup(
         UefiSetupState::SetUefiPassword => {
             let host_uefi_credentials = resolve_site_uefi_credentials(
                 &ctx.services.db_pool,
-                ctx.services.redfish_client_pool.credential_reader(),
+                ctx.services.bmc_credential_ops.credential_reader(),
                 db::credential_rotation::CredentialRotationType::HostUefi,
             )
             .await?;
+            let host_bmc_access = ctx
+                .services
+                .bmc_access_info_for_machine(&state.host_snapshot)
+                .await?;
             match ctx
                 .services
-                .redfish_client_pool
-                .uefi_setup(redfish_client.as_ref(), false, host_uefi_credentials)
+                .bmc_credential_ops
+                .uefi_setup(&host_bmc_access, false, host_uefi_credentials)
                 .await
             {
                 Ok(job_id) => Ok(StateHandlerOutcome::transition(
@@ -7446,6 +7506,13 @@ async fn handle_host_uefi_setup(
                         },
                     },
                 )),
+                // Client creation failed (credential store, TCP, or the
+                // vendor probe): return Err so the framework retries.
+                // Falling through to the untested-vendor arm below would
+                // permanently skip setting the BIOS password over a blip.
+                Err(carbide_redfish::libredfish::CredentialOpError::ClientCreation(e)) => {
+                    Err(e.into())
+                }
                 Err(e) => {
                     let msg = format!(
                         "failed to set the BIOS password on {} ({}): {}",
@@ -7481,6 +7548,10 @@ async fn handle_host_uefi_setup(
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
+                let redfish_client = ctx
+                    .services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 let job_state = redfish_client
                     .get_job_state(job_id)
                     .await
@@ -8535,6 +8606,41 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
 
+                    let reprov_can_be_started =
+                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
+                            // Usually all DPUs are updated with user_approval_received field as true
+                            // if `invoke_instance_power` is called.
+                            // TODO: multidpu: Move this field to `instances` table and unset on
+                            // reprovision is completed.
+                            mh_snapshot
+                                .dpu_snapshots
+                                .iter()
+                                .filter(|x| x.reprovision_requested.is_some())
+                                .all(|x| {
+                                    x.reprovision_requested
+                                        .as_ref()
+                                        .map(|x| x.user_approval_received || is_auto_approved)
+                                        .unwrap_or_default()
+                                })
+                        } else {
+                            false
+                        };
+                    let host_firmware_requested = if let Some(request) =
+                        &mh_snapshot.host_snapshot.host_reprovision_requested
+                    {
+                        request.user_approval_received || is_auto_approved
+                    } else {
+                        false
+                    };
+
+                    // Check if the instance needs to PXE boot. The
+                    // custom_pxe_reboot_requested flag is set by the API when the tenant calls
+                    // InvokeInstancePower with boot_with_custom_ipxe=true.
+                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
+                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
+                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
+                    // tenant's script.
+                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
                     // Run cleanup here so fully terminated extension services are
                     // removed from persisted instance config.
                     let mut txn_opt = None;
@@ -8581,45 +8687,9 @@ impl StateHandler for InstanceStateHandler {
                         }
                     }
 
-                    let reprov_can_be_started =
-                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
-                            // Usually all DPUs are updated with user_approval_received field as true
-                            // if `invoke_instance_power` is called.
-                            // TODO: multidpu: Move this field to `instances` table and unset on
-                            // reprovision is completed.
-                            mh_snapshot
-                                .dpu_snapshots
-                                .iter()
-                                .filter(|x| x.reprovision_requested.is_some())
-                                .all(|x| {
-                                    x.reprovision_requested
-                                        .as_ref()
-                                        .map(|x| x.user_approval_received || is_auto_approved)
-                                        .unwrap_or_default()
-                                })
-                        } else {
-                            false
-                        };
-                    let host_firmware_requested = if let Some(request) =
-                        &mh_snapshot.host_snapshot.host_reprovision_requested
-                    {
-                        request.user_approval_received || is_auto_approved
-                    } else {
-                        false
-                    };
-
                     if is_auto_approved && (reprov_can_be_started || host_firmware_requested) {
                         tracing::info!(machine_id = %host_machine_id, "Auto rebooting host for reprovision/upgrade due to being in approved time period");
                     }
-
-                    // Check if the instance needs to PXE boot. The custom_pxe_reboot_requested flag
-                    // is set by the API when the tenant calls InvokeInstancePower with boot_with_custom_ipxe=true
-                    //
-                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
-                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
-                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
-                    // tenant's script.
-                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
 
                     if instance.deleted.is_some()
                         || reprov_can_be_started
@@ -12689,7 +12759,7 @@ async fn restart_dpu(
         tracing::warn!(
             machine_id = %machine.id,
             %power_state,
-            "DPU is powered off; powering it on instead of restarting it"
+            "DPU is not running; powering it on instead of restarting it"
         );
     }
 
@@ -12705,11 +12775,12 @@ fn dpu_restart_power_action(
     power_state: libredfish::PowerState,
 ) -> Result<SystemPowerControl, StateHandlerError> {
     match power_state {
-        libredfish::PowerState::Off => Ok(SystemPowerControl::On),
+        // BlueField-3 reports its stable StandbyOffline state as Paused after
+        // the Arm OS shuts down, so it needs the same recovery as Off.
+        libredfish::PowerState::Off | libredfish::PowerState::Paused => Ok(SystemPowerControl::On),
         libredfish::PowerState::On => Ok(SystemPowerControl::ForceRestart),
         libredfish::PowerState::PoweringOff
         | libredfish::PowerState::PoweringOn
-        | libredfish::PowerState::Paused
         | libredfish::PowerState::Reset
         | libredfish::PowerState::Unknown => Err(StateHandlerError::GenericError(eyre!(
             "cannot restart DPU while its power state is {power_state}; retrying"
@@ -14175,9 +14246,9 @@ mod tests {
                     expect: Err(()),
                 },
                 Check {
-                    scenario: "paused DPU is retried",
+                    scenario: "paused DPU is powered on",
                     input: libredfish::PowerState::Paused,
-                    expect: Err(()),
+                    expect: Ok(SystemPowerControl::On),
                 },
                 Check {
                     scenario: "resetting DPU is retried",

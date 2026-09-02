@@ -61,9 +61,12 @@ async fn resolve_host_uefi_clear_credentials(
         return None;
     }
     let clear_key = key.ok()?;
-    crate::handlers::uefi::read_uefi_credentials(api.redfish_pool.credential_reader(), &clear_key)
-        .await
-        .ok()
+    crate::handlers::uefi::read_uefi_credentials(
+        api.bmc_credential_ops.credential_reader(),
+        &clear_key,
+    )
+    .await
+    .ok()
 }
 
 pub(crate) async fn find_machine_ids(
@@ -776,9 +779,14 @@ pub(crate) async fn admin_force_delete_machine(
                             let clear_credentials =
                                 resolve_host_uefi_clear_credentials(api, bmc_mac_address).await;
                             if let Some(clear_credentials) = clear_credentials {
+                                let access = carbide_utils::redfish::BmcAccessInfo {
+                                    host: ip_address.clone(),
+                                    port: machine.status.bmc_info.port,
+                                    mac_address: bmc_mac_address,
+                                };
                                 match api
-                                    .redfish_pool
-                                    .clear_host_uefi_password(client.as_ref(), clear_credentials)
+                                    .bmc_credential_ops
+                                    .clear_host_uefi_password(&access, clear_credentials)
                                     .await
                                 {
                                     Ok(_) => {

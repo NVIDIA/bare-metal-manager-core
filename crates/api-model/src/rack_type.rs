@@ -93,10 +93,11 @@ pub enum RackProductFamily {
     Other(String),
 }
 
-/// Selects the fixed DPU NVConfig profile supported by a rack and DPU identity.
+/// Selects the fixed DPU NVConfig profile supported by a product family and DPU
+/// identity.
 ///
-/// A profile is selected only for a GB200 rack and an exact supported DPU part
-/// number. Missing identity does not select a profile.
+/// A profile is selected only for the GB200 product family and an exact
+/// supported DPU part number. Missing identity does not select a profile.
 pub fn select_dpu_nvconfig_profile(
     product_family: Option<&RackProductFamily>,
     hardware_info: Option<&HardwareInfo>,
@@ -110,6 +111,28 @@ pub fn select_dpu_nvconfig_profile(
 }
 
 impl RackProductFamily {
+    /// Returns `GB200` or `GB300` when a hardware model reported by Redfish
+    /// contains exactly one of those product family tokens.
+    ///
+    /// Matching ignores ASCII case and requires whole tokens separated by ASCII
+    /// whitespace. Unknown models, concatenated names, and models naming both
+    /// families return `None`.
+    pub fn from_hardware_model(model: &str) -> Option<Self> {
+        let mut has_gb200 = false;
+        let mut has_gb300 = false;
+
+        for token in model.split_ascii_whitespace() {
+            has_gb200 |= token.eq_ignore_ascii_case("gb200");
+            has_gb300 |= token.eq_ignore_ascii_case("gb300");
+        }
+
+        match (has_gb200, has_gb300) {
+            (true, false) => Some(Self::Gb200),
+            (false, true) => Some(Self::Gb300),
+            (false, false) | (true, true) => None,
+        }
+    }
+
     /// Returns the product-family identifier sent to descriptor-based backends.
     ///
     /// Named variants use their canonical lowercase value. Values stored in
@@ -506,11 +529,65 @@ mod tests {
     }
 
     #[test]
-    fn dpu_nvconfig_profile_requires_matching_rack_and_dpu_identity() {
+    fn hardware_model_requires_one_known_product_family_token() {
         check_values(
             [
                 Check {
-                    scenario: "GB200 rack with supported B3240",
+                    scenario: "DGX GB200 compute tray",
+                    input: "DGX GB200 Compute Tray",
+                    expect: Some(RackProductFamily::Gb200),
+                },
+                Check {
+                    scenario: "GB200 board",
+                    input: "GB200 1CPU:2GPU Board PC",
+                    expect: Some(RackProductFamily::Gb200),
+                },
+                Check {
+                    scenario: "GB200 NVL",
+                    input: "GB200 NVL",
+                    expect: Some(RackProductFamily::Gb200),
+                },
+                Check {
+                    scenario: "lowercase GB200 token",
+                    input: "dgx gb200 compute tray",
+                    expect: Some(RackProductFamily::Gb200),
+                },
+                Check {
+                    scenario: "GB200 token separated by ASCII whitespace",
+                    input: "DGX\tGB200\nCompute Tray",
+                    expect: Some(RackProductFamily::Gb200),
+                },
+                Check {
+                    scenario: "GB300 compute tray",
+                    input: "DGX GB300 Compute Tray",
+                    expect: Some(RackProductFamily::Gb300),
+                },
+                Check {
+                    scenario: "concatenated GB200 name",
+                    input: "GB200Nvl Compute Tray",
+                    expect: None,
+                },
+                Check {
+                    scenario: "model names multiple product families",
+                    input: "GB200 GB300 Compute Tray",
+                    expect: None,
+                },
+                Check {
+                    scenario: "unknown model",
+                    input: "PowerEdge R750",
+                    expect: None,
+                },
+            ],
+            RackProductFamily::from_hardware_model,
+        );
+    }
+
+    #[test]
+    fn dpu_nvconfig_profile_requires_matching_product_family_and_dpu_identity() {
+        check_values(
+            [
+                Check {
+                    scenario: "GB200 family with supported B3240",
                     input: (
                         Some(RackProductFamily::Gb200),
                         Some(dpu_hardware_info("900-9D3B6-00CN-PA0")),
@@ -518,7 +595,7 @@ mod tests {
                     expect: Some(DpuNvConfigProfile::Gb200B3240V1),
                 },
                 Check {
-                    scenario: "other rack family with supported B3240",
+                    scenario: "other product family with supported B3240",
                     input: (
                         Some(RackProductFamily::Gb300),
                         Some(dpu_hardware_info("900-9D3B6-00CN-PA0")),
@@ -526,7 +603,7 @@ mod tests {
                     expect: None,
                 },
                 Check {
-                    scenario: "GB200 rack with another BlueField 3 product",
+                    scenario: "GB200 family with another BlueField 3 product",
                     input: (
                         Some(RackProductFamily::Gb200),
                         Some(dpu_hardware_info("900-9D3B6-00CV-AA0")),
@@ -534,12 +611,12 @@ mod tests {
                     expect: None,
                 },
                 Check {
-                    scenario: "GB200 rack without DPU hardware information",
+                    scenario: "GB200 family without DPU hardware information",
                     input: (Some(RackProductFamily::Gb200), None),
                     expect: None,
                 },
                 Check {
-                    scenario: "GB200 rack without DPU identity",
+                    scenario: "GB200 family without DPU identity",
                     input: (
                         Some(RackProductFamily::Gb200),
                         Some(HardwareInfo::default()),
@@ -547,7 +624,7 @@ mod tests {
                     expect: None,
                 },
                 Check {
-                    scenario: "missing rack family with supported B3240",
+                    scenario: "missing product family with supported B3240",
                     input: (None, Some(dpu_hardware_info("900-9D3B6-00CN-PA0"))),
                     expect: None,
                 },

@@ -101,7 +101,7 @@ pub mod errors;
 use std::sync::atomic::AtomicBool;
 
 use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::BmcCredentialOps;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
@@ -145,8 +145,11 @@ fn should_scan_host_inband_interface_for_redfish(
             && expected_host_bmc_macs.contains(&interface.mac_address))
 }
 
+/// `redfish_client_pool` is the direct pool's credential-operations handle
+/// ([`BmcCredentialOps`]): exploration sets BMC root passwords and probes
+/// vendors on the endpoint itself.
 pub fn new_bmc_explorer(
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    redfish_client_pool: Arc<dyn BmcCredentialOps>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
     ipmi_tool: Arc<dyn IPMITool>,
     credential_manager: Arc<dyn CredentialManager>,
@@ -990,9 +993,14 @@ impl SiteExplorer {
         }
         metrics.record_phase_latency("audit_compute", audit_compute_start.elapsed());
 
+        // Match other multi-machine health-report writers' row-lock order to
+        // prevent PostgreSQL deadlocks when their batches overlap.
+        let pending_health_report_updates =
+            db::machine::MachineRowLockOrderIter::new(pending_health_report_updates);
         let audit_write_start = Instant::now();
-        for health_report_updates in
-            pending_health_report_updates.chunks(Self::SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE)
+        for health_report_updates in pending_health_report_updates
+            .as_slice()
+            .chunks(Self::SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE)
         {
             let mut txn = self.txn_begin().await?;
             for (id, health_report) in health_report_updates {

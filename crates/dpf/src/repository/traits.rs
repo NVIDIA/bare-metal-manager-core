@@ -83,6 +83,12 @@ pub trait DpuRepository: Send + Sync {
     ) -> Result<(), DpfError>;
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError>;
 
+    /// Delete a DPU only when its Kubernetes UID matches `uid`.
+    ///
+    /// The UID check must be part of the delete operation so a DPU recreated
+    /// under the same name cannot be deleted using an earlier observation.
+    async fn delete_if_uid(&self, name: &str, namespace: &str, uid: &str) -> Result<(), DpfError>;
+
     /// Watch for DPU changes and invoke the handler for each object.
     ///
     /// The returned future runs until the watch is cancelled. The handler's

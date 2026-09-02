@@ -40,10 +40,11 @@ func AllCommands() []Command {
 		{Name: "vpc update", Description: "Update a VPC", Run: cmdVPCUpdate},
 		{Name: "vpc virtualization update", Description: "Update VPC virtualization", Run: cmdVPCVirtualizationUpdate},
 		{Name: "vpc delete", Description: "Delete a VPC", Run: cmdVPCDelete},
+		{Name: "vpc-peering create", Description: "Create VPC peerings", Run: cmdVPCPeeringCreate},
 
 		{Name: "subnet list", Description: "List all subnets", Run: cmdSubnetList},
 		{Name: "subnet get", Description: "Get subnet details", Run: cmdSubnetGet},
-		{Name: "subnet create", Description: "Create a subnet", Run: cmdSubnetCreate},
+		{Name: "subnet create", Description: "Create an IPv4 Subnet in an Ethernet virtualizer VPC", Run: cmdSubnetCreate},
 		{Name: "subnet update", Description: "Update a subnet", Run: cmdSubnetUpdate},
 		{Name: "subnet delete", Description: "Delete a subnet", Run: cmdSubnetDelete},
 
@@ -341,6 +342,20 @@ func machineSelectLabel(m NamedItem) string {
 	return name + "  " + Dim(id)
 }
 
+// parseMutationResponseRequiringID rejects success payloads that cannot identify the
+// mutated resource.
+func parseMutationResponseRequiringID(resp []byte, description string) (map[string]interface{}, error) {
+	var parsed map[string]interface{}
+	err := json.Unmarshal(resp, &parsed)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s response: %w", description, err)
+	}
+	if strings.TrimSpace(str(parsed, "id")) == "" {
+		return nil, fmt.Errorf("parsing %s response: missing id", description)
+	}
+	return parsed, nil
+}
+
 // -- List commands --
 
 func cmdSiteList(s *Session, _ []string) error {
@@ -416,9 +431,9 @@ func cmdSiteCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing created site: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created site")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Site created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -531,9 +546,9 @@ func cmdSiteUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("site")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing updated site: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated site")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Site updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -630,9 +645,9 @@ func cmdVPCCreate(s *Session, _ []string) error {
 		return fmt.Errorf("creating VPC: %w", err)
 	}
 	s.Cache.Invalidate("vpc")
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing created VPC: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created VPC")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -669,9 +684,9 @@ func cmdVPCUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated VPC")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s VPC updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -714,9 +729,9 @@ func cmdVPCVirtualizationUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("vpc")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated VPC virtualization")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s VPC virtualization update submitted: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -757,8 +772,70 @@ func cmdSubnetList(s *Session, _ []string) error {
 	return tw.Flush()
 }
 
+// validateIPv4SubnetPrefixLength checks the REST IPv4 Subnet range.
+func validateIPv4SubnetPrefixLength(prefixLength int) error {
+	if prefixLength < 8 || prefixLength > 30 {
+		return fmt.Errorf("prefix length must be between 8 and 30")
+	}
+	return nil
+}
+
+// filterSubnetVPCs keeps Ready Ethernet virtualizer and legacy untyped VPCs
+// that the REST Subnet handler accepts.
+func filterSubnetVPCs(vpcs []NamedItem) []NamedItem {
+	filtered := make([]NamedItem, 0, len(vpcs))
+	for _, vpc := range vpcs {
+		if !strings.EqualFold(strings.TrimSpace(vpc.Status), "Ready") {
+			continue
+		}
+		virtualizationType := strings.TrimSpace(vpc.Extra["networkVirtualizationType"])
+		// An empty type identifies a legacy VPC that the server preserves.
+		if virtualizationType != "" && virtualizationType != "ETHERNET_VIRTUALIZER" {
+			continue
+		}
+		filtered = append(filtered, vpc)
+	}
+	return filtered
+}
+
+// buildSubnetIPBlockSelectItems returns Ready, tenant-owned IPv4 allocation
+// blocks at the selected VPC's Site.
+func buildSubnetIPBlockSelectItems(ipBlocks []NamedItem, siteID, tenantID string) []SelectItem {
+	siteID = strings.TrimSpace(siteID)
+	tenantID = strings.TrimSpace(tenantID)
+	items := make([]SelectItem, 0, len(ipBlocks))
+	for _, block := range ipBlocks {
+		if !strings.EqualFold(strings.TrimSpace(block.Status), "Ready") {
+			continue
+		}
+		if strings.TrimSpace(block.Extra["protocolVersion"]) != "IPv4" {
+			continue
+		}
+		if siteID != "" && strings.TrimSpace(block.Extra["siteId"]) != siteID {
+			continue
+		}
+		if strings.TrimSpace(block.Extra["tenantId"]) != tenantID {
+			continue
+		}
+		blockID := strings.TrimSpace(block.ID)
+		if blockID == "" {
+			continue
+		}
+		label := strings.TrimSpace(block.Name)
+		if label == "" {
+			label = blockID
+		}
+		items = append(items, SelectItem{Label: label, ID: blockID})
+	}
+	return items
+}
+
 func cmdSubnetCreate(s *Session, _ []string) error {
-	vpc, err := s.Resolver.Resolve(context.Background(), "vpc", "VPC")
+	vpcs, err := s.Resolver.Fetch(context.Background(), "vpc")
+	if err != nil {
+		return fmt.Errorf("fetching vpc: %w", err)
+	}
+	vpc, err := s.Resolver.SelectFromItems("Ready Ethernet virtualizer VPC", filterSubnetVPCs(vpcs))
 	if err != nil {
 		return err
 	}
@@ -773,36 +850,31 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	prefixLenText, err := PromptText("Prefix length (1-32)", true)
+	prefixLenText, err := PromptText("IPv4 prefix length (8-30)", true)
 	if err != nil {
 		return err
 	}
-	prefixLen, err := strconv.Atoi(prefixLenText)
+	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
 	if err != nil {
 		return fmt.Errorf("prefix length must be an integer: %w", err)
 	}
-	if prefixLen < 1 || prefixLen > 32 {
-		return fmt.Errorf("prefix length must be between 1 and 32")
+	err = validateIPv4SubnetPrefixLength(prefixLen)
+	if err != nil {
+		return err
 	}
 
-	ipBlocks, err := s.Resolver.Fetch(context.Background(), "ip-block")
+	ipBlocks, tenantID, err := s.fetchTenantIPBlocks(context.Background())
 	if err != nil {
 		return fmt.Errorf("fetching IP blocks: %w", err)
 	}
-	blockItems := make([]SelectItem, 0, len(ipBlocks))
-	for _, block := range ipBlocks {
-		if vpcSiteID != "" && strings.TrimSpace(block.Extra["siteId"]) != vpcSiteID {
-			continue
-		}
-		blockItems = append(blockItems, SelectItem{Label: block.Name, ID: block.ID})
-	}
+	blockItems := buildSubnetIPBlockSelectItems(ipBlocks, vpcSiteID, tenantID)
 	if len(blockItems) == 0 {
 		if vpcSiteID != "" {
-			return fmt.Errorf("no IP blocks available for selected VPC site")
+			return fmt.Errorf("no Ready IPv4 IP blocks available for current tenant at selected VPC site")
 		}
-		return fmt.Errorf("no IP blocks available")
+		return fmt.Errorf("no Ready IPv4 IP blocks available for current tenant")
 	}
-	block, err := Select("IPv4 Block", blockItems)
+	block, err := Select("Tenant IPv4 Block:", blockItems)
 	if err != nil {
 		return err
 	}
@@ -816,7 +888,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if strings.TrimSpace(desc) != "" {
 		body["description"] = strings.TrimSpace(desc)
 	}
-	LogCmd(s, "subnet", "create", "--name", name, "--vpc-id", vpc.ID, "--ipv4-block-id", block.ID, "--prefix-length", prefixLenText)
+	LogCmd(s, "subnet", "create", "--name", name, "--vpc-id", vpc.ID, "--ipv4block-id", block.ID, "--prefix-length", prefixLenText)
 	bodyJSON, _ := json.Marshal(body)
 	resp, _, err := s.Client.Do("POST", apiPath(s, "subnet"), nil, nil, bodyJSON)
 	if err != nil {
@@ -824,11 +896,11 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created subnet")
+	if err != nil {
+		return err
 	}
-	fmt.Printf("%s Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
+	fmt.Printf("%s IPv4 Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
 
@@ -863,9 +935,9 @@ func cmdSubnetUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("subnet")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated subnet")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Subnet updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -951,13 +1023,50 @@ func cmdInstanceList(s *Session, args []string) error {
 	fmt.Fprintf(os.Stderr, "%d items\n", len(items))
 	defer printLabelHint(os.Stderr, items, merged)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSTATUS\tVPC\tSITE\tLABELS\tID")
+	fmt.Fprintln(tw, "NAME\tIP ADDRESSES\tSTATUS\tVPC\tSITE\tLABELS\tID")
 	for _, item := range items {
+		ipAddresses := strings.Join(instanceIPAddresses(item.Raw), ", ")
+		if ipAddresses == "" {
+			ipAddresses = "-"
+		}
 		vpcName := s.Resolver.ResolveID("vpc", item.Extra["vpcId"])
 		siteName := s.Resolver.ResolveID("site", item.Extra["siteId"])
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, item.Status, vpcName, siteName, formatLabels(item.Labels, 60), item.ID)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Name, ipAddresses, item.Status, vpcName, siteName, formatLabels(item.Labels, 60), item.ID)
 	}
 	return tw.Flush()
+}
+
+func instanceIPAddresses(raw interface{}) []string {
+	instance, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	addresses := interfaceIPAddresses(instance["interfaces"])
+	if len(addresses) > 0 {
+		return addresses
+	}
+	status, ok := instance["status"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	network, ok := status["network"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return interfaceIPAddresses(network["interfaces"])
+}
+
+func interfaceIPAddresses(raw interface{}) []string {
+	interfaces, _ := raw.([]interface{})
+	var addresses []string
+	for _, rawInterface := range interfaces {
+		instanceInterface, ok := rawInterface.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		addresses = append(addresses, stringSlice(instanceInterface["ipAddresses"])...)
+	}
+	return addresses
 }
 
 func cmdMachineList(s *Session, args []string) error {
@@ -1201,9 +1310,9 @@ func cmdOSCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created operating system")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Operating system created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1285,9 +1394,9 @@ func cmdOSUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("operating-system")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated operating system")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Operating system updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1361,9 +1470,9 @@ func cmdSSHKeyGroupCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created SSH key group")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s SSH key group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1422,9 +1531,9 @@ func cmdSSHKeyGroupUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated SSH key group")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s SSH key group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1494,9 +1603,9 @@ func cmdSSHKeyCreate(s *Session, _ []string) error {
 	s.Cache.Invalidate("ssh-key")
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created SSH key")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s SSH key created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1523,9 +1632,9 @@ func cmdSSHKeyUpdate(s *Session, args []string) error {
 	s.Cache.Invalidate("ssh-key")
 	s.Cache.Invalidate("ssh-key-group")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated SSH key")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s SSH key updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -1619,9 +1728,9 @@ func cmdAllocationCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created allocation")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Allocation created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -1923,9 +2032,9 @@ func cmdAllocationUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("allocation")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated allocation")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Allocation updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2037,9 +2146,9 @@ func cmdIPBlockCreate(s *Session, _ []string) error {
 		return fmt.Errorf("creating IP block: %w", err)
 	}
 	s.Cache.Invalidate("ip-block")
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created IP block")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s IP block created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -2076,9 +2185,9 @@ func cmdIPBlockUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("ip-block")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated IP block")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s IP block updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2156,9 +2265,9 @@ func cmdNSGCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created network security group")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Network security group created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -2195,9 +2304,9 @@ func cmdNSGUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("network-security-group")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated network security group")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Network security group updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2308,7 +2417,7 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	prefixLen, err := strconv.Atoi(prefixLenText)
+	prefixLen, err := strconv.Atoi(strings.TrimSpace(prefixLenText))
 	if err != nil {
 		return fmt.Errorf("prefix length must be an integer: %w", err)
 	}
@@ -2336,9 +2445,9 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created VPC prefix")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s VPC prefix created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -2355,7 +2464,7 @@ const ipBlockManualEntrySentinel = "__manual__"
 // blocks are visible, when listing fails, or when the operator opts out via
 // the trailing sentinel (NVBug 6105076).
 func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
-	blocks, tenantID, err := s.fetchVPCPrefixIPBlocks(ctx)
+	blocks, tenantID, err := s.fetchTenantIPBlocks(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s could not list current tenant IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
 		return promptIPBlockIDRaw()
@@ -2434,9 +2543,9 @@ func cmdVPCPrefixUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("vpc-prefix")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated VPC prefix")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s VPC prefix updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	return nil
@@ -2504,9 +2613,9 @@ func cmdTenantAccountCreate(s *Session, _ []string) error {
 		return fmt.Errorf("creating tenant account: %w", err)
 	}
 	s.Cache.Invalidate("tenant-account")
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created tenant account")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Tenant account created: %s (%s)\n", Green("OK"), str(created, "tenantOrg"), str(created, "id"))
 	return nil
@@ -2528,9 +2637,9 @@ func cmdTenantAccountUpdate(s *Session, args []string) error {
 		return fmt.Errorf("accepting tenant account invitation: %w", err)
 	}
 	s.Cache.Invalidate("tenant-account")
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "accepted tenant account")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Tenant account accepted: %s (%s)\n", Green("OK"), str(updated, "tenantOrg"), str(updated, "id"))
 	return nil
@@ -2874,9 +2983,9 @@ func cmdInstanceCreate(s *Session, _ []string) error {
 	}
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
-	var created map[string]interface{}
-	if err := json.Unmarshal(resp, &created); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	created, err := parseMutationResponseRequiringID(resp, "created instance")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Instance created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
@@ -3136,10 +3245,7 @@ func promptMultiDPUInstanceInterfaces(s *Session, networkConfig instanceNetworkC
 		vfIDs := deviceVirtualFunctionIDs{
 			used: make(map[int]bool),
 		}
-		for {
-			if vfIDs.exhausted() {
-				break
-			}
+		for !vfIDs.exhausted() {
 			more, confirmErr := PromptConfirm(fmt.Sprintf(
 				"Add a virtual function for DPU %d (configured functions: %d)?",
 				deviceInstance,
@@ -3362,9 +3468,9 @@ func cmdInstanceUpdate(s *Session, args []string) error {
 	}
 	s.Cache.Invalidate("instance")
 	s.Cache.InvalidateFiltered()
-	var updated map[string]interface{}
-	if err := json.Unmarshal(resp, &updated); err != nil {
-		return fmt.Errorf("parsing response: %w", err)
+	updated, err := parseMutationResponseRequiringID(resp, "updated instance")
+	if err != nil {
+		return err
 	}
 	fmt.Printf("%s Instance updated: %s (%s)\n", Green("OK"), str(updated, "name"), str(updated, "id"))
 	fmt.Fprintf(os.Stderr, "%s run `instance reboot` when ready\n", Dim("note:"))
@@ -4642,13 +4748,13 @@ func sortByLabelKey(items []NamedItem, key string) []NamedItem {
 
 // parseLabelArgs extracts --label key=value and --sort-label key from args.
 // Returns the remaining args, label filters, sort-label key, and an error
-// if a --label value is missing "=" or --sort-label has no following token.
+// if a --label value is missing "=" or either flag is followed by an option.
 func parseLabelArgs(args []string) (remaining []string, labels map[string]string, sortKey string, err error) {
 	labels = map[string]string{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--label":
-			if i+1 >= len(args) {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 				return nil, nil, "", fmt.Errorf("--label requires a key=value argument")
 			}
 			i++
@@ -4661,7 +4767,7 @@ func parseLabelArgs(args []string) (remaining []string, labels map[string]string
 				return nil, nil, "", fmt.Errorf("--label value %q must contain '='", args[i])
 			}
 		case "--sort-label":
-			if i+1 >= len(args) {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
 				return nil, nil, "", fmt.Errorf("--sort-label requires a key argument")
 			}
 			i++

@@ -37,9 +37,11 @@ use tonic::Status;
 
 /// The health-override fields common to every entity's status, as read back from a
 /// `find` RPC: the merged health report and the per-source override origins.
-pub(in crate::tests) struct HealthStatusView {
-    pub(in crate::tests) health: Option<rpc::health::HealthReport>,
-    pub(in crate::tests) health_sources: Vec<HealthSourceOrigin>,
+pub struct HealthStatusView {
+    /// The merged health report returned for the entity.
+    pub health: Option<rpc::health::HealthReport>,
+    /// The external health sources applied to the entity.
+    pub health_sources: Vec<HealthSourceOrigin>,
 }
 
 /// One entity's health-override CRUD surface, expressed as closures over a single
@@ -47,23 +49,23 @@ pub(in crate::tests) struct HealthStatusView {
 ///
 /// `Id` is the entity ID type; closures take it by value so the same harness can be
 /// pointed at a real ID or a freshly-minted nonexistent one.
-pub(in crate::tests) struct HealthCrud<Id, Ins, Lst, Rem, Fnd> {
+pub struct HealthCrud<Id, Ins, Lst, Rem, Fnd> {
     /// A persisted entity's ID, used by the behaviors that operate on a live entity.
-    pub(in crate::tests) real_id: Id,
+    pub real_id: Id,
     /// An ID that was never persisted, used by the "missing entity" check.
-    pub(in crate::tests) nonexistent_id: Id,
+    pub nonexistent_id: Id,
     /// A representative report carrying one alert (entity-specific alert ID).
-    pub(in crate::tests) alert: HealthReport,
+    pub alert: HealthReport,
     /// A source identifier the alert report is filed under.
-    pub(in crate::tests) alert_source: &'static str,
+    pub alert_source: &'static str,
     /// An override RPC: file `report` under its source for `id`, in `mode`.
-    pub(in crate::tests) insert: Ins,
+    pub insert: Ins,
     /// A list RPC: the override entries currently held for `id`.
-    pub(in crate::tests) list: Lst,
+    pub list: Lst,
     /// A remove RPC: drop the override filed under `source` for `id`.
-    pub(in crate::tests) remove: Rem,
+    pub remove: Rem,
     /// A find RPC: read back `id`'s status health view.
-    pub(in crate::tests) find: Fnd,
+    pub find: Fnd,
 }
 
 impl<Id, Ins, Lst, Rem, Fnd> HealthCrud<Id, Ins, Lst, Rem, Fnd>
@@ -76,7 +78,7 @@ where
 {
     /// Insert an override, confirm exactly one entry lists with the expected source
     /// and one alert, remove it, and confirm the list is empty again.
-    pub(in crate::tests) async fn check_insert_list_remove(&self) {
+    pub async fn check_insert_list_remove(&self) {
         (self.insert)(
             self.real_id.clone(),
             self.alert.clone(),
@@ -109,7 +111,7 @@ where
     }
 
     /// Inserting the same override repeatedly is idempotent: still one entry.
-    pub(in crate::tests) async fn check_idempotent_insert(&self) {
+    pub async fn check_idempotent_insert(&self) {
         for _ in 0..3 {
             (self.insert)(
                 self.real_id.clone(),
@@ -129,7 +131,7 @@ where
     /// A continuously-firing alert keeps the `in_alert_since` of its first
     /// report, so operators can tell how long the condition has lasted. Without
     /// this, every re-report restamps the alert and it always looks brand new.
-    pub(in crate::tests) async fn check_retains_in_alert_since(&self) {
+    pub async fn check_retains_in_alert_since(&self) {
         let in_alert_since = async || {
             let entries = (self.list)(self.real_id.clone())
                 .await
@@ -174,7 +176,7 @@ where
     }
 
     /// Removing a source that was never filed is a `NotFound`.
-    pub(in crate::tests) async fn check_remove_nonexistent_source(&self) {
+    pub async fn check_remove_nonexistent_source(&self) {
         let status = (self.remove)(self.real_id.clone(), "nonexistent-source".to_string())
             .await
             .expect_err("removing an unknown source should error");
@@ -182,7 +184,7 @@ where
     }
 
     /// Inserting an override for an entity that does not exist is an error.
-    pub(in crate::tests) async fn check_missing_entity(&self) {
+    pub async fn check_missing_entity(&self) {
         let status = (self.insert)(
             self.nonexistent_id.clone(),
             self.alert.clone(),
@@ -194,11 +196,7 @@ where
     }
 
     /// A `Replace`-mode override lists with `Replace` mode and clears on remove.
-    pub(in crate::tests) async fn check_replace_mode(
-        &self,
-        replace_report: HealthReport,
-        replace_source: &str,
-    ) {
+    pub async fn check_replace_mode(&self, replace_report: HealthReport, replace_source: &str) {
         (self.insert)(
             self.real_id.clone(),
             replace_report,
@@ -225,7 +223,7 @@ where
 
     /// An inserted override is visible on the entity's status from a `find` RPC:
     /// the merged health carries alerts, and the override source is recorded.
-    pub(in crate::tests) async fn check_visible_in_find(&self) {
+    pub async fn check_visible_in_find(&self) {
         (self.insert)(
             self.real_id.clone(),
             self.alert.clone(),
@@ -261,7 +259,7 @@ where
 /// `metric_entity` is the entity token in the metric names (e.g. `power_shelves`),
 /// `run_iteration` advances that entity's controller, and `insert`/`alert`/`empty`
 /// supply the entity's override RPC and reports.
-pub(in crate::tests) async fn check_health_aggregation<Id, Ins, Iter>(
+pub async fn check_health_aggregation<Id, Ins, Iter>(
     metric_entity: &str,
     real_id: Id,
     alert: HealthReport,

@@ -456,8 +456,8 @@ pub struct CarbideConfig {
     /// version a card is actually locked under regardless of this flag, so
     /// flipping it off never bricks an already-migrated card. This is the fleet
     /// kill-switch for rolling the feature out site-by-site.
-    #[serde(default)]
-    pub lockdown_ikm_rotation_enabled: bool,
+    #[serde(default, alias = "lockdown_ikm_rotation_enabled")]
+    pub nic_lockdown_ikm_rotation_enabled: bool,
 
     /// Site-wide enable for factory-resetting the host BMC during tenant
     /// release. When `false` (the default), tenant release skips the BMC
@@ -1276,6 +1276,7 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
             bmc_rotation_enabled: self.bmc_rotation_enabled,
             uefi_rotation_enabled: self.uefi_rotation_enabled,
+            nic_lockdown_ikm_rotation_enabled: self.nic_lockdown_ikm_rotation_enabled,
             bmc_factory_reset_on_instance_termination_enabled: self
                 .bmc_factory_reset_on_instance_termination_enabled,
 
@@ -1779,6 +1780,23 @@ pub struct DpfConfig {
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
     pub proxy: Option<DpfProxyDetails>,
+    /// `bf.cfg` lines appended to every deployment's DPUFlavor `bfcfgParameters`.
+    ///
+    /// Each entry is passed through verbatim; NICo applies no quoting or interpretation. The
+    /// BFB installer sources `bf.cfg` as shell, so values needing quotes must carry their own:
+    /// `extra_bfcfg_parameters = ["ubuntu_PASSWORD='$6$...'"]`.
+    ///
+    /// Entries containing the Go template delimiter `{{` are rejected at startup, since BF4
+    /// Astra renders its DPUFlavorTemplate body and could not pass them through.
+    ///
+    /// [`DpfDeploymentConfig::extra_bfcfg_parameters`] appends to this list for a single
+    /// deployment.
+    ///
+    /// WARNING: Changing this will generate a new DPUFlavor, reprovisioning every DPU at the
+    /// site. `bf.cfg` is applied at install, so that reprovision is also what delivers a
+    /// changed value to DPUs that are already installed.
+    #[serde(default)]
+    pub extra_bfcfg_parameters: Vec<String>,
     /// Per-generation DPUDeployment configurations. BF3 is always present with sensible
     /// defaults; BF4 variants are opt-in.
     #[serde(default)]
@@ -1797,6 +1815,7 @@ impl Default for DpfConfig {
             services: Box::default(),
             extra_services: Box::default(),
             proxy: None,
+            extra_bfcfg_parameters: Vec::new(),
             deployments: DpfDeploymentsConfig::default(),
         }
     }
@@ -1860,6 +1879,16 @@ impl DpfConfig {
         self.apply_extra_pull_secret_override(&mut extra);
 
         DpfResolvedMandatoryServicesConfig { base, extra }
+    }
+
+    /// Returns the site-wide `bf.cfg` parameters followed by `deployment`'s own.
+    ///
+    /// Appends rather than overrides, unlike [`Self::resolved_services_for`], so a deployment
+    /// setting one parameter of its own does not have to restate the site-wide list.
+    pub fn resolved_bfcfg_parameters_for(&self, deployment: &DpfDeploymentConfig) -> Vec<String> {
+        let mut parameters = self.extra_bfcfg_parameters.clone();
+        parameters.extend_from_slice(&deployment.extra_bfcfg_parameters);
+        parameters
     }
 
     /// Applies the optional [`Self::docker_image_pull_secret`] override to every
@@ -2239,6 +2268,17 @@ pub struct DpfDeploymentConfig {
     /// entries overlay the corresponding site-wide extra-service definition.
     #[serde(default)]
     pub extra_services: BTreeMap<DpfExtraService, DpfServiceConfigOverride>,
+
+    /// `bf.cfg` lines for this deployment's DPUFlavor only, for parameters that apply to one
+    /// DPU generation but not the others.
+    ///
+    /// Appends to the site-wide [`DpfConfig::extra_bfcfg_parameters`]; it does not replace it,
+    /// unlike `services`. See [`DpfConfig::resolved_bfcfg_parameters_for`].
+    ///
+    /// WARNING: Changing this will generate a new DPUFlavor, reprovisioning this deployment's
+    /// DPUs.
+    #[serde(default)]
+    pub extra_bfcfg_parameters: Vec<String>,
 }
 
 impl Default for DpfDeploymentConfig {
@@ -2251,6 +2291,7 @@ impl Default for DpfDeploymentConfig {
             node_label_key: default_dpf_node_label_key(),
             services: None,
             extra_services: BTreeMap::new(),
+            extra_bfcfg_parameters: Vec::new(),
         }
     }
 }
@@ -2363,6 +2404,9 @@ impl DpfDeploymentsConfig {
     }
 
     /// Validates the final Kubernetes identifiers, their uniqueness, and reserved labels.
+    /// `DPU_ENABLED_NODE_LABEL` and `HOST_BMC_IP_LABEL` are reserved for the
+    /// shared DPF node marker and host BMC IP. Neither can be used as the
+    /// `node_label_key` for an individual deployment.
     /// Returns every error so the operator can fix them all in one pass.
     pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
         let bf3_gb200 = self.bf3.bf3_gb200();
@@ -3668,6 +3712,14 @@ pub struct DpuConfig {
     #[serde(default)]
     pub num_of_vfs: u32,
 
+    /// Number of deterministic HBN interfaces reserved for service-VPC attachments.
+    #[serde(default)]
+    pub service_vpc_slot_count: u32,
+
+    /// Additional SF capacity that is not assigned to an HBN interface.
+    #[serde(default)]
+    pub additional_managed_sf: u32,
+
     /// Restart OVS on DPU agents whenever the host switches between
     /// admin and tenant networking. Required in some environments to
     /// ensure OVS picks up the changed network configuration.
@@ -3716,6 +3768,10 @@ impl<'de> Deserialize<'de> for DpuConfig {
             #[serde(default)]
             num_of_vfs: Option<u32>,
             #[serde(default)]
+            service_vpc_slot_count: Option<u32>,
+            #[serde(default)]
+            additional_managed_sf: Option<u32>,
+            #[serde(default)]
             restart_ovs_on_use_admin_network_change: Option<bool>,
         }
 
@@ -3746,6 +3802,12 @@ impl<'de> Deserialize<'de> for DpuConfig {
                 .dpu_enable_secure_boot
                 .unwrap_or(default.dpu_enable_secure_boot),
             num_of_vfs,
+            service_vpc_slot_count: partial
+                .service_vpc_slot_count
+                .unwrap_or(default.service_vpc_slot_count),
+            additional_managed_sf: partial
+                .additional_managed_sf
+                .unwrap_or(default.additional_managed_sf),
             restart_ovs_on_use_admin_network_change: partial
                 .restart_ovs_on_use_admin_network_change
                 .unwrap_or(default.restart_ovs_on_use_admin_network_change),
@@ -3876,6 +3938,8 @@ impl Default for DpuConfig {
             ],
             dpu_enable_secure_boot: false,
             num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
+            service_vpc_slot_count: 0,
+            additional_managed_sf: 0,
             restart_ovs_on_use_admin_network_change: false,
         }
     }
@@ -6497,6 +6561,8 @@ mqtt_endpoint = "mqtt.forge"
 bootstrap_ca_source = "embedded"
 dpu_enable_secure_boot = true
 num_of_vfs = 64
+service_vpc_slot_count = 5
+additional_managed_sf = 2
 "#;
 
         let config: CarbideConfig = Figment::new()
@@ -6511,6 +6577,8 @@ num_of_vfs = 64
         );
         assert!(config.dpu_config.dpu_enable_secure_boot);
         assert_eq!(config.dpu_config.num_of_vfs, 64);
+        assert_eq!(config.dpu_config.service_vpc_slot_count, 5);
+        assert_eq!(config.dpu_config.additional_managed_sf, 2);
         assert!(!config.dpu_config.dpu_models.is_empty());
     }
 
@@ -6864,6 +6932,87 @@ sign_proxy_url = "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
         assert_eq!(
             config.services.dpu_agent.extra_helm_values.unwrap()["fmds"]["sign_proxy_url"],
             "http://dsx-imds.dpf-operator-system.svc.cluster.local:8080"
+        );
+    }
+
+    #[test]
+    fn dpf_extra_bfcfg_parameters_reach_the_config_verbatim() {
+        // The strings reach bf.cfg unquoted and uninterpreted, so parsing must not alter them.
+        let parse = |body: &str| {
+            toml::from_str::<DpfConfig>(body)
+                .expect("dpf config must parse")
+                .extra_bfcfg_parameters
+        };
+
+        value_scenarios!(
+            run = |body: &str| parse(body);
+
+            "absent key defaults to no extra parameters" {
+                "enabled = true\n" => Vec::<String>::new(),
+            }
+
+            "explicit empty list is accepted" {
+                "extra_bfcfg_parameters = []\n" => Vec::<String>::new(),
+            }
+
+            "a quoted password hash survives parsing unchanged" {
+                // Single-quoted in bf.cfg so the hash's `$` sections are not shell-expanded.
+                "extra_bfcfg_parameters = [\"ubuntu_PASSWORD='$6$sa.lt$h/a.sh'\"]\n"
+                    => vec!["ubuntu_PASSWORD='$6$sa.lt$h/a.sh'".to_string()],
+            }
+
+            "configured order is preserved" {
+                "extra_bfcfg_parameters = [\"FIRST=1\", \"SECOND=2\"]\n"
+                    => vec!["FIRST=1".to_string(), "SECOND=2".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn deployment_bfcfg_parameters_append_to_the_site_wide_list() {
+        // Append, not override, so a deployment setting its own parameter keeps the site-wide
+        // list rather than replacing it.
+        let resolved = |body: &str| {
+            let config = toml::from_str::<DpfConfig>(body).expect("dpf config must parse");
+            config.resolved_bfcfg_parameters_for(&config.deployments.bf3)
+        };
+        let deployment_keys = "\nflavor_name = \"f\"\ndeployment_name = \"d\"\n\
+                               node_label_key = \"k\"\n";
+
+        value_scenarios!(
+            run = |body: &str| resolved(body);
+
+            "neither level configured yields nothing" {
+                "enabled = true\n" => Vec::<String>::new(),
+            }
+
+            "site-wide only applies to the deployment" {
+                "extra_bfcfg_parameters = [\"SITE=1\"]\n" => vec!["SITE=1".to_string()],
+            }
+
+            "deployment-only applies without a site-wide list" {
+                &format!("[deployments.bf3]{deployment_keys}\
+                          extra_bfcfg_parameters = [\"OWN=1\"]\n")
+                    => vec!["OWN=1".to_string()],
+            }
+
+            "site-wide comes first, then the deployment's own" {
+                &format!("extra_bfcfg_parameters = [\"SITE=1\", \"SITE=2\"]\n\
+                          [deployments.bf3]{deployment_keys}\
+                          extra_bfcfg_parameters = [\"OWN=1\"]\n")
+                    => vec!["SITE=1".to_string(), "SITE=2".to_string(), "OWN=1".to_string()],
+            }
+
+            "a deployment list does not replace the site-wide one" {
+                // A site-wide password survives a deployment adding a parameter of its own.
+                &format!("extra_bfcfg_parameters = [\"ubuntu_PASSWORD='$6$sa.lt$h/a.sh'\"]\n\
+                          [deployments.bf3]{deployment_keys}\
+                          extra_bfcfg_parameters = [\"OWN=1\"]\n")
+                    => vec![
+                        "ubuntu_PASSWORD='$6$sa.lt$h/a.sh'".to_string(),
+                        "OWN=1".to_string(),
+                    ],
+            }
         );
     }
 
@@ -7574,6 +7723,7 @@ helm_repo_url = "oci://registry.example.test/doca"
             node_label_key: "carbide.nvidia.com/bf4".to_string(),
             services: None,
             extra_services: BTreeMap::new(),
+            extra_bfcfg_parameters: Vec::new(),
         }
     }
 

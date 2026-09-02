@@ -70,7 +70,7 @@ Use `site_explorer.dpu_policy` instead.
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
 | `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation (host and DPU). When `false` (default), a Ready host never auto-enters `RotatingHostUefi` nor drives its DPUs into `RotatingDpuUefi`; the per-machine force-converge escape hatch bypasses it. |
-| `lockdown_ikm_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for NIC lockdown IKM rotation. When `false` (default), the SuperNIC lock/unlock flow keeps deriving keys from each card's current tracked IKM version, so a staged `RotateCredential(lockdown_ikm)` bumps the site-wide target without migrating any card. When `true`, the assignment-cycle lock derives from the staged site-wide target, so cards migrate to the new IKM as tenants cycle. Unlock always derives from the version a card is actually locked under regardless of this flag, so flipping it off never bricks an already-migrated card. |
+| `nic_lockdown_ikm_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for NIC lockdown IKM rotation. When `false` (default), the SuperNIC lock/unlock flow keeps deriving keys from each card's current tracked IKM version, so a staged `RotateCredential(lockdown_ikm)` bumps the site-wide target without migrating any card. When `true`, the assignment-cycle lock derives from the staged site-wide target, so cards migrate to the new IKM as tenants cycle. Unlock always derives from the version a card is actually locked under regardless of this flag, so flipping it off never bricks an already-migrated card. |
 | `bmc_factory_reset_on_instance_termination_enabled` | `bool` | `false` | `security` | Site-wide opt-in for factory-resetting the host BMC during tenant release. When `false` (default), tenant release proceeds directly to `PowerCycle`; when `true`, the release flow factory-resets the BMC, waits for it to return, restores the device's previous per-device credential, then continues with the existing power-cycle / boot-order repair. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
@@ -202,6 +202,8 @@ use non-RMS backends.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
+The `nsm` and `psm` backend values require externally managed services; the
+NICo deployment charts do not install NSM or PSM.
 
 Example: GB200 rack where all component-manager roles use RMS:
 
@@ -666,7 +668,16 @@ Without configured DPF intercept topology, NICo deliberately preserves the estab
 | `dpu_nic_firmware_update_versions` | `Vec<String>` | *(BF2+BF3 NIC versions)* | DPU NIC firmware version strings. |
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
 | `num_of_vfs` | `u32` | `16` | Number of hardware VFs configured per DPU PF during BlueField provisioning. Max `126`. Under DPF, changing this value changes the immutable BF3/generic-BF4 flavor and requires a carbide-api restart and DPU reprovisioning. Reducing it below the static inventory's previous effective VF count also removes desired VF ServiceInterfaces; because NICo does not prune them, operators must stop NICo, remove the omitted NICo ServiceInterfaces, re-ingest the DPUs, and restart. Configured intercept inventories remain valid only while every selected `vf_id` is both lower than this value and no greater than 15. |
+| `service_vpc_slot_count` | `u32` | `0` | Number of HBN interfaces reserved for externally coordinated service-VPC attachments on BF3 and generic BF4. NICo generates stable names from `iface_svc_0` through `iface_svc_{N-1}`. The generated interfaces count toward HBN's 32-interface limit and increase its `nvidia.com/bf_sf` request. BF4 Astra ignores this field. |
+| `additional_managed_sf` | `u32` | `0` | Additional BF3/generic-BF4 SF capacity without a generated HBN interface. This value and `service_vpc_slot_count` are added to the managed SF count used to size or validate `PF_TOTAL_SF`. BF4 Astra ignores this field. |
 | `restart_ovs_on_use_admin_network_change` | `bool` | `false` | Restart OVS on DPU-OS agents when host `use_admin_network` changes. Containerized agents skip the local service restart and still ACK the network config. |
+
+With intercept bridging, both SF settings increase `PF_TOTAL_SF`, change the
+`DPUFlavor`, and require controlled DPU reprovisioning. Without intercept
+bridging, they consume the unchanged legacy `pf_total_sf_reserved` pool, and
+startup rejects an overcommit. NICo does not create bridges, ServiceInterfaces,
+service chains, IPAM, or application-service CRs for service-VPC slots; an
+external controller must coordinate them. Changes are read at API startup.
 
 To use `embedded`, build a site-specific BFB with an explicit
 `BOOTSTRAP_CA_PATH`. The build provides no repository or default CA fallback
@@ -808,7 +819,20 @@ events, so consumers handle them identically.
 | `extra_services` | `Box<DpfExtraServicesConfig>` | built-in extra-service defaults | Site-wide Helm chart, image, pull-secret, and `extra_helm_values` settings for deployment-specific services. BF4 Astra uses Weave DHCP agent, Weave flow controller, and Xplane; BF3 and generic BF4 do not render them. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). It is the fallback for an Astra extra service that has no per-service pull secret. |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
+| `extra_bfcfg_parameters` | `Vec<String>` | `[]` | `bf.cfg` lines appended to each deployment's [DPUFlavor `bfcfgParameters`](https://networking-docs.nvidia.com/dpf/26.4.1/dpuflavor) — for example, a DPU login password (`ubuntu_PASSWORD='$6$...'`). These site-wide lines are appended first, followed by that deployment's own `extra_bfcfg_parameters`. Entries are passed through verbatim; NICo applies no quoting or interpretation. Entries containing `{{` are rejected at startup. Changing this list creates a new DPUFlavor resource and reprovisions the affected deployment's DPUs; the new parameters take effect during DPU re-install. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. A deployment can override individual fields of its supported extra services. |
+
+### `DpfDeploymentConfig`
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `bfb_url` | `Option<String>` | BF3 bf-bundle URL | BlueField firmware bundle used for BF3 provisioning. Mutually exclusive with `bluefield_software`; BF4 requires `bluefield_software` instead. |
+| `bluefield_software` | `Option<BlueFieldSoftwareConfig>` | — | BF4 OS ISO and PSID-to-PLDM firmware source. BF4 requires this field with exactly one `pldm_fw_bundle` entry. |
+| `flavor_name` | `String` | `carbide-dpu-flavor` | Base name for the generated BF3/generic-BF4 `DPUFlavor` or Astra `DPUFlavorTemplate`. |
+| `deployment_name` | `String` | `nico-deployment-v2` | Name of the generated `DPUDeployment`. |
+| `node_label_key` | `String` | `carbide.nvidia.com/controlled.node.v2` | Label key used to select DPU nodes for this deployment. |
+| `services` | `Option<Box<DpfMandatoryServicesConfig>>` | inherit `[dpf.services]` | Optional complete per-deployment mandatory-service override. Omitted service entries use built-in defaults rather than top-level values. |
+| `extra_services` | `BTreeMap<DpfExtraService, DpfServiceConfigOverride>` | `{}` | Deployment-local overlays for supported extra services. |
 
 Every active DPF deployment must use distinct `deployment_name`, `flavor_name`, and `node_label_key` values. A deployment `node_label_key` must not be `feature.node.kubernetes.io/dpu-enabled`, which marks every DPF-managed node, or `carbide.nvidia.com/host-bmc-ip`, whose per-node contextual value is the host BMC address. These checks use the local configuration and do not query or modify cluster resources.
 

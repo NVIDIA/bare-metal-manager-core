@@ -105,6 +105,8 @@ const (
 	ConfigMetricsEnabled = "metrics.enabled"
 	// ConfigMetricsPort specifies the port for Prometheus metrics
 	ConfigMetricsPort = "metrics.port"
+	// ConfigMetricsNamespace specifies the prefix for every exposed metric name
+	ConfigMetricsNamespace = "metrics.namespace"
 
 	// ConfigTracingEnabled is a feature flag for tracing
 	ConfigTracingEnabled = "tracing.enabled"
@@ -256,6 +258,7 @@ func NewConfig() *Config {
 
 	c.v.SetDefault(ConfigMetricsEnabled, true)
 	c.v.SetDefault(ConfigMetricsPort, 9360)
+	c.v.SetDefault(ConfigMetricsNamespace, DefaultMetricsNamespace)
 
 	c.v.SetDefault(ConfigTracingEnabled, false)
 
@@ -539,7 +542,7 @@ func (c *Config) GetSiteConfig() *SiteConfig {
 
 // GetMetricsConfig returns the Metrics config
 func (c *Config) GetMetricsConfig() *MetricsConfig {
-	return NewMetricsConfig(c.GetMetricsEnabled(), c.GetMetricsPort())
+	return NewMetricsConfig(c.GetMetricsEnabled(), c.GetMetricsPort(), c.GetMetricsNamespace())
 }
 
 // GetRateLimiterConfig returns the rate limiter config
@@ -966,6 +969,17 @@ func (c *Config) GetMetricsEnabled() bool {
 // GetZincSearchPort gets the port for Metrics
 func (c *Config) GetMetricsPort() int {
 	return c.v.GetInt(ConfigMetricsPort)
+}
+
+// GetMetricsNamespace gets the prefix applied to every exposed metric name.
+// An explicitly empty value falls back to the default, since echoprometheus
+// substitutes its own "echo" prefix for an empty one.
+func (c *Config) GetMetricsNamespace() string {
+	namespace := c.v.GetString(ConfigMetricsNamespace)
+	if namespace == "" {
+		return DefaultMetricsNamespace
+	}
+	return namespace
 }
 
 // GetTracingEnabled gets the enabled field for tracing

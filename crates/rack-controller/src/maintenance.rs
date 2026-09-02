@@ -29,8 +29,8 @@ use carbide_rack::firmware_update::{
 use carbide_rack::rack_manager_error;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack::rms_node_type::{
-    RmsNodeIdentity, compute_node_identity_for_profile,
-    firmware_object_component_filters_for_node_identities, switch_node_identity_for_profile,
+    compute_node_identity_for_profile, firmware_object_component_filters_for_node_identities,
+    switch_node_identity_for_profile,
 };
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
@@ -43,6 +43,8 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::ScaleUpFabricManagerJobStatus;
+use component_manager::rms::rms_nvos_update_manager;
+use component_manager::{NvosUpdateManager, NvosUpdateRequest};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, power_options as db_power_options,
@@ -1467,138 +1469,6 @@ async fn rms_get_firmware_upgrade_status(
     Ok(updated)
 }
 
-struct NvosUpdateSource<'a> {
-    config_json: &'a str,
-    access_token: &'a str,
-}
-
-async fn rms_start_nvos_update(
-    rms_client: &dyn SwitchSystemImageRmsClient,
-    rack_id: &RackId,
-    source: NvosUpdateSource<'_>,
-    software_type: &str,
-    hardware_type: &str,
-    switch_node_identity: &RmsNodeIdentity,
-    switches: Vec<FirmwareUpgradeDeviceInfo>,
-) -> Result<NvosUpdateJob, StateHandlerError> {
-    let started_at = chrono::Utc::now();
-    let nodes: Vec<_> = switches
-        .iter()
-        .map(|switch| build_new_node_info(rack_id, switch, switch_node_identity))
-        .collect();
-    let nodes = Some(rms::NodeSet { nodes });
-    let NvosUpdateSource {
-        config_json,
-        access_token,
-    } = source;
-    let response = rms_client
-        .apply_switch_system_image(rms::ApplySwitchSystemImageRequest {
-            rack_id: rack_id.to_string(),
-            config_json: config_json.to_string(),
-            access_token: Some(rms_access_token_or_noauth(Some(access_token))),
-            software_type: software_type.to_string(),
-            hardware_type: hardware_type.to_string(),
-            nodes,
-        })
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to submit NVOS update to RMS: {}",
-                error
-            ))
-        })?;
-
-    let batch_response = response.response.as_ref();
-    let batch_status = batch_response
-        .map(|batch_response| batch_response.status)
-        .unwrap_or(rms::ReturnCode::Failure as i32);
-    let batch_job_id = batch_response
-        .map(|batch_response| batch_response.job_id.as_str())
-        .unwrap_or_default();
-    if batch_status != rms::ReturnCode::Success as i32
-        && batch_job_id.is_empty()
-        && response.jobs.is_empty()
-    {
-        let message = batch_response
-            .map(|batch_response| batch_response.message.as_str())
-            .unwrap_or_default();
-        let message = if message.is_empty() {
-            "RMS returned failure for ApplySwitchSystemImage".to_string()
-        } else {
-            message.to_string()
-        };
-        return Err(StateHandlerError::GenericError(eyre::eyre!(message)));
-    }
-
-    let parent_job_id = (!batch_job_id.is_empty()).then(|| batch_job_id.to_string());
-    let child_jobs = response
-        .jobs
-        .iter()
-        .map(|child| (child.node_id.clone(), child.job_id.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
-    let switches: Vec<_> = switches
-        .into_iter()
-        .map(|switch| {
-            let mut status = NvosUpdateSwitchStatus {
-                node_id: switch.node_id.clone(),
-                mac: switch.mac,
-                bmc_ip: switch.bmc_ip,
-                nvos_ip: switch.os_ip.unwrap_or_default(),
-                status: "pending".into(),
-                job_id: child_jobs
-                    .get(&switch.node_id)
-                    .cloned()
-                    .or_else(|| parent_job_id.clone()),
-                error_message: None,
-            };
-
-            if status.job_id.is_none() {
-                status.status = "failed".into();
-                status.error_message =
-                    Some("RMS did not return a switch system image job for this switch".into());
-            }
-
-            status
-        })
-        .collect();
-
-    let failed = switches
-        .iter()
-        .filter(|switch| switch.status == "failed")
-        .count();
-    let completed = switches
-        .iter()
-        .filter(|switch| switch.status == "completed")
-        .count();
-    let total = switches.len();
-    let terminal = completed + failed;
-
-    Ok(NvosUpdateJob {
-        job_id: parent_job_id,
-        firmware_id: response.object_id,
-        image_filename: response.image_filename,
-        local_file_path: String::new(),
-        version: None,
-        status: Some(
-            if total > 0 && terminal < total {
-                "in_progress"
-            } else if failed > 0 {
-                "failed"
-            } else {
-                "completed"
-            }
-            .into(),
-        ),
-        started_at: Some(started_at),
-        completed_at: if total > 0 && terminal == total {
-            Some(chrono::Utc::now())
-        } else {
-            None
-        },
-        switches,
-    })
-}
-
 async fn rms_get_nvos_update_status(
     rms_client: &dyn SwitchSystemImageRmsClient,
     job: &NvosUpdateJob,
@@ -2759,16 +2629,20 @@ pub async fn handle_maintenance(
                     )
                     .await;
                 };
-                let Some(rms_client) = ctx.services.switch_system_image_rms_client.as_deref()
-                else {
+
+                let Some(rms_client) = ctx.services.rms_client.clone() else {
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
                     )
                     .await;
+
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
                         .await;
                 };
+
+                let nvos_update_manager = rms_nvos_update_manager(rms_client);
+
                 let access_token = match load_rack_maintenance_access_token(
                     ctx.services.credential_manager.as_ref(),
                     id,
@@ -2781,9 +2655,8 @@ pub async fn handle_maintenance(
                         return transition_to_rack_error(id, state, &message, ctx).await;
                     }
                 };
+
                 let profile = super::resolve_profile(id, rack_profile_id, ctx);
-                let rack_hardware_type = profile_hardware_type_or_any(profile);
-                let software_type = profile.map(firmware_type_for_profile).unwrap_or("prod");
 
                 let switch_inventory = load_rack_switch_firmware_inventory(
                     &ctx.services.db_pool,
@@ -2830,17 +2703,20 @@ pub async fn handle_maintenance(
                     .await;
                 };
 
-                let switch_node_identity = match switch_node_identity_for_profile(profile) {
-                    Ok(identity) => identity,
-                    Err(error) => {
-                        delete_rack_maintenance_access_token(
-                            ctx.services.credential_manager.as_ref(),
-                            id,
-                        )
-                        .await;
-                        return transition_to_rack_error(id, state, error.to_string(), ctx).await;
-                    }
-                };
+                // Profile errors are terminal for this maintenance request and
+                // take precedence over retryable switch credential errors.
+                if let Err(error) = switch_node_identity_for_profile(profile) {
+                    delete_rack_maintenance_access_token(
+                        ctx.services.credential_manager.as_ref(),
+                        id,
+                    )
+                    .await;
+
+                    return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+                }
+
+                let rack_hardware_type = profile_hardware_type_or_any(Some(profile));
+                let software_type = firmware_type_for_profile(profile);
 
                 tracing::info!(
                     rack_id = %id,
@@ -2871,26 +2747,31 @@ pub async fn handle_maintenance(
                     })?;
                 }
 
-                let source = NvosUpdateSource {
-                    config_json: &config_json,
-                    access_token: &access_token,
-                };
-                let submit_result = rms_start_nvos_update(
-                    rms_client,
-                    id,
-                    source,
-                    software_type,
-                    &rack_hardware_type,
-                    &switch_node_identity,
-                    switch_inventory.switches,
-                )
-                .await;
+                let submit_result = nvos_update_manager
+                    .start_nvos_update(NvosUpdateRequest {
+                        rack_id: id,
+                        profile,
+                        config_json: &config_json,
+                        access_token: &access_token,
+                        switches: switch_inventory.switches,
+                    })
+                    .await;
+
                 delete_rack_maintenance_access_token(ctx.services.credential_manager.as_ref(), id)
                     .await;
 
+                // Invalid requests cannot succeed on retry. Backend submission
+                // failures remain handler errors so the Start state is retried.
                 let job = match submit_result {
                     Ok(job) => job,
-                    Err(error) => return Err(error),
+                    Err(ComponentManagerError::InvalidArgument(cause)) => {
+                        return transition_to_rack_error(id, state, &cause, ctx).await;
+                    }
+                    Err(ComponentManagerError::Internal(cause))
+                    | Err(ComponentManagerError::RejectedBeforeDispatch(cause)) => {
+                        return Err(StateHandlerError::GenericError(eyre::eyre!(cause)));
+                    }
+                    Err(error) => return Err(StateHandlerError::GenericError(eyre::eyre!(error))),
                 };
 
                 let mut txn = ctx.services.db_pool.begin().await?;

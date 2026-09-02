@@ -14,20 +14,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+use carbide_test_harness::prelude::*;
 use chrono::Utc;
-use common::api_fixtures::dpu::loopback_ip;
-use common::api_fixtures::{create_managed_host, create_test_env};
+use model::machine::ManagedHostState;
 use rpc::Timestamp;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{DpuNetworkStatus, FabricInterfaceData, LinkData};
 
-use crate::tests::common;
-
-#[crate::sqlx_test]
-async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    let dpu_machine_id_1 = create_managed_host(&env).await.dpu().id;
-    let dpu_machine_id_2 = create_managed_host(&env).await.dpu().id;
+#[sqlx_test]
+async fn test_get_dpu_info_list(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
+    let domain = env.test_domain().await;
+    let network_controller = env.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let mut managed_hosts = Vec::with_capacity(2);
+    for _ in 0..2 {
+        let (mh, _) = env
+            .managed_host_builder(&site_explorer, underlay_segment)
+            .build()
+            .await;
+        mh.first_dpu().discover_oob_iface(underlay_segment).await;
+        let mut txn = env.db_txn().await;
+        mh.first_dpu()
+            .db_machine(&mut txn)
+            .await
+            .advance_state(&mut txn, ManagedHostState::Ready)
+            .await;
+        txn.commit().await.unwrap();
+        managed_hosts.push(mh);
+    }
+    let dpu_machine_id_1 = managed_hosts[0].first_dpu().id;
+    let dpu_machine_id_2 = managed_hosts[1].first_dpu().id;
 
     let observed_at = Utc::now();
     let heartbeat_timestamp = Timestamp::from(observed_at);
@@ -45,7 +65,7 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
         };
 
     // Persist a current network status with fabric interface data for one DPU.
-    env.api
+    env.api()
         .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
             dpu_machine_id: Some(dpu_machine_id_1),
             dpu_agent_version: Some("test".to_string()),
@@ -79,8 +99,8 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
 
     // Make RPC call to get list of DPU information
     let dpu_list = env
-        .api
-        .get_dpu_info_list(tonic::Request::new(::rpc::forge::GetDpuInfoListRequest {}))
+        .api()
+        .get_dpu_info_list(tonic::Request::new(rpc::forge::GetDpuInfoListRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -94,9 +114,18 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
     assert_eq!(dpu_ids, exp_ids);
 
     // Check that the DPU returns a list of expected DPU loopback IP addresses
-    let mut txn = env.pool.begin().await.unwrap();
-    let exp_dpu_loopback_ip_1 = loopback_ip(&mut txn, &dpu_machine_id_1).await;
-    let exp_dpu_loopback_ip_2 = loopback_ip(&mut txn, &dpu_machine_id_2).await;
+    let exp_dpu_loopback_ip_1 = managed_hosts[0]
+        .first_dpu()
+        .machine()
+        .await
+        .loopback_ip()
+        .unwrap();
+    let exp_dpu_loopback_ip_2 = managed_hosts[1]
+        .first_dpu()
+        .machine()
+        .await
+        .loopback_ip()
+        .unwrap();
 
     let mut dpu_loopback_ips: Vec<String> = dpu_list
         .iter()

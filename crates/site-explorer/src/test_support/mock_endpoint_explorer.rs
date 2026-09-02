@@ -75,6 +75,9 @@ pub struct MockEndpointExplorer {
     pub precondition_result: Arc<Mutex<Result<(), EndpointExplorationError>>>,
     pub power_states: Arc<Mutex<HashMap<IpAddr, PowerState>>>,
     pub redfish_power_control_calls: Arc<Mutex<Vec<(SocketAddr, SystemPowerControl)>>>,
+    /// Records every `redfish_chassis_reset` call (BMC address, chassis id, and
+    /// requested action) so tests can assert the reset was routed correctly.
+    pub redfish_chassis_reset_calls: Arc<Mutex<Vec<(SocketAddr, String, SystemPowerControl)>>>,
     /// Power-control actions that `redfish_power_control` should reject (the
     /// call is still recorded). Lets tests exercise the PowerCycle ->
     /// ACPowercycle fallback for a vendor that refuses `PowerCycle`.
@@ -99,6 +102,7 @@ impl Default for MockEndpointExplorer {
             precondition_result: Arc::new(Mutex::new(Ok(()))),
             power_states: Arc::default(),
             redfish_power_control_calls: Arc::default(),
+            redfish_chassis_reset_calls: Arc::default(),
             power_control_failures: Arc::default(),
             set_nic_mode_calls: Arc::default(),
             explore_endpoint_calls: Arc::default(),
@@ -262,6 +266,21 @@ impl EndpointExplorer for MockEndpointExplorer {
                 details: Some(format!("mock: {action:?} refused")),
             });
         }
+        Ok(())
+    }
+
+    async fn redfish_chassis_reset(
+        &self,
+        address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+        chassis_id: &str,
+        action: SystemPowerControl,
+    ) -> Result<(), EndpointExplorationError> {
+        self.redfish_chassis_reset_calls.lock().unwrap().push((
+            address,
+            chassis_id.to_string(),
+            action,
+        ));
         Ok(())
     }
 

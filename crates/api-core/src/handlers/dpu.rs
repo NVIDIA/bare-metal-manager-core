@@ -18,11 +18,12 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv6Addr};
 use std::str::FromStr;
+use std::time::Duration;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
 use ::rpc::{common as rpc_common, forge as rpc};
-use carbide_dpf::dpu_cr_name;
+use carbide_dpf::{DpuDeploymentType, dpu_cr_name, dpu_node_cr_name};
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
@@ -49,6 +50,7 @@ use model::machine::{
 };
 use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
 use model::network_segment::NetworkSegmentSearchConfig;
+use model::rack_type::select_dpu_nvconfig_profile;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
@@ -61,6 +63,9 @@ use crate::{CarbideError, cfg, ethernet_virtualization};
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
 const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
+
+/// Bounds Kubernetes label reads while Site Explorer attachment locks are held.
+const DPF_DEPLOYMENT_LABEL_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Consolidates host-level and DPU-level `ManagedHostNetworkConfig` into
 /// the single proto sent to `carbide-dpu-agent`. The host layer
@@ -1337,6 +1342,137 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     Ok(tonic::Response::new(response))
 }
 
+/// Returns whether adding a request for `machine_id` covers every attached DPU.
+fn reprovision_request_covers_all_attached_dpus(
+    snapshot: &ManagedHostStateSnapshot,
+    machine_id: &MachineId,
+) -> bool {
+    if machine_id.machine_type().is_dpu() {
+        snapshot
+            .dpu_snapshots
+            .iter()
+            .all(|dpu| dpu.id == *machine_id || dpu.reprovision_requested.is_some())
+    } else {
+        snapshot.has_managed_dpus()
+    }
+}
+
+/// Returns the DPUNode when this request may need the exact BF3 to GB200
+/// deployment migration.
+async fn dpf_deployment_migration_node(
+    api: &Api,
+    conn: &mut sqlx::PgConnection,
+    snapshot: &ManagedHostStateSnapshot,
+) -> Result<Option<String>, CarbideError> {
+    if !api.runtime_config.dpf.enabled
+        || !snapshot.host_snapshot.config.dpf.used_for_ingestion
+        || snapshot.dpu_snapshots.is_empty()
+    {
+        return Ok(None);
+    }
+
+    let Some(rack_id) = snapshot.host_snapshot.rack_id.as_ref() else {
+        return Ok(None);
+    };
+    let Some(rack) = db::rack::find_by(conn, ObjectColumnFilter::One(db::rack::IdColumn, rack_id))
+        .await?
+        .pop()
+    else {
+        return Ok(None);
+    };
+    let Some(rack_profile_id) = rack.rack_profile_id.as_ref() else {
+        return Ok(None);
+    };
+    let Some(rack_profile) = api
+        .runtime_config
+        .rack_profiles
+        .get(rack_profile_id.as_str())
+    else {
+        return Ok(None);
+    };
+    let every_dpu_uses_gb200_profile = snapshot.dpu_snapshots.iter().all(|dpu| {
+        select_dpu_nvconfig_profile(
+            rack_profile.product_family.as_ref(),
+            dpu.status.hardware_info.as_ref(),
+        )
+        .is_some()
+    });
+    if !every_dpu_uses_gb200_profile {
+        return Ok(None);
+    }
+
+    Ok(snapshot
+        .host_snapshot
+        .dpf_id()
+        .map(|dpf_id| dpu_node_cr_name(&dpf_id)))
+}
+
+/// Returns whether the live DPUNode still belongs to the generic BF3
+/// deployment and therefore needs a migration of the complete DPU set.
+async fn dpf_deployment_migration_source_is_active(
+    api: &Api,
+    node_name: &str,
+) -> Result<bool, CarbideError> {
+    let dpf_sdk = api.dpf_sdk.as_deref().ok_or_else(|| {
+        CarbideError::internal(
+            "DPF SDK is unavailable while checking a DPF deployment migration".to_string(),
+        )
+    })?;
+    if dpf_sdk
+        .verify_node_labels(node_name, DpuDeploymentType::Bf3Gb200)
+        .await
+        .map_err(CarbideError::DpfError)?
+    {
+        return Ok(false);
+    }
+
+    dpf_sdk
+        .verify_node_labels(node_name, DpuDeploymentType::Bf3)
+        .await
+        .map_err(CarbideError::DpfError)
+}
+
+/// Refuses a request change that would leave only part of the attached DPU set
+/// selected while the shared DPUNode still needs deployment migration.
+fn reject_partial_dpf_deployment_migration_request_set(
+    snapshot: &ManagedHostStateSnapshot,
+    machine_id: &MachineId,
+    mode: rpc::dpu_reprovisioning_request::Mode,
+    migration_source_is_active: bool,
+) -> Result<(), CarbideError> {
+    if !migration_source_is_active {
+        return Ok(());
+    }
+
+    let requested_count = snapshot
+        .dpu_snapshots
+        .iter()
+        .filter(|dpu| {
+            let request_targets_dpu = machine_id.machine_type().is_host() || dpu.id == *machine_id;
+            if request_targets_dpu {
+                mode == rpc::dpu_reprovisioning_request::Mode::Set
+            } else {
+                dpu.reprovision_requested.is_some()
+            }
+        })
+        .count();
+    if requested_count == 0 || requested_count == snapshot.dpu_snapshots.len() {
+        return Ok(());
+    }
+
+    let operation = match mode {
+        rpc::dpu_reprovisioning_request::Mode::Set => "Set",
+        rpc::dpu_reprovisioning_request::Mode::Clear => "Clear",
+        rpc::dpu_reprovisioning_request::Mode::Restart => "Restart",
+    };
+    Err(CarbideError::FailedPrecondition(format!(
+        "{operation} for DPU {machine_id} would leave only part of the attached DPU set selected \
+         while the shared DPUNode still needs the GB200 deployment; submit {operation} with host \
+         machine ID {} so every attached DPU changes together",
+        snapshot.host_snapshot.id,
+    )))
+}
+
 /// Refuses a reprovision request that would migrate a host to DPF while its
 /// instance still has extension services attached.
 ///
@@ -1361,16 +1497,7 @@ fn reject_dpf_migration_that_would_strand_extension_services(
         return Ok(());
     }
 
-    // Requesting the host reprovisions every DPU. Requesting a single DPU only
-    // completes the set if every other DPU is already requested.
-    let migrates_host_to_dpf = if machine_id.machine_type().is_dpu() {
-        snapshot
-            .dpu_snapshots
-            .iter()
-            .all(|dpu| dpu.id == *machine_id || dpu.reprovision_requested.is_some())
-    } else {
-        snapshot.has_managed_dpus()
-    };
+    let migrates_host_to_dpf = reprovision_request_covers_all_attached_dpus(snapshot, machine_id);
 
     let has_attached_extension_services = snapshot.instance.as_ref().is_some_and(|instance| {
         !instance
@@ -1390,9 +1517,111 @@ fn reject_dpf_migration_that_would_strand_extension_services(
     Ok(())
 }
 
-/// Trigger DPU reprovisioning
-/// In case user passes a DPU ID, trigger_dpu_reprovisioning only for that particular DPU.
-/// In case user passes a host id, trigger_dpu_reprovisioning
+/// Validates request conditions that do not require a Kubernetes read.
+fn validate_dpu_reprovisioning_request(
+    api: &Api,
+    snapshot: &ManagedHostStateSnapshot,
+    machine_id: &MachineId,
+    mode: rpc::dpu_reprovisioning_request::Mode,
+) -> Result<(), CarbideError> {
+    let update_alert = snapshot
+        .aggregate_health
+        .alerts
+        .iter()
+        .find(|alert| alert.id == *HOST_UPDATE_HEALTH_PROBE_ID);
+    if !update_alert.is_some_and(|alert| {
+        alert
+            .classifications
+            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+    }) {
+        return Err(CarbideError::InvalidArgument(format!(
+            "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the \
+             'PreventAllocations' classification before reprovisioning. set this precondition \
+             with: `machine health-override add --template host-update <id>`",
+        )));
+    }
+
+    let reprovisioning_started = snapshot.dpu_snapshots.iter().any(|dpu| {
+        dpu.reprovision_requested
+            .as_ref()
+            .is_some_and(|request| request.started_at.is_some())
+    });
+    if reprovisioning_started && mode != rpc::dpu_reprovisioning_request::Mode::Restart {
+        return Err(CarbideError::internal(
+            "reprovisioning is already started".to_string(),
+        ));
+    }
+
+    if mode == rpc::dpu_reprovisioning_request::Mode::Set {
+        reject_dpf_migration_that_would_strand_extension_services(api, snapshot, machine_id)?;
+    }
+
+    Ok(())
+}
+
+/// Locks every attached DPU row in stable order before revalidating and
+/// updating a reprovisioning request set.
+async fn lock_attached_dpus(
+    conn: &mut sqlx::PgConnection,
+    snapshot: &ManagedHostStateSnapshot,
+) -> Result<(), CarbideError> {
+    let dpu_ids = snapshot
+        .dpu_snapshots
+        .iter()
+        .map(|dpu| dpu.id)
+        .collect::<Vec<_>>();
+    let locked_dpus = db::machine::find(
+        conn,
+        db::ObjectFilter::List(&dpu_ids),
+        MachineSearchConfig {
+            for_update: true,
+            ..MachineSearchConfig::default()
+        },
+    )
+    .await?;
+    if locked_dpus.len() != dpu_ids.len() {
+        return Err(CarbideError::internal(format!(
+            "expected to lock {} attached DPUs but found {}",
+            dpu_ids.len(),
+            locked_dpus.len(),
+        )));
+    }
+
+    Ok(())
+}
+
+/// Loads the host snapshot used to validate and update DPU reprovisioning
+/// requests.
+async fn load_dpu_reprovisioning_snapshot(
+    api: &Api,
+    conn: &mut sqlx::PgConnection,
+    machine_id: &MachineId,
+) -> Result<ManagedHostStateSnapshot, CarbideError> {
+    db::managed_host::load_snapshot(
+        conn,
+        machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            // The attached extension services checked by validation live on
+            // the instance.
+            include_instance_data: true,
+            host_health_config: api.runtime_config.host_health,
+        },
+    )
+    .await?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })
+}
+
+/// Triggers DPU reprovisioning for one DPU or every DPU attached to a host.
+///
+/// `Set` and `Clear` intentionally keep the transaction that owns the admin
+/// segment locks open across the DPF Kubernetes read. This prevents Site
+/// Explorer from changing attachments between the authorizing snapshot and
+/// the request writes.
+#[allow(txn_held_across_await)]
 pub(crate) async fn trigger_dpu_reprovisioning(
     api: &Api,
     request: tonic::Request<rpc::DpuReprovisioningRequest>,
@@ -1404,59 +1633,67 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     let machine_id = req.machine_id.as_ref().or(req.dpu_id.as_ref());
     let machine_id = convert_and_log_machine_id(machine_id)?;
 
+    let mode = req.mode();
+    // Set and Clear must choose their complete DPU set from the same attachment
+    // state that authorizes the request writes. Take the Site Explorer lock
+    // order before loading that snapshot so attachment changes cannot make a
+    // previously ineligible host require migration after this check.
+    let admin_lock_admission = if matches!(mode, Mode::Set | Mode::Clear) {
+        Some(db::machine_interface::admin_lock_admission().await)
+    } else {
+        None
+    };
     let mut txn = api.txn_begin().await?;
-
-    let snapshot = db::managed_host::load_snapshot(
-        &mut txn,
-        &machine_id,
-        LoadSnapshotOptions {
-            include_history: false,
-            // The attached extension services checked below live on the instance.
-            include_instance_data: true,
-            host_health_config: api.runtime_config.host_health,
-        },
-    )
-    .await?
-    .ok_or(CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
-
-    // Start reprovisioning only if the host has an HostUpdateInProgress health alert
-    let update_alert = snapshot
-        .aggregate_health
-        .alerts
-        .iter()
-        .find(|a| a.id == *HOST_UPDATE_HEALTH_PROBE_ID);
-    if !update_alert.is_some_and(|alert| {
-        alert
-            .classifications
-            .contains(&health_report::HealthAlertClassification::prevent_allocations())
-    }) {
-        return Err(CarbideError::InvalidArgument(format!(
-            "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. set this precondition with: `machine health-override add --template host-update <id>`",
-        )).into());
+    if admin_lock_admission.is_some() {
+        db::machine_interface::lock_all_admin_segments(txn.as_mut()).await?;
     }
 
-    if snapshot.dpu_snapshots.iter().any(|ms| {
-        ms.reprovision_requested
-            .as_ref()
-            .is_some_and(|x| x.started_at.is_some())
-    }) {
-        match req.mode() {
-            Mode::Restart => {}
-            _ => {
-                return Err(CarbideError::internal(
-                    "reprovisioning is already started".to_string(),
-                )
-                .into());
-            }
-        }
+    let mut snapshot = load_dpu_reprovisioning_snapshot(api, txn.as_mut(), &machine_id).await?;
+    validate_dpu_reprovisioning_request(api, &snapshot, &machine_id, mode)?;
+
+    let migration_node = if matches!(mode, Mode::Set | Mode::Clear) {
+        dpf_deployment_migration_node(api, txn.as_mut(), &snapshot).await?
+    } else {
+        None
+    };
+    let migration_source_is_active = if let Some(node_name) = migration_node.as_deref() {
+        // Keep the attachment locks through this Kubernetes read and the
+        // request writes. Releasing them here would allow migration eligibility
+        // to change between the two operations.
+        tokio::time::timeout(
+            DPF_DEPLOYMENT_LABEL_CHECK_TIMEOUT,
+            dpf_deployment_migration_source_is_active(api, node_name),
+        )
+        .await
+        .map_err(|_| {
+            CarbideError::DpfError(carbide_dpf::DpfError::timeout(
+                "DPUNode deployment label validation",
+                format!(
+                    "label checks for DPUNode '{node_name}' did not complete within {} seconds",
+                    DPF_DEPLOYMENT_LABEL_CHECK_TIMEOUT.as_secs()
+                ),
+            ))
+        })??
+    } else {
+        false
+    };
+
+    if mode == Mode::Set || migration_node.is_some() {
+        // Set replaces the request JSON, and migration validation depends on
+        // the complete request set. Lock and reload before either can write.
+        lock_attached_dpus(txn.as_mut(), &snapshot).await?;
+        snapshot = load_dpu_reprovisioning_snapshot(api, txn.as_mut(), &machine_id).await?;
+        validate_dpu_reprovisioning_request(api, &snapshot, &machine_id, mode)?;
     }
 
-    match req.mode() {
+    match mode {
         Mode::Set => {
-            reject_dpf_migration_that_would_strand_extension_services(api, &snapshot, &machine_id)?;
+            reject_partial_dpf_deployment_migration_request_set(
+                &snapshot,
+                &machine_id,
+                mode,
+                migration_source_is_active,
+            )?;
 
             let initiator = req.initiator().as_str_name();
             if machine_id.machine_type().is_dpu() {
@@ -1480,6 +1717,12 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             }
         }
         Mode::Clear => {
+            reject_partial_dpf_deployment_migration_request_set(
+                &snapshot,
+                &machine_id,
+                mode,
+                migration_source_is_active,
+            )?;
             if machine_id.machine_type().is_dpu() {
                 db::machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true).await?;
             } else {
@@ -1527,6 +1770,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     }
 
     txn.commit().await?;
+    drop(admin_lock_admission);
 
     Ok(Response::new(()))
 }

@@ -21,11 +21,11 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as rpc_forge};
 use tonic::Request;
 
+use crate::test_support::health::{HealthCrud, HealthStatusView, check_health_aggregation};
 use crate::tests::common::api_fixtures::site_explorer::new_switch;
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
-use crate::tests::common::health_crud::{HealthCrud, HealthStatusView, check_health_aggregation};
 
 fn alert_report(source: &str) -> HealthReport {
     HealthReport {
@@ -62,7 +62,7 @@ async fn test_env(pool: sqlx::PgPool) -> TestEnv {
 }
 
 /// Builds the switch health-override CRUD surface over `env` for `id`. The shared
-/// checks in [`crate::tests::common::health_crud`] drive these closures.
+/// checks in [`crate::test_support::health`] drive these closures.
 // The four `impl AsyncFn` members are intentionally distinct unnameable closure
 // types; there is nothing to factor into a `type` alias.
 #[allow(clippy::type_complexity)]

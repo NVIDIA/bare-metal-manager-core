@@ -401,7 +401,7 @@ func NewManageSubnet(dbSession *cdb.Session, siteClientPool *sc.ClientPool, tc c
 type ManageSubnetLifecycleMetrics struct {
 	dbSession            *cdb.Session
 	statusTransitionTime *prometheus.GaugeVec
-	siteIDNameMap        map[uuid.UUID]string
+	siteNames            *cwm.SiteNameCache
 }
 
 // RecordSubnetStatusTransitionMetrics is a Temporal activity that records duration of important status transitions for Subnets
@@ -410,17 +410,10 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 
 	logger.Info().Msg("starting activity")
 
-	// Cache site name to avoid repeated DB call
-	siteName, ok := mslm.siteIDNameMap[siteID]
-	if !ok {
-		siteDAO := cdbm.NewSiteDAO(mslm.dbSession)
-		site, err := siteDAO.GetByID(context.Background(), nil, siteID, nil, false)
-		if err != nil {
-			logger.Error().Err(err).Str("Site ID", siteID.String()).Msg("failed to retrieve Site from DB")
-			return err
-		}
-		siteName = site.Name
-		mslm.siteIDNameMap[siteID] = siteName
+	siteName, err := mslm.siteNames.Get(ctx, mslm.dbSession, siteID)
+	if err != nil {
+		logger.Error().Err(err).Str("Site ID", siteID.String()).Msg("failed to retrieve Site from DB")
+		return err
 	}
 
 	logger.Info().Int("EventCount", len(subnetLifecycleEvents)).Str("Site Name", siteName).Msg("processing subnet lifecycle events")
@@ -462,7 +455,7 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 			// Only emit metric if we have exactly 1 Ready and at least 1 Pending
 			if readySD != nil && pendingSD != nil && readyStatusCount == 1 {
 				dur := readySD.Created.Sub(pendingSD.Created)
-				mslm.statusTransitionTime.WithLabelValues(siteName, cwm.InventoryOperationTypeCreate, cdbm.SubnetStatusPending, cdbm.SubnetStatusReady).Set(dur.Seconds())
+				mslm.statusTransitionTime.WithLabelValues(siteName, siteID.String(), cwm.InventoryOperationTypeCreate, cdbm.SubnetStatusPending, cdbm.SubnetStatusReady).Set(dur.Seconds())
 				metricsRecorded++
 				logger.Info().
 					Str("Subnet ID", event.ObjectID.String()).
@@ -488,7 +481,7 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 			if deletingSD != nil {
 				// Calculate duration from Deleting status to deletion time
 				dur := event.Deleted.Sub(deletingSD.Created)
-				mslm.statusTransitionTime.WithLabelValues(siteName, cwm.InventoryOperationTypeDelete, cdbm.SubnetStatusDeleting, cdbm.SubnetStatusDeleted).Set(dur.Seconds())
+				mslm.statusTransitionTime.WithLabelValues(siteName, siteID.String(), cwm.InventoryOperationTypeDelete, cdbm.SubnetStatusDeleting, cdbm.SubnetStatusDeleted).Set(dur.Seconds())
 				metricsRecorded++
 				logger.Info().
 					Str("Subnet ID", event.ObjectID.String()).
@@ -508,18 +501,18 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 }
 
 // NewManageSubnetLifecycleMetrics returns a new ManageSubnetLifecycleMetrics activity
-func NewManageSubnetLifecycleMetrics(reg prometheus.Registerer, dbSession *cdb.Session) ManageSubnetLifecycleMetrics {
+func NewManageSubnetLifecycleMetrics(reg prometheus.Registerer, dbSession *cdb.Session, namespace string) ManageSubnetLifecycleMetrics {
 	lifecycleMetrics := ManageSubnetLifecycleMetrics{
 		dbSession: dbSession,
 		statusTransitionTime: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
-				Namespace: cwm.MetricsNamespace,
+				Namespace: namespace,
 				Name:      "subnet_operation_latency_seconds",
 				Help:      "Current latency of subnet operations",
 			},
-			[]string{"site", "operation_type", "from_status", "to_status"}),
+			[]string{"site", "site_id", "operation_type", "from_status", "to_status"}),
 
-		siteIDNameMap: map[uuid.UUID]string{},
+		siteNames: cwm.NewSiteNameCache(),
 	}
 	reg.MustRegister(lifecycleMetrics.statusTransitionTime)
 

@@ -18,6 +18,7 @@
 pub mod builder;
 pub mod default_config;
 pub mod fixture_config;
+pub mod health;
 pub(crate) mod ib_fabric;
 pub(crate) mod ib_guid_pool;
 pub mod mac_address_pool;
@@ -65,6 +66,13 @@ impl Api {
     ) {
         self.dynamic_settings
             .start_reset_task(join_set, period, cancel_token);
+    }
+
+    pub async fn process_scout_req_for_test(
+        &self,
+        machine_id: carbide_uuid::machine::MachineId,
+    ) -> crate::CarbideResult<rpc::forge_agent_control_response::Action> {
+        crate::handlers::process_scout_req_for_test(self, machine_id).await
     }
 }
 

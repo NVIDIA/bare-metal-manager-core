@@ -610,6 +610,122 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
             txn,
         })
     }
+
+    /// Tenant-free rekey, phase one: wait for the card to report `Unlocked`,
+    /// record the unlock (NULLing `current_version` so the truth column reflects
+    /// an unlocked card), then advance to `RotateKeyLocking` to relock at the
+    /// staged site-wide target. The record commits atomically with the state
+    /// transition via the returned txn, mirroring `handle_locking`.
+    async fn handle_rotate_key_unlocking(
+        &self,
+        monitor: &mut DpaMonitor,
+        mh: &ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
+            tracing::error!(
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_rotate_key_unlocking index out of bounds",
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        let Some(ref cs) = dpa_interface.card_state else {
+            tracing::error!(
+                dpa_interface_id = %dpa_interface.id,
+                "DPA interface has no card state",
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        if cs.lockmode == Some(Unlocked) {
+            let mut txn = monitor.db_services.db_pool.begin().await.map_err(|e| {
+                db::AnnotatedSqlxError::new("handle_rotate_key_unlocking begin txn", e)
+            })?;
+            db::credential_rotation::record_device_unlocked(
+                txn.as_mut(),
+                dpa_interface.mac_address,
+                db::credential_rotation::CredentialRotationType::LockdownIkm,
+            )
+            .await?;
+
+            let new_state = DpaInterfaceControllerState::RotateKeyLocking;
+            tracing::info!(next_state = ?new_state, "rekey: card unlocked, transitioning to relock");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: Some(txn),
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
+
+    /// Tenant-free rekey, phase two: wait for the card to report `Locked` at the
+    /// staged target, promote `rotating_to_version -> current_version`
+    /// (`record_lock_convergence`), then return the card to `Ready`. This is the
+    /// assignment `handle_locking` promote path with a `Ready` terminal instead
+    /// of `Assigned`.
+    async fn handle_rotate_key_locking(
+        &self,
+        monitor: &mut DpaMonitor,
+        mh: &ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
+            tracing::error!(
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_rotate_key_locking index out of bounds",
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        let Some(ref cs) = dpa_interface.card_state else {
+            tracing::error!(
+                dpa_interface_id = %dpa_interface.id,
+                "DPA interface has no card state",
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        if cs.lockmode == Some(Locked) {
+            let mut txn = monitor.db_services.db_pool.begin().await.map_err(|e| {
+                db::AnnotatedSqlxError::new("handle_rotate_key_locking begin txn", e)
+            })?;
+            record_lock_convergence(txn.as_mut(), dpa_interface.id, dpa_interface.mac_address)
+                .await?;
+
+            let new_state = DpaInterfaceControllerState::Ready;
+            tracing::info!(next_state = ?new_state, "rekey: card relocked, returning to Ready");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: Some(txn),
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
 }
 
 fn apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {

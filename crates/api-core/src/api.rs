@@ -34,7 +34,7 @@ use carbide_ib_fabric::ib::IBFabricManager;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_rack::bms_client::BmsDsxExchangeHandle;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::{BmcCredentialOps, RedfishClientPool};
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
@@ -69,6 +69,11 @@ pub struct Api {
     pub(crate) credential_manager: Arc<dyn CredentialManager>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
+    /// Credential-lifecycle operations (password set/rotate/clear, candidate
+    /// validation). A sealed trait implemented only by the direct pool, so
+    /// handing these to a wrapper pool is a compile error (a wrong-pool
+    /// guard, not a wire-path guarantee -- see [`BmcCredentialOps`]).
+    pub(crate) bmc_credential_ops: Arc<dyn BmcCredentialOps>,
     pub(crate) bmc_session_manager: Arc<crate::credentials::BmcSessionManager>,
     pub(crate) eth_data: EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
@@ -1444,6 +1449,16 @@ impl Forge for Api {
             .await
     }
 
+    async fn trigger_nic_lockdown_credential_rotation(
+        &self,
+        request: Request<rpc::NicLockdownCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nic_lockdown_credential_rotation::trigger_nic_lockdown_credential_rotation(
+            self, request,
+        )
+        .await
+    }
+
     async fn mark_manual_firmware_upgrade_complete(
         &self,
         request: Request<MachineId>,
@@ -1516,6 +1531,13 @@ impl Forge for Api {
         request: Request<rpc::AdminBmcResetRequest>,
     ) -> Result<Response<rpc::AdminBmcResetResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::admin_bmc_reset(self, request).await
+    }
+
+    async fn admin_gpu_reset(
+        &self,
+        request: Request<rpc::AdminGpuResetRequest>,
+    ) -> Result<Response<rpc::AdminGpuResetResponse>, Status> {
+        crate::handlers::gpu_reset::admin_gpu_reset(self, request).await
     }
 
     async fn disable_secure_boot(

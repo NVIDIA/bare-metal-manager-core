@@ -102,7 +102,7 @@ func main() {
 	mconfig := cfg.GetMetricsConfig()
 	if mconfig.Enabled {
 		// Initialize Prometheus Echo instance
-		ep := capis.InitMetricsServer(e, cfg)
+		ep := capis.InitMetricsServer(e, mconfig.Namespace)
 
 		// Start Prometheus server
 		log.Info().Msg("starting Metrics server")
