@@ -478,6 +478,14 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	vpcWithRoutingProfileName := "Test VPC routing profile"
 	vpcWithRoutingProfileOverridesName := "Test VPC routing profile overrides"
 	vpcWithResolvedRoutingProfileName := "Test VPC resolved routing profile"
+	vpcWithUnpersistedResolvedRoutingProfileName := "Test VPC unpersisted resolved routing profile"
+	vpcWithUnpersistedResolvedRoutingProfileID := uuid.New()
+	_, err = dbSession.DB.Exec(`
+		ALTER TABLE vpc
+		ADD CONSTRAINT vpc_test_reject_resolved_routing_profile_persistence
+		CHECK (name <> 'Test VPC unpersisted resolved routing profile' OR routing_profile IS NULL)
+	`)
+	require.NoError(t, err)
 	allocatedVni := uint32(7301)
 	expectedAllocatedVni := int(allocatedVni)
 
@@ -553,12 +561,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
 		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
-			return req != nil && req.Name == vpcWithResolvedRoutingProfileName
+			return req != nil && (req.Name == vpcWithResolvedRoutingProfileName || req.Name == vpcWithUnpersistedResolvedRoutingProfileName)
 		})).Return(wrunWithResolvedRoutingProfile, nil)
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
 		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
-			return req == nil || (req.Name != unavailableVpcName && req.Name != vpcWithAllocatedVniName && req.Name != vpcWithRoutingProfileName && req.Name != vpcWithRoutingProfileOverridesName && req.Name != vpcWithResolvedRoutingProfileName)
+			return req == nil || (req.Name != unavailableVpcName && req.Name != vpcWithAllocatedVniName && req.Name != vpcWithRoutingProfileName && req.Name != vpcWithRoutingProfileOverridesName && req.Name != vpcWithResolvedRoutingProfileName && req.Name != vpcWithUnpersistedResolvedRoutingProfileName)
 		})).Return(wrun, nil)
 
 	// Mock timeout error
@@ -701,6 +709,30 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			},
 			wantErr:            false,
 			verifyChildSpanner: true,
+		},
+		{
+			name: "test VPC create API endpoint rolls back when Core-resolved routing profile cannot be persisted",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					ID:                        &vpcWithUnpersistedResolvedRoutingProfileID,
+					Name:                      vpcWithUnpersistedResolvedRoutingProfileName,
+					SiteID:                    st1.ID.String(),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+					SlaacEnabled:              cutil.GetPtr(true),
+				},
+				reqOrg:      tnOrg,
+				reqUser:     tnu,
+				respCode:    http.StatusInternalServerError,
+				respMessage: "Failed to persist Core-resolved VPC routing profile",
+			},
+			wantErr:            false,
+			verifyChildSpanner: true,
+			expectRolledBack:   true,
 		},
 		{
 			name: "test VPC create API endpoint rejects SLAAC when Site config inventory stores false",

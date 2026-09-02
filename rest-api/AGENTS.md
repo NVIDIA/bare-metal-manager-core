@@ -254,6 +254,10 @@ verification expectations.
   passwords and other credentials. Keep OpenAPI
   descriptions focused on the REST contract rather than internal gRPC
   implementation details.
+- When an authoritative external create returns a contract-critical value,
+  persist it in the request transaction before returning 2xx and independently
+  assert the response and database state. Do not rely on a best-effort cache or
+  later reconciliation for read-after-create behavior.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
 - When prose names exact API enum values, format the literals as code, for
