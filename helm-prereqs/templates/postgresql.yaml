@@ -60,13 +60,13 @@ spec:
     # the RMS migrations create tables/indexes there and need nothing wider.
     rms.nico: []
     {{- end }}
-    {{- if .Values.temporal.enabled }}
+    {{- if .Values.temporalDb.enabled }}
     # No role flags: temporal.nico owns only the temporal/temporal_visibility
     # databases (databases: below); Temporal's own schema-update job creates
     # tables/indexes there as the owner and needs nothing wider.
     temporal.nico: []
     {{- end }}
-    {{- if .Values.keycloak.enabled }}
+    {{- if .Values.keycloakDb.enabled }}
     # No role flags: keycloak.nico owns only the keycloak database (databases:
     # below); Keycloak's own Liquibase migrations create tables there as the
     # owner and need nothing wider.
@@ -83,11 +83,11 @@ spec:
     {{- if .Values.rms.enabled }}
     rms: rms.nico
     {{- end }}
-    {{- if .Values.temporal.enabled }}
+    {{- if .Values.temporalDb.enabled }}
     temporal: temporal.nico
     temporal_visibility: temporal.nico
     {{- end }}
-    {{- if .Values.keycloak.enabled }}
+    {{- if .Values.keycloakDb.enabled }}
     keycloak: keycloak.nico
     {{- end }}
   patroni:

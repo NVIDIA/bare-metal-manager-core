@@ -644,6 +644,27 @@ done
 # Comment lines + inline `# …` comments are stripped first.
 _strip_comments() { sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "$1"; }
 
+# Reads a scalar field nested directly under a top-level YAML key (e.g. the
+# `enabled` under `temporalDb:`). Unlike `grep -A<n> key: | grep field:`, this
+# isn't a fixed-line-count window — it scans until the next top-level key, so
+# it doesn't silently break (falling through to a caller's default) when a
+# comment block above the field grows. Shared with setup.sh, which sources
+# this file, and reimplemented standalone in scripts/migrate-temporal-keycloak-db.sh.
+_yaml_toplevel_value() {
+    local _file="$1" _key="$2" _field="$3"
+    awk -v key="${_key}" -v field="${_field}" '
+        $0 == key ":" { in_block = 1; next }
+        in_block && /^[^[:space:]#]/ { exit }
+        in_block && $0 ~ "^[[:space:]]*" field ":[[:space:]]*" {
+            sub("^[[:space:]]*" field ":[[:space:]]*", "")
+            sub(/[[:space:]]+#.*/, "")
+            gsub(/"/, "")
+            print
+            exit
+        }
+    ' "${_file}"
+}
+
 if [[ "${SKIP_CORE:-false}" != "true" && -f "${_CORE_VALUES_CFG}" ]]; then
     # nico-api.hostname must be a real external hostname
     if _strip_comments "${_CORE_VALUES_CFG}" | grep -qE '^[[:space:]]*hostname:[[:space:]]*("")?[[:space:]]*$'; then
@@ -1024,22 +1045,14 @@ EOF
 
     # -----------------------------------------------------------------------
     # 8. Temporal/Keycloak DB consolidation — opt-in transition safety.
-    #
-    # values.yaml::temporal.enabled / keycloak.enabled point Temporal/Keycloak
-    # at nico-pg-cluster instead of the legacy standalone postgres.postgres
-    # StatefulSet. If a site already has real data on postgres.postgres and
-    # the corresponding nico-pg-cluster database is empty, setup.sh would
-    # silently start Temporal/Keycloak against a fresh, empty database —
-    # orphaning existing workflow history / Keycloak users instead of
-    # migrating them. Catch that here rather than letting it happen silently;
-    # the fix is to run helm-prereqs/scripts/migrate-temporal-keycloak-db.sh
-    # first. No-ops when postgres.postgres or nico-pg-cluster don't exist yet
-    # (fresh installs, or the toggle was already on from the first run).
+    # See "Consolidating Temporal/Keycloak onto nico-pg-cluster" in README.md
+    # for the full story. Short version: temporalDb.enabled/keycloakDb.enabled
+    # point Temporal/Keycloak at nico-pg-cluster instead of postgres.postgres;
+    # this fails closed rather than let setup.sh silently redirect a site with
+    # un-migrated legacy data onto an empty/incomplete target database.
     # -----------------------------------------------------------------------
-    _TEMPORAL_TOGGLE="$(grep -A3 '^temporal:' "${_SITE_VALUES_CFG}" 2>/dev/null \
-        | grep 'enabled:' | head -1 | awk '{print $2}')"
-    _KEYCLOAK_TOGGLE="$(grep -A3 '^keycloak:' "${_SITE_VALUES_CFG}" 2>/dev/null \
-        | grep 'enabled:' | head -1 | awk '{print $2}')"
+    _TEMPORAL_TOGGLE="$(_yaml_toplevel_value "${_SITE_VALUES_CFG}" temporalDb enabled)"
+    _KEYCLOAK_TOGGLE="$(_yaml_toplevel_value "${_SITE_VALUES_CFG}" keycloakDb enabled)"
 
     if [[ "${_TEMPORAL_TOGGLE}" == "true" || "${_KEYCLOAK_TOGGLE}" == "true" ]]; then
         _LEGACY_PG_POD="$(kubectl get pods -n postgres -l app=postgres \
@@ -1086,8 +1099,12 @@ EOF
                 return 0
             fi
 
-            if [[ "${_nico_count}" -eq 0 ]]; then
-                ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but nico-pg-cluster/${_db} is empty — run '${_script_hint}' before proceeding, or this data will be orphaned")
+            # A dump/restore of the same table should leave equal counts —
+            # anything less means an incomplete or partial migration, not
+            # just "empty". (Nothing else writes to nico-pg-cluster/${_db}
+            # before setup.sh cuts the workload over to it.)
+            if [[ "${_nico_count}" -lt "${_legacy_count}" ]]; then
+                ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but nico-pg-cluster/${_db} only has ${_nico_count} — migration looks incomplete. Run '${_script_hint}' before proceeding, or this data will be orphaned")
             fi
             # This function communicates findings via ERRORS, not its own
             # exit code — without this, a false `-eq 0` above (the "all
@@ -1099,20 +1116,20 @@ EOF
 
         if [[ "${_TEMPORAL_TOGGLE}" == "true" ]]; then
             _check_db_migration_needed \
-                "temporal.enabled" "temporal" "SELECT count(*) FROM namespaces" \
+                "temporalDb.enabled" "temporal" "SELECT count(*) FROM namespaces" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
             # temporal_visibility has its own tables (no namespaces table) —
             # use schema presence (any tables at all) as the migrated-or-not
             # signal, so a partial migration (temporal restored,
             # temporal_visibility not) is caught too.
             _check_db_migration_needed \
-                "temporal.enabled" "temporal_visibility" \
+                "temporalDb.enabled" "temporal_visibility" \
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
         fi
         if [[ "${_KEYCLOAK_TOGGLE}" == "true" ]]; then
             _check_db_migration_needed \
-                "keycloak.enabled" "keycloak" "SELECT count(*) FROM realm" \
+                "keycloakDb.enabled" "keycloak" "SELECT count(*) FROM realm" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db keycloak"
         fi
     fi

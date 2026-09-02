@@ -17,33 +17,17 @@
 # =============================================================================
 # migrate-temporal-keycloak-db.sh — one-time cutover of Temporal and/or
 # Keycloak from the legacy standalone postgres.postgres StatefulSet onto the
-# shared nico-pg-cluster.
+# shared nico-pg-cluster. See "Consolidating Temporal/Keycloak onto
+# nico-pg-cluster" in README.md for the full transition story and
+# prerequisites (temporalDb.enabled/keycloakDb.enabled, helmfile sync).
 #
-# This is a stop-the-world dump/restore, not a zero-downtime migration:
-# Temporal and/or Keycloak are scaled to zero for the duration and STAY at
-# zero on success — see "Why workloads stay stopped" below. Expect Temporal
-# workflow processing and Keycloak logins to be unavailable until the
-# follow-up setup.sh run.
-#
-# Prerequisites (this script checks and refuses to proceed otherwise):
-#   1. temporal.enabled and/or keycloak.enabled set true in
-#      helm-prereqs/values.yaml, and `helmfile sync` (or setup.sh through
-#      phase 6) already applied — this creates the temporal.nico/keycloak.nico
-#      users and empty temporal/temporal_visibility/keycloak databases on
-#      nico-pg-cluster, and the ESO ClusterExternalSecrets that sync their
-#      credentials.
-#   2. The legacy postgres.postgres StatefulSet is still running with the
-#      data to migrate.
-#
-# Why workloads stay stopped on success: scaling back up here would resume
-# Temporal/Keycloak against their OLD postgres.postgres configuration — they
-# don't repoint to nico-pg-cluster until the next setup.sh run applies that
-# config. Any workflow activity or Keycloak login in that window would write
-# to postgres.postgres and be silently lost once setup.sh switches the
-# endpoint over. So: after a successful restore, this script leaves the
-# workload at zero replicas and re-running setup.sh brings it back up already
-# pointed at nico-pg-cluster. On a FAILED migration, the EXIT trap still
-# restores the original replica count immediately, since nothing was cut over.
+# This is a stop-the-world dump/restore: Temporal/Keycloak are scaled to zero
+# for the duration and STAY at zero on success, until the follow-up setup.sh
+# run repoints them at nico-pg-cluster and scales them back up — restoring
+# them here instead would resume writes against the about-to-be-abandoned
+# postgres.postgres, and those writes would be silently lost at cutover. A
+# failed migration is the exception: the EXIT trap restores the original
+# replica count immediately, since nothing was cut over.
 #
 # Usage:
 #   ./migrate-temporal-keycloak-db.sh [--db temporal|keycloak|both] [--dry-run]
@@ -93,6 +77,25 @@ _run() {
     else
         "$@"
     fi
+}
+
+# Reads a scalar field nested directly under a top-level YAML key. Scans
+# until the next top-level key rather than a fixed line count, so it doesn't
+# break if a comment block above the field grows. Mirrors preflight.sh's
+# _yaml_toplevel_value (duplicated here since this script runs standalone).
+_yaml_toplevel_value() {
+    local _file="$1" _key="$2" _field="$3"
+    awk -v key="${_key}" -v field="${_field}" '
+        $0 == key ":" { in_block = 1; next }
+        in_block && /^[^[:space:]#]/ { exit }
+        in_block && $0 ~ "^[[:space:]]*" field ":[[:space:]]*" {
+            sub("^[[:space:]]*" field ":[[:space:]]*", "")
+            sub(/[[:space:]]+#.*/, "")
+            gsub(/"/, "")
+            print
+            exit
+        }
+    ' "${_file}"
 }
 
 _DRY_RUN_LABEL=""
@@ -256,18 +259,27 @@ if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
     _scale_down temporal "${_TEMPORAL_DEPLOYMENTS[@]}"
     _dump_restore_db "temporal" "temporal.nico"
     _dump_restore_db "temporal_visibility" "temporal.nico"
-    _disarm_group temporal
 fi
 
 if [[ "${DB_TARGET}" == "keycloak" || "${DB_TARGET}" == "both" ]]; then
-    # values.yaml::keycloak.namespace is the canonical source (matches what
+    # values.yaml::keycloakDb.namespace is the canonical source (matches what
     # setup.sh and the ESO ClusterExternalSecret target); KEYCLOAK_NS lets an
     # operator override it explicitly, same as keycloak/setup.sh honors.
-    _KEYCLOAK_NS="${KEYCLOAK_NS:-$(grep -A3 '^keycloak:' "${PREREQS_DIR}/values.yaml" \
-        | grep 'namespace:' | head -1 | awk '{print $2}')}"
+    _KEYCLOAK_NS="${KEYCLOAK_NS:-$(_yaml_toplevel_value "${PREREQS_DIR}/values.yaml" keycloakDb namespace)}"
     _KEYCLOAK_NS="${_KEYCLOAK_NS:-nico-rest}"
     _scale_down "${_KEYCLOAK_NS}" keycloak
     _dump_restore_db "keycloak" "keycloak.nico"
+fi
+
+# Disarm only once every requested migration above has succeeded (set -e
+# means we never reach here if any of them failed) — with --db both, a
+# Keycloak failure after Temporal's dump/restore must still leave Temporal
+# tracked by the EXIT trap, or it would be stuck at zero replicas with no
+# setup.sh run to bring it back (Temporal itself was never cut over).
+if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
+    _disarm_group temporal
+fi
+if [[ "${DB_TARGET}" == "keycloak" || "${DB_TARGET}" == "both" ]]; then
     _disarm_group "${_KEYCLOAK_NS}"
 fi
 
@@ -278,10 +290,10 @@ echo "setup.sh repoints them at nico-pg-cluster, so nothing writes to the"
 echo "already-migrated legacy database in the meantime."
 echo "Next steps:"
 if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
-    echo "  - Confirm temporal.enabled: true in ${PREREQS_DIR}/values.yaml"
+    echo "  - Confirm temporalDb.enabled: true in ${PREREQS_DIR}/values.yaml"
 fi
 if [[ "${DB_TARGET}" == "keycloak" || "${DB_TARGET}" == "both" ]]; then
-    echo "  - Confirm keycloak.enabled: true in ${PREREQS_DIR}/values.yaml"
+    echo "  - Confirm keycloakDb.enabled: true in ${PREREQS_DIR}/values.yaml"
 fi
 echo "  - Re-run setup.sh so phases 7d/7f point Temporal/Keycloak at nico-pg-cluster and scale workloads back up"
 echo "  - Once verified, the legacy temporal/temporal_visibility/keycloak databases on postgres.postgres can be dropped"
