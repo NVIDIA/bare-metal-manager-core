@@ -5,9 +5,11 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -30,10 +32,22 @@ func TestSessionFetchDomainsUsesSiteScopeAndCache(t *testing.T) {
 			domainRequests.Add(1)
 			assert.Equal(t, "site-1", r.URL.Query().Get("siteId"))
 			assert.Equal(t, "tenant-1", r.URL.Query().Get("tenantId"))
-			assert.Empty(t, r.URL.Query().Get("pageNumber"))
-			assert.Empty(t, r.URL.Query().Get("pageSize"))
-			_, err := io.WriteString(w, `[{"id":"domain-1","name":"tenant.example.com","siteId":"site-1","tenantId":"tenant-1"}]`)
-			require.NoError(t, err)
+			assert.Equal(t, "100", r.URL.Query().Get("pageSize"))
+			w.Header().Set("X-Pagination", `{"total":101}`)
+			switch page := r.URL.Query().Get("pageNumber"); page {
+			case "1":
+				domains := make([]map[string]string, 100)
+				for i := range domains {
+					id := "domain-" + strconv.Itoa(i+1)
+					domains[i] = map[string]string{"id": id, "name": id + ".example.com", "siteId": "site-1", "tenantId": "tenant-1"}
+				}
+				require.NoError(t, json.NewEncoder(w).Encode(domains))
+			case "2":
+				_, err := io.WriteString(w, `[{"id":"domain-101","name":"domain-101.example.com","siteId":"site-1","tenantId":"tenant-1"}]`)
+				require.NoError(t, err)
+			default:
+				t.Errorf("unexpected Domain page %q", page)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -46,14 +60,15 @@ func TestSessionFetchDomainsUsesSiteScopeAndCache(t *testing.T) {
 	for range 2 {
 		domains, err := session.Resolver.Fetch(context.Background(), "domain")
 		require.NoError(t, err)
-		require.Len(t, domains, 1)
+		require.Len(t, domains, 101)
 		assert.Equal(t, "domain-1", domains[0].ID)
-		assert.Equal(t, "tenant.example.com", domains[0].Name)
+		assert.Equal(t, "domain-1.example.com", domains[0].Name)
 		assert.Equal(t, "site-1", domains[0].Extra["siteId"])
 		assert.Equal(t, "tenant-1", domains[0].Extra["tenantId"])
+		assert.Equal(t, "domain-101", domains[100].ID)
 	}
 	assert.EqualValues(t, 1, tenantRequests.Load())
-	assert.EqualValues(t, 1, domainRequests.Load())
+	assert.EqualValues(t, 2, domainRequests.Load())
 }
 
 func TestSessionFetchDomainsRejectsRowsOutsideCurrentTenant(t *testing.T) {

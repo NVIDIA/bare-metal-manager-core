@@ -547,6 +547,24 @@ func getAllSuggestions(s *Session, input string, cmdNames []string) []string {
 	if !matched {
 		return getCommandSuggestions(input, cmdNames)
 	}
+	canonicalCommandName := commandName
+	if target, ok := generatedCommandAliases[commandName]; ok {
+		canonicalCommandName = target
+	}
+	if canonicalCommandName == "subnet attach-vpc" {
+		if strings.TrimSpace(s.Scope.SiteID) == "" {
+			return nil
+		}
+		tenantID, err := s.getTenantID(context.Background())
+		if err != nil {
+			return nil
+		}
+		items, err := s.subnetAttachSources(context.Background(), s.Scope.SiteID, tenantID)
+		if err != nil {
+			return nil
+		}
+		return resourceItemSuggestions(commandName, nil, items, argPart)
+	}
 	if info, ok := generatedAutocompleteInfo(commandName); ok && len(info.PathParameters) > 0 {
 		return getGeneratedResourceSuggestions(s, info, argPart)
 	}
