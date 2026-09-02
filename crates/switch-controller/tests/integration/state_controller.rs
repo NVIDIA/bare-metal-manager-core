@@ -23,6 +23,7 @@ use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
+use carbide_test_harness::prelude::{sqlx_test, sqlx_testing};
 use component_manager::compute_tray_manager::Backend as ComputeBackend;
 use component_manager::config::ComponentManagerConfig;
 use component_manager::mock::MockNvSwitchManager;
@@ -36,6 +37,7 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{
     ConfigureCertificateState, ConfiguringState, SwitchControllerState, SwitchDecommissioningState,
 };
+use model::test_support::rms_rack_profiles;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{AdminForceDeleteSwitchRequest, DecommissionSwitchRequest};
 use state_controller::config::IterationConfig;
@@ -43,23 +45,11 @@ use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
 use tonic::Request;
 
-use crate::tests::common;
-use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
-
-mod bmc_rotation;
-mod fixtures;
-mod maintenance;
-mod nvos_password_rotation;
-use fixtures::switch::{
-    configure_certificate_start_state, configure_certificate_wait_state, mark_switch_as_deleted,
-    set_switch_rack_id, transition_switch_controller_state,
+use crate::common::{
+    ControllerEnv, configure_certificate_start_state, configure_certificate_wait_state,
+    default_switch_mtls_services, mark_switch_as_deleted, new_switch, set_switch_rack_id,
+    transition_switch_controller_state,
 };
-
-fn default_switch_mtls_services() -> Vec<i32> {
-    component_manager::config::switch_mtls_services_as_i32(
-        &component_manager::config::effective_switch_mtls_services(&[]),
-    )
-}
 
 fn firmware_only_activities() -> Vec<model::rack::MaintenanceActivity> {
     vec![model::rack::MaintenanceActivity::FirmwareUpgrade {
@@ -88,12 +78,12 @@ fn all_phases_activities() -> Vec<model::rack::MaintenanceActivity> {
     vec![]
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn decommission_request_enters_rms_workflow(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     set_switch_rack_id(txn.as_mut(), &switch_id, &"rack-id-1".into()).await?;
@@ -178,12 +168,12 @@ async fn decommission_request_enters_rms_workflow(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn force_delete_switch_clears_associated_mac_state(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     env.api
         .admin_force_delete_switch(Request::new(AdminForceDeleteSwitchRequest {
@@ -203,8 +193,9 @@ async fn force_delete_switch_clears_associated_mac_state(
     Ok(())
 }
 
-async fn build_test_component_manager(
-    env: &common::api_fixtures::TestEnv,
+/// Builds a test component manager using RMS when a client is provided.
+pub(super) async fn build_test_component_manager(
+    env: &ControllerEnv,
     rms_client: Option<Arc<dyn librms::RmsApi>>,
 ) -> Option<Arc<component_manager::component_manager::ComponentManager>> {
     let config = ComponentManagerConfig {
@@ -220,7 +211,7 @@ async fn build_test_component_manager(
     };
     let component_manager = component_manager::component_manager::build_component_manager(
         &config,
-        get_config_with_rack_profiles().rack_profiles,
+        rms_rack_profiles(),
         rms_client,
         None,
         Some(env.pool.clone()),
@@ -232,7 +223,8 @@ async fn build_test_component_manager(
     Some(Arc::new(component_manager))
 }
 
-async fn run_switch_controller_with_services(
+/// Runs one switch controller iteration with the provided services.
+pub(super) async fn run_switch_controller_with_services(
     pool: sqlx::PgPool,
     work_lock_manager_handle: db::work_lock_manager::WorkLockManagerHandle,
     services: SwitchStateHandlerServices,
@@ -253,7 +245,8 @@ async fn run_switch_controller_with_services(
     controller.run_single_iteration().await;
 }
 
-fn mock_component_manager(
+/// Builds a component manager around the provided NVSwitch manager.
+pub(super) fn mock_component_manager(
     nv_switch: Arc<dyn component_manager::nv_switch_manager::NvSwitchManager>,
 ) -> Arc<component_manager::component_manager::ComponentManager> {
     Arc::new(component_manager::component_manager::ComponentManager::new(
@@ -266,12 +259,12 @@ fn mock_component_manager(
     ))
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_start_skips_without_rack_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     transition_switch_controller_state(
@@ -299,12 +292,12 @@ async fn test_configure_certificate_start_skips_without_rack_id(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_start_skips_without_component_manager(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
     let rack_id = "rack-id-1".into();
 
     let mut txn = pool.begin().await?;
@@ -319,7 +312,7 @@ async fn test_configure_certificate_start_skips_without_component_manager(
 
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         SwitchStateHandlerServices {
             db_pool: pool.clone(),
             component_manager: None,
@@ -353,15 +346,13 @@ async fn test_configure_certificate_start_skips_without_component_manager(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_start_transitions_to_wait_for_complete_with_rack_id(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let switch_id =
-        common::api_fixtures::site_explorer::new_switch(&env, Some("Switch4".to_string()), None)
-            .await?;
+    let switch_id = new_switch(&env, Some("Switch4".to_string()), None).await?;
 
     let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
         .await?
@@ -393,7 +384,7 @@ async fn test_configure_certificate_start_transitions_to_wait_for_complete_with_
 
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         SwitchStateHandlerServices {
             db_pool: pool.clone(),
             component_manager: Some(mock_component_manager(Arc::new(
@@ -443,15 +434,13 @@ async fn test_configure_certificate_start_transitions_to_wait_for_complete_with_
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_start_seeds_expected_switch_credentials(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let switch_id =
-        common::api_fixtures::site_explorer::new_switch(&env, Some("Switch4".to_string()), None)
-            .await?;
+    let switch_id = new_switch(&env, Some("Switch4".to_string()), None).await?;
 
     let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
         .await?
@@ -483,7 +472,7 @@ async fn test_configure_certificate_start_seeds_expected_switch_credentials(
 
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         SwitchStateHandlerServices {
             db_pool: pool.clone(),
             component_manager: Some(mock_component_manager(Arc::new(
@@ -534,12 +523,12 @@ async fn test_configure_certificate_start_seeds_expected_switch_credentials(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_start_retries_after_credential_import(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
         .await?
@@ -582,7 +571,7 @@ async fn test_configure_certificate_start_retries_after_credential_import(
 
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         services(),
     )
     .await;
@@ -619,7 +608,7 @@ async fn test_configure_certificate_start_retries_after_credential_import(
 
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         services(),
     )
     .await;
@@ -642,12 +631,12 @@ async fn test_configure_certificate_start_retries_after_credential_import(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_wait_for_complete_transitions_to_rotate_os_password(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     transition_switch_controller_state(
@@ -660,7 +649,7 @@ async fn test_configure_certificate_wait_for_complete_transitions_to_rotate_os_p
 
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         SwitchStateHandlerServices {
             db_pool: pool.clone(),
             component_manager: Some(mock_component_manager(Arc::new(
@@ -696,12 +685,12 @@ async fn test_configure_certificate_wait_for_complete_transitions_to_rotate_os_p
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_configure_certificate_wait_for_complete_transitions_to_error_on_failure(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     transition_switch_controller_state(
@@ -720,7 +709,7 @@ async fn test_configure_certificate_wait_for_complete_transitions_to_error_on_fa
     );
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         SwitchStateHandlerServices {
             db_pool: pool.clone(),
             component_manager: Some(mock_component_manager(Arc::new(failing_mock))),
@@ -752,12 +741,12 @@ async fn test_configure_certificate_wait_for_complete_transitions_to_error_on_fa
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_rotate_os_password_transitions_to_fetch_info(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     transition_switch_controller_state(
@@ -784,14 +773,14 @@ async fn test_rotate_os_password_transitions_to_fetch_info(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_deletion_with_state_controller(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
     // Create a switch
-    let switch_id = common::api_fixtures::site_explorer::new_switch(
+    let switch_id = new_switch(
         &env,
         Some("Switch1".to_string()),
         Some("Data Center A, Rack 1".to_string()),
@@ -826,7 +815,7 @@ async fn test_switch_deletion_with_state_controller(
             processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .database(pool.clone(), env.api.work_lock_manager_handle())
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(handler_services.clone())
         .state_handler(switch_handler.clone())
@@ -875,13 +864,13 @@ async fn test_switch_deletion_with_state_controller(
 /// (ConfigureCertificate) -> Configuring (RotateOsPassword) -> FetchInfo
 /// -> Validating (ValidationComplete) -> BomValidating (BomValidationComplete) -> Ready.
 /// state handler performs its transition.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_entire_state_transition_flow(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let switch_id = common::api_fixtures::site_explorer::new_switch(
+    let switch_id = new_switch(
         &env,
         Some("Switch3".to_string()),
         Some("Data Center A, Rack 1".to_string()),
@@ -914,7 +903,7 @@ async fn test_switch_entire_state_transition_flow(
             processor_dispatch_interval: Duration::from_millis(10),
             ..Default::default()
         })
-        .database(pool.clone(), env.api.work_lock_manager_handle.clone())
+        .database(pool.clone(), env.api.work_lock_manager_handle())
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(
             SwitchStateHandlerServices {
@@ -923,7 +912,7 @@ async fn test_switch_entire_state_transition_flow(
                     .await,
                 credential_manager: env.test_credential_manager.clone(),
                 switch_mtls_services: default_switch_mtls_services(),
-                per_object_metrics_registry: env.per_object_metrics_registry(),
+                per_object_metrics_registry: env.per_object_metrics_registry.clone(),
                 redfish_client_pool: env.redfish_sim.clone(),
                 bmc_credential_ops: env.redfish_sim.clone(),
                 bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
@@ -959,12 +948,12 @@ async fn test_switch_entire_state_transition_flow(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_rack_firmware_upgrade_waits_for_terminal_status(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1022,12 +1011,12 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_waits_for_terminal_status
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_rack_firmware_upgrade_transitions_to_waiting_for_nvos_on_completion(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1088,7 +1077,7 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_transitions_to_waiting_fo
 /// Empty activities must keep the same all-phases meaning as `should_run`, so
 /// firmware completion advances to WaitingForNVOSUpgrade rather than skipping
 /// NVOS for ConfigureNmxCluster.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_rack_firmware_upgrade_next_state_by_activities(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1108,7 +1097,7 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_next_state_by_activities(
         Ready,
     }
 
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
     let cases = [
         Check {
             scenario: "empty activities advance to WaitingForNVOSUpgrade",
@@ -1137,12 +1126,7 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_next_state_by_activities(
     ];
 
     for case in cases {
-        let switch_id = common::api_fixtures::site_explorer::new_switch(
-            &env,
-            Some(case.input.switch_name.to_string()),
-            None,
-        )
-        .await?;
+        let switch_id = new_switch(&env, Some(case.input.switch_name.to_string()), None).await?;
 
         let mut txn = pool.begin().await?;
         db_switch::set_switch_reprovisioning_requested(
@@ -1214,12 +1198,12 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_next_state_by_activities(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_rack_firmware_upgrade_returns_ready_for_firmware_only_request(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1275,12 +1259,12 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_returns_ready_for_firmwar
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_rack_firmware_upgrade_accepts_completion_when_only_ended_at_is_current(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1338,12 +1322,12 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_accepts_completion_when_o
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_ready_routes_rack_requests_to_waiting_for_rack_firmware_upgrade(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1382,12 +1366,12 @@ async fn test_switch_ready_routes_rack_requests_to_waiting_for_rack_firmware_upg
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_nvos_upgrade_transitions_to_waiting_for_nmxc_on_completion(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1447,12 +1431,12 @@ async fn test_switch_waiting_for_nvos_upgrade_transitions_to_waiting_for_nmxc_on
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_nvos_upgrade_waits_for_current_cycle_status(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1512,12 +1496,12 @@ async fn test_switch_waiting_for_nvos_upgrade_waits_for_current_cycle_status(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_nvos_upgrade_transitions_to_error_on_failure(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
@@ -1577,12 +1561,12 @@ async fn test_switch_waiting_for_nvos_upgrade_transitions_to_error_on_failure(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_switch_waiting_for_nmxc_configure_returns_ready_when_fm_is_running(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let env = ControllerEnv::new(pool.clone()).await;
+    let switch_id = new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
     db_switch::set_switch_reprovisioning_requested(
