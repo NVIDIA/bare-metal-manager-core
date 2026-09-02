@@ -10,11 +10,11 @@
 # list in mkosi.postinst.chroot, which is easy to miss when reading the package
 # list in mkosi.conf.
 #
-# forge-dpu-agent consumes the same tree through crates/libmlx, which looks for
+# Carbide consumers reach the same tree through crates/libmlx, which looks for
 # flint on PATH or at /usr/bin/flint and /opt/mellanox/mft/bin/flint, and for
-# mlxfwreset at /opt/mellanox/mft/bin/mlxfwreset (hardcoded in
-# libmlx/firmware/reset.rs). mlxfwreset is a shell script driving Python tools,
-# so any runtime carrying it also needs Python 3.
+# mlxfwreset at /opt/mellanox/mft/bin/mlxfwreset. mlxfwreset is a shell script
+# driving Python tools; it is patched to the Nix Python store path below so a
+# container does not depend on a distro-style `/usr/bin/env python3`.
 #
 # Architecture is read from stdenv rather than passed in, so a caller selects it
 # by choosing the package set: `pkgs.callPackage` for the host, or the aarch64
@@ -81,14 +81,6 @@ stdenv.mkDerivation {
   # run these wrappers on the target, not the one running the build.
   buildInputs = [ bashNonInteractive ];
 
-  # mlxfwreset is a shell script that locates a python interpreter at run time
-  # (`which python3`, and a find over /usr/bin) and drives the .py files under
-  # lib64/mft/python_tools, whose shebangs are `#!/usr/bin/env python`.
-  # Propagated rather than left to each caller: every runtime that carries MFT
-  # needs it, and the failure is a "command not found" from inside a firmware
-  # reset rather than anything the build would catch.
-  propagatedBuildInputs = [ python3 ];
-
   unpackPhase = ''
     tar xzf $src
     dpkg-deb -x mft-${version}-${sel.tar}-deb/DEBS/mft_${version}_${sel.deb}.deb extracted
@@ -99,9 +91,15 @@ stdenv.mkDerivation {
     # real ELF alongside themselves — flint calls flint_ext, mlxfwreset calls
     # into usr/lib64/mft. Copy the whole tree rather than cherry-picking, or
     # the wrappers resolve to nothing.
-    mkdir -p $out/usr/bin $out/usr/lib64/mft
+    mkdir -p \
+      $out/etc/mft \
+      $out/usr/bin \
+      $out/usr/lib64/mft \
+      $out/usr/share/mft
+    cp -r extracted/etc/mft/. $out/etc/mft/
     cp -r extracted/usr/bin/. $out/usr/bin/
     cp -r extracted/usr/lib64/mft/. $out/usr/lib64/mft/
+    cp -r extracted/usr/share/mft/. $out/usr/share/mft/
 
     # Tools that hardcode /opt/mellanox/mft/bin find their companions here.
     # Store-relative rather than /usr/bin: an absolute target resolves against
@@ -116,7 +114,7 @@ stdenv.mkDerivation {
     # refuse. Non-ELF files (the wrapper scripts, Python, static archives) are
     # skipped by the file(1) check; a patchelf failure on something that *is*
     # ELF is a real error and should not be swallowed.
-    find $out -type f | while IFS= read -r f; do
+    find $out/usr/bin $out/usr/lib64/mft -type f | while IFS= read -r f; do
       type=$(file -b "$f") || continue
       case "$type" in
         *"ELF"*"executable"*)
@@ -139,6 +137,42 @@ stdenv.mkDerivation {
     # nothing catches until someone queries NIC firmware.
     patchShebangs --host $out/usr/bin $out/usr/lib64/mft
 
+    # The vendor wrappers search conventional distro locations and ultimately
+    # assign `/usr/bin/env python3`. buildEnv does not link propagated inputs,
+    # so that approach fails in a Nix-created root. Patch every launcher that
+    # has the shared assignment: Scout calls mlxfwreset and the DPU agent calls
+    # mlxprivhost, while other MFT entry points use the same wrapper pattern.
+    # Replace both discovery and its conventional-path fallbacks. Some
+    # launchers do not share the later SCRIPT_PATH block, so patching that
+    # marker would leave tools such as `mst` broken. Literal store references
+    # retain Python in the resulting image closure.
+    python_wrappers=$(grep -rlF "PYTHON_EXEC='/usr/bin/env python3'" "$out/usr/bin")
+    if [ -z "$python_wrappers" ]; then
+      echo "ERROR: no MFT Python wrappers found — launcher layout has changed."
+      exit 1
+    fi
+    while IFS= read -r wrapper; do
+      substituteInPlace "$wrapper" \
+        --replace-fail "PYTHON_EXEC=\`find /usr/bin /bin/ /usr/local/bin -iname 'python*' 2>&1 | grep -e='*python[0-9,.]*' | sort -d | head -n 1\`" \
+        "PYTHON_EXEC='${python3}/bin/python3'" \
+        --replace-fail "PYTHON_EXEC='/usr/bin/env python3'" \
+        "PYTHON_EXEC='${python3}/bin/python3'"
+      sed -i \
+        "s|PYTHON_EXEC='/usr/bin/env python2'|PYTHON_EXEC='${python3}/bin/python3'|g" \
+        "$wrapper"
+      if grep -qF 'PYTHON_EXEC=`find ' "$wrapper"; then
+        echo "ERROR: unpatched Python discovery remains in $wrapper"
+        exit 1
+      fi
+      if grep -qF "PYTHON_EXEC='/usr/bin/env python" "$wrapper"; then
+        echo "ERROR: conventional Python path remains in $wrapper"
+        exit 1
+      fi
+    done <<< "$python_wrappers"
+    for wrapper in mlxfwreset mlxprivhost; do
+      grep -F "PYTHON_EXEC='${python3}/bin/python3'" "$out/usr/bin/$wrapper"
+    done
+
     # The suite is meant to arrive whole. Spot-check the tools carbide reaches
     # for, so a tarball that reorganises fails here rather than at discovery.
     for bin in flint flint_ext mst mlxconfig mlxlink mlxfwreset; do
@@ -147,6 +181,14 @@ stdenv.mkDerivation {
         exit 1
       fi
     done
+    if [ ! -s "$out/etc/mft/mft.conf" ]; then
+      echo "ERROR: MFT configuration is missing — mlxfwreset cannot start."
+      exit 1
+    fi
+    if [ -z "$(find "$out/usr/share/mft" -mindepth 1 -print -quit)" ]; then
+      echo "ERROR: MFT hardware data is missing — device lookup cannot work."
+      exit 1
+    fi
   '';
 
   meta = {

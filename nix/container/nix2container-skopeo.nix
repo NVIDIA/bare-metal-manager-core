@@ -41,7 +41,11 @@ in
     image:
     writeSkopeoApp "copy-to" ''
       echo "Running skopeo --insecure-policy copy nix:${image}" "$@"
-      skopeo --insecure-policy copy nix:${image} "$@"
+      copy_args=(--retry-times "''${COPY_RETRY_TIMES:-3}")
+      if [[ -n "''${DIGEST_FILE:-}" ]]; then
+        copy_args+=(--digestfile "$DIGEST_FILE")
+      fi
+      skopeo --insecure-policy copy "''${copy_args[@]}" nix:${image} "$@"
     '';
 
 }

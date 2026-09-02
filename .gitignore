@@ -1,3 +1,10 @@
+.git-describe
+
+# `nix build` output symlinks. The pxe nix-ipxe-* tasks create result-ipxe-*
+# on every run, and check-repo-clean.sh fails on any untracked file.
+/result
+/result-*
+
 **/target
 **/node_modules
 bluefield/forge-dpu*.deb

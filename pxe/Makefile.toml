@@ -1404,3 +1404,32 @@ args = [
   "static/blobs/internal/aarch64/secure-boot-pk.pem",
 ]
 dependencies = ["bfb-rebuild-rootfs"]
+
+[tasks.nix-ipxe-x86_64]
+workspace = false
+category = "Nix"
+description = "Hermetic Nix analogue of ipxe-x86_64; copies into the same static tree the boot-artifacts carrier is packaged from. Does not build scout/mkosi/apt."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+nix build .#ipxe-efi-x86 -o "${REPO_ROOT}/result-ipxe-x86"
+# install rather than cp: it dereferences the store symlinks and sets a
+# writable mode, so a rerun can overwrite the read-only files a previous run
+# left behind.
+install -m 644 -D -t "${REPO_ROOT}/pxe/static/blobs/internal/x86_64" \
+  "${REPO_ROOT}/result-ipxe-x86/blobs/x86_64/ipxe.efi" \
+  "${REPO_ROOT}/result-ipxe-x86/blobs/x86_64/golan.efi"
+'''
+
+[tasks.nix-ipxe-aarch64]
+workspace = false
+category = "Nix"
+description = "Hermetic Nix analogue of ipxe-aarch64; copies into the same static tree the boot-artifacts carrier is packaged from. Does not build scout/mkosi/apt. Nix still installs golan.efi on aarch64; CI cargo-make often omits it."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+nix build .#ipxe-efi-aarch64 -o "${REPO_ROOT}/result-ipxe-aarch64"
+install -m 644 -D -t "${REPO_ROOT}/pxe/static/blobs/internal/aarch64" \
+  "${REPO_ROOT}/result-ipxe-aarch64/blobs/aarch64/ipxe.efi" \
+  "${REPO_ROOT}/result-ipxe-aarch64/blobs/aarch64/golan.efi"
+'''

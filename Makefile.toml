@@ -917,3 +917,166 @@ script = ["cargo deny check licenses"]
 workspace = false
 description = "Check cargo-deny against bans we're using to validate that we're not introducing banned crates inadvertently"
 script = ["cargo deny check bans"]
+
+[tasks.nix-build]
+workspace = false
+category = "Nix"
+description = "Build a flake package (`cargo make nix-build -- <attr>`). Default carbide-api. Unsuffixed Go is always amd64; unsuffixed Rust is host-native; DPU attrs like forge-dpu-agent are always aarch64. Most aarch64 server Rust binaries have no package (use *-container-arm64). List attrs with cargo make nix-flake-show."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api}"
+# Operators pass `carbide-api` or `.#carbide-api`. With
+# CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE set, cargo-make joins task args with `;`
+# and keeps the literal `--`, so `-- carbide-api` arrives as `--;carbide-api`.
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" build ".#${ATTR}"
+'''
+
+[tasks.nix-run]
+workspace = false
+category = "Nix"
+description = "Run a flake app (`cargo make nix-run -- <attr>`). Default carbide-api-container-copy-to-docker. Copy-to-docker apps exist only for native-arch images."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api-container-copy-to-docker}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" run ".#${ATTR}"
+'''
+
+[tasks.nix-develop]
+workspace = false
+category = "Nix"
+description = "Enter the flake dev shell"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" develop
+'''
+
+[tasks.nix-flake-show]
+workspace = false
+category = "Nix"
+description = "List flake packages, apps, and checks"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" flake show
+'''
+
+[tasks.nix-flake-check]
+workspace = false
+category = "Nix"
+description = "Run nix flake check. This is only version-contract; artifact gates are cargo make nix-build -- release-check-<name>."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" flake check
+'''
+
+[tasks.nix-deps]
+workspace = false
+category = "Nix"
+description = "Build the shared deps derivation (nix build .#deps)"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" build .#deps
+'''
+
+[tasks.nix-copy-to-docker]
+workspace = false
+category = "Nix"
+description = "Load a container into local Docker (`nix run .#<attr>-copy-to-docker`). Default carbide-api-container. If ATTR already ends with -copy-to-docker, use it as-is. Native-arch images only."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api-container}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+case "${ATTR}" in
+  *-copy-to-docker) ;;
+  *) ATTR="${ATTR}-copy-to-docker" ;;
+esac
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" run ".#${ATTR}"
+'''
+
+[tasks.nix-sbom]
+workspace = false
+category = "Nix"
+description = "Generate an SBOM (`nix run .#sbom-<attr>`). Default carbide-api-container. If ATTR already starts with sbom-, use it as-is."
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api-container}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+case "${ATTR}" in
+  sbom-*) ;;
+  *) ATTR="sbom-${ATTR}" ;;
+esac
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" run ".#${ATTR}"
+'''
+
+[tasks.nix-build-cli]
+workspace = false
+category = "Nix"
+description = "Build nico-admin-cli (same as nix-build with that default attr)"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-nico-admin-cli}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" build ".#${ATTR}"
+'''
+
+[tasks.nix-build-api]
+workspace = false
+category = "Nix"
+description = "Build carbide-api (same as nix-build with that default attr)"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" build ".#${ATTR}"
+'''
+
+[tasks.nix-build-api-container]
+workspace = false
+category = "Nix"
+description = "Build carbide-api-container (same as nix-build with that default attr)"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api-container}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" build ".#${ATTR}"
+'''
+
+[tasks.nix-build-api-container-arm64]
+workspace = false
+category = "Nix"
+description = "Build carbide-api-container-arm64 (same as nix-build with that default attr)"
+script = '''
+set -euo pipefail
+cd "${REPO_ROOT}"
+ATTR="${CARGO_MAKE_TASK_ARGS:-carbide-api-container-arm64}"
+ATTR="${ATTR//;/ }"
+ATTR="${ATTR#-- }"
+ATTR="${ATTR#.#}"
+"${REPO_ROOT}/scripts/nix-with-git-describe.sh" build ".#${ATTR}"
+'''

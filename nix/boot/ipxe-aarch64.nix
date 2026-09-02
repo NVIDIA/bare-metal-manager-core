@@ -49,7 +49,7 @@ let
   crossStdenv = pkgs.pkgsCross.aarch64-multiplatform.gcc13Stdenv;
 in
 
-crossStdenv.mkDerivation {
+crossStdenv.mkDerivation rec {
   pname = "carbide-ipxe-efi-aarch64";
   version = bannerVersion;
 
@@ -61,6 +61,8 @@ crossStdenv.mkDerivation {
   };
 
   patches = ipxePatches;
+
+  passthru.ossSources = [ src ] ++ ipxePatches ++ ipxeConfigHeaders ++ [ embedScript ];
 
   postPatch = ''
     mkdir -p src/config/local
@@ -85,18 +87,21 @@ crossStdenv.mkDerivation {
     gcc13
   ];
 
+  hardeningDisable = [
+    "pic"
+    "stackprotector"
+  ];
+
   dontConfigure = true;
 
   # The cross stdenv exports CC/LD/AR that point at the aarch64 toolchain
-  # (e.g. CC=aarch64-unknown-linux-gnu-gcc). iPXE's Makefile honors these,
-  # so make builds the aarch64 EFI binaries without us having to pass
-  # CROSS_COMPILE explicitly. The CROSS_COMPILE= flag overrides any
-  # autodetection just to make the targeting unambiguous in the build log.
+  # (e.g. CC=aarch64-unknown-linux-gnu-gcc). `CROSS=` is iPXE's public make
+  # interface for selecting that prefix; `CROSS_COMPILE=` is ignored.
   buildPhase = ''
     runHook preBuild
     cd src
 
-    # CROSS_COMPILE makes iPXE use the cross toolchain for target code.
+    # CROSS makes iPXE use the cross toolchain for target code.
     # HOST_CC explicitly points at the x86_64 gcc for build-time tools
     # (elf2efi64, etc.) — without this, iPXE's makefile would invoke
     # plain `gcc`, which the cross-stdenv sandbox doesn't expose.
@@ -107,7 +112,9 @@ crossStdenv.mkDerivation {
     # differ from what ships today and SNP/TLS failures during PXE boot
     # become undiagnosable in the field.
     make -j$NIX_BUILD_CORES \
-      CROSS_COMPILE=${crossStdenv.cc.targetPrefix} \
+      ECHO_E_BIN_ECHO=echo \
+      ECHO_E_BIN_ECHO_E=echo \
+      CROSS=${crossStdenv.cc.targetPrefix} \
       HOST_CC=${pkgs.gcc13}/bin/gcc \
       EMBED=${embedScript} \
       DEBUG=snp,tls \
@@ -141,6 +148,10 @@ crossStdenv.mkDerivation {
     description = "iPXE EFI bootloader for aarch64 with carbide patches";
     homepage = "https://ipxe.org/";
     license = pkgs.lib.licenses.gpl2Plus;
-    platforms = [ "x86_64-linux" "aarch64-linux" ];
+    # Cross-compiled, so an x86_64 host builds this too.
+    platforms = [
+      "x86_64-linux"
+      "aarch64-linux"
+    ];
   };
 }

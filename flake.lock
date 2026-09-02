@@ -1,5 +1,17 @@
 {
   "nodes": {
+    "git-describe": {
+      "flake": false,
+      "locked": {
+        "path": "./nix/empty-git-describe",
+        "type": "path"
+      },
+      "original": {
+        "path": "./nix/empty-git-describe",
+        "type": "path"
+      },
+      "parent": []
+    },
     "crane": {
       "locked": {
         "lastModified": 1784564969,
@@ -71,6 +83,7 @@
     },
     "root": {
       "inputs": {
+        "git-describe": "git-describe",
         "crane": "crane",
         "flake-utils": "flake-utils",
         "nix2container": "nix2container",

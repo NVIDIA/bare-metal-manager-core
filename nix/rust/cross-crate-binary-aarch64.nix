@@ -26,7 +26,7 @@ in
 {
   pname,
   cargoExtraArgs ? "",
-  meta ? {},
+  meta ? { },
   extraArgs ? { },
 }:
 let
@@ -34,7 +34,12 @@ let
 in
 crossCraneLib.buildPackage (
   {
-    inherit meta src version pname;
+    inherit
+      meta
+      src
+      version
+      pname
+      ;
     strictDeps = true;
     doCheck = false;
     doInstallCargoArtifacts = false;
@@ -71,6 +76,9 @@ crossCraneLib.buildPackage (
     # but not runtimeDependencies paths.
     runtimeDependencies = [ crossPkgs.stdenv.cc.cc.lib ];
     autoPatchelfIgnoreMissingDeps = [ "libgcc_s.so.1" ];
+    passthru = (extraArgs.passthru or { }) // {
+      targetOciArch = "arm64";
+    };
 
     # Native build tools run on the host, not the target.
     nativeBuildInputs = with pkgs; [
@@ -86,5 +94,8 @@ crossCraneLib.buildPackage (
     PROTOC = "${pkgs.protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${pkgs.protobuf}/include";
   }
-  // builtins.removeAttrs extraArgs [ "buildInputs" ]
+  // builtins.removeAttrs extraArgs [
+    "buildInputs"
+    "passthru"
+  ]
 )

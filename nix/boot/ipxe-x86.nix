@@ -52,7 +52,7 @@
 # Pin to gcc13Stdenv. Carbide's deploy target is Ubuntu 24.04 (Noble)
 # which ships gcc 13 as default — using the same compiler matches the
 # environment iPXE binaries will be alongside on the bare-metal host.
-pkgs.gcc13Stdenv.mkDerivation {
+pkgs.gcc13Stdenv.mkDerivation rec {
   pname = "carbide-ipxe-efi-x86_64";
   version = bannerVersion;
 
@@ -64,6 +64,11 @@ pkgs.gcc13Stdenv.mkDerivation {
   };
 
   patches = ipxePatches;
+
+  # Carrier images may package iPXE bytes produced by the qualified legacy
+  # pipeline rather than this derivation. Preserve the complete pinned source,
+  # local patches, configuration, and embedded script for redistribution.
+  passthru.ossSources = [ src ] ++ ipxePatches ++ ipxeConfigHeaders ++ [ embedScript ];
 
   # iPXE's build assumes config headers live at src/config/local/. The
   # cargo-make ipxe-config task does this copy; we replicate it here in
@@ -81,9 +86,16 @@ pkgs.gcc13Stdenv.mkDerivation {
   '';
 
   nativeBuildInputs = with pkgs; [
-    perl                # iPXE's makefiles invoke perl for codegen
-    xz                  # used by some iPXE compression steps
-    binutils            # ld, ranlib, ar
+    perl # iPXE's makefiles invoke perl for codegen
+    xz # used by some iPXE compression steps
+    binutils # ld, ranlib, ar
+  ];
+
+  # iPXE contains freestanding assembler that cannot use the corresponding
+  # stdenv hardening instrumentation.
+  hardeningDisable = [
+    "pic"
+    "stackprotector"
   ];
 
   # iPXE's makefile lives in src/ and expects to be invoked from there.
@@ -104,6 +116,9 @@ pkgs.gcc13Stdenv.mkDerivation {
     # it the binaries differ from what ships today and TLS failures during
     # PXE boot become undiagnosable in the field.
     make -j$NIX_BUILD_CORES \
+      ECHO_E_BIN_ECHO=echo \
+      ECHO_E_BIN_ECHO_E=echo \
+      CROSS=${pkgs.gcc13Stdenv.cc.targetPrefix} \
       EMBED=${embedScript} \
       DEBUG=tls \
       bin-x86_64-efi/snponly.efi \
@@ -135,6 +150,8 @@ pkgs.gcc13Stdenv.mkDerivation {
     description = "iPXE EFI bootloader for x86_64 with carbide patches";
     homepage = "https://ipxe.org/";
     license = pkgs.lib.licenses.gpl2Plus;
+    # The flake gates `packages.ipxe-efi-x86` on meta.available, so this list
+    # is the only place the buildable systems are declared.
     platforms = [ "x86_64-linux" ];
   };
 }

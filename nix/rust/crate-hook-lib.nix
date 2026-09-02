@@ -10,10 +10,12 @@
   commonArgs,
   cargoArtifacts,
   allBuildInputs,
+  targetOciArch,
 }:
 
 {
   pname,
+  version ? commonArgs.version,
   # File name cargo produces for this cdylib (lib<name> from [lib] name in Cargo.toml).
   # Example: "libdhcp.so" for `[lib] name = "dhcp"`.
   libFileName,
@@ -29,11 +31,19 @@ in
 craneLib.buildPackage (
   commonArgs
   // {
-    inherit pname cargoArtifacts meta;
+    inherit
+      pname
+      version
+      cargoArtifacts
+      meta
+      ;
     # --lib restricts the build to the cdylib target only.
     cargoExtraArgs = "--package ${pname} --lib";
     doInstallCargoArtifacts = false;
     buildInputs = allBuildInputs ++ extraBuildInputs;
+    passthru = (extraArgs.passthru or { }) // {
+      inherit targetOciArch;
+    };
     # `cargo install` does not handle cdylib targets; find and copy the .so directly.
     # The glob covers both native (target/release/) and cross (target/<triple>/release/).
     installPhaseCommand = ''
@@ -45,5 +55,8 @@ craneLib.buildPackage (
       [ -f "$out/${installPath}" ] || { echo "ERROR: ${libFileName} not found in target/"; exit 1; }
     '';
   }
-  // builtins.removeAttrs extraArgs [ "buildInputs" ]
+  // builtins.removeAttrs extraArgs [
+    "buildInputs"
+    "passthru"
+  ]
 )

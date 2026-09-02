@@ -14,20 +14,30 @@
 { pkgs, crossPkgs }:
 
 let
-  version = pkgs.lib.trim (
-    builtins.readFile ../../bluefield/transceiver_exporter/version.txt
+  elfArchitecture = import ../checks/elf-architecture.nix { inherit pkgs; };
+  version = pkgs.lib.trim (builtins.readFile ../../bluefield/transceiver_exporter/version.txt);
+  binaryUrl = builtins.replaceStrings [ "\${VERSION}" ] [ version ] (
+    pkgs.lib.trim (builtins.readFile ../../bluefield/transceiver_exporter/url.txt)
   );
-in
-pkgs.stdenv.mkDerivation {
-  pname = "transceiver-exporter-aarch64";
-  inherit version;
-
-  src = pkgs.fetchurl {
-    url = "https://github.com/wobcom/transceiver-exporter/releases/download/v${version}/transceiver-exporter-v${version}-linux-arm64.tar.gz";
+  binaryArchive = pkgs.fetchurl {
+    name = "transceiver-exporter-${version}-linux-arm64.tar.gz";
+    url = binaryUrl;
     hash = "sha256-uDlML2+DgCnJD7c5BrZf4RAxs26mW3BDhHCW6XrA7RE=";
   };
+  sourceArchive = pkgs.fetchurl {
+    name = "transceiver-exporter-${version}-source.tar.gz";
+    url = "https://github.com/wobcom/transceiver-exporter/archive/refs/tags/v${version}.tar.gz";
+    hash = "sha256-CI8v9siZEVaXeI51ZSQZ179UtVYcu+rJk99ldmlIIv0=";
+  };
+in
+assert pkgs.lib.assertMsg (crossPkgs.go.GOARCH == "arm64") ''
+  transceiver-exporter requires an aarch64 package set.
+'';
+crossPkgs.stdenv.mkDerivation {
+  pname = "transceiver-exporter";
+  inherit version;
 
-  nativeBuildInputs = [ pkgs.patchelf ];
+  src = binaryArchive;
 
   unpackPhase = ''
     mkdir extract
@@ -40,11 +50,32 @@ pkgs.stdenv.mkDerivation {
     install -m755 extract/transceiver-exporter $out/usr/bin/transceiver-exporter
     install -m644 extract/LICENSE.md $out/usr/share/licenses/transceiver-exporter/LICENSE.md
 
-    # Patch ELF interpreter and RPATH in case the binary uses CGO (links glibc).
-    # This is a no-op for fully-static Go binaries (patchelf exits cleanly).
-    interp="${crossPkgs.stdenv.cc.libc}/lib/ld-linux-aarch64.so.1"
-    rpath="${crossPkgs.stdenv.cc.libc}/lib:${crossPkgs.stdenv.cc.cc.lib}/lib"
-    patchelf --set-interpreter "$interp" --set-rpath "$rpath" \
-      $out/usr/bin/transceiver-exporter || true
   '';
+
+  doInstallCheck = true;
+  nativeInstallCheckInputs = [
+    pkgs.bash
+    pkgs.binutils
+  ];
+  installCheckPhase = ''
+    runHook preInstallCheck
+    ${elfArchitecture}/bin/check-elf-architecture arm64 "$out"
+    ${pkgs.bash}/bin/bash ${../../scripts/check-aarch64-pagesize.sh} "$out"
+    runHook postInstallCheck
+  '';
+
+  meta = {
+    description = "Prometheus exporter for optical transceiver diagnostics";
+    homepage = "https://github.com/wobcom/transceiver-exporter";
+    license = pkgs.lib.licenses.gpl3Only;
+    mainProgram = "transceiver-exporter";
+    platforms = [ "aarch64-linux" ];
+  };
+
+  passthru = {
+    # The release artifact contains only the binary and license.  Ship the
+    # matching tagged source archive in the container's OSS source directory.
+    ossSource = sourceArchive;
+    targetOciArch = "arm64";
+  };
 }

@@ -11,12 +11,14 @@
   commonArgs,
   cargoArtifacts,
   allBuildInputs,
+  targetOciArch,
 }:
 
 # Default helper for native workspace binaries. The deps phase is shared via
 # `cargoArtifacts`, so each package derivation only rebuilds workspace crates.
 {
   pname,
+  version ? commonArgs.version,
   cargoExtraArgs ? "",
   meta ? { },
   extraArgs ? { },
@@ -29,10 +31,21 @@ in
 craneLib.buildPackage (
   commonArgs
   // {
-    inherit pname cargoArtifacts meta;
+    inherit
+      pname
+      version
+      cargoArtifacts
+      meta
+      ;
     cargoExtraArgs = "--package ${pname} ${cargoExtraArgs}";
     doInstallCargoArtifacts = false;
     buildInputs = allBuildInputs ++ extraBuildInputs;
+    passthru = (extraArgs.passthru or { }) // {
+      inherit targetOciArch;
+    };
   }
-  // builtins.removeAttrs extraArgs [ "buildInputs" ]
+  // builtins.removeAttrs extraArgs [
+    "buildInputs"
+    "passthru"
+  ]
 )

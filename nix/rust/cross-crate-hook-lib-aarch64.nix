@@ -31,7 +31,12 @@ let
 in
 crossCraneLib.buildPackage (
   {
-    inherit meta src version pname;
+    inherit
+      meta
+      src
+      version
+      pname
+      ;
     strictDeps = true;
     doCheck = false;
     doInstallCargoArtifacts = false;
@@ -55,6 +60,9 @@ crossCraneLib.buildPackage (
 
     runtimeDependencies = [ crossPkgs.stdenv.cc.cc.lib ];
     autoPatchelfIgnoreMissingDeps = [ "libgcc_s.so.1" ];
+    passthru = (extraArgs.passthru or { }) // {
+      targetOciArch = "arm64";
+    };
 
     nativeBuildInputs = with pkgs; [
       cmake
@@ -78,5 +86,8 @@ crossCraneLib.buildPackage (
       [ -f "$out/${installPath}" ] || { echo "ERROR: ${libFileName} not found in target/"; exit 1; }
     '';
   }
-  // builtins.removeAttrs extraArgs [ "buildInputs" ]
+  // builtins.removeAttrs extraArgs [
+    "buildInputs"
+    "passthru"
+  ]
 )
