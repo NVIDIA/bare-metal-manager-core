@@ -349,7 +349,7 @@ async fn desired_off_machine_ids(
         .await?
         .into_iter()
         .filter(|options| options.desired_power_state == model::power_manager::PowerState::Off)
-        .map(|options| options.host_id)
+        .map(|options| options.host_id.into())
         .collect::<Vec<_>>();
     machine_ids.sort_by_key(ToString::to_string);
     Ok(machine_ids)

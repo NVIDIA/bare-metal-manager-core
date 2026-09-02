@@ -615,7 +615,7 @@ async fn test_deleted_vpc_prefix_cannot_allocate_new_instance_interface(
         .api
         .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(managed_host.host().id),
+            machine_id: Some(managed_host.host().id.into()),
             instance_type_id: None,
             config: Some(rpc::forge::InstanceConfig {
                 tenant: Some(fixture_tenant_config()),

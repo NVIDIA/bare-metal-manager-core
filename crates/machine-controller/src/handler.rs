@@ -37,7 +37,7 @@ use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_e
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, Credentials,
 };
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, HostMachineId, MachineId};
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -717,7 +717,8 @@ impl MachineStateHandler {
                     let since_last_seen = Utc::now().signed_duration_since(observed_at);
                     if since_last_seen > self.dpu_up_threshold {
                         let message = format!("Last seen over {} ago", self.dpu_up_threshold);
-                        let dpu_machine_id = &dpu_snapshot.id;
+                        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+                        let dpu_machine_id = &dpu_machine_id;
                         let health_report = health_report::HealthReport::heartbeat_timeout(
                             health_report::HealthReport::DPU_AGENT_SOURCE.to_string(),
                             health_report::HealthReport::DPU_AGENT_SOURCE.to_string(),
@@ -1171,7 +1172,10 @@ impl MachineStateHandler {
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
                         &mh_state,
                         &mh_snapshot.dpu_snapshots,
-                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        dpus_for_reprov
+                            .into_iter()
+                            .map(Machine::dpu_machine_id)
+                            .collect::<Result<Vec<_>, _>>()?,
                     )?;
 
                     let health_override = create_host_update_health_report_dpufw();
@@ -1462,7 +1466,12 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
-                dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
+                dpu_uefi_rotation::handle_rotating_dpu_uefi(
+                    ctx,
+                    mh_snapshot,
+                    (*dpu_machine_id).into(),
+                )
+                .await
             }
 
             ManagedHostState::RotatingNicLockdown => {
@@ -2279,7 +2288,7 @@ impl MachineStateHandler {
         let mut txn = ctx.services.db_pool.begin().await?;
         let mut dpa_interface = db::dpa_interface::ensure(
             NewDpaInterface {
-                machine_id: mh_snapshot.host_snapshot.id,
+                machine_id: mh_snapshot.host_snapshot.host_machine_id()?,
                 mac_address,
                 device_type: "Network Adapter Ethernet Interface".to_string(),
                 pci_name: nic_model_and_name.name,
@@ -2501,11 +2510,16 @@ impl MachineStateHandler {
             state,
             ctx.services.site_config.dpf_enabled,
         );
-        Ok(Some(reprov_state.next_state_with_all_dpus_updated(
-            &state.managed_state,
-            &state.dpu_snapshots,
-            dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
-        )?))
+        Ok(Some(
+            reprov_state.next_state_with_all_dpus_updated(
+                &state.managed_state,
+                &state.dpu_snapshots,
+                dpus_for_reprov
+                    .iter()
+                    .map(|machine| machine.dpu_machine_id())
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?,
+        ))
     }
 
     // If current BMC FW allows to install bfb via redfish - performs redfish install,
@@ -2561,7 +2575,10 @@ impl MachineStateHandler {
                     .next_state_with_all_dpus_updated(
                         &state.managed_state,
                         &state.dpu_snapshots,
-                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        dpus_for_reprov
+                            .iter()
+                            .map(|m| m.dpu_machine_id())
+                            .collect::<Result<Vec<_>, _>>()?,
                     )?,
                 );
             }
@@ -2585,7 +2602,10 @@ impl MachineStateHandler {
                     .next_state_with_all_dpus_updated(
                         &ManagedHostState::Ready,
                         &state.dpu_snapshots,
-                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        dpus_for_reprov
+                            .iter()
+                            .map(|m| m.dpu_machine_id())
+                            .collect::<Result<Vec<_>, _>>()?,
                     )?,
                 );
             }
@@ -3025,7 +3045,7 @@ async fn are_dpus_up_trigger_reboot_if_needed(
 impl StateHandler for MachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = MachineId;
+    type ObjectId = HostMachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
     // Note: extra_logfmt_logging_fields function to add additional
@@ -3034,7 +3054,7 @@ impl StateHandler for MachineStateHandler {
     #[instrument(skip_all, fields(object_id=%host_machine_id, state=%_mh_state))]
     async fn handle_object_state(
         &self,
-        host_machine_id: &MachineId,
+        host_machine_id: &HostMachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _mh_state: &Self::ControllerState, // mh_snapshot above already contains it
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
@@ -3251,7 +3271,8 @@ async fn handle_bfb_install_state(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     next_state_resolver: &impl NextState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let dpu_machine_id = &dpu_snapshot.id.clone();
+    let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+    let dpu_machine_id = &dpu_machine_id;
     let dpu_redfish_client_result = ctx
         .services
         .create_redfish_client_from_machine(dpu_snapshot)
@@ -3528,8 +3549,9 @@ fn update_reprovision_targets_to_reprovision_state(
     let reprovision_target_dpu_ids = state
         .dpu_snapshots
         .iter()
-        .filter_map(|dpu| dpu.reprovision_requested.as_ref().map(|_| &dpu.id))
-        .collect_vec();
+        .filter(|dpu| dpu.reprovision_requested.is_some())
+        .map(Machine::dpu_machine_id)
+        .collect::<Result<Vec<_>, _>>()?;
 
     reprovision_state.next_state_with_all_dpus_updated(
         &state.managed_state,
@@ -3549,7 +3571,8 @@ async fn handle_dpu_reprovision(
     hardware_models: &FirmwareConfigSnapshot,
     dpf_sdk: Option<&dyn DpfOperations>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let dpu_machine_id = &dpu_snapshot.id;
+    let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+    let dpu_machine_id = &dpu_machine_id;
     let reprovision_state = state
         .managed_state
         .as_reprovision_state(dpu_machine_id)
@@ -3613,13 +3636,14 @@ async fn handle_dpu_reprovision(
             let dpus_states_for_reprov = &state
                 .dpu_snapshots
                 .iter()
-                .filter_map(|x| {
-                    if x.reprovision_requested.is_some() {
-                        state.managed_state.as_reprovision_state(&x.id)
-                    } else {
-                        None
-                    }
+                .filter(|x| x.reprovision_requested.is_some())
+                .map(|x| {
+                    let id = x.dpu_machine_id()?;
+                    Ok::<_, StateHandlerError>(state.managed_state.as_reprovision_state(&id))
                 })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
                 .collect_vec();
 
             if !all_equal(dpus_states_for_reprov)? {
@@ -3712,13 +3736,14 @@ async fn handle_dpu_reprovision(
             let dpus_states_for_reprov = &state
                 .dpu_snapshots
                 .iter()
-                .filter_map(|x| {
-                    if x.reprovision_requested.is_some() {
-                        state.managed_state.as_reprovision_state(&x.id)
-                    } else {
-                        None
-                    }
+                .filter(|x| x.reprovision_requested.is_some())
+                .map(|x| {
+                    let id = x.dpu_machine_id()?;
+                    Ok::<_, StateHandlerError>(state.managed_state.as_reprovision_state(&id))
                 })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
                 .collect_vec();
 
             if !all_equal(dpus_states_for_reprov)? {
@@ -4662,7 +4687,8 @@ impl DpuMachineStateHandler {
         dpu_snapshot: &Machine,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let dpu_machine_id = &dpu_snapshot.id.clone();
+        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+        let dpu_machine_id = &dpu_machine_id;
         let current_dpu_state = match &state.managed_state {
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
@@ -4833,7 +4859,8 @@ impl DpuMachineStateHandler {
         dpu_snapshot: &Machine,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let dpu_machine_id = &dpu_snapshot.id;
+        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+        let dpu_machine_id = &dpu_machine_id;
         let dpu_state = match &state.managed_state {
             ManagedHostState::DPUInit { dpu_states } => dpu_states
                 .states
@@ -5285,7 +5312,7 @@ impl DpuMachineStateHandler {
                     "Invalid State WaitingForNetworkInstall for dpu Machine"
                 );
                 Err(StateHandlerError::InvalidHostState(
-                    *dpu_machine_id,
+                    (*dpu_machine_id).into(),
                     Box::new(state.managed_state.clone()),
                 ))
             }
@@ -5302,7 +5329,8 @@ impl DpuMachineStateHandler {
         dpu_redfish_client: &dyn Redfish,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let next_state: ManagedHostState;
-        let dpu_machine_id = &dpu_snapshot.id.clone();
+        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+        let dpu_machine_id = &dpu_machine_id;
 
         // Use the host snapshot instead of the DPU snapshot because
         // the state.host_snapshot.current.version might be a bit more correct:
@@ -6246,7 +6274,7 @@ fn primary_dpu_has_pxe_blocking_bgp_alert(state: &ManagedHostStateSnapshot) -> b
     let Some(primary_dpu) = state
         .dpu_snapshots
         .iter()
-        .find(|dpu| dpu.id == primary_dpu_id)
+        .find(|dpu| dpu.id == primary_dpu_id.into())
     else {
         return false;
     };
@@ -9023,7 +9051,10 @@ impl StateHandler for InstanceStateHandler {
                         .next_state_with_all_dpus_updated(
                             &mh_snapshot.managed_state,
                             &mh_snapshot.dpu_snapshots,
-                            dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                            dpus_for_reprov
+                                .into_iter()
+                                .map(Machine::dpu_machine_id)
+                                .collect::<Result<Vec<_>, _>>()?,
                         )?;
                         Ok(StateHandlerOutcome::transition(next_state))
                     } else if mh_snapshot
@@ -9489,13 +9520,14 @@ async fn process_dpu_use_admin_network_state_change(
         .and_then(|i| i.attached_dpu_machine_id);
 
     for dpu in &mh_snapshot.dpu_snapshots {
+        let dpu_id = dpu.dpu_machine_id()?;
         let dpu_has_tenant_interface_config = interface_configs.iter().any(|cfg| {
-            let is_primary = primary_dpu_id == Some(dpu.id);
+            let is_primary = primary_dpu_id == Some(dpu_id);
             (cfg.device_locator.is_none() && is_primary)
                 || (cfg.device_locator.is_some()
                     && mh_snapshot
                         .host_snapshot
-                        .get_device_locator_for_dpu_id(&dpu.id)
+                        .get_device_locator_for_dpu_id(&dpu_id)
                         .ok()
                         .as_ref()
                         == cfg.device_locator.as_ref())
@@ -9730,7 +9762,7 @@ fn check_instance_network_synced_and_dpu_healthy(
         || maps.0.is_empty()
         || maps.1.is_empty();
 
-    let dpu_machine_ids: Vec<MachineId> = if use_primary_dpu_only {
+    let dpu_machine_ids: Vec<DpuMachineId> = if use_primary_dpu_only {
         if legacy_physical_interface_count != 1 {
             return Err(StateHandlerError::GenericError(eyre!(
                 "more than one interface configured when only the primary dpu is allowed"
@@ -9814,7 +9846,11 @@ fn check_instance_network_synced_and_dpu_healthy(
                 missing_dpus.push(dpu_id);
             }
         }
-        return Ok(InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(missing_dpus));
+        return Ok(
+            InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(
+                missing_dpus.into_iter().map(Into::into).collect(),
+            ),
+        );
     }
     // Check instance network config has been applied
     let expected = &instance.network_config_version;
@@ -9828,7 +9864,7 @@ fn check_instance_network_synced_and_dpu_healthy(
 
     if !outdated_dpus.is_empty() {
         return Ok(InstanceNetworkSyncStatus::InstanceNetworkNotSynced(
-            outdated_dpus,
+            outdated_dpus.into_iter().map(Into::into).collect(),
         ));
     }
 
@@ -9843,7 +9879,8 @@ pub async fn release_vpc_dpu_loopback(
 ) -> Result<(), StateHandlerError> {
     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
         if let Some(common_pools) = common_pools {
-            db::vpc_dpu_loopback::delete_and_deallocate(common_pools, &dpu_snapshot.id, txn, false)
+            let dpu_id = dpu_snapshot.dpu_machine_id()?;
+            db::vpc_dpu_loopback::delete_and_deallocate(common_pools, &dpu_id, txn, false)
                 .await
                 .map_err(|e| StateHandlerError::ResourceCleanupError {
                     resource: "VpcLoopbackIp",
@@ -9872,17 +9909,13 @@ async fn release_vpc_dpu_loopback_for_vpcs(
 
     // Release the removed VPC loopbacks from every DPU that may have rendered them.
     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-        db::vpc_dpu_loopback::delete_and_deallocate_for_vpcs(
-            common_pools,
-            &dpu_snapshot.id,
-            vpc_ids,
-            txn,
-        )
-        .await
-        .map_err(|e| StateHandlerError::ResourceCleanupError {
-            resource: "VpcLoopbackIp",
-            error: e.to_string(),
-        })?;
+        let dpu_id = dpu_snapshot.dpu_machine_id()?;
+        db::vpc_dpu_loopback::delete_and_deallocate_for_vpcs(common_pools, &dpu_id, vpc_ids, txn)
+            .await
+            .map_err(|e| StateHandlerError::ResourceCleanupError {
+                resource: "VpcLoopbackIp",
+                error: e.to_string(),
+            })?;
     }
 
     Ok(())

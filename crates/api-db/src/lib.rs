@@ -109,6 +109,7 @@ pub mod work_lock_manager;
 pub mod test_support;
 
 use std::backtrace::{Backtrace, BacktraceStatus};
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
@@ -118,6 +119,7 @@ use std::pin::Pin;
 use carbide_instrument::{Event, LabelValue, emit};
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
+use carbide_uuid::machine::InvalidMachineType;
 use mac_address::MacAddress;
 use model::ConfigValidationError;
 use model::hardware_info::HardwareInfoError;
@@ -408,6 +410,26 @@ pub enum DatabaseError {
     TryAgain,
     #[error("no site-wide rotation target for credential type: {0:?}")]
     MissingSitewideRotationTarget(crate::credential_rotation::CredentialRotationType),
+}
+
+// Implement From<Infallible> so that we can write generic code that converts between MachineId
+// representations using TryFrom, while supporting "non-converting" cases where the caller is
+// already passing the right type. (The `impl TryFrom<T> for T` blanket impl uses `Infallible` as
+// its error type.)
+impl From<Infallible> for DatabaseError {
+    fn from(_: Infallible) -> Self {
+        // We just crash if this is ever called, because the whole point of `Infallible` is that
+        // it's an error variant that is never actually constructed. Future rust versions will use
+        // `!` as the error type for TryFrom<T> for T, and this whole conversion will become
+        // unnecessary (as the compiler will already determine it to be unreachable.)
+        unreachable!()
+    }
+}
+
+impl From<InvalidMachineType> for DatabaseError {
+    fn from(value: InvalidMachineType) -> Self {
+        Self::internal(value.to_string())
+    }
 }
 
 impl DatabaseError {

@@ -162,7 +162,7 @@ impl MachineUpdateManager {
     async fn get_all_snapshots(
         &self,
         txn: &mut PgConnection,
-    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+    ) -> CarbideResult<HashMap<HostMachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
             &mut *txn,
             MachineSearchConfig {
@@ -170,7 +170,11 @@ impl MachineUpdateManager {
                 ..Default::default()
             },
         )
-        .await?;
+        .await?
+        .into_iter()
+        .filter_map(|id| HostMachineId::try_from(id).ok())
+        .collect::<Vec<_>>();
+
         db::managed_host::load_by_machine_ids(
             txn,
             &machine_ids,

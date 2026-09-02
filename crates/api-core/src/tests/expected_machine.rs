@@ -676,7 +676,7 @@ async fn test_get_linked_expected_machines_completed(pool: sqlx::PgPool) {
         common::api_fixtures::create_managed_host_with_config(&env, host_config)
             .await
             .into();
-    let host_machine = env.find_machine(host_machine_id).await.remove(0);
+    let host_machine = env.find_machine(&host_machine_id).await.remove(0);
     let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
 
     // The test

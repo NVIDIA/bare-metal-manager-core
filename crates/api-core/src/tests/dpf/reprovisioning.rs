@@ -28,7 +28,7 @@ use std::time::Duration;
 use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, HostMachineId};
 use carbide_uuid::rack::RackId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
@@ -164,7 +164,7 @@ async fn test_gb200_deployment_migration_rechecks_after_attachment_updates(pool:
     let mut request_task = tokio::spawn(async move {
         api.trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: requested_dpu_id.into(),
+                dpu_id: Some(requested_dpu_id.into()),
                 machine_id: None,
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
@@ -247,7 +247,7 @@ async fn assert_dpu_reprovision_set_rechecks_request_updates(
     let request_task = tokio::spawn(async move {
         api.trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: requested_dpu_id.into(),
+                dpu_id: Some(requested_dpu_id.into()),
                 machine_id: None,
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
@@ -339,10 +339,10 @@ async fn test_gb200_deployment_migration_rechecks_after_dpu_request_updates(pool
 
 /// Build the DPU reprovision states map for the given DPF sub-state.
 fn build_dpf_reprovision_states(
-    dpu_ids: &[MachineId],
+    dpu_ids: &[DpuMachineId],
     dpf_state: DpfState,
 ) -> DpuReprovisionStates {
-    let states: HashMap<MachineId, ReprovisionState> = dpu_ids
+    let states: HashMap<DpuMachineId, ReprovisionState> = dpu_ids
         .iter()
         .map(|id| {
             (
@@ -357,7 +357,7 @@ fn build_dpf_reprovision_states(
 }
 
 /// Write a managed-host state directly to the database.
-async fn write_host_state(pool: &sqlx::PgPool, host_id: &MachineId, state: &ManagedHostState) {
+async fn write_host_state(pool: &sqlx::PgPool, host_id: &HostMachineId, state: &ManagedHostState) {
     let state_json = serde_json::to_value(state).unwrap();
     let version = format!("V999-T{}", chrono::Utc::now().timestamp_micros());
 
@@ -379,8 +379,8 @@ async fn write_host_state(pool: &sqlx::PgPool, host_id: &MachineId, state: &Mana
 /// Set the host to `DPUReprovision` with the given DPF sub-state for each DPU.
 async fn set_reprovision_dpf_state(
     pool: &sqlx::PgPool,
-    host_id: &MachineId,
-    dpu_ids: &[MachineId],
+    host_id: &HostMachineId,
+    dpu_ids: &[DpuMachineId],
     dpf_state: DpfState,
 ) {
     let state = ManagedHostState::DPUReprovision {
@@ -393,8 +393,8 @@ async fn set_reprovision_dpf_state(
 /// The host must already have a real instance allocated via `instance_builer().build_and_return()`.
 async fn set_assigned_reprovision_dpf_state(
     pool: &sqlx::PgPool,
-    host_id: &MachineId,
-    dpu_ids: &[MachineId],
+    host_id: &HostMachineId,
+    dpu_ids: &[DpuMachineId],
     dpf_state: DpfState,
 ) {
     let state = ManagedHostState::Assigned {
@@ -900,7 +900,7 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment_from_report_or_rack(p
     assert_eq!(classified.len(), mh.dpu_ids.len());
     assert_eq!(
         classified.into_iter().collect::<HashSet<_>>(),
-        mh.dpu_ids.iter().copied().collect()
+        mh.dpu_ids.iter().copied().map(Into::into).collect()
     );
     assert_eq!(
         *verified_deployments.lock().unwrap(),
@@ -1004,7 +1004,7 @@ async fn test_runtime_dpf_disable_skips_deployment_migration_probe(pool: sqlx::P
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
                 dpu_id: None,
-                machine_id: mh.id.into(),
+                machine_id: Some(mh.id.into()),
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
@@ -1125,7 +1125,7 @@ async fn test_gb200_deployment_migration_requires_every_dpu(pool: sqlx::PgPool) 
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
                 dpu_id: None,
-                machine_id: mh.dpu_ids[0].into(),
+                machine_id: Some(mh.dpu_ids[0].into()),
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
@@ -1169,7 +1169,7 @@ async fn test_gb200_deployment_migration_requires_every_dpu(pool: sqlx::PgPool) 
         .trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
                 dpu_id: None,
-                machine_id: mh.dpu_ids[0].into(),
+                machine_id: Some(mh.dpu_ids[0].into()),
                 mode: Mode::Clear as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
                 update_firmware: true,
