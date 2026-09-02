@@ -6,11 +6,99 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use ::rpc::forge::{InterfaceFunctionType, ManagedHostNetworkConfigResponse};
 use eyre::WrapErr;
 use itertools::Itertools;
 
 mod parse_hbn_conf;
 
+#[derive(Debug)]
+/// Keeps HBN-owned host VF representors aligned with active tenant VFs.
+pub(crate) struct HostVfLinkManager {
+    interface_map: VfInterfaceMap,
+    reconciler: LinkStateReconciler,
+    controller: Box<dyn LinkStateController>,
+}
+
+impl HostVfLinkManager {
+    /// Creates a manager from the DPU OS host VF propagation configuration.
+    pub(crate) async fn init_for_dpu_os() -> eyre::Result<Self> {
+        let interface_map = VfInterfaceMap::load_from(parse_hbn_conf::HBN_CONF_PATH).await?;
+        Ok(Self::new(
+            interface_map,
+            Box::new(IpLinkStateController::default()),
+        ))
+    }
+
+    fn new(interface_map: VfInterfaceMap, controller: Box<dyn LinkStateController>) -> Self {
+        let reconciler = LinkStateReconciler::new(interface_map.managed_host_representors());
+        Self {
+            interface_map,
+            reconciler,
+            controller,
+        }
+    }
+
+    /// Applies the desired administrative state to every managed host VF representor.
+    pub(crate) async fn reconcile(
+        &mut self,
+        config: &ManagedHostNetworkConfigResponse,
+    ) -> eyre::Result<()> {
+        reconcile_active_vfs(
+            &self.interface_map,
+            &mut self.reconciler,
+            config,
+            self.controller.as_mut(),
+        )
+        .await
+    }
+
+    /// Invalidates every cached link-state estimate.
+    pub(crate) fn invalidate_cached_state(&mut self) {
+        self.reconciler.invalidate_cached_state();
+    }
+}
+
+/// Returns the virtual function IDs attached to tenant network interfaces.
+fn active_vf_ids(config: &ManagedHostNetworkConfigResponse) -> HashSet<u32> {
+    config
+        .tenant_interfaces
+        .iter()
+        .filter(|interface| interface.function_type() == InterfaceFunctionType::Virtual)
+        .filter_map(|interface| interface.virtual_function_id)
+        .collect()
+}
+
+async fn reconcile_active_vfs(
+    interface_map: &VfInterfaceMap,
+    reconciler: &mut LinkStateReconciler,
+    network_config: &ManagedHostNetworkConfigResponse,
+    controller: &mut dyn LinkStateController,
+) -> eyre::Result<()> {
+    let active_vf_ids = active_vf_ids(network_config);
+    let valid_vf_ids = interface_map.valid_vf_ids();
+    let mut missing_vf_ids = active_vf_ids
+        .difference(&valid_vf_ids)
+        .copied()
+        .collect::<Vec<_>>();
+    missing_vf_ids.sort_unstable();
+
+    if !missing_vf_ids.is_empty() {
+        eyre::bail!(
+            "active virtual functions are missing from [{}]: {}",
+            parse_hbn_conf::LINK_PROPAGATION_SECTION,
+            missing_vf_ids.iter().join(", ")
+        );
+    }
+
+    let active_representors = active_vf_ids
+        .into_iter()
+        .filter_map(|vf_id| interface_map.representor_name(vf_id));
+    reconciler
+        .reconcile_links(active_representors, controller)
+        .await
+        .map_err(eyre::Report::new)
+}
 #[derive(Debug, Eq, PartialEq)]
 /// Maps tenant VF IDs to their HBN-owned host representors.
 struct VfInterfaceMap {
@@ -367,10 +455,12 @@ impl Error for LinkStateReconciliationError {}
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
+    use std::collections::{HashSet, VecDeque};
     use std::ffi::OsStr;
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
+
+    use carbide_test_support::{Check, check_values};
 
     use super::*;
 
@@ -392,6 +482,46 @@ mod tests {
         representors.sort();
 
         assert_eq!(representors, ["pf0vf07", "pf0vf1"]);
+    }
+
+    #[test]
+    fn extracts_active_virtual_function_ids() {
+        check_values(
+            [
+                Check {
+                    scenario: "virtual IDs are selected and deduplicated",
+                    input: vec![
+                        (InterfaceFunctionType::Virtual, Some(3)),
+                        (InterfaceFunctionType::Virtual, Some(3)),
+                        (InterfaceFunctionType::Virtual, Some(5)),
+                    ],
+                    expect: HashSet::from([3, 5]),
+                },
+                Check {
+                    scenario: "physical and missing IDs are ignored",
+                    input: vec![
+                        (InterfaceFunctionType::Physical, Some(1)),
+                        (InterfaceFunctionType::Virtual, None),
+                    ],
+                    expect: HashSet::new(),
+                },
+            ],
+            |interfaces| {
+                active_vf_ids(&ManagedHostNetworkConfigResponse {
+                    tenant_interfaces: interfaces
+                        .into_iter()
+                        .map(|(function_type, virtual_function_id)| {
+                            ::rpc::forge::FlatInterfaceConfig {
+                                function_type: function_type.into(),
+                                virtual_function_id,
+                                ..Default::default()
+                            }
+                        })
+                        .collect(),
+                    ..Default::default()
+                })
+            },
+        );
     }
 
     #[derive(Clone, Debug)]
@@ -561,6 +691,30 @@ mod tests {
                 "obscures_state={obscures_state}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn rejects_unmapped_active_vfs_before_link_operations() {
+        let interface_map = vf_map(&[(0, "pf0vf0")]);
+        let mut reconciler = LinkStateReconciler::new(["pf0vf0"]);
+        let mut controller = FakeController::default();
+        let config = ManagedHostNetworkConfigResponse {
+            tenant_interfaces: [7, 2]
+                .into_iter()
+                .map(|virtual_function_id| ::rpc::forge::FlatInterfaceConfig {
+                    function_type: InterfaceFunctionType::Virtual.into(),
+                    virtual_function_id: Some(virtual_function_id),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+
+        let error = reconcile_active_vfs(&interface_map, &mut reconciler, &config, &mut controller)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("2, 7"));
+        assert!(controller.operations.is_empty());
     }
 
     #[tokio::test]
