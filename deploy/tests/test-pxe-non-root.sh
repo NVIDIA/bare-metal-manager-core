@@ -8,7 +8,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 
 kubectl kustomize "${repo_root}/deploy/nico-base/pxe" \
-  | kubectl create --dry-run=client --validate=false -f - -o json \
+  | kubectl patch --local -f - --type=merge --patch '{}' -o json \
   | jq --exit-status --slurp '
       [.[] | select(.kind == "Deployment" and .metadata.name == "nico-pxe")] as $deployments
       | ($deployments | length) == 1
@@ -28,7 +28,7 @@ kubectl kustomize "${repo_root}/deploy/nico-base/pxe" \
     ' >/dev/null
 
 kubectl kustomize "${repo_root}/deploy/tests/pxe-with-boot-artifacts" \
-  | kubectl create --dry-run=client --validate=false -f - -o json \
+  | kubectl patch --local -f - --type=merge --patch '{}' -o json \
   | jq --exit-status --slurp '
       [.[] | select(.kind == "Deployment" and .metadata.name == "nico-pxe")][0].spec.template.spec as $pxe
       | [.[] | select(.kind == "Deployment" and .metadata.name == "nico-api")][0].spec.template.spec as $api
