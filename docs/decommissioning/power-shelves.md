@@ -1,17 +1,21 @@
 # Decommission power shelves
 
-Use this procedure to return a managed power shelf BMC or power-management
+Use this workflow to return a managed power shelf BMC or power-management
 controller (PMC) to its factory baseline. After the shelf reaches
 `Decommissioning/Decommissioned`, force-delete it to remove the control-plane
 records.
 
-<Warning>
-Decommissioning a power shelf resets its management controller. Preserve rack
-power until all hosts and switches have finished decommissioning and passed
-their post-reset checks.
-</Warning>
+This procedure uses `nico-admin-cli` against the Core gRPC API. REST
+decommission is outside this procedure.
 
-## Before you begin
+Related guidance:
+
+- [Decommission NICo-managed hardware](index.md)
+- [Power Shelf State Diagram](../architecture/state_machines/power_shelf.md)
+- [power-shelf force-delete command](../manuals/nico-admin-cli/commands/power-shelf/power-shelf-force-delete.md)
+- [expected-power-shelf add command](../manuals/nico-admin-cli/commands/expected-power-shelf/expected-power-shelf-add.md)
+
+## Prerequisites
 
 - The power shelf must be in the exact controller state `Ready`.
 - No managed host assigned to an instance can remain in the same rack.
@@ -23,23 +27,26 @@ their post-reset checks.
 
 Decommission power shelves last, after managed hosts and managed switches.
 
-## Start and monitor decommissioning
+## Start decommissioning
 
 Start the asynchronous workflow with the stable power-shelf ID:
 
 ```bash
-nico-admin-cli -a <old-api-url> power-shelf decommission <power-shelf-id>
+nico-admin-cli -a <api-url> power-shelf decommission <power-shelf-id>
 ```
 
-Monitor it until the state reaches `Decommissioning/Decommissioned`:
+**Expected result**: The command records the request and returns. The shelf
+leaves `Ready` and enters `Decommissioning`.
+
+## Monitor decommissioning
 
 ```bash
-nico-admin-cli -a <old-api-url> power-shelf show <power-shelf-id>
+nico-admin-cli -a <api-url> power-shelf show <power-shelf-id>
 ```
 
-Operational failures leave the shelf in the same substate for retry instead
-of moving it to the top-level `Error` state. Inspect the controller outcome
-before intervening.
+**Expected result**: The state reaches `Decommissioning/Decommissioned`. If a
+decommissioning step fails, the workflow stops and requires manual
+intervention. Inspect the controller outcome before intervening.
 
 ## What the workflow changes
 
@@ -47,32 +54,33 @@ NICo performs these operations in order:
 
 1. Creates a Site Explorer suppression for the shelf BMC and waits for Site
    Explorer to acknowledge it.
-1. Creates a DHCP suppression for the shelf BMC.
-1. Uses a direct Redfish connection to factory-reset the BMC or PMC. This
+2. Creates a DHCP suppression for the shelf BMC.
+3. Uses a direct Redfish connection to factory-reset the BMC or PMC. This
    operation does not use RMS.
-1. Waits for the DHCP service to acknowledge the BMC suppression.
-1. Deletes the shelf's managed BMC root credential from the old credentials
+4. Waits for the DHCP service to acknowledge the BMC suppression.
+5. Deletes the shelf's managed BMC root credential from the old credentials
    store.
-1. Deletes the BMC credential-convergence record.
-1. Stops in `Decommissioning/Decommissioned`.
+6. Deletes the BMC credential-convergence record.
+7. Stops in `Decommissioning/Decommissioned`.
 
 A successful Redfish response means that the BMC accepted the factory-reset
 request. The BMC can still be restarting when the workflow advances.
 Decommissioning resets management state; it does not delete the expected
 inventory definition or explicitly change rack power output.
 
-## Verify the resulting state
+## Resulting state
 
-Before you force-delete the shelf, verify:
+The workflow aims for the following state:
 
-- The BMC or PMC completed its reset and accepts the applicable factory
-  credentials.
-- The management interface no longer receives configuration from the old NICo
-  DHCP service.
-- The old NICo credentials store no longer contains the per-shelf BMC
-  credential.
-- Rack power remains in the state required for the rest of the maintenance
-  procedure.
+| Component | Intended state |
+| --- | --- |
+| BMC or PMC | Factory credentials |
+| Management interface | No leases from this site's DHCP service |
+| Per-shelf BMC credential | Removed from the credentials store |
+| Rack power | Unchanged by decommissioning |
+
+The terminal state means NICo completed or received acceptance for every
+workflow operation.
 
 The `Decommissioned` record and its Site Explorer and DHCP suppressions remain
 until you force-delete them. The database also retains the Expected Power
@@ -82,23 +90,17 @@ only the per-shelf credential is deleted.
 
 ## After decommissioning
 
-When the shelf reaches `Decommissioning/Decommissioned`, force-delete it with
-the flags that remove interfaces and suppressions:
-
-```bash
-nico-admin-cli -a <api-url> power-shelf force-delete \
-  <power-shelf-id> \
-  --delete-interfaces \
-  --delete-bmc-suppressions
-```
+When the shelf reaches `Decommissioning/Decommissioned`, remove its
+control-plane records with the power-shelf command in
+[Force-delete after decommissioning](index.md#force-delete-after-decommissioning).
 
 If the shelf is still physically present, Site Explorer ingests it from the
-reset state. If you confirm it is no longer in the site, it does not come
-back and those records are gone.
+reset state. If the hardware is not present, it does not come back and those
+records are gone.
 
 Refer to the
 [power-shelf force-delete command](../manuals/nico-admin-cli/commands/power-shelf/power-shelf-force-delete.md)
-for the control-plane cleanup options.
+for the complete flag list.
 
 ## Prepare the new installation
 

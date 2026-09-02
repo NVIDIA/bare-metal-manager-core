@@ -141,7 +141,7 @@ Managed-switch decommissioning requires the RMS switch backend and starts only
 from `Ready`. The workflow does not poll the RMS factory-reset job to
 completion; it continues after DHCP acknowledges the NVOS suppression. Refer to
 [Decommission managed switches](../../decommissioning/switches.md) for the
-operator procedure and post-reset checks.
+operator procedure and intended post-reset state.
 
 ## Implementation
 

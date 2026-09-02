@@ -1,8 +1,8 @@
 # Decommission NICo-managed hardware
 
-Decommissioning returns managed hardware to a factory or pre-ingestion baseline
-while NICo still has credentials and management access. Use it when you intend
-one of these outcomes:
+Use this workflow to return managed hardware to a factory or pre-ingestion
+baseline while NICo still has credentials and management access. Use it when
+you intend one of these outcomes:
 
 1. The hardware is permanently leaving the site, either because the site is
    being torn down or the device is leaving service.
@@ -11,11 +11,14 @@ one of these outcomes:
 After the controller reaches `Decommissioning/Decommissioned`, remove the
 hardware from this site by force-deleting it, or move it to a new site. If
 you force-delete and the hardware is still physically present, Site Explorer
-ingests it again. If you confirm it is gone, it does not return and the
+ingests it again. If the hardware is not present, it does not return and the
 control-plane records are removed.
 
 Decommissioning is the graceful device-cleanup step before you force-delete
 or move the hardware.
+
+This procedure documents the Core `nico-admin-cli` workflow against the NICo
+gRPC API. REST decommission endpoints are outside this procedure.
 
 <Warning>
 Run decommissioning while the current NICo API, database, credentials store,
@@ -23,6 +26,27 @@ DHCP service, PXE service, and required management backends are available. If
 you destroy the control plane first, the credentials and state needed to reset
 the devices can be unrecoverable.
 </Warning>
+
+Related guidance:
+
+- [Decommission hosts and DPUs](hosts.md)
+- [Decommission managed switches](switches.md)
+- [Decommission power shelves](power-shelves.md)
+- [Tenant Lifecycle Cleanup](../operations/tenant-lifecycle-cleanup.md)
+- [Force deleting and rebuilding NICo hosts](../playbooks/force_delete.md)
+
+## Prerequisites
+
+- Configure `nico-admin-cli` with the Core API URL. Refer to
+  [Connecting to nico-api](../manuals/nico-admin-cli.md#connecting-to-nico-api).
+- Keep the NICo API, database, credentials store, DHCP service, PXE service,
+  and required management backends available until each device reaches
+  `Decommissioning/Decommissioned`.
+- Release assigned instances and wait for each host to reach the exact
+  top-level state `Ready` before you start. Host machines are already
+  sanitized while returning from Assigned to Ready. Switch and power-shelf
+  decommissioning reject the request while a managed host in the same rack
+  remains assigned.
 
 ## Choose a procedure
 
@@ -35,13 +59,8 @@ the devices can be unrecoverable.
 
 ## Decommission a rack
 
-Decommission each component with `nico-admin-cli`. Hosts must be `Ready` (no
-assigned instance) before you start. Host machines are already sanitized
-during the process of returning from Assigned to Ready. Switch and
-power-shelf decommissioning also reject the request while a managed host in
-the same rack remains assigned.
-
-Use this order:
+Decommission each component with `nico-admin-cli`. Use this order so network
+and rack power management stay available while compute devices reset:
 
 1. Decommission every managed host and wait for all of them to reach
    `Decommissioning/Decommissioned`.
@@ -50,16 +69,30 @@ Use this order:
 3. Decommission every power shelf and wait for all of them to reach
    `Decommissioning/Decommissioned`.
 
+**Expected result**: Every in-scope device is in `Decommissioning/Decommissioned`.
+If a step fails, the workflow stops and requires manual intervention.
+
 After those steps finish, remove the hardware from this site with
 [force-delete](#force-delete-after-decommissioning), or move it to a new
-site. This order preserves network and rack power management while compute
-devices are being reset.
+site.
+
+## Understand the terminal state
+
+`Decommissioning/Decommissioned` is a terminal controller state. It does not
+delete the object. Site Explorer and DHCP suppressions remain until you
+force-delete them, so the same installation does not immediately ingest a
+reset device.
+
+After DHCP is suppressed, the BMCs and OOB interfaces become unreachable
+because the DHCP server ignores requests from those MAC addresses. Redfish
+and RMS reset calls return after the request is accepted, and NICo cannot
+poll the hardware to completion.
 
 ## Force-delete after decommissioning
 
 Use these commands when you are removing decommissioned hardware from this
-site. They remove interfaces, suppressions, and retained boot entries where
-those exist.
+site. They are the canonical flag sets for this workflow. They remove
+interfaces, suppressions, and retained boot entries where those exist.
 
 Host:
 
@@ -90,19 +123,13 @@ nico-admin-cli -a <api-url> power-shelf force-delete \
   --delete-bmc-suppressions
 ```
 
-## Understand the terminal state
+**Expected result**: Control-plane records for that device are removed. If the
+hardware is still present, Site Explorer can ingest it from the reset state.
 
-`Decommissioning/Decommissioned` is a terminal controller state. It does not
-delete the object. Site Explorer and DHCP suppressions remain until you
-force-delete them, so the same installation does not immediately ingest a
-reset device.
-
-Some Redfish and RMS reset calls return after accepting a request rather than
-after the hardware finishes applying it. After DHCP is suppressed, the devices
-become unreachable because the DHCP server ignores requests from those MAC
-addresses, so NICo cannot poll the reset to completion. Verify the resulting
-device state and factory credentials before you force-delete or tear down the
-installation.
+Host flag details and credential-retention behavior are in
+[Force deleting and rebuilding NICo hosts](../playbooks/force_delete.md).
+Switch and power-shelf flag details are in the generated CLI reference linked
+from each device procedure.
 
 ## Rebuild and re-ingest
 

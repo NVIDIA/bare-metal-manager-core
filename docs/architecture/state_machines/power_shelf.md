@@ -83,7 +83,7 @@ stateDiagram-v2
 Power-shelf decommissioning starts only from `Ready`. It resets management
 state but does not explicitly change rack power output. Refer to
 [Decommission power shelves](../../decommissioning/power-shelves.md) for the
-operator procedure and post-reset checks.
+operator procedure and intended post-reset state.
 
 ## OnDemand Maintenance Operations
 

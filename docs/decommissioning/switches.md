@@ -1,11 +1,21 @@
 # Decommission managed switches
 
-Use this procedure to return a managed NVIDIA switch to a factory baseline.
+Use this workflow to return a managed NVIDIA switch to a factory baseline.
 After the switch reaches `Decommissioning/Decommissioned`, force-delete it to
 remove the control-plane records. The workflow resets both the NVOS data plane
 and the switch BMC.
 
-## Before you begin
+This procedure uses `nico-admin-cli` against the Core gRPC API. REST
+decommission is outside this procedure.
+
+Related guidance:
+
+- [Decommission NICo-managed hardware](index.md)
+- [Switch State Diagram](../architecture/state_machines/switch.md)
+- [switch force-delete command](../manuals/nico-admin-cli/commands/switch/switch-force-delete.md)
+- [expected-switch add command](../manuals/nico-admin-cli/commands/expected-switch/expected-switch-add.md)
+
+## Prerequisites
 
 - The switch must be in the exact controller state `Ready`.
 - No managed host assigned to an instance can remain in the same rack.
@@ -21,23 +31,26 @@ and the switch BMC.
 Decommission hosts first so that switch and rack connectivity remain available
 while compute devices reset.
 
-## Start and monitor decommissioning
+## Start decommissioning
 
 Start the asynchronous workflow with the stable managed-switch ID:
 
 ```bash
-nico-admin-cli -a <old-api-url> managed-switch decommission <switch-id>
+nico-admin-cli -a <api-url> managed-switch decommission <switch-id>
 ```
 
-Monitor it until the state reaches `Decommissioning/Decommissioned`:
+**Expected result**: The command records the request and returns. The switch
+leaves `Ready` and enters `Decommissioning`.
+
+## Monitor decommissioning
 
 ```bash
-nico-admin-cli -a <old-api-url> managed-switch show <switch-id>
+nico-admin-cli -a <api-url> managed-switch show <switch-id>
 ```
 
-Operational failures leave the switch in the same substate for retry instead
-of moving it to the top-level `Error` state. Inspect the controller outcome
-before intervening.
+**Expected result**: The state reaches `Decommissioning/Decommissioned`. If a
+decommissioning step fails, the workflow stops and requires manual
+intervention. Inspect the controller outcome before intervening.
 
 ## What the workflow changes
 
@@ -45,35 +58,37 @@ NICo performs these operations in order:
 
 1. Creates a Site Explorer suppression for the switch BMC and waits for Site
    Explorer to acknowledge it.
-1. Creates a DHCP suppression for the NVOS interface.
-1. Uses the RMS component-manager backend to submit an NVOS factory-reset job.
+2. Creates a DHCP suppression for the NVOS interface.
+3. Uses the RMS component-manager backend to submit an NVOS factory-reset job.
    The RMS reset wipes NVOS configuration, restarts the switch, and preserves
    the factory-default password.
-1. Waits for the DHCP service to acknowledge the NVOS suppression.
-1. Creates a DHCP suppression for the switch BMC.
-1. Uses Redfish to factory-reset the switch BMC.
-1. Waits for the DHCP service to acknowledge the BMC suppression.
-1. Deletes the switch's managed BMC root credential and NVOS administrator
+4. Waits for the DHCP service to acknowledge the NVOS suppression.
+5. Creates a DHCP suppression for the switch BMC.
+6. Uses Redfish to factory-reset the switch BMC.
+7. Waits for the DHCP service to acknowledge the BMC suppression.
+8. Deletes the switch's managed BMC root credential and NVOS administrator
    credential from the old credentials store.
-1. Deletes the BMC and NVOS credential-convergence records.
-1. Stops in `Decommissioning/Decommissioned`.
+9. Deletes the BMC and NVOS credential-convergence records.
+10. Stops in `Decommissioning/Decommissioned`.
 
 The workflow does not poll the RMS factory-reset job to completion. After
 submitting the reset, it advances when the DHCP suppression is acknowledged.
-Similarly, a successful Redfish response means that the BMC accepted its reset
-request; the BMC can still be restarting.
+A successful Redfish response means that the BMC accepted its reset request;
+the BMC can still be restarting.
 
-## Verify the resulting state
+## Resulting state
 
-Before you force-delete the switch, verify:
+The workflow aims for the following state:
 
-- NVOS completed its factory reset and no old configuration, users,
-  certificates, or controller trust remain.
-- The BMC completed its reset and accepts the applicable factory credentials.
-- The BMC and NVOS interfaces no longer receive configuration from the old
-  NICo DHCP service.
-- The old NICo credentials store no longer contains the per-switch BMC and
-  NVOS credentials.
+| Component | Intended state |
+| --- | --- |
+| NVOS | Factory reset; no leftover configuration, users, certificates, or controller trust |
+| Switch BMC | Factory credentials |
+| BMC and NVOS interfaces | No leases from this site's DHCP service |
+| Per-switch BMC and NVOS credentials | Removed from the credentials store |
+
+The terminal state means NICo completed or received acceptance for every
+workflow operation.
 
 The `Decommissioned` record and its Site Explorer and DHCP suppressions remain
 until you force-delete them. The database also retains the Expected Switch,
@@ -83,23 +98,17 @@ the per-switch credentials are deleted.
 
 ## After decommissioning
 
-When the switch reaches `Decommissioning/Decommissioned`, force-delete it with
-the flags that remove interfaces and suppressions:
-
-```bash
-nico-admin-cli -a <api-url> switch force-delete \
-  <switch-id> \
-  --delete-interfaces \
-  --delete-bmc-suppressions
-```
+When the switch reaches `Decommissioning/Decommissioned`, remove its
+control-plane records with the switch command in
+[Force-delete after decommissioning](index.md#force-delete-after-decommissioning).
 
 If the switch is still physically present, Site Explorer ingests it from the
-reset state. If you confirm it is no longer in the site, it does not come
-back and those records are gone.
+reset state. If the hardware is not present, it does not come back and those
+records are gone.
 
 Refer to the
 [switch force-delete command](../manuals/nico-admin-cli/commands/switch/switch-force-delete.md)
-for the control-plane cleanup options.
+for the complete flag list.
 
 ## Prepare the new installation
 
