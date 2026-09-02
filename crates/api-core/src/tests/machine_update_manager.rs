@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use carbide_machine_controller::health_report::create_host_update_health_report;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use common::api_fixtures::create_test_env;
 use figment::Figment;
 use figment::providers::{Format, Toml};
@@ -65,7 +65,7 @@ impl MachineUpdateModule for TestUpdateModule {
         _pool: &sqlx::Pool<sqlx::Postgres>,
         _available_updates: i32,
         _updating_machines: &HashSet<MachineId>,
-        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+        _snapshots: &HashMap<HostMachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
         if let Ok(mut guard) = self.start_updates_called.lock() {
             (*guard) += 1;
@@ -84,7 +84,7 @@ impl MachineUpdateModule for TestUpdateModule {
     async fn update_metrics(
         &self,
         _pool: &sqlx::Pool<sqlx::Postgres>,
-        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+        _snapshots: &HashMap<HostMachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<()> {
         Ok(())
     }
@@ -133,7 +133,7 @@ async fn test_max_outstanding_updates(
     );
 
     let mut machines_started = HashSet::default();
-    machines_started.insert(dpu_machine_id);
+    machines_started.insert(dpu_machine_id.into());
 
     let module1 = Box::new(TestUpdateModule::new(vec![], machines_started));
     let module2 = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
@@ -377,7 +377,10 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap();
 
     assert_eq!(machines.len(), 1);
-    assert_eq!(machines.iter().next().unwrap(), &host_machine_id1);
+    assert_eq!(
+        machines.iter().next().unwrap(),
+        host_machine_id1.as_machine_id()
+    );
 
     Ok(())
 }

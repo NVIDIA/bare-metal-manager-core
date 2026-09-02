@@ -67,13 +67,10 @@ use carbide_site_explorer::test_support::MockEndpointExplorer;
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
-use carbide_switch_controller::context::SwitchStateHandlerServices;
-use carbide_switch_controller::handler::SwitchStateHandler;
-use carbide_switch_controller::io::SwitchStateControllerIO;
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, HostMachineId, MachineId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
@@ -163,7 +160,7 @@ pub(in crate::tests) mod test_managed_host;
 pub(in crate::tests) mod tpm_attestation;
 pub(in crate::tests) mod vpc;
 
-pub(in crate::tests) type TestMachine = test_machine::TestMachine;
+pub(in crate::tests) type TestMachine<ID> = test_machine::TestMachine<ID>;
 pub(in crate::tests) type TestManagedHost = test_managed_host::TestManagedHost;
 
 #[derive(Clone, Debug, Default)]
@@ -274,7 +271,6 @@ pub(crate) struct TestEnv {
     extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
-    switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub(in crate::tests) reachability_params: ReachabilityParams,
     pub(in crate::tests) test_meter: TestMeter,
     pub(in crate::tests) attestation_enabled: bool,
@@ -510,7 +506,7 @@ impl TestEnv {
 
     pub(in crate::tests) async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
-        host_machine_id: &MachineId,
+        host_machine_id: &HostMachineId,
         max_iterations: u32,
         expected_state: ManagedHostState,
     ) {
@@ -530,7 +526,7 @@ impl TestEnv {
     /// allows the caller to use "matches!" to compare patterns instead of concrete values.
     pub(in crate::tests) async fn run_machine_state_controller_iteration_until_state_condition(
         &self,
-        host_machine_id: &MachineId,
+        host_machine_id: &HostMachineId,
         max_iterations: u32,
         state_check: impl Fn(&Machine) -> bool,
     ) -> ManagedHostState {
@@ -650,17 +646,6 @@ impl TestEnv {
             .await;
     }
 
-    /// Runs one iteration of the switch state controller handler with the services
-    /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
-    pub(in crate::tests) async fn run_switch_controller_iteration(&self) {
-        self.switch_controller
-            .lock()
-            .await
-            .run_single_iteration()
-            .await;
-    }
-
     /// Runs one iteration of the rack state controller handler with the services
     /// in this test environment
     #[allow(clippy::await_holding_refcell_ref)]
@@ -739,11 +724,11 @@ impl TestEnv {
     // Returns all machines using FindMachinesByIds call.
     pub(in crate::tests) async fn find_machine(
         &self,
-        id: carbide_uuid::machine::MachineId,
+        id: &carbide_uuid::machine::MachineId,
     ) -> Vec<rpc::forge::Machine> {
         self.api
             .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
-                machine_ids: vec![id],
+                machine_ids: vec![*id],
                 include_history: true,
             }))
             .await
@@ -1640,32 +1625,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build ExtensionServiceStateController");
 
-    let switch_controller = StateController::builder()
-        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
-        .meter("carbide_switches", test_meter.meter())
-        .processor_id(state_controller_id.clone())
-        .services(
-            SwitchStateHandlerServices {
-                db_pool: db_pool.clone(),
-                component_manager: test_component_manager.clone(),
-                credential_manager: credential_manager.clone(),
-                switch_mtls_services: component_manager::config::switch_mtls_services_as_i32(
-                    &component_manager::config::effective_switch_mtls_services(&[]),
-                ),
-                per_object_metrics_registry: per_object_metrics_registry.clone(),
-                redfish_client_pool: redfish_sim.clone(),
-                bmc_credential_ops: redfish_sim.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
-                    db::credential_rotation::CredentialRotationType::Bmc,
-                ),
-                bmc_rotation_enabled: false,
-            }
-            .into(),
-        )
-        .state_handler(Arc::new(SwitchStateHandler::default()))
-        .build_for_manual_iterations(cancel_token.clone())
-        .expect("Unable to build state controller");
-
     let rack_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_racks", test_meter.meter())
@@ -1812,7 +1771,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         machine_state_handler: machine_swap,
         ib_fabric_monitor: Arc::new(ib_fabric_monitor),
         ib_partition_controller: Arc::new(Mutex::new(ib_controller)),
-        switch_controller: Arc::new(Mutex::new(switch_controller)),
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
         extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),
@@ -2139,14 +2097,11 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub(in crate::tests) async fn discovery_completed(
-    env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
-) {
+pub(in crate::tests) async fn discovery_completed(env: &TestEnv, machine_id: &MachineId) {
     let _response = env
         .api
         .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
-            machine_id: Some(machine_id),
+            machine_id: Some(*machine_id),
         }))
         .await
         .unwrap()
@@ -2154,7 +2109,10 @@ pub(in crate::tests) async fn discovery_completed(
 }
 
 /// Fake an iteration of forge-dpu-agent requesting network config, applying it, and reporting back
-pub(in crate::tests) async fn network_configured(env: &TestEnv, dpu_machine_ids: &Vec<MachineId>) {
+pub(in crate::tests) async fn network_configured(
+    env: &TestEnv,
+    dpu_machine_ids: &Vec<DpuMachineId>,
+) {
     for dpu_machine_id in dpu_machine_ids {
         network_configured_with_health(env, dpu_machine_id, None).await
     }
@@ -2164,7 +2122,7 @@ pub(in crate::tests) async fn network_configured(env: &TestEnv, dpu_machine_ids:
 /// When reporting back, the health reported by the DPU can be overrridden
 pub(in crate::tests) async fn network_configured_with_health(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
+    dpu_machine_id: &DpuMachineId,
     dpu_health: Option<rpc::health::HealthReport>,
 ) {
     network_configured_with_health_and_ext_services(env, dpu_machine_id, dpu_health, None).await
@@ -2176,7 +2134,7 @@ pub(in crate::tests) async fn network_configured_with_health(
 #[allow(deprecated)]
 pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
     env: &TestEnv,
-    dpu_machine_id: &MachineId,
+    dpu_machine_id: &DpuMachineId,
     dpu_health: Option<rpc::health::HealthReport>,
     extension_services_state: Option<rpc::forge::DpuExtensionServiceDeploymentStatus>,
 ) {
@@ -2184,7 +2142,7 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(*dpu_machine_id),
+                dpu_machine_id: Some((*dpu_machine_id).into()),
             },
         ))
         .await
@@ -2199,7 +2157,7 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
         };
     let instance: Option<rpc::Instance> = env
         .api
-        .find_instance_by_machine_id(Request::new(*dpu_machine_id))
+        .find_instance_by_machine_id(Request::new(dpu_machine_id.into()))
         .await
         .unwrap()
         .into_inner()
@@ -2299,7 +2257,7 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
             .collect();
 
     let status = rpc::forge::DpuNetworkStatus {
-        dpu_machine_id: Some(*dpu_machine_id),
+        dpu_machine_id: Some((*dpu_machine_id).into()),
         dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
         observed_at: None,
         dpu_health: Some(dpu_health),
@@ -2451,8 +2409,19 @@ pub(in crate::tests) async fn create_managed_host_with_dpf_multi_hw(
         .await
         .expect("Failed to create a new host");
     TestManagedHost {
-        id: mh.host_snapshot.id,
-        dpu_ids: mh.dpu_snapshots.iter().map(|dpu| dpu.id).collect(),
+        id: mh
+            .host_snapshot
+            .id
+            .try_into()
+            .expect("managed host snapshot ID should be a valid HostMachineId"),
+        dpu_ids: mh
+            .dpu_snapshots
+            .iter()
+            .map(|dpu| {
+                DpuMachineId::try_from(dpu.id)
+                    .expect("DPU snapshot ID should be a valid DpuMachineId")
+            })
+            .collect(),
         api: env.api.clone(),
     }
 }
@@ -2491,11 +2460,18 @@ pub(in crate::tests) async fn create_managed_host_with_config(
     let dpu_ids = mh
         .dpu_snapshots
         .iter()
-        .map(|snapshot| snapshot.id)
+        .map(|snapshot| {
+            DpuMachineId::try_from(snapshot.id)
+                .expect("dpu_snapshot ID should be valid DpuMachineId")
+        })
         .collect();
 
     TestManagedHost {
-        id: mh.host_snapshot.id,
+        id: mh
+            .host_snapshot
+            .id
+            .try_into()
+            .expect("managed host snapshot ID should be a valid HostMachineId"),
         dpu_ids,
         api: env.api.clone(),
     }
@@ -2510,8 +2486,19 @@ pub(in crate::tests) async fn create_host_with_machine_validation(
         .await
         .unwrap();
     TestManagedHost {
-        id: mh.host_snapshot.id,
-        dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
+        id: mh
+            .host_snapshot
+            .id
+            .try_into()
+            .expect("managed host ID should be valid HostMachineId"),
+        dpu_ids: mh
+            .dpu_snapshots
+            .into_iter()
+            .map(|snapshot| {
+                DpuMachineId::try_from(snapshot.id)
+                    .expect("DPU snapshot ID should be a valid DpuMachineId")
+            })
+            .collect(),
         api: env.api.clone(),
     }
 }
@@ -2524,8 +2511,19 @@ pub(in crate::tests) async fn create_managed_host_with_hardware_info_template(
     let config = ManagedHostConfig::default().with_hardware_info_template(hardware_info_template);
     let mh = site_explorer::new_host(env, config).await.unwrap();
     TestManagedHost {
-        id: mh.host_snapshot.id,
-        dpu_ids: mh.dpu_snapshots.into_iter().map(|s| s.id).collect(),
+        id: mh
+            .host_snapshot
+            .id
+            .try_into()
+            .expect("managed host snapshot ID should be a valid HostMachineId"),
+        dpu_ids: mh
+            .dpu_snapshots
+            .into_iter()
+            .map(|s| {
+                DpuMachineId::try_from(s.id)
+                    .expect("DPU snapshot ID should be a valid DpuMachineId")
+            })
+            .collect(),
         api: env.api.clone(),
     }
 }
@@ -2724,7 +2722,7 @@ pub(in crate::tests) async fn machine_validation_completed(
 /// if needed, as part of the auto-approval process.
 pub(in crate::tests) async fn inject_machine_measurements(
     env: &TestEnv,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: HostMachineId,
 ) {
     let _response = env
         .api

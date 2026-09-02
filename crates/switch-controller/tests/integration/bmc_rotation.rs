@@ -26,6 +26,7 @@ use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter, Credentials,
 };
 use carbide_switch_controller::context::SwitchStateHandlerServices;
+use carbide_test_harness::prelude::{sqlx_test, sqlx_testing};
 use db::credential_rotation::{
     CredentialRotationType, device_rotation_status, record_device_converged,
     set_next_target_version,
@@ -35,9 +36,10 @@ use mac_address::MacAddress;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::switch::{Switch, SwitchControllerState};
 
-use super::fixtures::switch::transition_switch_controller_state;
-use super::{common, default_switch_mtls_services, run_switch_controller_with_services};
-use crate::tests::common::api_fixtures::create_test_env;
+use crate::common::{
+    ControllerEnv, default_switch_mtls_services, new_switch, transition_switch_controller_state,
+};
+use crate::state_controller::run_switch_controller_with_services;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
@@ -93,7 +95,7 @@ fn creds(username: &str, password: &str) -> Credentials {
 /// reconciliation before reaching the BMC gate. A fresh [`RotationGate`]
 /// refreshes its cached aggregate live on first use each iteration.
 fn switch_services(
-    env: &common::api_fixtures::TestEnv,
+    env: &ControllerEnv,
     pool: &sqlx::PgPool,
     bmc_rotation_enabled: bool,
 ) -> SwitchStateHandlerServices {
@@ -102,7 +104,7 @@ fn switch_services(
         component_manager: None,
         credential_manager: env.test_credential_manager.clone(),
         switch_mtls_services: default_switch_mtls_services(),
-        per_object_metrics_registry: env.per_object_metrics_registry(),
+        per_object_metrics_registry: env.per_object_metrics_registry.clone(),
         redfish_client_pool: env.redfish_sim.clone(),
         bmc_credential_ops: env.redfish_sim.clone(),
         bmc_rotation_gate: RotationGate::new_for_family(CredentialRotationType::Bmc),
@@ -125,13 +127,13 @@ async fn load_switch(
 /// must hold in `RotatingBmc` (keeping the site-explorer suppression) rather
 /// than settling to Ready with a stale stored secret, and keep retrying until
 /// the store reconciles.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn switch_store_persist_failure_holds_in_rotating_bmc_until_reconciled(
     pool: sqlx::PgPool,
 ) -> TestResult {
-    let env = create_test_env(pool.clone()).await;
+    let env = ControllerEnv::new(pool.clone()).await;
 
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+    let switch_id = new_switch(&env, None, None).await?;
     let bmc_mac = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
         .await?
         .first()
@@ -165,13 +167,13 @@ async fn switch_store_persist_failure_holds_in_rotating_bmc_until_reconciled(
     // Enter RotatingBmc, let the gate record the suppression, and acknowledge it.
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         switch_services(&env, &pool, true),
     )
     .await; // Ready -> RotatingBmc
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         switch_services(&env, &pool, true),
     )
     .await; // gate records the suppression and waits
@@ -186,7 +188,7 @@ async fn switch_store_persist_failure_holds_in_rotating_bmc_until_reconciled(
     // switch holds in RotatingBmc instead of returning to Ready.
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         switch_services(&env, &pool, true),
     )
     .await;
@@ -239,7 +241,7 @@ async fn switch_store_persist_failure_holds_in_rotating_bmc_until_reconciled(
         .set_set_credentials_failure(false);
     run_switch_controller_with_services(
         pool.clone(),
-        env.api.work_lock_manager_handle.clone(),
+        env.api.work_lock_manager_handle(),
         switch_services(&env, &pool, true),
     )
     .await;
