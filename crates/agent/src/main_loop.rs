@@ -1136,13 +1136,51 @@ impl MainLoop {
                                 tracing::error!(error = %err, "Error reading/setting MTU for p0 or p1");
                             }
 
-                            let can_ack_network_config = self
+                            let ovs_restart_result = self
                                 .restart_ovs_after_admin_network_change_if_needed(
                                     &conf,
                                     &mut status_out,
                                 )
-                                .await
-                                .is_ok();
+                                .await;
+
+                            let (mut can_ack_network_config, must_invalidate_vf_cache) =
+                                match ovs_restart_result {
+                                    Ok(restarted_ovs) => (true, restarted_ovs),
+                                    Err(()) => (false, false),
+                                };
+
+                            // If we haven't failed already at this point and
+                            // we're on a DPU OS, we'll reconcile the VF link
+                            // states.
+                            if can_ack_network_config
+                                && self.options.agent_platform_type.is_dpu_os()
+                            {
+                                match self.get_or_init_vf_link_manager().await {
+                                    Ok(manager) => {
+                                        if must_invalidate_vf_cache {
+                                            manager.invalidate_cached_state();
+                                        }
+                                        if let Err(error) = manager.reconcile(&conf).await {
+                                            tracing::error!(
+                                                managed_host_config_version =
+                                                    conf.managed_host_config_version,
+                                                error = format!("{error:#}"),
+                                                "Failed to reconcile host VF link state"
+                                            );
+                                            status_out.network_config_error =
+                                                Some(error.to_string());
+                                            can_ack_network_config = false;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        let error = format!("{error:#}");
+                                        tracing::error!(%error, "Failed to load host VF link mapping");
+                                        status_out.network_config_error = Some(error);
+                                        can_ack_network_config = false;
+                                    }
+                                }
+                            }
+
                             if can_ack_network_config {
                                 (
                                     current_host_network_config_version,
