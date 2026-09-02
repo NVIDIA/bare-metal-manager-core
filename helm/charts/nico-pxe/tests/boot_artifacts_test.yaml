@@ -54,6 +54,10 @@ tests:
           path: spec.template.spec.initContainers[0].securityContext.runAsUser
       - notExists:
           path: spec.template.spec.initContainers[0].securityContext.runAsNonRoot
+      - notExists:
+          path: spec.template.spec.initContainers[1].securityContext.runAsUser
+      - notExists:
+          path: spec.template.spec.initContainers[1].securityContext.runAsNonRoot
 
   - it: should build image from repository + tag when provided (new fields win)
     set:
