@@ -69,7 +69,9 @@ pub(in crate::domain) fn convert_domain_to_nice_format(
     Ok(lines)
 }
 
-fn convert_domain_to_nice_table(domains: ::rpc::protos::dns::DomainList) -> Box<Table> {
+pub(in crate::domain) fn convert_domain_to_nice_table(
+    domains: ::rpc::protos::dns::DomainList,
+) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Name", "Created",]);

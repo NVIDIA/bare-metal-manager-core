@@ -16,9 +16,10 @@
  */
 
 use ::rpc::admin_cli::output::OutputFormat;
+use ::rpc::protos::dns::DomainList;
 
 use super::args::Args;
-use crate::errors::CarbideCliResult;
+use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
 pub(super) async fn create(
@@ -30,11 +31,19 @@ pub(super) async fn create(
 
     match output_format {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&domain)?),
+        OutputFormat::Yaml => println!("{}", serde_yaml::to_string(&domain)?),
+        OutputFormat::Csv => {
+            crate::domain::show::cmd::convert_domain_to_nice_table(DomainList {
+                domains: vec![domain],
+            })
+            .to_csv(std::io::stdout())
+            .map_err(CarbideCliError::CsvError)?
+            .flush()?;
+        }
         OutputFormat::AsciiTable => println!(
             "{}",
             crate::domain::show::cmd::convert_domain_to_nice_format(&domain)?
         ),
-        _ => println!("{}", serde_yaml::to_string(&domain)?),
     }
 
     Ok(())
