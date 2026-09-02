@@ -1509,10 +1509,16 @@ impl LogsCollectorConfig {
                 }
             }
             LogCollectionMode::Periodic => {
-                // [collectors.logs.auto] and [collectors.logs.sse] are ignored in
-                // periodic mode — no error, just not consulted. This lets a config
-                // file carry all three subsections and switch modes with a single
-                // mode = "..." change without touching the subsection blocks.
+                if self.auto.is_some() {
+                    tracing::warn!(
+                        "[collectors.logs.auto] is set but ignored when mode = \"periodic\""
+                    );
+                }
+                if self.sse.is_some() {
+                    tracing::warn!(
+                        "[collectors.logs.sse] is set but ignored when mode = \"periodic\""
+                    );
+                }
                 if self.periodic.is_none() {
                     return Err(
                         "[collectors.logs.periodic] is required when mode = \"periodic\""
@@ -1521,8 +1527,14 @@ impl LogsCollectorConfig {
                 }
             }
             LogCollectionMode::Sse => {
-                // [collectors.logs.auto] and [collectors.logs.periodic] are ignored
-                // in sse mode for the same reason as above.
+                if self.auto.is_some() {
+                    tracing::warn!("[collectors.logs.auto] is set but ignored when mode = \"sse\"");
+                }
+                if self.periodic.is_some() {
+                    tracing::warn!(
+                        "[collectors.logs.periodic] is set but ignored when mode = \"sse\""
+                    );
+                }
                 if let Some(sse) = &self.sse {
                     sse.validate()?;
                 }
