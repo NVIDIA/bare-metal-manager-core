@@ -471,7 +471,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 		}
 	}
 
-	byteUserData, err := yaml.Marshal(userDataMap)
+	byteUserData, err := util.MarshalUserData(userDataMap)
 	if err != nil {
 		return validation.Errors{
 			"userData": errors.New("failed to re-construct userData after processing phone home config"),
@@ -869,7 +869,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	}
 
 	// Render any data that still exists.
-	byteUserData, err := yaml.Marshal(userDataMap)
+	byteUserData, err := util.MarshalUserData(userDataMap)
 	if err != nil {
 		return validation.Errors{
 			"userData": errors.New("failed to re-construct userData after processing phone home config"),

@@ -946,7 +946,7 @@ func (icr *APIInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 			// If there's still user-data, marshal so that it can be stored in the DB later
 			if isUserDataValidYAML && len(documentRoot.Content) > 0 {
 
-				byteUserData, err := yaml.Marshal(userDataMap)
+				byteUserData, err := util.MarshalUserData(userDataMap)
 				if err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to re-construct userData after processing phone home config"),
@@ -1324,7 +1324,7 @@ func (bicr *APIBatchInstanceCreateRequest) ValidateAndSetOperatingSystemData(cfg
 			// If there's still user-data, marshal so that it can be stored in the DB later
 			if isUserDataValidYAML && len(documentRoot.Content) > 0 {
 
-				byteUserData, err := yaml.Marshal(userDataMap)
+				byteUserData, err := util.MarshalUserData(userDataMap)
 				if err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to re-construct userData after processing phone home config"),
@@ -1644,7 +1644,7 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 			// If there's still user-data, marshal so that it can be stored in the DB later
 			if isUserDataValidYAML && len(documentRoot.Content) > 0 {
 
-				byteUserData, err := yaml.Marshal(userDataMap)
+				byteUserData, err := util.MarshalUserData(userDataMap)
 				if err != nil {
 					return validation.Errors{
 						"userData": errors.New("failed to re-construct userData after processing phone home config"),
