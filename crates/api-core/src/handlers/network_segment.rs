@@ -383,6 +383,10 @@ pub(crate) async fn save_without_reverse_zones(
     set_to_ready: bool,
     allocate_svi_ip: bool,
 ) -> Result<NetworkSegment, CarbideError> {
+    if let Some(domain_id) = ns.subdomain_id {
+        db::dns::domain::lock_live_for_reference(txn.as_mut(), domain_id).await?;
+    }
+
     if ns.segment_type != NetworkSegmentType::Underlay {
         ns.vlan_id = Some(allocate_vlan_id(api, txn, &ns.name).await?);
         ns.vni = Some(allocate_vni(api, txn, &ns.name).await?);

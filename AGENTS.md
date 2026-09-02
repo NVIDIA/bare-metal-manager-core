@@ -223,6 +223,14 @@ Use the narrowest Rust visibility required by actual callers. Do not use `pub`
 to suppress dead-code warnings or widen production visibility solely for unit
 tests. Follow the [visibility guidance](STYLE_GUIDE.md#visibility).
 
+When deletion is permitted only while no live references exist, inventory every
+create and update path that can add such a reference. Run the final reference
+check, the delete, and every reference writer under mutually conflicting
+transaction-scoped locks on the referenced identity; after locking, writers
+must revalidate that the target is live and deleters must re-read dependents.
+Foreign keys do not protect soft deletes. Add a deterministic database
+concurrency test for the create-or-update/delete interleaving.
+
 ### Database migrations
 
 Core migrations live in `crates/api-db/migrations/` and use the fully populated
