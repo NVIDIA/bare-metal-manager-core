@@ -26,6 +26,8 @@ var (
 	ShaHashRegex             = regexp.MustCompile("^[A-Fa-f0-9]+$")
 	Sha256LowercaseHexRegex  = regexp.MustCompile("^[a-f0-9]{64}$")
 	DiskImagePathRegex       = regexp.MustCompile(`^(smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/[:space:]]+))$`)
+	diskImagePartitionRegex  = regexp.MustCompile(`^/dev/disk/by-id/.*-part[0-9]+$`)
+	errInvalidDiskImagePath  = errors.New("not a valid disk path")
 
 	ValidationErrorNameHasLeadingWhitespace  = errors.New("name field has leading whitespace")
 	ValidationErrorNameHasTrailingWhitespace = errors.New("name field has trailing whitespace")
@@ -43,6 +45,23 @@ var (
 	ErrValidationLabelValueLength = fmt.Errorf("label value cannot exceed a maximum of %v characters", LabelValueMaxLength)
 	ErrValidationLabelCount       = fmt.Errorf("up to %v key/value pairs can be specified in labels", LabelCountMax)
 )
+
+// ValidateDiskImagePath validates whole-disk targets accepted by the image
+// provisioning flow. Partition aliases in /dev/disk/by-id use a trailing
+// -part<number> suffix and must not be accepted as whole disks.
+func ValidateDiskImagePath(value interface{}) error {
+	value, isNil := validation.Indirect(value)
+	if isNil {
+		return nil
+	}
+
+	path, ok := value.(string)
+	if !ok || !DiskImagePathRegex.MatchString(path) || diskImagePartitionRegex.MatchString(path) {
+		return errInvalidDiskImagePath
+	}
+
+	return nil
+}
 
 // ValidateLabels validates optional API label maps (count, keys, values).
 // Signature matches ozzo's `validation.RuleFunc` so it can be used

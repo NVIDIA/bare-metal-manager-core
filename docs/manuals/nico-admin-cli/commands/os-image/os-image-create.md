@@ -69,7 +69,10 @@ uuid of the root filesystem of the OS image.
 Label of the root filesystem of the OS image.
 
 **-b**, **--boot-disk** *\<BOOT_DISK\>*  
-Boot device path if using local disk.
+Whole-disk target that the image overwrites. Accepts smallest,
+/dev/nvme\<controller\>n\<namespace\>, /dev/sd\<letters\>, or
+/dev/disk/by-id/\<identifier\>. If omitted or empty, selection prefers a
+disk with an EFI partition, then /dev/nvme0n1 or /dev/sda.
 
 **--bootfs-id** *\<BOOTFS_ID\>*  
 UUID of the image boot filesystem (/boot)
@@ -102,6 +105,8 @@ Print help (see a summary with -h)
 ```sh
 nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a
 nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a --name ubuntu-22.04 --description "Ubuntu 22.04 base" --auth-type Bearer --auth-token <token>
+nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a --boot-disk smallest
+nico-admin-cli os-image create --id 12345678-1234-5678-90ab-cdef01234567 --url https://images.example.com/ubuntu.qcow2 --digest sha256:abcd… --tenant-org-id fds34511233a --boot-disk /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT
 ```
 
 ---
