@@ -592,7 +592,7 @@ kubectl get svc nico-api -n nico-system -o jsonpath='{.status.loadBalancer.ingre
 
 ### Set Site-wide Credentials
 
-Configure the credentials NICo will apply to BMCs and UEFI after ingestion:
+Configure the credentials NICo will apply to BMCs and UEFI after ingestion. These commands write to the configured credential store: Vault by default, or Postgres when the site was set up as described in [Day 0 Credential Store](installation-options/day0-credential-store.md).
 
 ```bash
 nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
