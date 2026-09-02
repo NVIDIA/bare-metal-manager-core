@@ -1292,6 +1292,52 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 			wantErr:          true,
 			wantErrorMessage: "batch instance create does not support `ipAddress` on interfaces",
 		},
+		{
+			name: "succeeds with SPX attachment create request",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:     "test-batch",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
+				},
+				SpxAttachments: []APISpxAttachmentCreateRequest{
+					{
+						SpxPartitionID: uuid.NewString(),
+						Device:         "MT2910 Family [ConnectX-7]",
+						DeviceInstance: 0,
+						AttachmentType: SpxAttachmentTypePhysical,
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "fails with invalid SPX attachment type",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:     "test-batch",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
+				},
+				SpxAttachments: []APISpxAttachmentCreateRequest{
+					{
+						SpxPartitionID: uuid.NewString(),
+						Device:         "MT2910 Family [ConnectX-7]",
+						DeviceInstance: 0,
+						AttachmentType: "Bogus",
+					},
+				},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

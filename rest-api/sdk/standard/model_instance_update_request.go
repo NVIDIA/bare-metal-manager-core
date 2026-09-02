@@ -58,6 +58,8 @@ type InstanceUpdateRequest struct {
 	AutoNetwork NullableBool `json:"autoNetwork,omitempty"`
 	// Update InfiniBand Interfaces of the Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
+	// Update SPX Partition attachments of the Instance. Omitting this field leaves the Instance's SPX attachments unchanged; an explicit (possibly empty) list replaces them entirely.
+	SpxAttachments []InstanceSpxAttachmentCreateRequest `json:"spxAttachments,omitempty"`
 	// Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
 	NvLinkInterfaces []NVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces,omitempty"`
 	// Updated set of DPU Extension Services to deploy to the DPUs of this Instance
@@ -800,6 +802,38 @@ func (o *InstanceUpdateRequest) SetInfinibandInterfaces(v []InfiniBandInterfaceC
 	o.InfinibandInterfaces = v
 }
 
+// GetSpxAttachments returns the SpxAttachments field value if set, zero value otherwise.
+func (o *InstanceUpdateRequest) GetSpxAttachments() []InstanceSpxAttachmentCreateRequest {
+	if o == nil || IsNil(o.SpxAttachments) {
+		var ret []InstanceSpxAttachmentCreateRequest
+		return ret
+	}
+	return o.SpxAttachments
+}
+
+// GetSpxAttachmentsOk returns a tuple with the SpxAttachments field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceUpdateRequest) GetSpxAttachmentsOk() ([]InstanceSpxAttachmentCreateRequest, bool) {
+	if o == nil || IsNil(o.SpxAttachments) {
+		return nil, false
+	}
+	return o.SpxAttachments, true
+}
+
+// HasSpxAttachments returns a boolean if a field has been set.
+func (o *InstanceUpdateRequest) HasSpxAttachments() bool {
+	if o != nil && !IsNil(o.SpxAttachments) {
+		return true
+	}
+
+	return false
+}
+
+// SetSpxAttachments gets a reference to the given []InstanceSpxAttachmentCreateRequest and assigns it to the SpxAttachments field.
+func (o *InstanceUpdateRequest) SetSpxAttachments(v []InstanceSpxAttachmentCreateRequest) {
+	o.SpxAttachments = v
+}
+
 // GetNvLinkInterfaces returns the NvLinkInterfaces field value if set, zero value otherwise.
 func (o *InstanceUpdateRequest) GetNvLinkInterfaces() []NVLinkInterfaceCreateOrUpdateRequest {
 	if o == nil || IsNil(o.NvLinkInterfaces) {
@@ -927,6 +961,9 @@ func (o InstanceUpdateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.InfinibandInterfaces) {
 		toSerialize["infinibandInterfaces"] = o.InfinibandInterfaces
+	}
+	if !IsNil(o.SpxAttachments) {
+		toSerialize["spxAttachments"] = o.SpxAttachments
 	}
 	if !IsNil(o.NvLinkInterfaces) {
 		toSerialize["nvLinkInterfaces"] = o.NvLinkInterfaces

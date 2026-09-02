@@ -43,6 +43,8 @@ func (sacr APISpxAttachmentCreateRequest) Validate() error {
 			validation.Required.Error(validationErrorValueRequired)),
 		validation.Field(&sacr.DeviceInstance,
 			validation.Min(0).Error("value must be equal or greater than 0")),
+		validation.Field(&sacr.VirtualFunctionID,
+			validation.Min(0).Error("value must be equal or greater than 0")),
 		validation.Field(&sacr.AttachmentType,
 			validation.Required.Error(validationErrorValueRequired),
 			validation.In(SpxAttachmentTypePhysical, SpxAttachmentTypeVirtual, SpxAttachmentTypeOvn).Error("must be one of 'Physical', 'Virtual', or 'Ovn'")),

@@ -105,6 +105,17 @@ func TestAPISpxAttachmentCreateRequest_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "test validation failure, negative virtualFunctionId",
+			fields: fields{
+				spxPartitionID:    uuid.New().String(),
+				device:            "MT2910 Family [ConnectX-7]",
+				deviceInstance:    3,
+				attachmentType:    SpxAttachmentTypeVirtual,
+				virtualFunctionID: cutil.GetPtr(-1),
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

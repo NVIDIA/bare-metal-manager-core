@@ -547,6 +547,8 @@ type APIBatchInstanceCreateRequest struct {
 	AutoNetwork bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for each instance (shared across all instances)
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
+	// SpxAttachments is the list of SPX Partition attachments to create for each instance (shared across all instances)
+	SpxAttachments []APISpxAttachmentCreateRequest `json:"spxAttachments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for each instance (shared across all instances)
 	NVLinkInterfaces []APINVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for each Instance (shared across all instances)
@@ -1030,6 +1032,14 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 	// Validate InfiniBand Interfaces
 	for _, ibic := range bicr.InfiniBandInterfaces {
 		err = ibic.Validate()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Validate SPX Attachments
+	for _, sac := range bicr.SpxAttachments {
+		err = sac.Validate()
 		if err != nil {
 			return err
 		}
