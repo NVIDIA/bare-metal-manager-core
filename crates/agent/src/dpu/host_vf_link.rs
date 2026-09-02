@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::ffi::OsString;
 use std::fmt;
 use std::path::Path;
+use std::process::Stdio;
+use std::time::Duration;
 
 use eyre::WrapErr;
 use itertools::Itertools;
@@ -116,6 +119,120 @@ trait LinkStateController: fmt::Debug + Send {
         &mut self,
         operation: &LinkStateOperation,
     ) -> Result<(), BoxedLinkStateControllerError>;
+}
+
+#[derive(Debug)]
+/// Applies administrative state changes to Linux network interfaces.
+struct IpLinkStateController {
+    executable: OsString,
+    timeout: Duration,
+}
+
+impl Default for IpLinkStateController {
+    fn default() -> Self {
+        const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
+        Self {
+            executable: OsString::from("ip"),
+            timeout: DEFAULT_TIMEOUT,
+        }
+    }
+}
+
+impl IpLinkStateController {
+    fn build_command(&self, operation: &LinkStateOperation) -> tokio::process::Command {
+        let mut command = tokio::process::Command::new(&self.executable);
+        command
+            .args([
+                "link",
+                "set",
+                "dev",
+                operation.interface.as_str(),
+                operation.desired_state.as_str(),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        command
+    }
+
+    #[cfg(test)]
+    fn with_executable(mut self, executable: impl Into<OsString>) -> Self {
+        self.executable = executable.into();
+        self
+    }
+
+    #[cfg(test)]
+    fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+}
+
+#[derive(Debug)]
+/// Classifies failures from an administrative link-state command.
+enum IpLinkStateControllerError {
+    NotStarted(eyre::Report),
+    Failed(eyre::Report),
+}
+
+impl LinkStateControllerError for IpLinkStateControllerError {
+    fn maybe_obscured_state(&self) -> bool {
+        matches!(self, Self::Failed(_))
+    }
+}
+
+impl fmt::Display for IpLinkStateControllerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotStarted(error) => {
+                write!(formatter, "link command did not start: {error:#}")
+            }
+            Self::Failed(error) => write!(formatter, "link command failed: {error:#}"),
+        }
+    }
+}
+
+impl Error for IpLinkStateControllerError {}
+
+#[async_trait::async_trait]
+impl LinkStateController for IpLinkStateController {
+    async fn apply_state_operation(
+        &mut self,
+        operation: &LinkStateOperation,
+    ) -> Result<(), BoxedLinkStateControllerError> {
+        let mut command = self.build_command(operation);
+        let command_description = crate::pretty_cmd(command.as_std());
+        let child = command.spawn().map_err(|error| {
+            Box::new(IpLinkStateControllerError::NotStarted(eyre::eyre!(
+                "starting command {command_description:?}: {error}"
+            ))) as BoxedLinkStateControllerError
+        })?;
+
+        let output = tokio::time::timeout(self.timeout, child.wait_with_output())
+            .await
+            .map_err(|_| {
+                Box::new(IpLinkStateControllerError::Failed(eyre::eyre!(
+                    "timed out after {:?} waiting for command {command_description:?}",
+                    self.timeout
+                ))) as BoxedLinkStateControllerError
+            })?
+            .map_err(|error| {
+                Box::new(IpLinkStateControllerError::Failed(eyre::eyre!(
+                    "waiting for command {command_description:?}: {error}"
+                ))) as BoxedLinkStateControllerError
+            })?;
+
+        if !output.status.success() {
+            return Err(Box::new(IpLinkStateControllerError::Failed(eyre::eyre!(
+                "command {command_description:?} exited with status {}, stderr: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -251,6 +368,9 @@ impl Error for LinkStateReconciliationError {}
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::ffi::OsStr;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
 
     use super::*;
 
@@ -457,5 +577,71 @@ mod tests {
             .to_string();
         assert!(error.find("pf0vf10").unwrap() < error.find("pf0vf2").unwrap());
         assert!(error.contains("desired_state=up"));
+    }
+
+    fn write_executable(directory: &Path, name: &str, contents: &str) -> PathBuf {
+        let path = directory.join(name);
+        std::fs::write(&path, contents).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[test]
+    fn ip_controller_builds_exact_command() {
+        let controller = IpLinkStateController::default();
+        let command =
+            controller.build_command(&LinkStateOperation::new("pf0vf7", LinkAdminState::Down));
+
+        assert_eq!(command.as_std().get_program(), OsStr::new("ip"));
+        assert_eq!(
+            command.as_std().get_args().collect::<Vec<_>>(),
+            ["link", "set", "dev", "pf0vf7", "down"]
+                .into_iter()
+                .map(OsStr::new)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn ip_controller_classifies_spawn_failure_as_unchanged() {
+        let mut controller =
+            IpLinkStateController::default().with_executable("/path/that/does/not/exist/ip-test");
+        let error = controller
+            .apply_state_operation(&LinkStateOperation::new("pf0vf0", LinkAdminState::Up))
+            .await
+            .unwrap_err();
+        assert!(!error.maybe_obscured_state());
+    }
+
+    #[tokio::test]
+    async fn ip_controller_reports_nonzero_exit_and_stderr() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = write_executable(
+            directory.path(),
+            "ip-test",
+            "#!/bin/sh\necho permission-denied >&2\nexit 7\n",
+        );
+        let mut controller = IpLinkStateController::default().with_executable(executable);
+        let error = controller
+            .apply_state_operation(&LinkStateOperation::new("pf0vf0", LinkAdminState::Up))
+            .await
+            .unwrap_err();
+        assert!(error.maybe_obscured_state(), "{error}");
+        assert!(error.to_string().contains("permission-denied"));
+    }
+
+    #[tokio::test]
+    async fn ip_controller_classifies_timeout_as_state_obscuring() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = write_executable(directory.path(), "ip-test", "#!/bin/sh\nsleep 1\n");
+        let mut controller = IpLinkStateController::default()
+            .with_executable(executable)
+            .with_timeout(Duration::from_millis(10));
+        let error = controller
+            .apply_state_operation(&LinkStateOperation::new("pf0vf0", LinkAdminState::Up))
+            .await
+            .unwrap_err();
+        assert!(error.maybe_obscured_state());
+        assert!(error.to_string().contains("timed out"));
     }
 }
