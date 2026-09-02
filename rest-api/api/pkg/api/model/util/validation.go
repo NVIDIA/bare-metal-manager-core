@@ -21,12 +21,14 @@ import (
 
 const (
 	// MaxUserDataBytes caps `userData` on Instance and Operating System
-	// create/update requests, measured in bytes of the raw string as
-	// submitted. Instance creation, update and inventory operations
-	// move in Temporal payloads that are subject to a 2 MiB per-payload limit,
-	// so oversized blobs must be rejected at the API boundary.
-	// 32 KiB matches the middle of the range enforced by common infra providers
-	// (AWS 16 KB, Hetzner/Alibaba 32 KiB, Azure/OpenStack ~48 KiB, DO/IBM 64 KiB).
+	// create/update requests. A Site publishes Instance inventory in pages of
+	// InventoryCloudPageSize (25), each budgeted at maxPublishPayloadBytes
+	// (1945 KiB) to stay under the 2 MiB blob Temporal rejects. 32 KiB holds a
+	// full page's user data to 800 KiB, leaving the rest for the other Instance
+	// fields, and keeps one record far enough under the budget that the publish
+	// ladder never has to floor at a single item to fit it. It also sits
+	// mid-range for infra providers: AWS 16 KB, Hetzner/Alibaba 32 KiB,
+	// Azure/OpenStack ~48 KiB, DO/IBM 64 KiB.
 	MaxUserDataBytes = 32 * 1024
 )
 
