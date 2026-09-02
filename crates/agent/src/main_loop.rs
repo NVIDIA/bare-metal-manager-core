@@ -47,6 +47,7 @@ use version_compare::Version;
 
 use crate::command_line::HbnConfigMode;
 use crate::dpu::DpuNetworkInterfaces;
+use crate::dpu::host_vf_link::HostVfLinkManager;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
@@ -419,6 +420,7 @@ pub(super) async fn setup_and_run(
         nvue_context,
         dhcp_interface_translation_mode,
         current_network_version: CurrentNetworkVersion::default(),
+        host_vf_link_manager: None,
         last_ovs_restart_version: None,
         ovs_restart_retry_backoff: None,
     };
@@ -456,6 +458,7 @@ struct MainLoop {
     nvue_context: Option<NvueClientContext>,
     dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
     current_network_version: CurrentNetworkVersion,
+    host_vf_link_manager: Option<HostVfLinkManager>,
     last_ovs_restart_version: Option<String>,
     ovs_restart_retry_backoff: Option<OvsRestartRetryBackoff>,
 }
@@ -783,6 +786,17 @@ impl MainLoop {
                     // the loop_period sleep is interrupted so we will fetch new network config
                 }
                 _ = tokio::time::sleep(result.loop_period) => {}
+            }
+        }
+    }
+
+    async fn get_or_init_vf_link_manager(&mut self) -> eyre::Result<&mut HostVfLinkManager> {
+        match &mut self.host_vf_link_manager {
+            Some(manager) => Ok(manager),
+            slot @ None => {
+                let manager = slot.insert(HostVfLinkManager::init_for_dpu_os().await?);
+                tracing::info!("Loaded host VF link mapping");
+                Ok(manager)
             }
         }
     }
