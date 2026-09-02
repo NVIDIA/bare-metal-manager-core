@@ -5181,6 +5181,179 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
         );
     }
 
+    /// Capture tracing WARN events emitted during a closure.
+    /// Uses a per-call dispatcher so parallel tests don't interfere.
+    fn capture_warnings(f: impl FnOnce()) -> Vec<String> {
+        use std::sync::{Arc, Mutex};
+        use tracing::Level;
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = Arc::clone(&captured);
+
+        struct WarnCapture(Arc<Mutex<Vec<String>>>);
+
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for WarnCapture {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _ctx: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                if *event.metadata().level() != Level::WARN {
+                    return;
+                }
+                struct Visitor(String);
+                impl tracing::field::Visit for Visitor {
+                    fn record_debug(
+                        &mut self,
+                        field: &tracing::field::Field,
+                        value: &dyn std::fmt::Debug,
+                    ) {
+                        if field.name() == "message" {
+                            self.0 = format!("{value:?}").trim_matches('"').to_string();
+                        }
+                    }
+                    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                        if field.name() == "message" {
+                            self.0 = value.to_string();
+                        }
+                    }
+                }
+                let mut v = Visitor(String::new());
+                event.record(&mut v);
+                self.0.lock().unwrap().push(v.0);
+            }
+        }
+
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(WarnCapture(captured_clone)),
+            f,
+        );
+        Arc::try_unwrap(captured).unwrap().into_inner().unwrap()
+    }
+
+    #[test]
+    fn logs_collector_ignored_subsection_warnings() {
+        // periodic mode + auto: warn about auto
+        let warnings = capture_warnings(|| {
+            LogsCollectorConfig {
+                mode: LogCollectionMode::Periodic,
+                periodic: Some(PeriodicLogConfig::default()),
+                auto: Some(AutoModeConfig::default()),
+                ..LogsCollectorConfig::default()
+            }
+            .validate()
+            .unwrap();
+        });
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.auto]") && w.contains("periodic")),
+            "expected auto-ignored warning in periodic mode, got: {warnings:?}"
+        );
+
+        // periodic mode + sse: warn about sse
+        let warnings = capture_warnings(|| {
+            LogsCollectorConfig {
+                mode: LogCollectionMode::Periodic,
+                periodic: Some(PeriodicLogConfig::default()),
+                sse: Some(SseLogConfig::default()),
+                ..LogsCollectorConfig::default()
+            }
+            .validate()
+            .unwrap();
+        });
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.sse]") && w.contains("periodic")),
+            "expected sse-ignored warning in periodic mode, got: {warnings:?}"
+        );
+
+        // periodic mode + auto + sse: warn about both
+        let warnings = capture_warnings(|| {
+            LogsCollectorConfig {
+                mode: LogCollectionMode::Periodic,
+                periodic: Some(PeriodicLogConfig::default()),
+                auto: Some(AutoModeConfig::default()),
+                sse: Some(SseLogConfig::default()),
+                ..LogsCollectorConfig::default()
+            }
+            .validate()
+            .unwrap();
+        });
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.auto]") && w.contains("periodic")),
+            "expected auto warning in periodic+auto+sse: {warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.sse]") && w.contains("periodic")),
+            "expected sse warning in periodic+auto+sse: {warnings:?}"
+        );
+
+        // SSE mode + auto: warn about auto
+        let warnings = capture_warnings(|| {
+            LogsCollectorConfig {
+                mode: LogCollectionMode::Sse,
+                auto: Some(AutoModeConfig::default()),
+                ..LogsCollectorConfig::default()
+            }
+            .validate()
+            .unwrap();
+        });
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.auto]") && w.contains("sse")),
+            "expected auto-ignored warning in sse mode, got: {warnings:?}"
+        );
+
+        // SSE mode + periodic: warn about periodic
+        let warnings = capture_warnings(|| {
+            LogsCollectorConfig {
+                mode: LogCollectionMode::Sse,
+                periodic: Some(PeriodicLogConfig::default()),
+                ..LogsCollectorConfig::default()
+            }
+            .validate()
+            .unwrap();
+        });
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.periodic]") && w.contains("sse")),
+            "expected periodic-ignored warning in sse mode, got: {warnings:?}"
+        );
+
+        // SSE mode + auto + periodic: warn about both
+        let warnings = capture_warnings(|| {
+            LogsCollectorConfig {
+                mode: LogCollectionMode::Sse,
+                auto: Some(AutoModeConfig::default()),
+                periodic: Some(PeriodicLogConfig::default()),
+                ..LogsCollectorConfig::default()
+            }
+            .validate()
+            .unwrap();
+        });
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.auto]") && w.contains("sse")),
+            "expected auto warning in sse+auto+periodic: {warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[collectors.logs.periodic]") && w.contains("sse")),
+            "expected periodic warning in sse+auto+periodic: {warnings:?}"
+        );
+    }
+
     #[test]
     fn log_config_parsing() {
         scenarios!(run = |toml| {
