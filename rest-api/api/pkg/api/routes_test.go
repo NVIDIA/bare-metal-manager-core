@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	apiHandler "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -76,7 +77,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"task":                      3,
 		"rule":                      5,
 		"run":                       8,
-		"domain":                    8,
+		"domain":                    9,
 		"rack":                      13,
 		"tray":                      9,
 		"stats":                     4,
@@ -176,8 +177,11 @@ func TestNewAPIRoutes(t *testing.T) {
 			dnsDomainPath := "/org/:orgName/" + cfg.GetAPIName() + "/domain"
 			assertRouteExists(t, got, http.MethodPost, dnsDomainPath)
 			assertRouteExists(t, got, http.MethodGet, dnsDomainPath)
-			assertRouteExists(t, got, http.MethodGet, dnsDomainPath+"/:id")
-			assertRouteExists(t, got, http.MethodDelete, dnsDomainPath+"/:id")
+			assertRouteExists(t, got, http.MethodGet, dnsDomainPath+"/:domainId")
+			assertRouteHandlerType(t, got, http.MethodPatch, dnsDomainPath+"/:domainId", apiHandler.UpdateDomainHandler{})
+			assertRouteExists(t, got, http.MethodDelete, dnsDomainPath+"/:domainId")
+			assertRouteBefore(t, got, http.MethodPatch, domainPath+"/power", http.MethodPatch, dnsDomainPath+"/:domainId")
+			assertRouteBefore(t, got, http.MethodPatch, domainPath+"/firmware", http.MethodPatch, dnsDomainPath+"/:domainId")
 
 			skuPath := "/org/:orgName/" + cfg.GetAPIName() + "/sku"
 			assertRouteExists(t, got, http.MethodPost, skuPath)
@@ -204,6 +208,19 @@ func assertRouteExists(t *testing.T, routes []Route, method, path string) {
 
 	for _, route := range routes {
 		if route.Method == method && route.Path == path {
+			return
+		}
+	}
+
+	assert.Failf(t, "route not found", "missing %s %s", method, path)
+}
+
+func assertRouteHandlerType(t *testing.T, routes []Route, method, path string, expected any) {
+	t.Helper()
+
+	for _, route := range routes {
+		if route.Method == method && route.Path == path {
+			assert.IsType(t, expected, route.Handler)
 			return
 		}
 	}

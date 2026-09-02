@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
@@ -156,7 +158,7 @@ func TestDomainSQLDAO_Create(t *testing.T) {
 				}
 			}
 			if tc.tx != nil {
-				tc.tx.Commit()
+				require.NoError(t, tc.tx.Commit())
 			}
 
 			if tc.verifyChildSpanner {
@@ -271,20 +273,50 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, domain3)
 
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+	siteA := uuid.New()
+	siteB := uuid.New()
+	ownedControllerDomainID := uuid.New()
+	createOwnedDomain := func(hostname string, tenantID, siteID *uuid.UUID) *Domain {
+		domain, createErr := dsd.Create(ctx, nil, DomainCreateInput{
+			Hostname:           hostname,
+			Org:                "ownership-org",
+			TenantID:           tenantID,
+			SiteID:             siteID,
+			ControllerDomainID: &ownedControllerDomainID,
+			Status:             DomainStatusReady,
+			CreatedBy:          user.ID,
+		})
+		require.NoError(t, createErr)
+		return domain
+	}
+	tenantASiteA := createOwnedDomain("a-a.example.com", &tenantA, &siteA)
+	tenantASiteASecond := createOwnedDomain("a-a.example.com", &tenantA, &siteA)
+	createOwnedDomain("a-b.example.com", &tenantA, &siteB)
+	createOwnedDomain("b-a.example.com", &tenantB, &siteA)
+	legacy := createOwnedDomain("legacy.example.com", nil, nil)
+
+	tiedNameIDs := []string{tenantASiteA.ID.String(), tenantASiteASecond.ID.String()}
+	slices.Sort(tiedNameIDs)
+
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
 		desc               string
 		filter             DomainFilterInput
+		page               paginator.PageInput
 		expectedCnt        int
+		expectedTotal      int
+		expectedIDs        []string
 		expectedError      bool
 		verifyChildSpanner bool
 	}{
 		{
 			desc:               "GetAll with no filters returns objects",
 			filter:             DomainFilterInput{},
-			expectedCnt:        3,
+			expectedCnt:        8,
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -348,15 +380,100 @@ func TestDomainSQLDAO_GetAll(t *testing.T) {
 			expectedCnt:   0,
 			expectedError: false,
 		},
+		{
+			desc:        "tenant ownership filter excludes mixed and legacy rows",
+			filter:      DomainFilterInput{TenantIDs: []uuid.UUID{tenantA}},
+			expectedCnt: 3,
+		},
+		{
+			desc:        "site ownership filter excludes other sites and legacy rows",
+			filter:      DomainFilterInput{SiteIDs: []uuid.UUID{siteA}},
+			expectedCnt: 3,
+		},
+		{
+			desc: "Domain ID combines with tenant and Site filters",
+			filter: DomainFilterInput{
+				DomainIDs: []uuid.UUID{tenantASiteA.ID, legacy.ID},
+				TenantIDs: []uuid.UUID{tenantA},
+				SiteIDs:   []uuid.UUID{siteA},
+			},
+			expectedCnt: 1,
+			expectedIDs: []string{tenantASiteA.ID.String()},
+		},
+		{
+			desc: "pagination returns total before limit",
+			filter: DomainFilterInput{
+				ControllerDomainID: &controllerDomainID,
+			},
+			page:          paginator.PageInput{Offset: cutil.GetPtr(1), Limit: cutil.GetPtr(1)},
+			expectedCnt:   1,
+			expectedTotal: 3,
+		},
+		{
+			desc: "public name order maps to hostname with stable ID tie break",
+			filter: DomainFilterInput{
+				DomainIDs: []uuid.UUID{tenantASiteA.ID, tenantASiteASecond.ID},
+			},
+			page: paginator.PageInput{
+				Limit:   cutil.GetPtr(paginator.TotalLimit),
+				OrderBy: &paginator.OrderBy{Field: "name", Order: paginator.OrderAscending},
+			},
+			expectedCnt: 2,
+			expectedIDs: tiedNameIDs,
+		},
+		{
+			desc:   "created order is supported",
+			filter: DomainFilterInput{DomainIDs: []uuid.UUID{tenantASiteA.ID, tenantASiteASecond.ID}},
+			page: paginator.PageInput{
+				Limit:   cutil.GetPtr(paginator.TotalLimit),
+				OrderBy: &paginator.OrderBy{Field: "created", Order: paginator.OrderDescending},
+			},
+			expectedCnt: 2,
+		},
+		{
+			desc:   "updated order is supported",
+			filter: DomainFilterInput{DomainIDs: []uuid.UUID{tenantASiteA.ID, tenantASiteASecond.ID}},
+			page: paginator.PageInput{
+				Limit:   cutil.GetPtr(paginator.TotalLimit),
+				OrderBy: &paginator.OrderBy{Field: "updated", Order: paginator.OrderAscending},
+			},
+			expectedCnt: 2,
+		},
+		{
+			desc:          "invalid order field",
+			page:          paginator.PageInput{OrderBy: &paginator.OrderBy{Field: "status", Order: paginator.OrderAscending}},
+			expectedError: true,
+		},
+		{
+			desc:          "invalid order direction",
+			page:          paginator.PageInput{OrderBy: &paginator.OrderBy{Field: "created", Order: "SIDEWAYS"}},
+			expectedError: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			tmp, err := dsd.GetAll(ctx, nil, tc.filter, nil)
+			page := tc.page
+			if page.Limit == nil {
+				page.Limit = cutil.GetPtr(paginator.TotalLimit)
+			}
+			tmp, total, err := dsd.GetAll(ctx, nil, tc.filter, page, nil)
 			assert.Equal(t, tc.expectedError, err != nil)
 			if tc.expectedError {
-				assert.Equal(t, nil, tmp)
+				assert.Nil(t, tmp)
 			} else {
 				assert.Equal(t, tc.expectedCnt, len(tmp))
+				expectedTotal := tc.expectedCnt
+				if tc.expectedTotal != 0 {
+					expectedTotal = tc.expectedTotal
+				}
+				assert.Equal(t, expectedTotal, total)
+				if tc.expectedIDs != nil {
+					actualIDs := make([]string, 0, len(tmp))
+					for _, domain := range tmp {
+						actualIDs = append(actualIDs, domain.ID.String())
+					}
+					assert.Equal(t, tc.expectedIDs, actualIDs)
+				}
 			}
 
 			if tc.verifyChildSpanner {
@@ -722,57 +839,4 @@ func TestDomainSQLDAO_Delete(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestDomainSQLDAO_OwnershipFilters(t *testing.T) {
-	ctx := context.Background()
-	dbSession := testDomainInitDB(t)
-	defer dbSession.Close()
-	testDomainSetupSchema(t, dbSession)
-	user := testDomainBuildUser(t, dbSession, "ownership-test-user")
-
-	tenantA := uuid.New()
-	tenantB := uuid.New()
-	siteA := uuid.New()
-	siteB := uuid.New()
-	controllerDomainID := uuid.New()
-	domainDAO := NewDomainDAO(dbSession)
-
-	createDomain := func(hostname string, tenantID, siteID *uuid.UUID) *Domain {
-		domain, err := domainDAO.Create(ctx, nil, DomainCreateInput{
-			Hostname:           hostname,
-			Org:                "test-org",
-			TenantID:           tenantID,
-			SiteID:             siteID,
-			ControllerDomainID: &controllerDomainID,
-			Status:             DomainStatusReady,
-			CreatedBy:          user.ID,
-		})
-		require.NoError(t, err)
-		return domain
-	}
-
-	tenantASiteA := createDomain("a-a.example.com", &tenantA, &siteA)
-	createDomain("a-b.example.com", &tenantA, &siteB)
-	createDomain("b-a.example.com", &tenantB, &siteA)
-	legacy := createDomain("legacy.example.com", nil, nil)
-
-	domains, err := domainDAO.GetAll(ctx, nil, DomainFilterInput{TenantIDs: []uuid.UUID{tenantA}}, nil)
-	require.NoError(t, err)
-	require.Len(t, domains, 2)
-
-	domains, err = domainDAO.GetAll(ctx, nil, DomainFilterInput{SiteIDs: []uuid.UUID{siteA}}, nil)
-	require.NoError(t, err)
-	require.Len(t, domains, 2)
-
-	domains, err = domainDAO.GetAll(ctx, nil, DomainFilterInput{
-		DomainIDs: []uuid.UUID{tenantASiteA.ID, legacy.ID},
-		TenantIDs: []uuid.UUID{tenantA},
-		SiteIDs:   []uuid.UUID{siteA},
-	}, nil)
-	require.NoError(t, err)
-	require.Len(t, domains, 1)
-	assert.Equal(t, tenantASiteA.ID, domains[0].ID)
-	assert.Equal(t, &tenantA, domains[0].TenantID)
-	assert.Equal(t, &siteA, domains[0].SiteID)
 }

@@ -792,6 +792,27 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteSubnetHandler(dbSession, tc, scp, cfg),
 		},
+		// NVLink Domain operation endpoints (Flow).
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/power",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewBatchUpdateNVLinkDomainPowerStateHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/firmware",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewBatchUpdateNVLinkDomainFirmwareHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/:id/power",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateNVLinkDomainPowerStateHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/nvlink/:id/firmware",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateNVLinkDomainFirmwareHandler(dbSession, scp),
+		},
 		// DNS Domain endpoints
 		{
 			Path:    apiPathPrefix + "/domain",
@@ -804,12 +825,17 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewGetAllDomainHandler(dbSession),
 		},
 		{
-			Path:    apiPathPrefix + "/domain/:id",
+			Path:    apiPathPrefix + "/domain/:domainId",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetDomainHandler(dbSession),
 		},
 		{
-			Path:    apiPathPrefix + "/domain/:id",
+			Path:    apiPathPrefix + "/domain/:domainId",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateDomainHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/:domainId",
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteDomainHandler(dbSession, scp),
 		},
@@ -1164,27 +1190,6 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/task/run/:id/cancel",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskRunHandler(dbSession, tc, scp, cfg),
-		},
-		// NVLink Domain operation endpoints (Flow).
-		{
-			Path:    apiPathPrefix + "/domain/nvlink/power",
-			Method:  http.MethodPatch,
-			Handler: apiHandler.NewBatchUpdateNVLinkDomainPowerStateHandler(dbSession, scp),
-		},
-		{
-			Path:    apiPathPrefix + "/domain/nvlink/firmware",
-			Method:  http.MethodPatch,
-			Handler: apiHandler.NewBatchUpdateNVLinkDomainFirmwareHandler(dbSession, scp),
-		},
-		{
-			Path:    apiPathPrefix + "/domain/nvlink/:id/power",
-			Method:  http.MethodPatch,
-			Handler: apiHandler.NewUpdateNVLinkDomainPowerStateHandler(dbSession, scp),
-		},
-		{
-			Path:    apiPathPrefix + "/domain/nvlink/:id/firmware",
-			Method:  http.MethodPatch,
-			Handler: apiHandler.NewUpdateNVLinkDomainFirmwareHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/rack",
