@@ -16,6 +16,7 @@
  */
 
 mod batch_instance_allocation_validation;
+mod batch_instance_release;
 mod compute_allocation;
 mod credential_management;
 mod credential_rotation;
