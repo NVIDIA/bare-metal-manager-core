@@ -59,8 +59,7 @@ Or create a REST operating-system definition with a stable disk identifier:
   "imageUrl": "https://cloud-images.ubuntu.com/releases/jammy/release-20260826/ubuntu-22.04-server-cloudimg-amd64.img",
   "imageSha": "<image-sha256>",
   "imageDisk": "/dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT",
-  "rootFsLabel": "cloudimg-rootfs",
-  "isCloudInit": true
+  "rootFsLabel": "cloudimg-rootfs"
 }
 ```
 
@@ -73,8 +72,7 @@ NICo uses the configured filesystem identifiers to locate filesystems after
 the image is written:
 
 - `rootfs_id` or `rootFsId`: root filesystem UUID.
-- `rootfs_label` or `rootFsLabel`: root filesystem label. When neither a root
-  UUID nor label is supplied, NICo uses `cloudimg-rootfs`.
+- `rootfs_label` or `rootFsLabel`: root filesystem label.
 - `bootfs_id` (`--bootfs-id`): optional `/boot` UUID.
 - `efifs_id` (`--efifs-id`): optional EFI filesystem UUID.
 
