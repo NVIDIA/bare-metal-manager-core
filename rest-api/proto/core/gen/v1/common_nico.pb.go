@@ -1614,6 +1614,50 @@ func (*DeviceId_SwitchId) isDeviceId_Value() {}
 
 func (*DeviceId_PowerShelfId) isDeviceId_Value() {}
 
+type VpcRoutingProfileTransitionId struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VpcRoutingProfileTransitionId) Reset() {
+	*x = VpcRoutingProfileTransitionId{}
+	mi := &file_common_nico_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VpcRoutingProfileTransitionId) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VpcRoutingProfileTransitionId) ProtoMessage() {}
+
+func (x *VpcRoutingProfileTransitionId) ProtoReflect() protoreflect.Message {
+	mi := &file_common_nico_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VpcRoutingProfileTransitionId.ProtoReflect.Descriptor instead.
+func (*VpcRoutingProfileTransitionId) Descriptor() ([]byte, []int) {
+	return file_common_nico_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *VpcRoutingProfileTransitionId) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
 var File_common_nico_proto protoreflect.FileDescriptor
 
 const file_common_nico_proto_rawDesc = "" +
@@ -1693,7 +1737,9 @@ const file_common_nico_proto_rawDesc = "" +
 	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdH\x00R\tmachineId\x12/\n" +
 	"\tswitch_id\x18\x02 \x01(\v2\x10.common.SwitchIdH\x00R\bswitchId\x12<\n" +
 	"\x0epower_shelf_id\x18\x03 \x01(\v2\x14.common.PowerShelfIdH\x00R\fpowerShelfIdB\a\n" +
-	"\x05value*\x9e\x02\n" +
+	"\x05value\"5\n" +
+	"\x1dVpcRoutingProfileTransitionId\x12\x14\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value*\x9e\x02\n" +
 	"\x12SystemPowerControl\x12 \n" +
 	"\x1cSYSTEM_POWER_CONTROL_UNKNOWN\x10\x00\x12\x1b\n" +
 	"\x17SYSTEM_POWER_CONTROL_ON\x10\x01\x12*\n" +
@@ -1716,42 +1762,43 @@ func file_common_nico_proto_rawDescGZIP() []byte {
 }
 
 var file_common_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_common_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_common_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_common_nico_proto_goTypes = []any{
-	(SystemPowerControl)(0),          // 0: common.SystemPowerControl
-	(*MachineId)(nil),                // 1: common.MachineId
-	(*MachineIdList)(nil),            // 2: common.MachineIdList
-	(*StringList)(nil),               // 3: common.StringList
-	(*UUID)(nil),                     // 4: common.UUID
-	(*PowerShelfId)(nil),             // 5: common.PowerShelfId
-	(*RackId)(nil),                   // 6: common.RackId
-	(*RackProfileId)(nil),            // 7: common.RackProfileId
-	(*SwitchId)(nil),                 // 8: common.SwitchId
-	(*Uint32List)(nil),               // 9: common.Uint32List
-	(*RouteTarget)(nil),              // 10: common.RouteTarget
-	(*RouteTargets)(nil),             // 11: common.RouteTargets
-	(*DomainId)(nil),                 // 12: common.DomainId
-	(*MachineInterfaceId)(nil),       // 13: common.MachineInterfaceId
-	(*VpcId)(nil),                    // 14: common.VpcId
-	(*VpcPrefixId)(nil),              // 15: common.VpcPrefixId
-	(*SitePrefixId)(nil),             // 16: common.SitePrefixId
-	(*VpcPeeringId)(nil),             // 17: common.VpcPeeringId
-	(*IBPartitionId)(nil),            // 18: common.IBPartitionId
-	(*InstanceId)(nil),               // 19: common.InstanceId
-	(*NetworkSegmentId)(nil),         // 20: common.NetworkSegmentId
-	(*DpaInterfaceId)(nil),           // 21: common.DpaInterfaceId
-	(*NetworkPrefixId)(nil),          // 22: common.NetworkPrefixId
-	(*RemediationId)(nil),            // 23: common.RemediationId
-	(*NVLinkPartitionId)(nil),        // 24: common.NVLinkPartitionId
-	(*NVLinkLogicalPartitionId)(nil), // 25: common.NVLinkLogicalPartitionId
-	(*NVLinkDomainId)(nil),           // 26: common.NVLinkDomainId
-	(*ComputeAllocationId)(nil),      // 27: common.ComputeAllocationId
-	(*SpxPartitionId)(nil),           // 28: common.SpxPartitionId
-	(*OperatingSystemId)(nil),        // 29: common.OperatingSystemId
-	(*IpxeTemplateId)(nil),           // 30: common.IpxeTemplateId
-	(*RackHardwareType)(nil),         // 31: common.RackHardwareType
-	(*MachineValidationId)(nil),      // 32: common.MachineValidationId
-	(*DeviceId)(nil),                 // 33: common.DeviceId
+	(SystemPowerControl)(0),               // 0: common.SystemPowerControl
+	(*MachineId)(nil),                     // 1: common.MachineId
+	(*MachineIdList)(nil),                 // 2: common.MachineIdList
+	(*StringList)(nil),                    // 3: common.StringList
+	(*UUID)(nil),                          // 4: common.UUID
+	(*PowerShelfId)(nil),                  // 5: common.PowerShelfId
+	(*RackId)(nil),                        // 6: common.RackId
+	(*RackProfileId)(nil),                 // 7: common.RackProfileId
+	(*SwitchId)(nil),                      // 8: common.SwitchId
+	(*Uint32List)(nil),                    // 9: common.Uint32List
+	(*RouteTarget)(nil),                   // 10: common.RouteTarget
+	(*RouteTargets)(nil),                  // 11: common.RouteTargets
+	(*DomainId)(nil),                      // 12: common.DomainId
+	(*MachineInterfaceId)(nil),            // 13: common.MachineInterfaceId
+	(*VpcId)(nil),                         // 14: common.VpcId
+	(*VpcPrefixId)(nil),                   // 15: common.VpcPrefixId
+	(*SitePrefixId)(nil),                  // 16: common.SitePrefixId
+	(*VpcPeeringId)(nil),                  // 17: common.VpcPeeringId
+	(*IBPartitionId)(nil),                 // 18: common.IBPartitionId
+	(*InstanceId)(nil),                    // 19: common.InstanceId
+	(*NetworkSegmentId)(nil),              // 20: common.NetworkSegmentId
+	(*DpaInterfaceId)(nil),                // 21: common.DpaInterfaceId
+	(*NetworkPrefixId)(nil),               // 22: common.NetworkPrefixId
+	(*RemediationId)(nil),                 // 23: common.RemediationId
+	(*NVLinkPartitionId)(nil),             // 24: common.NVLinkPartitionId
+	(*NVLinkLogicalPartitionId)(nil),      // 25: common.NVLinkLogicalPartitionId
+	(*NVLinkDomainId)(nil),                // 26: common.NVLinkDomainId
+	(*ComputeAllocationId)(nil),           // 27: common.ComputeAllocationId
+	(*SpxPartitionId)(nil),                // 28: common.SpxPartitionId
+	(*OperatingSystemId)(nil),             // 29: common.OperatingSystemId
+	(*IpxeTemplateId)(nil),                // 30: common.IpxeTemplateId
+	(*RackHardwareType)(nil),              // 31: common.RackHardwareType
+	(*MachineValidationId)(nil),           // 32: common.MachineValidationId
+	(*DeviceId)(nil),                      // 33: common.DeviceId
+	(*VpcRoutingProfileTransitionId)(nil), // 34: common.VpcRoutingProfileTransitionId
 }
 var file_common_nico_proto_depIdxs = []int32{
 	1,  // 0: common.MachineIdList.machine_ids:type_name -> common.MachineId
@@ -1782,7 +1829,7 @@ func file_common_nico_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_nico_proto_rawDesc), len(file_common_nico_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   33,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

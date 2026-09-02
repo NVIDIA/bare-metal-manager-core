@@ -375,6 +375,96 @@ RETURNING allocate.value
     Ok(out)
 }
 
+/// Allocate one exact value from a named pool, including an `auto_assign`
+/// value.
+///
+/// This is an administrative primitive for moving an existing resource to a
+/// preselected value. It deliberately does not change [`allocate`]'s tenant
+/// creation semantics: callers of that function still cannot explicitly
+/// request an auto-assigned value.
+///
+/// The matching row is locked before its state is inspected and remains
+/// locked for the caller's transaction. Concurrent exact claims therefore
+/// serialize, and only one transaction can observe and claim a free value.
+pub async fn allocate_exact<T>(
+    pool: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    owner_type: OwnerType,
+    owner_id: &str,
+    requested_value: T,
+) -> Result<T, ResourcePoolDatabaseError>
+where
+    T: ToString + FromStr + Send + Sync + 'static,
+    <T as FromStr>::Err: std::error::Error,
+{
+    let requested_value = requested_value.to_string();
+    let select_query = "SELECT id, state FROM resource_pool
+        WHERE name = $1 AND value = $2
+        FOR UPDATE";
+    let row: Option<(i64, sqlx::types::Json<ResourcePoolEntryState>)> =
+        sqlx::query_as(select_query)
+            .bind(pool.name())
+            .bind(&requested_value)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|error| DatabaseError::query(select_query, error))?;
+
+    let Some((id, state)) = row else {
+        return Err(DatabaseError::NotFoundError {
+            kind: "resource-pool value",
+            id: format!("{}/{}", pool.name(), requested_value),
+        }
+        .into());
+    };
+
+    if let ResourcePoolEntryState::Allocated {
+        owner,
+        owner_type: allocated_owner_type,
+    } = state.0
+    {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "value `{requested_value}` in resource pool `{}` is already allocated to {allocated_owner_type} `{owner}`",
+            pool.name()
+        ))
+        .into());
+    }
+
+    let free_state = ResourcePoolEntryState::Free;
+    let allocated_state = ResourcePoolEntryState::Allocated {
+        owner: owner_id.to_string(),
+        owner_type: owner_type.to_string(),
+    };
+    let update_query = "UPDATE resource_pool SET
+        state = $1,
+        allocated = NOW()
+        WHERE id = $2 AND state = $3
+        RETURNING value";
+    let allocated: Option<String> = sqlx::query_scalar(update_query)
+        .bind(sqlx::types::Json(&allocated_state))
+        .bind(id)
+        .bind(sqlx::types::Json(&free_state))
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(update_query, error))?;
+    let allocated = allocated.ok_or_else(|| {
+        DatabaseError::FailedPrecondition(format!(
+            "value `{requested_value}` in resource pool `{}` changed while locked",
+            pool.name()
+        ))
+    })?;
+
+    allocated
+        .parse()
+        .map_err(|error: <T as FromStr>::Err| ResourcePoolError::Parse {
+            e: error.to_string(),
+            v: allocated,
+            pool_name: pool.name.clone(),
+            owner_type: owner_type.to_string(),
+            owner_id: owner_id.to_string(),
+        })
+        .map_err(Into::into)
+}
+
 /// Returns the value already reserved by one owner in this pool.
 ///
 /// A duplicate reservation is treated as corrupted pool state. Callers cannot
@@ -472,6 +562,76 @@ WHERE name = $2 AND value = $3
         });
         return Err(error);
     }
+    Ok(())
+}
+
+/// Return an exact value to the pool only when it belongs to the supplied
+/// owner.
+///
+/// The row lock and the owner-state predicate make this safe against
+/// concurrent release or reassignment. A missing value, a free value, and a
+/// value owned by somebody else are all errors; none are silently accepted as
+/// a successful no-op.
+pub async fn release_owned<T>(
+    pool: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    value: T,
+    owner_type: OwnerType,
+    owner_id: &str,
+) -> Result<(), DatabaseError>
+where
+    T: ToString + FromStr + Send + Sync + 'static,
+    <T as FromStr>::Err: std::error::Error,
+{
+    let value = value.to_string();
+    let select_query = "SELECT id, state FROM resource_pool
+        WHERE name = $1 AND value = $2
+        FOR UPDATE";
+    let row: Option<(i64, sqlx::types::Json<ResourcePoolEntryState>)> =
+        sqlx::query_as(select_query)
+            .bind(pool.name())
+            .bind(&value)
+            .fetch_optional(&mut *txn)
+            .await
+            .map_err(|error| DatabaseError::query(select_query, error))?;
+
+    let Some((id, state)) = row else {
+        return Err(DatabaseError::NotFoundError {
+            kind: "resource-pool value",
+            id: format!("{}/{}", pool.name(), value),
+        });
+    };
+
+    let allocated_state = ResourcePoolEntryState::Allocated {
+        owner: owner_id.to_string(),
+        owner_type: owner_type.to_string(),
+    };
+    if state.0 != allocated_state {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "value `{value}` in resource pool `{}` is not allocated to {owner_type} `{owner_id}`",
+            pool.name()
+        )));
+    }
+
+    let update_query = "UPDATE resource_pool SET
+        allocated = NULL,
+        state = $1
+        WHERE id = $2 AND state = $3
+        RETURNING id";
+    let released: Option<i64> = sqlx::query_scalar(update_query)
+        .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
+        .bind(id)
+        .bind(sqlx::types::Json(&allocated_state))
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(update_query, error))?;
+    if released.is_none() {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "value `{value}` in resource pool `{}` changed while locked",
+            pool.name()
+        )));
+    }
+
     Ok(())
 }
 
@@ -2063,6 +2223,249 @@ mod tests {
         ));
 
         txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn allocate_exact_claims_auto_assign_value_and_reports_unavailable_values(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+        define(
+            &mut txn,
+            "test-exact-allocate-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 51_000.to_string(),
+                    end: 51_002.to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await?;
+        let pool_handle =
+            ResourcePool::<i64>::new("test-exact-allocate-pool".to_string(), ValueType::Integer);
+
+        assert_eq!(
+            allocate_exact(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-1", 51_000,).await?,
+            51_000
+        );
+        let (state, auto_assign, has_allocation_time): (
+            sqlx::types::Json<ResourcePoolEntryState>,
+            bool,
+            bool,
+        ) = sqlx::query_as(
+            "SELECT state, auto_assign, allocated IS NOT NULL
+             FROM resource_pool WHERE name = $1 AND value = $2",
+        )
+        .bind(pool_handle.name())
+        .bind("51000")
+        .fetch_one(&mut *txn)
+        .await?;
+        assert_eq!(
+            state.0,
+            ResourcePoolEntryState::Allocated {
+                owner: "vpc-1".to_string(),
+                owner_type: OwnerType::Vpc.to_string(),
+            }
+        );
+        assert!(auto_assign, "exact allocation must not alter auto_assign");
+        assert!(has_allocation_time);
+
+        let collision = allocate_exact(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-2", 51_000)
+            .await
+            .expect_err("an allocated value must not be claimed by another owner");
+        assert!(matches!(
+            collision,
+            ResourcePoolDatabaseError::Database(ref error)
+                if matches!(error.as_ref(), DatabaseError::FailedPrecondition(_))
+        ));
+
+        let missing = allocate_exact(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-2", 99_999)
+            .await
+            .expect_err("a value absent from the named pool must not be allocated");
+        assert!(matches!(
+            missing,
+            ResourcePoolDatabaseError::Database(ref error)
+                if matches!(error.as_ref(), DatabaseError::NotFoundError { .. })
+        ));
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn release_owned_requires_the_exact_owner_and_rejects_no_ops(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+        define(
+            &mut txn,
+            "test-owned-release-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 61_000.to_string(),
+                    end: 61_001.to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await?;
+        let pool_handle =
+            ResourcePool::<i64>::new("test-owned-release-pool".to_string(), ValueType::Integer);
+        allocate_exact(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-owner", 61_000).await?;
+
+        let wrong_owner = release_owned(
+            &pool_handle,
+            &mut txn,
+            61_000,
+            OwnerType::Vpc,
+            "different-vpc",
+        )
+        .await
+        .expect_err("a different owner must not release the allocation");
+        assert!(matches!(wrong_owner, DatabaseError::FailedPrecondition(_)));
+        let state: sqlx::types::Json<ResourcePoolEntryState> =
+            sqlx::query_scalar("SELECT state FROM resource_pool WHERE name = $1 AND value = $2")
+                .bind(pool_handle.name())
+                .bind("61000")
+                .fetch_one(&mut *txn)
+                .await?;
+        assert_eq!(
+            state.0,
+            ResourcePoolEntryState::Allocated {
+                owner: "vpc-owner".to_string(),
+                owner_type: OwnerType::Vpc.to_string(),
+            },
+            "a failed owner check must leave the allocation intact"
+        );
+
+        let missing = release_owned(&pool_handle, &mut txn, 99_999, OwnerType::Vpc, "vpc-owner")
+            .await
+            .expect_err("a missing pool value must not be a successful no-op");
+        assert!(matches!(missing, DatabaseError::NotFoundError { .. }));
+
+        release_owned(&pool_handle, &mut txn, 61_000, OwnerType::Vpc, "vpc-owner").await?;
+        let (state, allocation_time_is_null): (sqlx::types::Json<ResourcePoolEntryState>, bool) =
+            sqlx::query_as(
+                "SELECT state, allocated IS NULL
+             FROM resource_pool WHERE name = $1 AND value = $2",
+            )
+            .bind(pool_handle.name())
+            .bind("61000")
+            .fetch_one(&mut *txn)
+            .await?;
+        assert_eq!(state.0, ResourcePoolEntryState::Free);
+        assert!(allocation_time_is_null);
+
+        let already_free =
+            release_owned(&pool_handle, &mut txn, 61_000, OwnerType::Vpc, "vpc-owner")
+                .await
+                .expect_err("releasing an already-free value must not be a successful no-op");
+        assert!(matches!(already_free, DatabaseError::FailedPrecondition(_)));
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn concurrent_exact_claims_have_one_winner(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+        define(
+            &mut txn,
+            "test-concurrent-exact-pool",
+            &ResourcePoolDef {
+                prefix: None,
+                ranges: vec![Range {
+                    start: 71_000.to_string(),
+                    end: 71_001.to_string(),
+                    auto_assign: true,
+                }],
+                pool_type: ResourcePoolType::Integer,
+                delegate_prefix_len: None,
+            },
+        )
+        .await?;
+        txn.commit().await?;
+
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mut tasks = Vec::new();
+        for owner in ["vpc-a", "vpc-b"] {
+            let pool = pool.clone();
+            let barrier = barrier.clone();
+            tasks.push(tokio::spawn(async move {
+                let mut txn = pool.begin().await.expect("begin exact-claim transaction");
+                barrier.wait().await;
+                let pool_handle = ResourcePool::<i64>::new(
+                    "test-concurrent-exact-pool".to_string(),
+                    ValueType::Integer,
+                );
+                let result =
+                    allocate_exact(&pool_handle, &mut txn, OwnerType::Vpc, owner, 71_000).await;
+                if result.is_ok() {
+                    txn.commit().await.expect("commit successful exact claim");
+                } else {
+                    txn.rollback().await.expect("rollback failed exact claim");
+                }
+                (owner, result)
+            }));
+        }
+
+        let outcomes = futures::future::join_all(tasks)
+            .await
+            .into_iter()
+            .map(|outcome| outcome.expect("exact-claim task must not panic"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes.iter().filter(|(_, result)| result.is_ok()).count(),
+            1,
+            "only one transaction may claim the exact row"
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|(_, result)| matches!(
+                    result,
+                    Err(ResourcePoolDatabaseError::Database(error))
+                        if matches!(error.as_ref(), DatabaseError::FailedPrecondition(_))
+                ))
+                .count(),
+            1,
+            "the losing transaction must see the committed allocation"
+        );
+
+        let winning_owner = outcomes
+            .iter()
+            .find_map(|(owner, result)| result.is_ok().then_some(*owner))
+            .expect("one exact claim succeeds");
+        let state: sqlx::types::Json<ResourcePoolEntryState> =
+            sqlx::query_scalar("SELECT state FROM resource_pool WHERE name = $1 AND value = $2")
+                .bind("test-concurrent-exact-pool")
+                .bind("71000")
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(
+            state.0,
+            ResourcePoolEntryState::Allocated {
+                owner: winning_owner.to_string(),
+                owner_type: OwnerType::Vpc.to_string(),
+            }
+        );
+
         Ok(())
     }
 

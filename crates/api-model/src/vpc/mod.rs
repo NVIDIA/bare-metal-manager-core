@@ -16,6 +16,7 @@
  */
 pub mod capability;
 pub mod routing_profile;
+pub mod routing_profile_transition;
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -34,6 +35,10 @@ use carbide_uuid::vpc_peering::VpcPeeringId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 pub use routing_profile::{PrefixFilterPolicyEntry, RouteTargetConfig, VpcRoutingProfileOverrides};
+pub use routing_profile_transition::{
+    NewVpcRoutingProfileTransition, UpdateVpcRoutingProfileTransitionState,
+    VpcRoutingProfileTransition, VpcRoutingProfileTransitionState,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};

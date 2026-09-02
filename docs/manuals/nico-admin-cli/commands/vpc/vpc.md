@@ -42,6 +42,7 @@ Print help (see a summary with -h)
 | Subcommand | Description |
 |---|---|
 | [`show`](./vpc-show.md) | Display VPC information |
+| [`routing-transition`](./vpc-routing-transition.md) | Manage a staged VPC routing-profile and VNI transition |
 | [`set-virtualizer`](./vpc-set-virtualizer.md) |  |
 
 ---

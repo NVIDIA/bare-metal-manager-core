@@ -1079,6 +1079,15 @@ service Forge {
 
   // Secrets management
   rpc ReWrapSecrets(ReWrapSecretsRequest) returns (ReWrapSecretsResponse);
+
+  // Operator-only workflow for moving an FNN VPC between routing-profile VNI
+  // pools while retaining the inactive allocation until dataplane convergence
+  // has been confirmed out of band.
+  rpc BeginVpcRoutingProfileTransition(BeginVpcRoutingProfileTransitionRequest) returns (VpcRoutingProfileTransitionResult);
+  rpc RollbackVpcRoutingProfileTransition(RollbackVpcRoutingProfileTransitionRequest) returns (VpcRoutingProfileTransitionResult);
+  rpc RecutoverVpcRoutingProfileTransition(RecutoverVpcRoutingProfileTransitionRequest) returns (VpcRoutingProfileTransitionResult);
+  rpc FinalizeVpcRoutingProfileTransition(FinalizeVpcRoutingProfileTransitionRequest) returns (VpcRoutingProfileTransitionResult);
+  rpc FindVpcRoutingProfileTransitions(VpcRoutingProfileTransitionSearchFilter) returns (VpcRoutingProfileTransitionList);
 }
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller
@@ -10624,4 +10633,99 @@ enum DpuNvConfigProfile {
   DPU_NV_CONFIG_PROFILE_UNSPECIFIED = 0;
   // Version 1 of the validated GB200/B3240 CPU as Root Complex profile.
   DPU_NV_CONFIG_PROFILE_GB200_B3240_V1 = 1;
+}
+
+// Durable phase of an operator-managed VPC routing-profile transition. A
+// pending transition intentionally owns both its source and target VNI leases.
+enum VpcRoutingProfileTransitionState {
+  VPC_ROUTING_PROFILE_TRANSITION_STATE_UNSPECIFIED = 0;
+  VPC_ROUTING_PROFILE_TRANSITION_STATE_CUTOVER_PENDING_FINALIZE = 1;
+  VPC_ROUTING_PROFILE_TRANSITION_STATE_ROLLBACK_PENDING_FINALIZE = 2;
+  VPC_ROUTING_PROFILE_TRANSITION_STATE_FINALIZED = 3;
+  VPC_ROUTING_PROFILE_TRANSITION_STATE_ROLLED_BACK = 4;
+}
+
+message VpcRoutingProfileTransition {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  common.VpcRoutingProfileTransitionId id = 1;
+  common.VpcId vpc_id = 2;
+  string version = 3;
+  VpcRoutingProfileTransitionState state = 4;
+
+  string source_routing_profile_type = 5;
+  string source_vni_pool = 6;
+  uint32 source_vni = 7;
+  optional uint32 source_requested_vni = 8;
+  optional VpcRoutingProfileOverrides source_routing_profile_overrides = 9;
+
+  string target_routing_profile_type = 10;
+  string target_vni_pool = 11;
+  uint32 target_vni = 12;
+  optional uint32 target_requested_vni = 13;
+  optional VpcRoutingProfileOverrides target_routing_profile_overrides = 14;
+
+  string source_vpc_version = 15;
+  string cutover_vpc_version = 16;
+  optional string rollback_vpc_version = 17;
+  string reason = 18;
+  google.protobuf.Timestamp created = 19;
+  google.protobuf.Timestamp updated = 20;
+  optional google.protobuf.Timestamp completed = 21;
+}
+
+message BeginVpcRoutingProfileTransitionRequest {
+  // Client-generated operation ID. Retrying the same ID and intent is
+  // idempotent; reusing it for a different intent is rejected.
+  common.VpcRoutingProfileTransitionId id = 1;
+  common.VpcId vpc_id = 2;
+  // Required optimistic version of the VPC before the cutover.
+  string if_vpc_version_match = 3;
+  string target_routing_profile_type = 4;
+  // Omit to allocate an available value from the target profile's pool.
+  // A supplied value must exist in that pool and be free unless the explicit
+  // adoption flag names the matching lease already owned by this VPC.
+  optional uint32 target_vni = 5;
+  // The target policy replaces, rather than merges with, the source policy.
+  // Omission restores full inheritance from the target named profile.
+  optional VpcRoutingProfileOverrides target_routing_profile_overrides = 6;
+  string reason = 7;
+  // Explicitly adopt a target-pool lease already owned by this VPC. This is
+  // intended only for recovery of a manually prepared dual-lease state and
+  // requires target_vni to name the exact retained lease.
+  bool adopt_existing_target_allocation = 8;
+}
+
+message RollbackVpcRoutingProfileTransitionRequest {
+  common.VpcRoutingProfileTransitionId id = 1;
+  string if_version_match = 2;
+}
+
+message RecutoverVpcRoutingProfileTransitionRequest {
+  common.VpcRoutingProfileTransitionId id = 1;
+  string if_version_match = 2;
+}
+
+message FinalizeVpcRoutingProfileTransitionRequest {
+  common.VpcRoutingProfileTransitionId id = 1;
+  string if_version_match = 2;
+  // Must be true. Core cannot currently infer VPC-derived dataplane
+  // convergence from agent status, so the operator supplies this assertion.
+  bool convergence_confirmed = 3;
+}
+
+message VpcRoutingProfileTransitionResult {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  VpcRoutingProfileTransition transition = 1;
+  Vpc vpc = 2;
+}
+
+message VpcRoutingProfileTransitionSearchFilter {
+  optional common.VpcRoutingProfileTransitionId id = 1;
+  optional common.VpcId vpc_id = 2;
+  optional bool active_only = 3;
+}
+
+message VpcRoutingProfileTransitionList {
+  option (carbide.codegen.v1.message_derive) = "serde::Serialize";
+  repeated VpcRoutingProfileTransition transitions = 1;
 }

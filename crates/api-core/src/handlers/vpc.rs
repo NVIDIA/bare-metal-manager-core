@@ -178,25 +178,38 @@ pub(crate) async fn update(
 
     let mut txn = api.txn_begin().await?;
 
+    // Serialize every direct VPC mutation with routing-profile transitions.
+    // The transition guard must be checked under the same parent-row lock or
+    // an update could race between the guard and its write.
+    let Some(vpc) = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &vpc_update.id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?
+    .pop() else {
+        return Err(CarbideError::NotFoundError {
+            kind: "Vpc",
+            id: vpc_update.id.to_string(),
+        }
+        .into());
+    };
+    if let Some(transition) =
+        db::vpc_routing_profile_transition::find_active_by_vpc(&mut txn, vpc_update.id).await?
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC `{}` cannot be updated while routing-profile transition `{}` is active",
+            vpc_update.id, transition.id
+        ))
+        .into());
+    }
+
     // Security-group and routing-profile changes both require validation
     // against the VPC's persisted tenant and virtualization type.
     if vpc_update.network_security_group_id.is_some()
         || vpc_update.routing_profile_overrides.is_some()
         || vpc_update.power_resource_group.is_some()
     {
-        let Some(vpc) = db::vpc::find_by(
-            &mut txn,
-            ObjectColumnFilter::One(vpc::IdColumn, &vpc_update.id),
-        )
-        .await?
-        .pop() else {
-            return Err(CarbideError::NotFoundError {
-                kind: "Vpc",
-                id: vpc_update.id.to_string(),
-            }
-            .into());
-        };
-
         // Validate ownership while taking a row lock on the security group.
         if let Some(ref network_security_group_id) = vpc_update.network_security_group_id
             && network_security_group::find_by_ids(
@@ -283,6 +296,15 @@ pub(crate) async fn update_virtualization(
         kind: "vpc",
         id: updater.id.to_string(),
     })?;
+    if let Some(transition) =
+        db::vpc_routing_profile_transition::find_active_by_vpc(&mut txn, updater.id).await?
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC `{}` cannot change virtualization type while routing-profile transition `{}` is active",
+            updater.id, transition.id
+        ))
+        .into());
+    }
     if current_vpc.config.slaac_enabled {
         updater
             .network_virtualization_type
@@ -323,6 +345,16 @@ pub(crate) async fn update_virtualization(
     Ok(Response::new(rpc::VpcUpdateVirtualizationResult {}))
 }
 
+async fn find_owned_vpc_vni(
+    pool: &resource_pool::ResourcePool<i32>,
+    txn: &mut PgConnection,
+    owner_id: &str,
+) -> Result<Option<i32>, CarbideError> {
+    db::resource_pool::find_owned_allocation(pool, txn, resource_pool::OwnerType::Vpc, owner_id)
+        .await
+        .map_err(CarbideError::from)
+}
+
 pub(crate) async fn delete(
     api: &Api,
     request: Request<rpc::VpcDeletionRequest>,
@@ -351,6 +383,38 @@ pub(crate) async fn delete(
         }
         .into());
     }
+    if let Some(transition) =
+        db::vpc_routing_profile_transition::find_active_by_vpc(&mut txn, vpc_id).await?
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC `{vpc_id}` cannot be deleted while routing-profile transition `{}` is active",
+            transition.id
+        ))
+        .into());
+    }
+
+    // A manually prepared target lease has no transition row to explain or
+    // finalize it. Refuse to delete that recovery state rather than releasing
+    // only the current endpoint and orphaning the other allocation.
+    let internal_pool = &api.common_pools.ethernet.pool_vpc_vni;
+    let external_pool = &api.common_pools.ethernet.pool_external_vpc_vni;
+    let owner_id = vpc_id.to_string();
+    let (internal_allocation, external_allocation) = if internal_pool.name() <= external_pool.name()
+    {
+        let internal = find_owned_vpc_vni(internal_pool, txn.as_mut(), &owner_id).await?;
+        let external = find_owned_vpc_vni(external_pool, txn.as_mut(), &owner_id).await?;
+        (internal, external)
+    } else {
+        let external = find_owned_vpc_vni(external_pool, txn.as_mut(), &owner_id).await?;
+        let internal = find_owned_vpc_vni(internal_pool, txn.as_mut(), &owner_id).await?;
+        (internal, external)
+    };
+    if let (Some(internal_vni), Some(external_vni)) = (internal_allocation, external_allocation) {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC `{vpc_id}` owns both internal VNI `{internal_vni}` and external VNI `{external_vni}` without an active transition; adopt the target allocation through a routing-profile transition before deleting the VPC"
+        ))
+        .into());
+    }
 
     let vpc = match db::vpc::try_delete(&mut txn, vpc_id).await? {
         Some(vpc) => vpc,
@@ -366,11 +430,10 @@ pub(crate) async fn delete(
     };
 
     if let Some(vni) = vpc.status.vni {
-        // We can just keep deriving int/ext from the routing profile
-        // because a VPC is not allowed to change its profile after
-        // creation. VPC types that don't carry a routing profile
-        // (ETV, Flat) land in the internal pool on create -- mirror
-        // that here so the VNI is released back to the same pool.
+        // A completed transition leaves exactly the current-profile lease.
+        // Pending transitions and unexplained dual leases were rejected above.
+        // VPC types that don't carry a routing profile (ETV, Flat) land in the
+        // internal pool on create, so mirror that here.
         let internal = match (
             api.runtime_config.fnn.as_ref(),
             vpc.config.routing_profile_type,
@@ -389,17 +452,23 @@ pub(crate) async fn delete(
         };
 
         if internal {
-            db::resource_pool::release(&api.common_pools.ethernet.pool_vpc_vni, &mut txn, vni)
-                .await
-                .map_err(CarbideError::from)?;
+            db::resource_pool::release_owned(
+                &api.common_pools.ethernet.pool_vpc_vni,
+                &mut txn,
+                vni,
+                resource_pool::OwnerType::Vpc,
+                &vpc.id.to_string(),
+            )
+            .await?;
         } else {
-            db::resource_pool::release(
+            db::resource_pool::release_owned(
                 &api.common_pools.ethernet.pool_external_vpc_vni,
                 &mut txn,
                 vni,
+                resource_pool::OwnerType::Vpc,
+                &vpc.id.to_string(),
             )
-            .await
-            .map_err(CarbideError::from)?;
+            .await?;
         }
     }
 
@@ -466,7 +535,7 @@ pub(crate) async fn find_by_ids(
 ///
 /// The effective profile is omitted when routing profiles are unsupported, FNN is disabled, or
 /// the named runtime profile cannot be resolved.
-fn vpc_to_rpc(vpc: model::vpc::Vpc, fnn_config: Option<&FnnConfig>) -> rpc::Vpc {
+pub(super) fn vpc_to_rpc(vpc: model::vpc::Vpc, fnn_config: Option<&FnnConfig>) -> rpc::Vpc {
     let effective_routing_profile = if vpc
         .config
         .network_virtualization_type
@@ -494,7 +563,7 @@ fn vpc_to_rpc(vpc: model::vpc::Vpc, fnn_config: Option<&FnnConfig>) -> rpc::Vpc 
 /// Allocate a value from the vpc vni resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.
-async fn allocate_vpc_vni(
+pub(super) async fn allocate_vpc_vni(
     api: &Api,
     txn: &mut PgConnection,
     owner_id: &str,
@@ -586,16 +655,16 @@ async fn allocate_vpc_vni(
 /// (request + tenant + site FNN config), so we return both as one
 /// value.
 #[derive(Debug)]
-struct ResolvedVpcRouting {
+pub(super) struct ResolvedVpcRouting {
     /// The routing-profile-type name to persist on the VPC. `None`
     /// for VPC types without a NICo-managed data plane, or when
     /// neither the request nor the tenant supplies one.
-    profile_type: Option<String>,
+    pub(super) profile_type: Option<String>,
 
     /// Whether the VPC is "internal" -- drives VNI pool selection
     /// (`vpc-vni` internal pool vs `external-vpc-vni` external pool)
     /// and a couple of downstream behaviors.
-    internal: bool,
+    pub(super) internal: bool,
 }
 
 impl Default for ResolvedVpcRouting {
@@ -628,7 +697,7 @@ impl Default for ResolvedVpcRouting {
 /// This exists as a function so that resolution rules can be
 /// more easily unit-tested directly, vs. as part of a wider
 /// flow.
-fn resolve_vpc_routing(
+pub(super) fn resolve_vpc_routing(
     virt_type: VpcVirtualizationType,
     requested_profile_type: Option<&str>,
     vpc_profile_overrides: Option<&VpcRoutingProfileOverrides>,

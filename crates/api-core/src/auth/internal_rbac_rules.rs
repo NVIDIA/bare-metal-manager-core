@@ -74,6 +74,11 @@ impl InternalRBACRules {
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("BeginVpcRoutingProfileTransition", vec![ForgeAdminCLI]);
+        x.perm("RollbackVpcRoutingProfileTransition", vec![ForgeAdminCLI]);
+        x.perm("RecutoverVpcRoutingProfileTransition", vec![ForgeAdminCLI]);
+        x.perm("FinalizeVpcRoutingProfileTransition", vec![ForgeAdminCLI]);
+        x.perm("FindVpcRoutingProfileTransitions", vec![ForgeAdminCLI]);
         x.perm("CreateSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteSitePrefix", vec![ForgeAdminCLI, SiteAgent]);
@@ -1130,6 +1135,32 @@ mod rbac_rule_tests {
                 None,
             ))],
         ));
+    }
+
+    #[test]
+    fn vpc_routing_profile_transitions_are_operator_only() {
+        let admin = Principal::ExternalUser(ExternalUserInfo::new(
+            None,
+            "nico-admin-cli".to_string(),
+            None,
+        ));
+        let site_agent = Principal::SpiffeServiceIdentifier("elektra-site-agent".to_string());
+        for method in [
+            "BeginVpcRoutingProfileTransition",
+            "RollbackVpcRoutingProfileTransition",
+            "RecutoverVpcRoutingProfileTransition",
+            "FinalizeVpcRoutingProfileTransition",
+            "FindVpcRoutingProfileTransitions",
+        ] {
+            assert!(InternalRBACRules::allowed_from_static(
+                method,
+                std::slice::from_ref(&admin),
+            ));
+            assert!(!InternalRBACRules::allowed_from_static(
+                method,
+                std::slice::from_ref(&site_agent),
+            ));
+        }
     }
 
     #[test]

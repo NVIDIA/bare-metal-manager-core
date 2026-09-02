@@ -511,6 +511,11 @@ const (
 	Forge_GetOperatingSystemCachableIpxeTemplateArtifacts_FullMethodName    = "/forge.Forge/GetOperatingSystemCachableIpxeTemplateArtifacts"
 	Forge_UpdateOperatingSystemCachableIpxeTemplateArtifacts_FullMethodName = "/forge.Forge/UpdateOperatingSystemCachableIpxeTemplateArtifacts"
 	Forge_ReWrapSecrets_FullMethodName                                      = "/forge.Forge/ReWrapSecrets"
+	Forge_BeginVpcRoutingProfileTransition_FullMethodName                   = "/forge.Forge/BeginVpcRoutingProfileTransition"
+	Forge_RollbackVpcRoutingProfileTransition_FullMethodName                = "/forge.Forge/RollbackVpcRoutingProfileTransition"
+	Forge_RecutoverVpcRoutingProfileTransition_FullMethodName               = "/forge.Forge/RecutoverVpcRoutingProfileTransition"
+	Forge_FinalizeVpcRoutingProfileTransition_FullMethodName                = "/forge.Forge/FinalizeVpcRoutingProfileTransition"
+	Forge_FindVpcRoutingProfileTransitions_FullMethodName                   = "/forge.Forge/FindVpcRoutingProfileTransitions"
 )
 
 // ForgeClient is the client API for Forge service.
@@ -1393,6 +1398,14 @@ type ForgeClient interface {
 	UpdateOperatingSystemCachableIpxeTemplateArtifacts(ctx context.Context, in *UpdateOperatingSystemIpxeTemplateArtifactRequest, opts ...grpc.CallOption) (*IpxeTemplateArtifactList, error)
 	// Secrets management
 	ReWrapSecrets(ctx context.Context, in *ReWrapSecretsRequest, opts ...grpc.CallOption) (*ReWrapSecretsResponse, error)
+	// Operator-only workflow for moving an FNN VPC between routing-profile VNI
+	// pools while retaining the inactive allocation until dataplane convergence
+	// has been confirmed out of band.
+	BeginVpcRoutingProfileTransition(ctx context.Context, in *BeginVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error)
+	RollbackVpcRoutingProfileTransition(ctx context.Context, in *RollbackVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error)
+	RecutoverVpcRoutingProfileTransition(ctx context.Context, in *RecutoverVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error)
+	FinalizeVpcRoutingProfileTransition(ctx context.Context, in *FinalizeVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error)
+	FindVpcRoutingProfileTransitions(ctx context.Context, in *VpcRoutingProfileTransitionSearchFilter, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionList, error)
 }
 
 type forgeClient struct {
@@ -6293,6 +6306,56 @@ func (c *forgeClient) ReWrapSecrets(ctx context.Context, in *ReWrapSecretsReques
 	return out, nil
 }
 
+func (c *forgeClient) BeginVpcRoutingProfileTransition(ctx context.Context, in *BeginVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VpcRoutingProfileTransitionResult)
+	err := c.cc.Invoke(ctx, Forge_BeginVpcRoutingProfileTransition_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) RollbackVpcRoutingProfileTransition(ctx context.Context, in *RollbackVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VpcRoutingProfileTransitionResult)
+	err := c.cc.Invoke(ctx, Forge_RollbackVpcRoutingProfileTransition_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) RecutoverVpcRoutingProfileTransition(ctx context.Context, in *RecutoverVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VpcRoutingProfileTransitionResult)
+	err := c.cc.Invoke(ctx, Forge_RecutoverVpcRoutingProfileTransition_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FinalizeVpcRoutingProfileTransition(ctx context.Context, in *FinalizeVpcRoutingProfileTransitionRequest, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VpcRoutingProfileTransitionResult)
+	err := c.cc.Invoke(ctx, Forge_FinalizeVpcRoutingProfileTransition_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindVpcRoutingProfileTransitions(ctx context.Context, in *VpcRoutingProfileTransitionSearchFilter, opts ...grpc.CallOption) (*VpcRoutingProfileTransitionList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VpcRoutingProfileTransitionList)
+	err := c.cc.Invoke(ctx, Forge_FindVpcRoutingProfileTransitions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ForgeServer is the server API for Forge service.
 // All implementations should embed UnimplementedForgeServer
 // for forward compatibility.
@@ -7173,6 +7236,14 @@ type ForgeServer interface {
 	UpdateOperatingSystemCachableIpxeTemplateArtifacts(context.Context, *UpdateOperatingSystemIpxeTemplateArtifactRequest) (*IpxeTemplateArtifactList, error)
 	// Secrets management
 	ReWrapSecrets(context.Context, *ReWrapSecretsRequest) (*ReWrapSecretsResponse, error)
+	// Operator-only workflow for moving an FNN VPC between routing-profile VNI
+	// pools while retaining the inactive allocation until dataplane convergence
+	// has been confirmed out of band.
+	BeginVpcRoutingProfileTransition(context.Context, *BeginVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error)
+	RollbackVpcRoutingProfileTransition(context.Context, *RollbackVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error)
+	RecutoverVpcRoutingProfileTransition(context.Context, *RecutoverVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error)
+	FinalizeVpcRoutingProfileTransition(context.Context, *FinalizeVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error)
+	FindVpcRoutingProfileTransitions(context.Context, *VpcRoutingProfileTransitionSearchFilter) (*VpcRoutingProfileTransitionList, error)
 }
 
 // UnimplementedForgeServer should be embedded to have
@@ -8645,6 +8716,21 @@ func (UnimplementedForgeServer) UpdateOperatingSystemCachableIpxeTemplateArtifac
 }
 func (UnimplementedForgeServer) ReWrapSecrets(context.Context, *ReWrapSecretsRequest) (*ReWrapSecretsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReWrapSecrets not implemented")
+}
+func (UnimplementedForgeServer) BeginVpcRoutingProfileTransition(context.Context, *BeginVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method BeginVpcRoutingProfileTransition not implemented")
+}
+func (UnimplementedForgeServer) RollbackVpcRoutingProfileTransition(context.Context, *RollbackVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method RollbackVpcRoutingProfileTransition not implemented")
+}
+func (UnimplementedForgeServer) RecutoverVpcRoutingProfileTransition(context.Context, *RecutoverVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecutoverVpcRoutingProfileTransition not implemented")
+}
+func (UnimplementedForgeServer) FinalizeVpcRoutingProfileTransition(context.Context, *FinalizeVpcRoutingProfileTransitionRequest) (*VpcRoutingProfileTransitionResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method FinalizeVpcRoutingProfileTransition not implemented")
+}
+func (UnimplementedForgeServer) FindVpcRoutingProfileTransitions(context.Context, *VpcRoutingProfileTransitionSearchFilter) (*VpcRoutingProfileTransitionList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindVpcRoutingProfileTransitions not implemented")
 }
 func (UnimplementedForgeServer) testEmbeddedByValue() {}
 
@@ -17439,6 +17525,96 @@ func _Forge_ReWrapSecrets_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_BeginVpcRoutingProfileTransition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BeginVpcRoutingProfileTransitionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).BeginVpcRoutingProfileTransition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_BeginVpcRoutingProfileTransition_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).BeginVpcRoutingProfileTransition(ctx, req.(*BeginVpcRoutingProfileTransitionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_RollbackVpcRoutingProfileTransition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackVpcRoutingProfileTransitionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).RollbackVpcRoutingProfileTransition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_RollbackVpcRoutingProfileTransition_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).RollbackVpcRoutingProfileTransition(ctx, req.(*RollbackVpcRoutingProfileTransitionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_RecutoverVpcRoutingProfileTransition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecutoverVpcRoutingProfileTransitionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).RecutoverVpcRoutingProfileTransition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_RecutoverVpcRoutingProfileTransition_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).RecutoverVpcRoutingProfileTransition(ctx, req.(*RecutoverVpcRoutingProfileTransitionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FinalizeVpcRoutingProfileTransition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeVpcRoutingProfileTransitionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FinalizeVpcRoutingProfileTransition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FinalizeVpcRoutingProfileTransition_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FinalizeVpcRoutingProfileTransition(ctx, req.(*FinalizeVpcRoutingProfileTransitionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindVpcRoutingProfileTransitions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VpcRoutingProfileTransitionSearchFilter)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindVpcRoutingProfileTransitions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindVpcRoutingProfileTransitions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindVpcRoutingProfileTransitions(ctx, req.(*VpcRoutingProfileTransitionSearchFilter))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Forge_ServiceDesc is the grpc.ServiceDesc for Forge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -19393,6 +19569,26 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReWrapSecrets",
 			Handler:    _Forge_ReWrapSecrets_Handler,
+		},
+		{
+			MethodName: "BeginVpcRoutingProfileTransition",
+			Handler:    _Forge_BeginVpcRoutingProfileTransition_Handler,
+		},
+		{
+			MethodName: "RollbackVpcRoutingProfileTransition",
+			Handler:    _Forge_RollbackVpcRoutingProfileTransition_Handler,
+		},
+		{
+			MethodName: "RecutoverVpcRoutingProfileTransition",
+			Handler:    _Forge_RecutoverVpcRoutingProfileTransition_Handler,
+		},
+		{
+			MethodName: "FinalizeVpcRoutingProfileTransition",
+			Handler:    _Forge_FinalizeVpcRoutingProfileTransition_Handler,
+		},
+		{
+			MethodName: "FindVpcRoutingProfileTransitions",
+			Handler:    _Forge_FindVpcRoutingProfileTransitions_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

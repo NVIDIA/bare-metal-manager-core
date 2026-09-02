@@ -104,6 +104,7 @@ pub mod vpc;
 pub mod vpc_dpu_loopback;
 pub mod vpc_peering;
 pub mod vpc_prefix;
+pub mod vpc_routing_profile_transition;
 pub mod work_lock_manager;
 
 #[cfg(any(test, feature = "test-support"))]

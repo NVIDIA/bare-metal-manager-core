@@ -240,6 +240,52 @@ pub async fn set_vni(value: &Vpc, txn: &mut PgConnection, vni: i32) -> DatabaseR
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Atomically switches the routing policy and both requested/allocated VNI
+/// representations while advancing the VPC version.
+///
+/// The caller must hold [`VpcRowLock::Mutation`] for this VPC and retain the
+/// transaction through commit. Unlike [`set_vni`], this preserves the
+/// distinction between an explicitly requested VNI and an auto-allocation.
+pub async fn update_routing_profile_and_vni(
+    txn: &mut PgConnection,
+    id: VpcId,
+    expected_version: ConfigVersion,
+    routing_profile_type: &str,
+    routing_profile_overrides: Option<&model::vpc::VpcRoutingProfileOverrides>,
+    requested_vni: Option<i32>,
+    allocated_vni: i32,
+) -> DatabaseResult<Vpc> {
+    let next_version = expected_version.increment();
+    let query = "UPDATE vpcs
+        SET version = $1,
+            routing_profile_type = $2,
+            routing_profile_overrides = $3,
+            vni = $4,
+            status = jsonb_set(status, '{vni}', to_jsonb($5::integer), true),
+            updated = NOW()
+        WHERE id = $6 AND version = $7 AND deleted IS NULL
+        RETURNING *";
+
+    match sqlx::query_as(query)
+        .bind(next_version)
+        .bind(routing_profile_type)
+        .bind(routing_profile_overrides.map(sqlx::types::Json))
+        .bind(requested_vni)
+        .bind(allocated_vni)
+        .bind(id)
+        .bind(expected_version)
+        .fetch_one(txn)
+        .await
+    {
+        Ok(vpc) => Ok(vpc),
+        Err(sqlx::Error::RowNotFound) => Err(DatabaseError::ConcurrentModificationError(
+            "vpc",
+            expected_version.to_string(),
+        )),
+        Err(error) => Err(DatabaseError::query(query, error)),
+    }
+}
+
 pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>, DatabaseError> {
     find_by(txn, ObjectColumnFilter::One(NameColumn, &name)).await
 }

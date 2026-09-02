@@ -34,9 +34,10 @@ Because the VNI feeds directly into the route-target, VNI ranges must be coordin
 network team before a site goes live. VNI ranges for internal and external VPCs must be distinct
 from each other and from any other pool on the site.
 
-The VNI assigned at creation is permanent. A VPC cannot change its routing profile after creation,
-and therefore cannot change which pool it was allocated from. VNI release happens automatically
-when a VPC is deleted.
+The VNI assigned at creation remains stable during ordinary VPC updates. An operator can use the
+staged routing-profile transition workflow to move an FNN VPC to the other profile class and VNI
+pool. That workflow retains both allocations until convergence is confirmed or the change is
+rolled back. Outside an active transition, VNI release happens automatically when a VPC is deleted.
 
 ---
 
@@ -139,21 +140,23 @@ ranges = [{ start = "2024500", end = "2024550" }]
 
 ## Sizing pools
 
-Each VPC consumes exactly one VNI for its entire lifetime. Pool size is therefore equal to the
-maximum number of simultaneously active VPCs of that type that the site must support.
+Each VPC normally consumes one VNI. A staged routing-profile transition temporarily retains the
+source lease while allocating a second lease from the destination pool, so the VPC consumes one
+value in each pool until the transition is finalized or its rollback is finalized.
 
 Use the following approach to determine the required pool size for each pool.
 
 1. Estimate the maximum number of simultaneously active VPCs of each type (internal or external).
-2. Add headroom. A margin of 10–20% is recommended to allow for burst creation without triggering
-   emergency pool-grow operations.
+2. Add headroom for burst creation and the maximum number of concurrent routing-profile
+   transitions into that pool. A general 10–20% margin is recommended in addition to any explicit
+   migration capacity needed by the site's operating plan.
 3. Coordinate the resulting ranges with the network team. VNI values map directly to BGP
    route-targets, so the network team must configure import and export policies that reference the
    same ranges you define in the pool.
 
-The `docs/manuals/networking_requirements.md` document states the general rule: one VNI is
-required per expected VPC. The pools defined here are the mechanism that enforces and tracks that
-allocation.
+The `docs/manuals/networking_requirements.md` document states the steady-state rule: one VNI is
+required per expected VPC. The pools defined here enforce and track that allocation, including the
+temporary rollback lease held by an active transition.
 
 **Pool exhaustion.** When a pool is exhausted, VPC creation requests that would draw from that
 pool fail immediately with a resource-exhausted error. No partial allocations occur. The only
@@ -288,10 +291,12 @@ External VPCs will have native route-targets in the form
 `<asn>:<value-from-external-vpc-vni>`. The network team must configure their EVPN policies
 accordingly.
 
-Because VNI allocation is tied to the routing profile at creation time, the routing profile of a
-VPC cannot be changed after it is created. Changing it would require releasing the VNI and
-reallocating from the other pool, which is not supported. If a VPC needs a different routing
-profile, it must be deleted and recreated.
+Because VNI allocation is tied to the routing profile, an ordinary VPC update cannot change its
+profile class or VNI. The operator-only routing-transition workflow can move an FNN VPC between
+the two pools atomically while retaining the old allocation as a rollback point. Exact target
+values must already exist and be free in the destination pool; omitting the value selects an
+available auto-assign entry. See the transition section of the routing-profile manual before using
+this disruptive workflow.
 
 For full details on how routing profiles are configured and resolved, see
 `docs/manuals/vpc/vpc_routing_profiles.md`.

@@ -281,6 +281,22 @@ pub async fn find_by_vpc(
     Ok(container)
 }
 
+/// Find every active or soft-deleted prefix associated with a VPC.
+///
+/// Routing-profile transitions use this fail-closed view because a deleted
+/// prefix continues to reserve its address space until physical removal.
+pub async fn find_by_vpc_including_deleted(
+    txn: &mut PgConnection,
+    vpc_id: VpcId,
+) -> Result<Vec<VpcPrefix>, DatabaseError> {
+    let query = "SELECT * FROM network_vpc_prefixes WHERE vpc_id=$1 ORDER BY prefix, id";
+    sqlx::query_as(query)
+        .bind(vpc_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
+}
+
 // Find all prefixes associated with any VPC in the list.
 pub async fn find_by_vpcs(
     txn: &mut PgConnection,

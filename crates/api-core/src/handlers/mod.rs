@@ -100,6 +100,7 @@ mod utils;
 pub(super) mod vpc;
 pub(super) mod vpc_peering;
 pub(super) mod vpc_prefix;
+pub(super) mod vpc_routing_profile_transition;
 
 #[cfg(test)]
 pub(crate) async fn resolve_machine_interface_for_test(

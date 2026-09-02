@@ -144,6 +144,86 @@ Each tenant may have a `routing_profile_type`. In a production site, this serves
 
 For this reason, tenant configuration and API server routing profile configuration must be managed together.
 
+## Changing an Existing VPC's Routing Profile and VNI
+
+The operator-only routing-transition workflow moves an existing FNN VPC between an internal and an external routing profile without deleting the VPC. The destination profile must exist, be permitted by the tenant's access tier, and map to the opposite VNI pool through its `internal` setting. A transition between two profiles backed by the same pool is rejected.
+
+Beginning a transition performs one database transaction that:
+
+1. Locks the VPC and validates its current profile, VNI, and resource-pool ownership.
+2. Allocates a target VNI from `vpc-vni` or `external-vpc-vni`. An exact `--vni` must exist in that target pool and be free; when omitted, Core selects an available auto-assign value.
+3. Revalidates any existing tenant prefix overlaps against the destination profile and VNI.
+4. Updates the VPC's named profile, profile overrides, requested VNI, allocated VNI, and config version.
+5. Records a durable transition operation while deliberately retaining both VNI leases.
+
+The retained source lease is the rollback boundary. It is not released automatically when the database transaction commits or when an agent first requests new configuration. Core cannot currently prove that every affected DPU has applied VPC-derived configuration, so finalization requires an operator assertion after out-of-band convergence checks.
+
+The workflow does not allocate a public address, create or modify a network
+security group, change tenant prefixes or instance addresses, or configure the
+external fabric. Those prerequisites and access policies remain separate
+operator responsibilities; the VPC's existing security-group attachment is
+preserved.
+
+### Required deployment preflight
+
+Do not begin a transition until all of these conditions are true:
+
+- Every Core API replica is running a version that supports routing transitions. An older replica does not enforce the active-transition mutation guards and may accept an unsafe VPC update or deletion. Do not roll Core back while any transition is active.
+- Every DPU in the VPC, and every DPU in a directly peered VPC, runs an agent version containing commit `0f345e474a` or later. That change fingerprints the full rendered network response, including peer VNIs. Older peer agents may not notice that the transitioned VPC's VNI changed. If upgrading is impossible, explicitly force and verify HBN reconciliation on all peer DPUs before finalizing.
+- The target VNI is provisioned in the external network when the site's network design requires that preparation.
+- The operator has inventoried the VPC's instances, DPU placement, VPC peerings, expected BGP sessions, and a test traffic path. Convergence confirmation must cover both the changed VPC and its peered VPCs.
+- Every existing VPC peering has an explicit retain-or-remove decision. A
+  routing-profile transition does not delete peering records; a retained
+  peering can continue importing the directly peered VPC's routes even when
+  one endpoint becomes external.
+
+### CLI workflow
+
+Start a cutover with automatic allocation:
+
+```bash
+nico-admin-cli --cloud-unsafe-op=my_username vpc routing-transition begin \
+    12345678-1234-5678-90ab-cdef01234567 EXTERNAL \
+    --reason 'approved routing-profile migration'
+```
+
+Supply `--vni 51000` to request an exact target value. The CLI prints the client-generated transition operation ID before making the request; retain that ID so an ambiguous network failure can be retried safely.
+
+Inspect active operations:
+
+```bash
+nico-admin-cli vpc routing-transition show --active-only
+```
+
+If the target does not converge, switch the VPC back to the retained source endpoint:
+
+```bash
+nico-admin-cli --cloud-unsafe-op=my_username vpc routing-transition rollback \
+    abcdef01-2345-6789-abcd-ef0123456789
+```
+
+After diagnosing the problem, the same operation can be cut over again without allocating another VNI:
+
+```bash
+nico-admin-cli --cloud-unsafe-op=my_username vpc routing-transition recutover \
+    abcdef01-2345-6789-abcd-ef0123456789
+```
+
+Only after all affected DPUs and traffic paths have converged, release the inactive lease and make the current endpoint terminal:
+
+```bash
+nico-admin-cli --cloud-unsafe-op=my_username vpc routing-transition finalize \
+    abcdef01-2345-6789-abcd-ef0123456789 --confirm-converged
+```
+
+Finalizing while cut over releases the source lease and records `FINALIZED`. Finalizing while rolled back releases the target lease and records `ROLLED_BACK`. Terminal history remains queryable, while a later hard deletion of the VPC removes its transition history.
+
+The target routing-profile overrides replace the source overrides; they are never merged implicitly. The current CLI omits target overrides and therefore restores full inheritance from the destination named profile. Callers using the gRPC request may provide an explicit target override snapshot. Rollback restores the exact source override snapshot.
+
+Direct VPC updates, virtualization changes, and deletion are rejected while an operation retains both leases. Prefix topology may change while an operation is pending, but rollback and recutover revalidate the destination against the latest tenant-overlap state and can reject an endpoint that has become unsafe.
+
+For recovery from a manually prepared state in which the same VPC already owns one VNI in each pool, use `--adopt-existing-target-allocation` with the matching exact `--vni`. Deleting an unexplained dual-leased VPC is rejected so the inactive allocation cannot be orphaned.
+
 ## Changing a Tenant’s Routing Profile
 
 A tenant's routing profile can only be changed if *the tenant has no active VPCs*. Otherwise, the API server rejects the update.

@@ -215,6 +215,41 @@ impl Forge for Api {
         crate::handlers::vpc::find_by_ids(self, request).await
     }
 
+    async fn begin_vpc_routing_profile_transition(
+        &self,
+        request: Request<rpc::BeginVpcRoutingProfileTransitionRequest>,
+    ) -> Result<Response<rpc::VpcRoutingProfileTransitionResult>, Status> {
+        crate::handlers::vpc_routing_profile_transition::begin(self, request).await
+    }
+
+    async fn rollback_vpc_routing_profile_transition(
+        &self,
+        request: Request<rpc::RollbackVpcRoutingProfileTransitionRequest>,
+    ) -> Result<Response<rpc::VpcRoutingProfileTransitionResult>, Status> {
+        crate::handlers::vpc_routing_profile_transition::rollback(self, request).await
+    }
+
+    async fn recutover_vpc_routing_profile_transition(
+        &self,
+        request: Request<rpc::RecutoverVpcRoutingProfileTransitionRequest>,
+    ) -> Result<Response<rpc::VpcRoutingProfileTransitionResult>, Status> {
+        crate::handlers::vpc_routing_profile_transition::recutover(self, request).await
+    }
+
+    async fn finalize_vpc_routing_profile_transition(
+        &self,
+        request: Request<rpc::FinalizeVpcRoutingProfileTransitionRequest>,
+    ) -> Result<Response<rpc::VpcRoutingProfileTransitionResult>, Status> {
+        crate::handlers::vpc_routing_profile_transition::finalize(self, request).await
+    }
+
+    async fn find_vpc_routing_profile_transitions(
+        &self,
+        request: Request<rpc::VpcRoutingProfileTransitionSearchFilter>,
+    ) -> Result<Response<rpc::VpcRoutingProfileTransitionList>, Status> {
+        crate::handlers::vpc_routing_profile_transition::find(self, request).await
+    }
+
     async fn find_site_prefix_ids(
         &self,
         request: Request<rpc::SitePrefixSearchFilter>,

@@ -15,29 +15,26 @@
  * limitations under the License.
  */
 
-mod create;
-mod routing_transition;
-mod set_virtualizer;
-mod show;
+use crate::typed_uuids::{TypedUuid, UuidSubtype};
 
-// Cross-module re-exports for jump module
-use clap::Parser;
-pub(crate) use show::args::Args as ShowVpc;
-pub(crate) use show::cmd::show;
+/// Marker type for [`VpcRoutingProfileTransitionId`].
+pub struct VpcRoutingProfileTransitionIdMarker;
 
-use crate::cfg::dispatch::Dispatch;
+impl UuidSubtype for VpcRoutingProfileTransitionIdMarker {
+    const TYPE_NAME: &'static str = "VpcRoutingProfileTransitionId";
+}
 
-#[derive(Parser, Debug, Dispatch)]
-pub(crate) enum Cmd {
-    #[clap(about = "Create VPC")]
-    Create(create::Args),
-    #[clap(about = "Display VPC information")]
-    Show(show::Args),
-    #[dispatch]
-    #[clap(
-        subcommand,
-        about = "Manage a staged VPC routing-profile and VNI transition"
-    )]
-    RoutingTransition(routing_transition::Cmd),
-    SetVirtualizer(set_virtualizer::Args),
+/// Identifies one durable VPC routing-profile/VNI transition.
+pub type VpcRoutingProfileTransitionId = TypedUuid<VpcRoutingProfileTransitionIdMarker>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typed_uuid_tests;
+
+    typed_uuid_tests!(
+        VpcRoutingProfileTransitionId,
+        "VpcRoutingProfileTransitionId",
+        "id"
+    );
 }

@@ -41,6 +41,7 @@ pub mod switch;
 pub mod typed_uuids;
 pub mod vpc;
 pub mod vpc_peering;
+pub mod vpc_routing_profile_transition;
 
 /// DbPrimaryUuid is a trait intended for primary keys which
 /// derive the sqlx UUID type. The intent is the db_primary_uuid_name

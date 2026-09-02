@@ -15,18 +15,24 @@
  * limitations under the License.
  */
 
-//! Tenant prefix overlap policy shared by `VpcPrefix` and `NetworkSegment`
-//! handlers.
+//! Tenant prefix overlap policy shared by `VpcPrefix`, `NetworkSegment`, and
+//! VPC routing-profile transition handlers.
+
+use std::collections::HashMap;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_uuid::site_prefix::SitePrefixId;
+use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use model::site_prefix::{
     SitePrefix, SitePrefixAuthority, SitePrefixLifecycleState, SitePrefixRoutingScope,
 };
 use model::vpc::Vpc;
+use model::vpc_prefix::VpcPrefix;
+use sqlx::PgConnection;
 
-use crate::CarbideError;
 use crate::cfg::file::VpcIsolationBehaviorType;
+use crate::{CarbideError, CarbideResult};
 
 const INELIGIBLE_OVERLAP: &str =
     "the requested prefix overlaps address space that is not eligible for reuse";
@@ -51,6 +57,126 @@ pub(super) struct VpcPrefixParticipant<'a> {
     pub(super) vpc: &'a Vpc,
     /// `SitePrefix` referenced by the `VpcPrefix`.
     pub(super) site_prefix: &'a SitePrefix,
+}
+
+/// Prefix and shared SitePrefix locks captured before taking a VPC mutation
+/// lock. The global overlap advisory lock prevents participating prefix
+/// writers from changing this set until the transaction ends.
+pub(super) struct ExistingVpcPrefixOverlapSnapshot {
+    prefixes: Vec<VpcPrefix>,
+    site_prefixes: HashMap<SitePrefixId, SitePrefix>,
+}
+
+/// Load the retained prefixes for a VPC, including soft-deleted rows, and lock
+/// their SitePrefix roots in the same overlap -> SitePrefix -> VPC order used
+/// by VpcPrefix creation.
+pub(super) async fn snapshot_existing_vpc_prefixes(
+    txn: &mut PgConnection,
+    vpc_id: VpcId,
+) -> CarbideResult<ExistingVpcPrefixOverlapSnapshot> {
+    let prefixes = db::vpc_prefix::find_by_vpc_including_deleted(txn, vpc_id).await?;
+    let mut site_prefix_ids = prefixes
+        .iter()
+        .filter_map(|prefix| prefix.site_prefix_id)
+        .collect::<Vec<_>>();
+    site_prefix_ids.sort_unstable();
+    site_prefix_ids.dedup();
+
+    let mut site_prefixes = HashMap::with_capacity(site_prefix_ids.len());
+    for site_prefix_id in site_prefix_ids {
+        if let Some(site_prefix) =
+            db::site_prefix::find_by_id_for_vpc_prefix_attachment(txn, site_prefix_id).await?
+        {
+            site_prefixes.insert(site_prefix_id, site_prefix);
+        }
+    }
+
+    Ok(ExistingVpcPrefixOverlapSnapshot {
+        prefixes,
+        site_prefixes,
+    })
+}
+
+/// Re-evaluate every existing cross-tenant prefix overlap against a candidate
+/// profile/VNI endpoint before that endpoint is persisted.
+pub(super) async fn validate_vpc_candidate(
+    runtime_config: &crate::cfg::file::CarbideConfig,
+    txn: &mut PgConnection,
+    candidate_vpc: &Vpc,
+    snapshot: &ExistingVpcPrefixOverlapSnapshot,
+) -> CarbideResult<()> {
+    for candidate_prefix in &snapshot.prefixes {
+        let overlaps = db::vpc_prefix::probe(candidate_prefix.config.prefix, txn)
+            .await?
+            .into_iter()
+            .filter(|prefix| prefix.vpc_id != candidate_vpc.id)
+            .collect::<Vec<_>>();
+        if overlaps.is_empty() {
+            continue;
+        }
+
+        let Some(candidate_site_prefix) = candidate_prefix
+            .site_prefix_id
+            .and_then(|id| snapshot.site_prefixes.get(&id))
+        else {
+            return Err(overlap_error());
+        };
+        let vpc_ids = overlaps
+            .iter()
+            .map(|prefix| prefix.vpc_id)
+            .collect::<Vec<_>>();
+        let vpcs = db::vpc::find_by(
+            &mut *txn,
+            db::ObjectColumnFilter::List(db::vpc::IdColumn, &vpc_ids),
+        )
+        .await?
+        .into_iter()
+        .map(|vpc| (vpc.id, vpc))
+        .collect::<HashMap<_, _>>();
+        let Some(site_prefix_ids) = overlaps
+            .iter()
+            .map(|prefix| prefix.site_prefix_id)
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Err(overlap_error());
+        };
+        let site_prefixes = db::site_prefix::find_by_ids(&mut *txn, &site_prefix_ids)
+            .await?
+            .into_iter()
+            .map(|site_prefix| (site_prefix.id, site_prefix))
+            .collect::<HashMap<_, _>>();
+
+        for existing_prefix in overlaps {
+            let Some(existing_vpc) = vpcs.get(&existing_prefix.vpc_id) else {
+                return Err(overlap_error());
+            };
+            let Some(existing_site_prefix) = existing_prefix
+                .site_prefix_id
+                .and_then(|id| site_prefixes.get(&id))
+            else {
+                return Err(overlap_error());
+            };
+            if !pair_is_eligible(
+                runtime_config,
+                VpcPrefixParticipant {
+                    prefix: candidate_prefix.config.prefix,
+                    is_deleted: candidate_prefix.deleted.is_some(),
+                    vpc: candidate_vpc,
+                    site_prefix: candidate_site_prefix,
+                },
+                VpcPrefixParticipant {
+                    prefix: existing_prefix.config.prefix,
+                    is_deleted: existing_prefix.deleted.is_some(),
+                    vpc: existing_vpc,
+                    site_prefix: existing_site_prefix,
+                },
+            ) {
+                return Err(overlap_error());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// `contains_prefix` returns whether `parent` contains `child` in the same
@@ -109,6 +235,7 @@ pub(super) fn pair_is_eligible(
             VpcIsolationBehaviorType::MutualIsolation
         )
         || runtime_config.site_global_vpc_vni.is_some()
+        || candidate.is_deleted
         || existing.is_deleted
         || candidate.prefix != existing.prefix
         || candidate.vpc.id == existing.vpc.id
@@ -187,6 +314,7 @@ mod tests {
         CandidateVniMissing,
         ExistingVniMissing,
         SameVni,
+        CandidatePrefixDeleting,
         ExistingPrefixDeleting,
     }
 
@@ -369,6 +497,11 @@ mod tests {
                     expect: false,
                 },
                 Check {
+                    scenario: "candidate VpcPrefix is deleting",
+                    input: Variation::CandidatePrefixDeleting,
+                    expect: false,
+                },
+                Check {
                     scenario: "existing VpcPrefix is deleting",
                     input: Variation::ExistingPrefixDeleting,
                     expect: false,
@@ -383,6 +516,7 @@ mod tests {
                     site_prefix("tenant-a", "10.0.0.0/16".parse().unwrap());
                 let mut existing_site_prefix =
                     site_prefix("tenant-b", "10.0.0.0/16".parse().unwrap());
+                let mut candidate_deleted = false;
                 let mut existing_deleted = false;
 
                 match variation {
@@ -438,6 +572,7 @@ mod tests {
                     Variation::CandidateVniMissing => candidate_vpc.status.vni = None,
                     Variation::ExistingVniMissing => existing_vpc.status.vni = None,
                     Variation::SameVni => existing_vpc.status.vni = candidate_vpc.status.vni,
+                    Variation::CandidatePrefixDeleting => candidate_deleted = true,
                     Variation::ExistingPrefixDeleting => existing_deleted = true,
                 }
 
@@ -445,7 +580,7 @@ mod tests {
                     &config,
                     VpcPrefixParticipant {
                         prefix: candidate_prefix,
-                        is_deleted: false,
+                        is_deleted: candidate_deleted,
                         vpc: &candidate_vpc,
                         site_prefix: &candidate_site_prefix,
                     },

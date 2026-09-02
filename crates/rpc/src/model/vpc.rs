@@ -22,8 +22,8 @@ use config_version::ConfigVersion;
 use model::metadata::{LabelFilter, Metadata};
 use model::vpc::{
     NewVpc, PowerResourceGroupUpdate, PrefixFilterPolicyEntry, RouteTargetConfig, UpdateVpc,
-    UpdateVpcVirtualization, Vpc, VpcPeering, VpcRoutingProfileOverrides, VpcSearchFilter,
-    VpcStatus,
+    UpdateVpcVirtualization, Vpc, VpcPeering, VpcRoutingProfileOverrides,
+    VpcRoutingProfileTransition, VpcRoutingProfileTransitionState, VpcSearchFilter, VpcStatus,
 };
 
 use crate as rpc;
@@ -95,6 +95,55 @@ impl From<VpcStatus> for rpc::forge::VpcStatus {
             vni: src.vni.map(|x| x as u32),
             // The API handler resolves this from the current runtime config.
             effective_routing_profile: None,
+        }
+    }
+}
+
+impl From<VpcRoutingProfileTransitionState> for rpc::forge::VpcRoutingProfileTransitionState {
+    fn from(state: VpcRoutingProfileTransitionState) -> Self {
+        match state {
+            VpcRoutingProfileTransitionState::CutoverPendingFinalize => {
+                Self::CutoverPendingFinalize
+            }
+            VpcRoutingProfileTransitionState::RollbackPendingFinalize => {
+                Self::RollbackPendingFinalize
+            }
+            VpcRoutingProfileTransitionState::Finalized => Self::Finalized,
+            VpcRoutingProfileTransitionState::RolledBack => Self::RolledBack,
+        }
+    }
+}
+
+impl From<VpcRoutingProfileTransition> for rpc::forge::VpcRoutingProfileTransition {
+    fn from(transition: VpcRoutingProfileTransition) -> Self {
+        Self {
+            id: Some(transition.id),
+            vpc_id: Some(transition.vpc_id),
+            version: transition.version.version_string(),
+            state: rpc::forge::VpcRoutingProfileTransitionState::from(transition.state) as i32,
+            source_routing_profile_type: transition.source_routing_profile_type,
+            source_vni_pool: transition.source_pool_name,
+            source_vni: transition.source_vni as u32,
+            source_requested_vni: transition.source_requested_vni.map(|vni| vni as u32),
+            source_routing_profile_overrides: transition
+                .source_routing_profile_overrides
+                .map(Into::into),
+            target_routing_profile_type: transition.target_routing_profile_type,
+            target_vni_pool: transition.target_pool_name,
+            target_vni: transition.target_vni as u32,
+            target_requested_vni: transition.target_requested_vni.map(|vni| vni as u32),
+            target_routing_profile_overrides: transition
+                .target_routing_profile_overrides
+                .map(Into::into),
+            source_vpc_version: transition.source_vpc_version.version_string(),
+            cutover_vpc_version: transition.cutover_vpc_version.version_string(),
+            rollback_vpc_version: transition
+                .rollback_vpc_version
+                .map(|version| version.version_string()),
+            reason: transition.reason,
+            created: Some(transition.created.into()),
+            updated: Some(transition.updated.into()),
+            completed: transition.completed.map(Into::into),
         }
     }
 }
