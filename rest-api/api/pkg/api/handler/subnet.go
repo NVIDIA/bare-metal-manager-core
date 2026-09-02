@@ -1070,6 +1070,17 @@ func (asvh AttachSubnetVpcHandler) Handle(c echo.Context) error {
 		*targetVpc.NetworkVirtualizationType != cdbm.VpcEthernetVirtualizerWithNVUE {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Target VPC must be an Ethernet virtualizer VPC", nil)
 	}
+	sourceVirtualizationType := cdbm.VpcEthernetVirtualizer
+	if subnet.Vpc.NetworkVirtualizationType != nil {
+		sourceVirtualizationType = *subnet.Vpc.NetworkVirtualizationType
+	}
+	targetVirtualizationType := cdbm.VpcEthernetVirtualizer
+	if targetVpc.NetworkVirtualizationType != nil {
+		targetVirtualizationType = *targetVpc.NetworkVirtualizationType
+	}
+	if sourceVirtualizationType != targetVirtualizationType {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Target VPC must use the same network virtualization type as the Subnet source VPC", nil)
+	}
 	if targetVpc.ControllerVpcID == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Target VPC must have a Controller VPC ID", nil)
 	}

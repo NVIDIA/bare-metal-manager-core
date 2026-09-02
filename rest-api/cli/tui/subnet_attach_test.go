@@ -47,6 +47,8 @@ func TestCmdSubnetAttachVPC(t *testing.T) {
 		commandName     string
 		input           string
 		sourceUsage     int
+		sourceMode      string
+		targetMode      string
 		response        string
 		wantErrContains string
 		wantPosts       int
@@ -65,6 +67,27 @@ func TestCmdSubnetAttachVPC(t *testing.T) {
 			sourceUsage: 2,
 			response:    `{"id":"subnet-1","name":"tenant-subnet","vpcId":"vpc-target"}`,
 			wantPosts:   1,
+		},
+		{
+			name:        "same NVUE mode remains eligible",
+			input:       "y\n",
+			sourceUsage: 2,
+			sourceMode:  "ETHERNET_VIRTUALIZER_WITH_NVUE",
+			targetMode:  "ETHERNET_VIRTUALIZER_WITH_NVUE",
+			response:    `{"id":"subnet-1","name":"tenant-subnet","vpcId":"vpc-target"}`,
+			wantPosts:   1,
+		},
+		{
+			name:            "NVUE source rejects Ethernet virtualizer target",
+			sourceUsage:     2,
+			sourceMode:      "ETHERNET_VIRTUALIZER_WITH_NVUE",
+			wantErrContains: "no Target Ready tenant Ethernet virtualizer VPC available",
+		},
+		{
+			name:            "Ethernet virtualizer source rejects NVUE target",
+			sourceUsage:     2,
+			targetMode:      "ETHERNET_VIRTUALIZER_WITH_NVUE",
+			wantErrContains: "no Target Ready tenant Ethernet virtualizer VPC available",
 		},
 		{
 			name:        "cancelled confirmation sends no request",
@@ -96,14 +119,22 @@ func TestCmdSubnetAttachVPC(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			sourceMode := test.sourceMode
+			if sourceMode == "" {
+				sourceMode = "ETHERNET_VIRTUALIZER"
+			}
+			targetMode := test.targetMode
+			if targetMode == "" {
+				targetMode = "ETHERNET_VIRTUALIZER"
+			}
 			var postCount atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/org/acme/nico/vpc":
 					assert.Equal(t, "site-1", r.URL.Query().Get("siteId"))
 					_, err := io.WriteString(w, `[
-						{"id":"vpc-source","name":"source-vpc","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER_WITH_NVUE"},
-						{"id":"vpc-target","name":"target-vpc","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"}
+						{"id":"vpc-source","name":"source-vpc","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"`+sourceMode+`"},
+						{"id":"vpc-target","name":"target-vpc","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"`+targetMode+`"}
 					]`)
 					require.NoError(t, err)
 				case r.Method == http.MethodGet && r.URL.Path == "/v2/org/acme/nico/subnet":

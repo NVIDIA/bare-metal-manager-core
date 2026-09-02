@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -804,16 +805,18 @@ func filterSubnetVPCs(vpcs []NamedItem) []NamedItem {
 // at the Subnet's Site. Empty virtualization type is the server's legacy
 // Ethernet virtualizer representation. excludedVpcID is omitted from target
 // selection so the interactive operation cannot be used as a no-op attachment.
-func filterSubnetAttachVPCs(vpcs []NamedItem, siteID, tenantID, excludedVpcID string) []NamedItem {
+func filterSubnetAttachVPCs(vpcs []NamedItem, siteID, tenantID, excludedVpcID, requiredVirtualizationType string) []NamedItem {
 	filtered := make([]NamedItem, 0, len(vpcs))
 	for _, vpc := range vpcs {
 		if !strings.EqualFold(strings.TrimSpace(vpc.Status), "Ready") {
 			continue
 		}
-		virtualizationType := strings.TrimSpace(vpc.Extra["networkVirtualizationType"])
-		if virtualizationType != "" &&
-			virtualizationType != "ETHERNET_VIRTUALIZER" &&
+		virtualizationType := cmp.Or(strings.TrimSpace(vpc.Extra["networkVirtualizationType"]), "ETHERNET_VIRTUALIZER")
+		if virtualizationType != "ETHERNET_VIRTUALIZER" &&
 			virtualizationType != "ETHERNET_VIRTUALIZER_WITH_NVUE" {
+			continue
+		}
+		if requiredVirtualizationType != "" && virtualizationType != requiredVirtualizationType {
 			continue
 		}
 		if strings.TrimSpace(vpc.Extra["siteId"]) != strings.TrimSpace(siteID) {
@@ -835,7 +838,7 @@ func filterSubnetAttachVPCs(vpcs []NamedItem, siteID, tenantID, excludedVpcID st
 // target VPC. Two acquired IPs are the Subnet's reserved gateway and broadcast
 // addresses; any higher value means the Subnet has workload Interfaces.
 func filterSubnetAttachSources(subnets, vpcs []NamedItem, siteID, tenantID string) []NamedItem {
-	eligibleVPCs := filterSubnetAttachVPCs(vpcs, siteID, tenantID, "")
+	eligibleVPCs := filterSubnetAttachVPCs(vpcs, siteID, tenantID, "", "")
 	eligibleVPCIDs := make(map[string]struct{}, len(eligibleVPCs))
 	for _, vpc := range eligibleVPCs {
 		eligibleVPCIDs[strings.TrimSpace(vpc.ID)] = struct{}{}
@@ -1045,9 +1048,19 @@ func cmdSubnetAttachVPC(s *Session, args []string) error {
 	if err != nil {
 		return fmt.Errorf("fetching vpc: %w", err)
 	}
+	sourceVirtualizationType := ""
+	for _, vpc := range filterSubnetAttachVPCs(vpcs, siteID, tenantID, "", "") {
+		if strings.TrimSpace(vpc.ID) == sourceVpcID {
+			sourceVirtualizationType = cmp.Or(strings.TrimSpace(vpc.Extra["networkVirtualizationType"]), "ETHERNET_VIRTUALIZER")
+			break
+		}
+	}
+	if sourceVirtualizationType == "" {
+		return fmt.Errorf("source VPC for Subnet %s is no longer eligible for attachment", subnet.ID)
+	}
 	target, err := s.Resolver.SelectFromItems(
 		"Target Ready tenant Ethernet virtualizer VPC",
-		filterSubnetAttachVPCs(vpcs, siteID, tenantID, sourceVpcID),
+		filterSubnetAttachVPCs(vpcs, siteID, tenantID, sourceVpcID, sourceVirtualizationType),
 	)
 	if err != nil {
 		return err

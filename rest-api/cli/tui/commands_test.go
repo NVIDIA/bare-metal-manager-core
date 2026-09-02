@@ -1182,15 +1182,18 @@ func TestFilterSubnetAttachVPCs(t *testing.T) {
 		},
 	}
 	tests := []struct {
-		name         string
-		mutate       func(*NamedItem)
-		excludedID   string
-		wantIncluded bool
+		name                       string
+		mutate                     func(*NamedItem)
+		excludedID                 string
+		requiredVirtualizationType string
+		wantIncluded               bool
 	}{
-		{name: "matching Ready tenant Ethernet virtualizer included", wantIncluded: true},
+		{name: "matching Ready tenant Ethernet virtualizer included", requiredVirtualizationType: "ETHERNET_VIRTUALIZER", wantIncluded: true},
 		{name: "pending excluded", mutate: func(vpc *NamedItem) { vpc.Status = "Pending" }},
-		{name: "legacy untyped included", mutate: func(vpc *NamedItem) { delete(vpc.Extra, "networkVirtualizationType") }, wantIncluded: true},
-		{name: "Ethernet virtualizer with NVUE included", mutate: func(vpc *NamedItem) { vpc.Extra["networkVirtualizationType"] = "ETHERNET_VIRTUALIZER_WITH_NVUE" }, wantIncluded: true},
+		{name: "legacy untyped matches Ethernet virtualizer", mutate: func(vpc *NamedItem) { delete(vpc.Extra, "networkVirtualizationType") }, requiredVirtualizationType: "ETHERNET_VIRTUALIZER", wantIncluded: true},
+		{name: "Ethernet virtualizer with NVUE matches same mode", mutate: func(vpc *NamedItem) { vpc.Extra["networkVirtualizationType"] = "ETHERNET_VIRTUALIZER_WITH_NVUE" }, requiredVirtualizationType: "ETHERNET_VIRTUALIZER_WITH_NVUE", wantIncluded: true},
+		{name: "Ethernet virtualizer with NVUE excluded for Ethernet virtualizer source", mutate: func(vpc *NamedItem) { vpc.Extra["networkVirtualizationType"] = "ETHERNET_VIRTUALIZER_WITH_NVUE" }, requiredVirtualizationType: "ETHERNET_VIRTUALIZER"},
+		{name: "Ethernet virtualizer excluded for NVUE source", requiredVirtualizationType: "ETHERNET_VIRTUALIZER_WITH_NVUE"},
 		{name: "FNN excluded", mutate: func(vpc *NamedItem) { vpc.Extra["networkVirtualizationType"] = "FNN" }},
 		{name: "other Site excluded", mutate: func(vpc *NamedItem) { vpc.Extra["siteId"] = "site-2" }},
 		{name: "other Tenant excluded", mutate: func(vpc *NamedItem) { vpc.Extra["tenantId"] = "tenant-2" }},
@@ -1209,7 +1212,7 @@ func TestFilterSubnetAttachVPCs(t *testing.T) {
 			if test.mutate != nil {
 				test.mutate(&vpc)
 			}
-			got := filterSubnetAttachVPCs([]NamedItem{vpc}, "site-1", "tenant-1", test.excludedID)
+			got := filterSubnetAttachVPCs([]NamedItem{vpc}, "site-1", "tenant-1", test.excludedID, test.requiredVirtualizationType)
 			if !test.wantIncluded {
 				assert.Empty(t, got)
 				return

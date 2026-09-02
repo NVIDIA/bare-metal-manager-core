@@ -156,6 +156,69 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			expectProxyRequest: true,
 		},
 		{
+			name: "reassigns between VPCs using the same NVUE mode",
+			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
+				for _, vpc := range []*cdbm.Vpc{fixture.sourceVpc, fixture.targetVpc} {
+					_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
+						VpcID: vpc.ID, NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizerWithNVUE),
+					})
+					require.NoError(t, err)
+				}
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				require.NoError(t, err)
+				return fixture.subnet.ID.String(), string(body), fixture.user
+			},
+			expectedStatus:     http.StatusOK,
+			expectedVpc:        "target",
+			expectProxyRequest: true,
+		},
+		{
+			name: "treats legacy untyped source and target VPCs as Ethernet virtualizers",
+			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
+				_, err := fixture.dbSession.DB.ExecContext(
+					context.Background(),
+					"UPDATE vpc SET network_virtualization_type = NULL WHERE id IN (?, ?)",
+					fixture.sourceVpc.ID,
+					fixture.targetVpc.ID,
+				)
+				require.NoError(t, err)
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				require.NoError(t, err)
+				return fixture.subnet.ID.String(), string(body), fixture.user
+			},
+			expectedStatus:     http.StatusOK,
+			expectedVpc:        "target",
+			expectProxyRequest: true,
+		},
+		{
+			name: "rejects moving an Ethernet virtualizer Subnet to an NVUE VPC",
+			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
+				_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
+					VpcID: fixture.targetVpc.ID, NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizerWithNVUE),
+				})
+				require.NoError(t, err)
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				require.NoError(t, err)
+				return fixture.subnet.ID.String(), string(body), fixture.user
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedVpc:    "source",
+		},
+		{
+			name: "rejects moving an NVUE Subnet to an Ethernet virtualizer VPC",
+			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
+				_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
+					VpcID: fixture.sourceVpc.ID, NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizerWithNVUE),
+				})
+				require.NoError(t, err)
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				require.NoError(t, err)
+				return fixture.subnet.ID.String(), string(body), fixture.user
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedVpc:    "source",
+		},
+		{
 			name: "rejects a Subnet that is not Ready at the Site",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				_, err := cdbm.NewSubnetDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.SubnetUpdateInput{
