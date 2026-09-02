@@ -3,7 +3,7 @@
 ## Overview
 
 As the final step of rack uningestion/decommissioning, the DHCP server must stop
-leasing IP addresses to BMCs whose MAC addresses are marked as ignored. This
+leasing IP addresses to BMCs whose MAC addresses are marked as suppressed. This
 document describes the suppression mechanism added to NICo Core's `DiscoverDhcp`
 RPC to support this.
 
@@ -14,16 +14,16 @@ entirely within Core.
 
 ## Background
 
-When a rack is decommissioned, the BMC MAC addresses for that rack are added to
-the `ignored_bmc_macs` table with `suppress_dhcp = true`. This signals that the
-DHCP server should no longer serve those MACs.
+When a rack is decommissioned, a row is added for each BMC MAC address in that
+rack to the `bmc_suppressions` table with `subsystem = 'dhcp'`. The existence
+of that row signals that the DHCP server should no longer serve the MAC.
 
-The desired behavior per DHCP message type:
+The current behavior per DHCP message type:
 
-| DHCP message | Expected behavior |
+| DHCP message | Behavior |
 |---|---|
-| `DHCPDISCOVER` | Ignore the request and record the suppression acknowledgement |
-| `DHCPREQUEST` | Respond with `DHCPNAK` to signal the BMC to clear its configured IP |
+| `DHCPDISCOVER` | Suppression is acknowledged (`acknowledged_at` is recorded) and the request is refused with no reply sent to the BMC |
+| `DHCPREQUEST` | Suppression is acknowledged and the request is refused with no reply sent to the BMC; **no `DHCPNAK` is sent** (see [Known Limitations](#known-limitations--open-items)) |
 
 ---
 
@@ -36,17 +36,18 @@ The desired behavior per DHCP message type:
 ### What it does
 
 Early in the `DiscoverDhcp` request path, after the MAC address is parsed,
-the handler calls `db::bmc_suppression::acknowledge()`. This function:
+the handler calls `db::bmc_suppression::acknowledge()` on the transaction it
+already holds open. This function:
 
-1. Checks whether the MAC address has an active DHCP suppression entry in
-   `ignored_bmc_macs` (`suppress_dhcp = true`)
-2. If suppressed, atomically records `dhcp_discover_suppressed_at` (the
-   timestamp at which the suppression was acknowledged)
-3. Commits the transaction
-4. Returns `true` to signal that suppression is active
+1. Checks for a `bmc_suppressions` row matching the MAC and
+   `subsystem = 'dhcp'`
+2. If one exists, atomically records `acknowledged_at` (`COALESCE`d so a
+   repeated acknowledgement preserves the first timestamp)
+3. Returns `true` to signal that suppression is active; it does not commit —
+   the caller owns the transaction it was passed
 
-When suppression is active the handler returns `FailedPrecondition` immediately,
-before any lease logic runs:
+The handler commits the transaction and returns `FailedPrecondition`
+immediately, before any lease logic runs:
 
 ```rust
 if db::bmc_suppression::acknowledge(
@@ -63,8 +64,14 @@ if db::bmc_suppression::acknowledge(
 }
 ```
 
-The `FailedPrecondition` response causes the DHCP server to send a `DHCPNAK`,
-which tells the BMC DHCP client to release its IP and return to the `INIT` state.
+The `FailedPrecondition` gRPC status propagates to `dhcp-server`'s controller
+mode as a `DhcpError`. In `process_packet`
+(`crates/dhcp-server/src/packet_handler.rs`), the `?` on the `discover_dhcp`
+call short-circuits before `create_dhcp_reply_packet` ever runs, so no
+`DHCPNAK` — or any reply — is constructed. `main.rs` logs the drop
+(`DhcpPacketDropped`) and returns without sending a packet. The BMC receives no
+signal to release its address or return to `INIT`; see
+[Known Limitations](#known-limitations--open-items).
 
 ### Atomicity
 
@@ -75,13 +82,14 @@ suppression check, so there is no window between checking and recording.
 
 ## Decommission Workflow Integration
 
-The decommission workflow polls `dhcp_discover_suppressed_at` on each BMC's
-suppression record to confirm the BMC DHCP client has received the NAK and
-returned to `INIT` state. Only after this timestamp is set does the workflow
-consider DHCP suppression complete for that BMC.
-
-This polling ensures the decommission sequence does not advance until the BMC
-has actually stopped holding a leased IP address.
+The decommission workflow polls `acknowledged_at` on each BMC's `bmc_suppressions`
+row (`subsystem = 'dhcp'`) to confirm that Core has observed and refused a DHCP
+request from that BMC. This timestamp is written server-side, inside Core's
+`DiscoverDhcp` handler, at the moment Core receives the request — before any
+reply (or lack of one) reaches the BMC. It confirms Core is refusing the BMC's
+DHCP traffic; it does **not** confirm the BMC received a `DHCPNAK`, released
+its address, or returned to `INIT`, since no reply is currently sent at all
+(see [Known Limitations](#known-limitations--open-items)).
 
 ---
 
@@ -100,6 +108,13 @@ flow.
   `DHCPREQUEST` that arrives without a preceding `DHCPDISCOVER` (e.g. on
   network reconnect) will still be served unless the DHCP server independently
   checks suppression status.
-- `suppress_dhcp` must be set on the `ignored_bmc_macs` record before the
-  decommission workflow polls for `dhcp_discover_suppressed_at`; the ordering
-  is the caller's responsibility.
+- No `DHCPNAK` is sent today: a `FailedPrecondition` from `DiscoverDhcp` causes
+  `dhcp-server` to silently drop the packet instead of constructing a reply.
+  The BMC is never told to release its address or return to `INIT` — it
+  simply stops receiving responses and will not renew until its existing
+  lease expires on its own timers. If an explicit `DHCPNAK` is required,
+  `dhcp-server` needs to construct one on this error path instead of dropping
+  the packet.
+- The `bmc_suppressions` row (`subsystem = 'dhcp'`) must exist before the
+  decommission workflow polls for `acknowledged_at`; the ordering is the
+  caller's responsibility.
