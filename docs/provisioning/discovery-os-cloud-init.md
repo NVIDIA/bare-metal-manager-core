@@ -1,8 +1,10 @@
 # Discovery OS cloud-init (Scout) <Badge intent="info">v2.2</Badge>
 
-Scout is the NVIDIA Infra Controller (NICo) discovery OS. During a discovery
-boot, iPXE passes Scout the NoCloud datasource URL
-`/api/v0/cloud-init/scout/`. The PXE service provides `user-data` and
+Scout is the NVIDIA Infra Controller (NICo) discovery OS. PXE exposes Scout's
+NoCloud datasource URL through the internal iPXE variable
+`${scout-cloudinit-url}`. The Scout boot instruction passes it on the kernel
+command line as `ds=nocloud;s=${scout-cloudinit-url}`. The datasource endpoint
+is `/api/v0/cloud-init/scout/`. The PXE service provides `user-data` and
 `meta-data` at this prefix. It does not provide `vendor-data`.
 
 Most sites do not need to customize Scout. The datasource is always available,
