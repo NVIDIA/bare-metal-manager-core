@@ -22,72 +22,68 @@ import (
 	"strings"
 )
 
-// SubnetAPIService SubnetAPI service
-type SubnetAPIService service
+// DomainAPIService DomainAPI service
+type DomainAPIService service
 
-type ApiAttachVpcToSubnetRequest struct {
-	ctx                    context.Context
-	ApiService             *SubnetAPIService
-	org                    string
-	subnetId               string
-	subnetAttachVpcRequest *SubnetAttachVpcRequest
+type ApiCreateDomainRequest struct {
+	ctx                 context.Context
+	ApiService          *DomainAPIService
+	org                 string
+	domainCreateRequest *DomainCreateRequest
 }
 
-func (r ApiAttachVpcToSubnetRequest) SubnetAttachVpcRequest(subnetAttachVpcRequest SubnetAttachVpcRequest) ApiAttachVpcToSubnetRequest {
-	r.subnetAttachVpcRequest = &subnetAttachVpcRequest
+func (r ApiCreateDomainRequest) DomainCreateRequest(domainCreateRequest DomainCreateRequest) ApiCreateDomainRequest {
+	r.domainCreateRequest = &domainCreateRequest
 	return r
 }
 
-func (r ApiAttachVpcToSubnetRequest) Execute() (*Subnet, *http.Response, error) {
-	return r.ApiService.AttachVpcToSubnetExecute(r)
+func (r ApiCreateDomainRequest) Execute() (*Domain, *http.Response, error) {
+	return r.ApiService.CreateDomainExecute(r)
 }
 
 /*
-AttachVpcToSubnet Attach Subnet to VPC
+CreateDomain Create Domain
 
-Attach a Ready, unused tenant Subnet to an Ethernet virtualizer VPC at the same Site. Attaching to the current VPC is idempotent. The operation cannot detach a Subnet or move it across network-virtualization modes.
+Create a tenant-owned DNS Domain at a Site.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param subnetId ID of the Subnet
-	@return ApiAttachVpcToSubnetRequest
+	@return ApiCreateDomainRequest
 */
-func (a *SubnetAPIService) AttachVpcToSubnet(ctx context.Context, org string, subnetId string) ApiAttachVpcToSubnetRequest {
-	return ApiAttachVpcToSubnetRequest{
+func (a *DomainAPIService) CreateDomain(ctx context.Context, org string) ApiCreateDomainRequest {
+	return ApiCreateDomainRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
-		subnetId:   subnetId,
 	}
 }
 
 // Execute executes the request
 //
-//	@return Subnet
-func (a *SubnetAPIService) AttachVpcToSubnetExecute(r ApiAttachVpcToSubnetRequest) (*Subnet, *http.Response, error) {
+//	@return Domain
+func (a *DomainAPIService) CreateDomainExecute(r ApiCreateDomainRequest) (*Domain, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Subnet
+		localVarReturnValue *Domain
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SubnetAPIService.AttachVpcToSubnet")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DomainAPIService.CreateDomain")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/subnet/{subnetId}/attach-vpc"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/domain"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"subnetId"+"}", url.PathEscape(parameterValueToString(r.subnetId, "subnetId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.subnetAttachVpcRequest == nil {
-		return localVarReturnValue, nil, reportError("subnetAttachVpcRequest is required and must be specified")
+	if r.domainCreateRequest == nil {
+		return localVarReturnValue, nil, reportError("domainCreateRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -108,7 +104,7 @@ func (a *SubnetAPIService) AttachVpcToSubnetExecute(r ApiAttachVpcToSubnetReques
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.subnetAttachVpcRequest
+	localVarPostBody = r.domainCreateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -200,191 +196,54 @@ func (a *SubnetAPIService) AttachVpcToSubnetExecute(r ApiAttachVpcToSubnetReques
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiCreateSubnetRequest struct {
-	ctx                 context.Context
-	ApiService          *SubnetAPIService
-	org                 string
-	subnetCreateRequest *SubnetCreateRequest
-}
-
-func (r ApiCreateSubnetRequest) SubnetCreateRequest(subnetCreateRequest SubnetCreateRequest) ApiCreateSubnetRequest {
-	r.subnetCreateRequest = &subnetCreateRequest
-	return r
-}
-
-func (r ApiCreateSubnetRequest) Execute() (*Subnet, *http.Response, error) {
-	return r.ApiService.CreateSubnetExecute(r)
-}
-
-/*
-CreateSubnet Create Subnet
-
-Create a Subnet for the org.
-
-Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
-
-Subnets configure VPCs whose `networkVirtualizationType` is `ETHERNET_VIRTUALIZER` and support IPv4 only. FNN VPCs use VPC Prefixes. `ipv4BlockId` must identify a Ready, tenant-allocated IPv4 IP block.
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@return ApiCreateSubnetRequest
-*/
-func (a *SubnetAPIService) CreateSubnet(ctx context.Context, org string) ApiCreateSubnetRequest {
-	return ApiCreateSubnetRequest{
-		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-	}
-}
-
-// Execute executes the request
-//
-//	@return Subnet
-func (a *SubnetAPIService) CreateSubnetExecute(r ApiCreateSubnetRequest) (*Subnet, *http.Response, error) {
-	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Subnet
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SubnetAPIService.CreateSubnet")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/v2/org/{org}/nico/subnet"
-	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	// body params
-	localVarPostBody = r.subnetCreateRequest
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		if localVarHTTPResponse.StatusCode == 400 {
-			var v NICoAPIError
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
-			return localVarReturnValue, localVarHTTPResponse, newErr
-		}
-		if localVarHTTPResponse.StatusCode == 403 {
-			var v NICoAPIError
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
-type ApiDeleteSubnetRequest struct {
+type ApiDeleteDomainRequest struct {
 	ctx        context.Context
-	ApiService *SubnetAPIService
+	ApiService *DomainAPIService
 	org        string
-	subnetId   string
+	domainId   string
 }
 
-func (r ApiDeleteSubnetRequest) Execute() (*http.Response, error) {
-	return r.ApiService.DeleteSubnetExecute(r)
+func (r ApiDeleteDomainRequest) Execute() (*http.Response, error) {
+	return r.ApiService.DeleteDomainExecute(r)
 }
 
 /*
-DeleteSubnet Delete Subnet
+DeleteDomain Delete Domain
 
-Delete a specific Subnet by ID.
+Delete a tenant-owned DNS Domain by ID.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param subnetId ID of the Subnet
-	@return ApiDeleteSubnetRequest
+	@param domainId ID of the Domain
+	@return ApiDeleteDomainRequest
 */
-func (a *SubnetAPIService) DeleteSubnet(ctx context.Context, org string, subnetId string) ApiDeleteSubnetRequest {
-	return ApiDeleteSubnetRequest{
+func (a *DomainAPIService) DeleteDomain(ctx context.Context, org string, domainId string) ApiDeleteDomainRequest {
+	return ApiDeleteDomainRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
-		subnetId:   subnetId,
+		domainId:   domainId,
 	}
 }
 
 // Execute executes the request
-func (a *SubnetAPIService) DeleteSubnetExecute(r ApiDeleteSubnetRequest) (*http.Response, error) {
+func (a *DomainAPIService) DeleteDomainExecute(r ApiDeleteDomainRequest) (*http.Response, error) {
 	var (
 		localVarHTTPMethod = http.MethodDelete
 		localVarPostBody   interface{}
 		formFiles          []formFile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SubnetAPIService.DeleteSubnet")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DomainAPIService.DeleteDomain")
 	if err != nil {
 		return nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/subnet/{subnetId}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/domain/{domainId}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"subnetId"+"}", url.PathEscape(parameterValueToString(r.subnetId, "subnetId")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"domainId"+"}", url.PathEscape(parameterValueToString(r.domainId, "domainId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -438,6 +297,39 @@ func (a *SubnetAPIService) DeleteSubnetExecute(r ApiDeleteSubnetRequest) (*http.
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 412 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 504 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
 		}
 		return localVarHTTPResponse, newErr
 	}
@@ -445,92 +337,64 @@ func (a *SubnetAPIService) DeleteSubnetExecute(r ApiDeleteSubnetRequest) (*http.
 	return localVarHTTPResponse, nil
 }
 
-type ApiGetAllSubnetRequest struct {
-	ctx               context.Context
-	ApiService        *SubnetAPIService
-	org               string
-	siteId            *string
-	vpcId             *string
-	status            *string
-	query             *string
-	includeRelation   *string
-	includeUsageStats *bool
-	pageNumber        *int32
-	pageSize          *int32
-	orderBy           *string
+type ApiGetAllDomainRequest struct {
+	ctx        context.Context
+	ApiService *DomainAPIService
+	org        string
+	siteId     *string
+	tenantId   *string
+	pageNumber *int32
+	pageSize   *int32
+	orderBy    *string
 }
 
-// Filter subnets by Site, required if the vpcId query parameter is not specified
-func (r ApiGetAllSubnetRequest) SiteId(siteId string) ApiGetAllSubnetRequest {
+// Filter Domains by Site
+func (r ApiGetAllDomainRequest) SiteId(siteId string) ApiGetAllDomainRequest {
 	r.siteId = &siteId
 	return r
 }
 
-// Filter subnets by VPC
-func (r ApiGetAllSubnetRequest) VpcId(vpcId string) ApiGetAllSubnetRequest {
-	r.vpcId = &vpcId
-	return r
-}
-
-// Filter Subnets by Status
-func (r ApiGetAllSubnetRequest) Status(status string) ApiGetAllSubnetRequest {
-	r.status = &status
-	return r
-}
-
-// Search for matches across all Subnets. Input will be matched against name, description, and status fields
-func (r ApiGetAllSubnetRequest) Query(query string) ApiGetAllSubnetRequest {
-	r.query = &query
-	return r
-}
-
-// Related entity to expand
-func (r ApiGetAllSubnetRequest) IncludeRelation(includeRelation string) ApiGetAllSubnetRequest {
-	r.includeRelation = &includeRelation
-	return r
-}
-
-// When true, each Subnet object includes usage statistics using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
-func (r ApiGetAllSubnetRequest) IncludeUsageStats(includeUsageStats bool) ApiGetAllSubnetRequest {
-	r.includeUsageStats = &includeUsageStats
+// ID of the authenticated Tenant that owns the Domains
+func (r ApiGetAllDomainRequest) TenantId(tenantId string) ApiGetAllDomainRequest {
+	r.tenantId = &tenantId
 	return r
 }
 
 // Page number for pagination query
-func (r ApiGetAllSubnetRequest) PageNumber(pageNumber int32) ApiGetAllSubnetRequest {
+func (r ApiGetAllDomainRequest) PageNumber(pageNumber int32) ApiGetAllDomainRequest {
 	r.pageNumber = &pageNumber
 	return r
 }
 
 // Page size for pagination query
-func (r ApiGetAllSubnetRequest) PageSize(pageSize int32) ApiGetAllSubnetRequest {
+func (r ApiGetAllDomainRequest) PageSize(pageSize int32) ApiGetAllDomainRequest {
 	r.pageSize = &pageSize
 	return r
 }
 
 // Ordering for pagination query
-func (r ApiGetAllSubnetRequest) OrderBy(orderBy string) ApiGetAllSubnetRequest {
+func (r ApiGetAllDomainRequest) OrderBy(orderBy string) ApiGetAllDomainRequest {
 	r.orderBy = &orderBy
 	return r
 }
 
-func (r ApiGetAllSubnetRequest) Execute() ([]Subnet, *http.Response, error) {
-	return r.ApiService.GetAllSubnetExecute(r)
+func (r ApiGetAllDomainRequest) Execute() ([]Domain, *http.Response, error) {
+	return r.ApiService.GetAllDomainExecute(r)
 }
 
 /*
-GetAllSubnet Retrieve all Subnets
+GetAllDomain Retrieve all Domains
 
-# Retrieve all Subnets for the org
+Retrieve tenant-owned DNS Domains for the org, optionally confirming the authenticated Tenant ID and filtering by Site. Results are ordered deterministically before pagination, and the `X-Pagination` response header reports the total matching row count.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiGetAllSubnetRequest
+	@return ApiGetAllDomainRequest
 */
-func (a *SubnetAPIService) GetAllSubnet(ctx context.Context, org string) ApiGetAllSubnetRequest {
-	return ApiGetAllSubnetRequest{
+func (a *DomainAPIService) GetAllDomain(ctx context.Context, org string) ApiGetAllDomainRequest {
+	return ApiGetAllDomainRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -539,21 +403,21 @@ func (a *SubnetAPIService) GetAllSubnet(ctx context.Context, org string) ApiGetA
 
 // Execute executes the request
 //
-//	@return []Subnet
-func (a *SubnetAPIService) GetAllSubnetExecute(r ApiGetAllSubnetRequest) ([]Subnet, *http.Response, error) {
+//	@return []Domain
+func (a *DomainAPIService) GetAllDomainExecute(r ApiGetAllDomainRequest) ([]Domain, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []Subnet
+		localVarReturnValue []Domain
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SubnetAPIService.GetAllSubnet")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DomainAPIService.GetAllDomain")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/subnet"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/domain"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -563,20 +427,8 @@ func (a *SubnetAPIService) GetAllSubnetExecute(r ApiGetAllSubnetRequest) ([]Subn
 	if r.siteId != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "siteId", r.siteId, "form", "")
 	}
-	if r.vpcId != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "vpcId", r.vpcId, "form", "")
-	}
-	if r.status != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "status", r.status, "form", "")
-	}
-	if r.query != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "query", r.query, "form", "")
-	}
-	if r.includeRelation != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "includeRelation", r.includeRelation, "form", "")
-	}
-	if r.includeUsageStats != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "includeUsageStats", r.includeUsageStats, "form", "")
+	if r.tenantId != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "tenantId", r.tenantId, "form", "")
 	}
 	if r.pageNumber != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "pageNumber", r.pageNumber, "form", "")
@@ -630,6 +482,17 @@ func (a *SubnetAPIService) GetAllSubnetExecute(r ApiGetAllSubnetRequest) ([]Subn
 			body:  localVarBody,
 			error: localVarHTTPResponse.Status,
 		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
 		if localVarHTTPResponse.StatusCode == 403 {
 			var v NICoAPIError
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
@@ -655,82 +518,62 @@ func (a *SubnetAPIService) GetAllSubnetExecute(r ApiGetAllSubnetRequest) ([]Subn
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiGetSubnetRequest struct {
-	ctx               context.Context
-	ApiService        *SubnetAPIService
-	org               string
-	subnetId          string
-	includeRelation   *string
-	includeUsageStats *bool
+type ApiGetDomainRequest struct {
+	ctx        context.Context
+	ApiService *DomainAPIService
+	org        string
+	domainId   string
 }
 
-// Related entity to expand
-func (r ApiGetSubnetRequest) IncludeRelation(includeRelation string) ApiGetSubnetRequest {
-	r.includeRelation = &includeRelation
-	return r
-}
-
-// When true, each Subnet object includes usage statistics using the same structure as IP Block usage. Prefix and IP usage data is derived by evaluating associated Ethernet interfaces. Each Interface associated with a Subnet consumes a single IP. In addition, one gateway and one broadcast IP address are reserved per Subnet.
-func (r ApiGetSubnetRequest) IncludeUsageStats(includeUsageStats bool) ApiGetSubnetRequest {
-	r.includeUsageStats = &includeUsageStats
-	return r
-}
-
-func (r ApiGetSubnetRequest) Execute() (*Subnet, *http.Response, error) {
-	return r.ApiService.GetSubnetExecute(r)
+func (r ApiGetDomainRequest) Execute() (*Domain, *http.Response, error) {
+	return r.ApiService.GetDomainExecute(r)
 }
 
 /*
-GetSubnet Retrieve Subnet
+GetDomain Retrieve Domain
 
-# Retrieve a specific Subnet
+Retrieve a tenant-owned DNS Domain by ID.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param subnetId ID of the Subnet
-	@return ApiGetSubnetRequest
+	@param domainId ID of the Domain
+	@return ApiGetDomainRequest
 */
-func (a *SubnetAPIService) GetSubnet(ctx context.Context, org string, subnetId string) ApiGetSubnetRequest {
-	return ApiGetSubnetRequest{
+func (a *DomainAPIService) GetDomain(ctx context.Context, org string, domainId string) ApiGetDomainRequest {
+	return ApiGetDomainRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
-		subnetId:   subnetId,
+		domainId:   domainId,
 	}
 }
 
 // Execute executes the request
 //
-//	@return Subnet
-func (a *SubnetAPIService) GetSubnetExecute(r ApiGetSubnetRequest) (*Subnet, *http.Response, error) {
+//	@return Domain
+func (a *DomainAPIService) GetDomainExecute(r ApiGetDomainRequest) (*Domain, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Subnet
+		localVarReturnValue *Domain
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SubnetAPIService.GetSubnet")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DomainAPIService.GetDomain")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/subnet/{subnetId}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/domain/{domainId}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"subnetId"+"}", url.PathEscape(parameterValueToString(r.subnetId, "subnetId")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"domainId"+"}", url.PathEscape(parameterValueToString(r.domainId, "domainId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
-	if r.includeRelation != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "includeRelation", r.includeRelation, "form", "")
-	}
-	if r.includeUsageStats != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "includeUsageStats", r.includeUsageStats, "form", "")
-	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
 
@@ -779,6 +622,17 @@ func (a *SubnetAPIService) GetSubnetExecute(r ApiGetSubnetRequest) (*Subnet, *ht
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -795,67 +649,70 @@ func (a *SubnetAPIService) GetSubnetExecute(r ApiGetSubnetRequest) (*Subnet, *ht
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiUpdateSubnetRequest struct {
+type ApiUpdateDomainRequest struct {
 	ctx                 context.Context
-	ApiService          *SubnetAPIService
+	ApiService          *DomainAPIService
 	org                 string
-	subnetId            string
-	subnetUpdateRequest *SubnetUpdateRequest
+	domainId            string
+	domainUpdateRequest *DomainUpdateRequest
 }
 
-func (r ApiUpdateSubnetRequest) SubnetUpdateRequest(subnetUpdateRequest SubnetUpdateRequest) ApiUpdateSubnetRequest {
-	r.subnetUpdateRequest = &subnetUpdateRequest
+func (r ApiUpdateDomainRequest) DomainUpdateRequest(domainUpdateRequest DomainUpdateRequest) ApiUpdateDomainRequest {
+	r.domainUpdateRequest = &domainUpdateRequest
 	return r
 }
 
-func (r ApiUpdateSubnetRequest) Execute() (*Subnet, *http.Response, error) {
-	return r.ApiService.UpdateSubnetExecute(r)
+func (r ApiUpdateDomainRequest) Execute() (*Domain, *http.Response, error) {
+	return r.ApiService.UpdateDomainExecute(r)
 }
 
 /*
-UpdateSubnet Update Subnet
+UpdateDomain Update Domain
 
-# Update an existing Subnet
+Update the name of a tenant-owned DNS Domain. Ownership, Site, and the internal Core mapping are immutable.
 
 Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param subnetId ID of the Subnet
-	@return ApiUpdateSubnetRequest
+	@param domainId ID of the Domain
+	@return ApiUpdateDomainRequest
 */
-func (a *SubnetAPIService) UpdateSubnet(ctx context.Context, org string, subnetId string) ApiUpdateSubnetRequest {
-	return ApiUpdateSubnetRequest{
+func (a *DomainAPIService) UpdateDomain(ctx context.Context, org string, domainId string) ApiUpdateDomainRequest {
+	return ApiUpdateDomainRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
-		subnetId:   subnetId,
+		domainId:   domainId,
 	}
 }
 
 // Execute executes the request
 //
-//	@return Subnet
-func (a *SubnetAPIService) UpdateSubnetExecute(r ApiUpdateSubnetRequest) (*Subnet, *http.Response, error) {
+//	@return Domain
+func (a *DomainAPIService) UpdateDomainExecute(r ApiUpdateDomainRequest) (*Domain, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPatch
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Subnet
+		localVarReturnValue *Domain
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SubnetAPIService.UpdateSubnet")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DomainAPIService.UpdateDomain")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/subnet/{subnetId}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/domain/{domainId}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"subnetId"+"}", url.PathEscape(parameterValueToString(r.subnetId, "subnetId")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"domainId"+"}", url.PathEscape(parameterValueToString(r.domainId, "domainId")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
+	if r.domainUpdateRequest == nil {
+		return localVarReturnValue, nil, reportError("domainUpdateRequest is required and must be specified")
+	}
 
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{"application/json"}
@@ -875,7 +732,7 @@ func (a *SubnetAPIService) UpdateSubnetExecute(r ApiUpdateSubnetRequest) (*Subne
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.subnetUpdateRequest
+	localVarPostBody = r.domainUpdateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -910,6 +767,39 @@ func (a *SubnetAPIService) UpdateSubnetExecute(r ApiUpdateSubnetRequest) (*Subne
 			return localVarReturnValue, localVarHTTPResponse, newErr
 		}
 		if localVarHTTPResponse.StatusCode == 403 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 412 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 504 {
 			var v NICoAPIError
 			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
 			if err != nil {
