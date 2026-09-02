@@ -9,7 +9,7 @@
   "imageSha": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
   "imageAuthType": null,
   "imageAuthToken": null,
-  "imageDisk": "/dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT",
+  "imageDisk": "/dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT",
   "rootFsId": null,
   "rootFsLabel": "cloudimg-rootfs",
   "ipxeScript": null,

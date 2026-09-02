@@ -20741,7 +20741,7 @@ components:
           imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
-          imageDisk: /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT
+          imageDisk: /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
           isCloudInit: false
           allowOverride: false
@@ -20823,7 +20823,7 @@ components:
             pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
           examples:
             - smallest
-            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Optional whole-disk target that will be overwritten with the image.
             Accepts `smallest`, `/dev/nvme<controller>n<namespace>`,
@@ -20945,7 +20945,7 @@ components:
             pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
           examples:
             - smallest
-            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Optional whole-disk target that will be overwritten with the image.
             Accepts `smallest`, `/dev/nvme<controller>n<namespace>`,

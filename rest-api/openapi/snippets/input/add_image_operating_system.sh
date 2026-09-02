@@ -11,7 +11,7 @@ curl -X POST "https://api.example.com/v2/org/{tenant-org-name}/nico/operating-sy
         "siteIds": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
         "imageUrl": "https://cloud-images.ubuntu.com/releases/jammy/release-20260826/ubuntu-22.04-server-cloudimg-amd64.img",
         "imageSha": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
-        "imageDisk": "/dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT",
+        "imageDisk": "/dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT",
         "rootFsLabel": "cloudimg-rootfs",
         "phoneHomeEnabled": false,
         "allowOverride": false
