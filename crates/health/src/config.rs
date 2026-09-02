@@ -5185,6 +5185,7 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
     /// Uses a per-call dispatcher so parallel tests don't interfere.
     fn capture_warnings(f: impl FnOnce()) -> Vec<String> {
         use std::sync::{Arc, Mutex};
+
         use tracing::Level;
         use tracing_subscriber::layer::SubscriberExt;
 
