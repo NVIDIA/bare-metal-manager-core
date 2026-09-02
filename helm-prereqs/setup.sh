@@ -1854,6 +1854,11 @@ if [[ "${_KC_ENABLED}" == "true" ]]; then
         export KEYCLOAK_DB_HOST="nico-pg-cluster.postgres.svc.cluster.local"
         export KEYCLOAK_DB_NAME="keycloak"
         export KEYCLOAK_DB_USER="keycloak.nico"
+        # nico-pg-cluster's pg_hba.conf requires TLS (see the tls.enabled note
+        # on the Temporal override below) — "require" encrypts the connection.
+        # It does not verify the server certificate/hostname; that needs a
+        # truststore wired to the operator's CA, not done here.
+        export KEYCLOAK_DB_SSLMODE="require"
         export KEYCLOAK_DB_PASSWORD_SECRET_NAME="nico-keycloak-pg-creds"
         export KEYCLOAK_DB_PASSWORD_SECRET_KEY="password"
     fi

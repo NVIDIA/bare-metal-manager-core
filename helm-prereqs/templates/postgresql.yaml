@@ -61,14 +61,16 @@ spec:
     rms.nico: []
     {{- end }}
     {{- if .Values.temporal.enabled }}
-    temporal.nico:
-      - superuser
-      - createdb
+    # No role flags: temporal.nico owns only the temporal/temporal_visibility
+    # databases (databases: below); Temporal's own schema-update job creates
+    # tables/indexes there as the owner and needs nothing wider.
+    temporal.nico: []
     {{- end }}
     {{- if .Values.keycloak.enabled }}
-    keycloak.nico:
-      - superuser
-      - createdb
+    # No role flags: keycloak.nico owns only the keycloak database (databases:
+    # below); Keycloak's own Liquibase migrations create tables there as the
+    # owner and need nothing wider.
+    keycloak.nico: []
     {{- end }}
   databases:
     nico_system_nico: nico-system.nico

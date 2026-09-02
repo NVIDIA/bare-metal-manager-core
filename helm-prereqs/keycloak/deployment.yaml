@@ -31,7 +31,7 @@ spec:
             - name: KC_DB
               value: "postgres"
             - name: KC_DB_URL
-              value: "jdbc:postgresql://${KEYCLOAK_DB_HOST}:5432/${KEYCLOAK_DB_NAME}"
+              value: "jdbc:postgresql://${KEYCLOAK_DB_HOST}:5432/${KEYCLOAK_DB_NAME}?sslmode=${KEYCLOAK_DB_SSLMODE}"
             - name: KC_DB_USERNAME
               value: "${KEYCLOAK_DB_USER}"
             - name: KC_DB_PASSWORD

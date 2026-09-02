@@ -29,6 +29,17 @@ NS="${KEYCLOAK_NS:-nico-rest}"
 : "${KEYCLOAK_DB_USER:=keycloak}"
 export KEYCLOAK_DB_HOST KEYCLOAK_DB_NAME KEYCLOAK_DB_USER
 
+# KEYCLOAK_DB_SSLMODE — postgres.postgres never terminates TLS, so PgJDBC's
+# default sslmode ("prefer") would silently connect in plaintext there;
+# "disable" makes that explicit instead of implicit. nico-pg-cluster's
+# pg_hba.conf requires TLS, so setup.sh's opt-in path exports "require" here.
+# Neither mode validates the server certificate/hostname (that needs a
+# truststore wired to the operator's CA, not done here) — "require" is
+# encrypted-but-unauthenticated, an improvement over the legacy path's plain
+# TLS negotiation, not full verification.
+: "${KEYCLOAK_DB_SSLMODE:=disable}"
+export KEYCLOAK_DB_SSLMODE
+
 kubectl create namespace "${NS}" 2>/dev/null || true
 
 if [[ "${KEYCLOAK_DB_HOST}" == "postgres.postgres" ]]; then
@@ -75,7 +86,7 @@ echo "  Deploying Keycloak (quay.io/keycloak/keycloak:24.0)..."
 kubectl apply -n "${NS}" \
     -f "${SCRIPT_DIR}/realm-configmap.yaml" \
     -f "${SCRIPT_DIR}/service.yaml"
-envsubst '${KEYCLOAK_DB_HOST} ${KEYCLOAK_DB_NAME} ${KEYCLOAK_DB_USER} ${KEYCLOAK_DB_PASSWORD_SECRET_NAME} ${KEYCLOAK_DB_PASSWORD_SECRET_KEY}' \
+envsubst '${KEYCLOAK_DB_HOST} ${KEYCLOAK_DB_NAME} ${KEYCLOAK_DB_USER} ${KEYCLOAK_DB_SSLMODE} ${KEYCLOAK_DB_PASSWORD_SECRET_NAME} ${KEYCLOAK_DB_PASSWORD_SECRET_KEY}' \
     < "${SCRIPT_DIR}/deployment.yaml" | kubectl apply -n "${NS}" -f -
 
 echo "  Waiting for Keycloak to be ready..."

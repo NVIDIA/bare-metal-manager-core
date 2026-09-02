@@ -1048,35 +1048,66 @@ EOF
             -l cluster-name=nico-pg-cluster,spilo-role=master \
             -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 
+        # Fails closed: an unreadable legacy count, a missing target database,
+        # or an unreadable target count are all treated as "cannot rule out
+        # data loss" and raise an ERROR — not silently skipped as "nothing to
+        # migrate". In particular, flipping the toggle and running setup.sh
+        # directly (skipping the documented `helmfile sync -l name=nico-prereqs`
+        # step) means the target database genuinely doesn't exist yet at this
+        # point — that's exactly the case this check exists to catch, not a
+        # reason to wave it through.
         _check_db_migration_needed() {
             local _label="$1" _db="$2" _count_query="$3" _script_hint="$4"
 
             [[ -n "${_LEGACY_PG_POD}" && -n "${_NICO_PG_POD}" ]] || return 0
 
-            # Nothing on the legacy side to lose.
             local _legacy_count
-            _legacy_count="$(kubectl exec -n postgres "${_LEGACY_PG_POD}" -- \
-                psql -U postgres -d "${_db}" -tAc "${_count_query}" 2>/dev/null || echo 0)"
-            [[ "${_legacy_count}" =~ ^[0-9]+$ ]] || return 0
+            if ! _legacy_count="$(kubectl exec -n postgres "${_LEGACY_PG_POD}" -- \
+                psql -U postgres -d "${_db}" -tAc "${_count_query}" 2>/dev/null)" \
+                || [[ ! "${_legacy_count}" =~ ^[0-9]+$ ]]; then
+                ERRORS+=("${_label}: could not read a row count from postgres.postgres/${_db} — cannot verify whether ${_db} needs to be migrated before proceeding")
+                return 0
+            fi
+            # Legacy is genuinely empty — nothing to lose, safe to proceed.
             [[ "${_legacy_count}" -gt 0 ]] || return 0
 
-            # Target database doesn't exist on nico-pg-cluster yet — nothing to compare.
-            kubectl exec -n postgres "${_NICO_PG_POD}" -- \
+            if ! kubectl exec -n postgres "${_NICO_PG_POD}" -- \
                 psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${_db}'" 2>/dev/null \
-                | grep -q 1 || return 0
+                | grep -q 1; then
+                ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but the nico-pg-cluster '${_db}' database doesn't exist yet — run 'helmfile sync -l name=nico-prereqs' to provision it, then '${_script_hint}', before re-running setup.sh")
+                return 0
+            fi
 
             local _nico_count
-            _nico_count="$(kubectl exec -n postgres "${_NICO_PG_POD}" -- \
-                psql -U postgres -d "${_db}" -tAc "${_count_query}" 2>/dev/null || echo 0)"
+            if ! _nico_count="$(kubectl exec -n postgres "${_NICO_PG_POD}" -- \
+                psql -U postgres -d "${_db}" -tAc "${_count_query}" 2>/dev/null)" \
+                || [[ ! "${_nico_count}" =~ ^[0-9]+$ ]]; then
+                ERRORS+=("${_label}: could not read a row count from nico-pg-cluster/${_db} — cannot verify the migration completed")
+                return 0
+            fi
 
-            if [[ "${_nico_count}" =~ ^[0-9]+$ && "${_nico_count}" -eq 0 ]]; then
+            if [[ "${_nico_count}" -eq 0 ]]; then
                 ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but nico-pg-cluster/${_db} is empty — run '${_script_hint}' before proceeding, or this data will be orphaned")
             fi
+            # This function communicates findings via ERRORS, not its own
+            # exit code — without this, a false `-eq 0` above (the "all
+            # good" case) would make the function return 1, and since
+            # preflight.sh is sourced into setup.sh's `set -e` shell, a bare
+            # call to this function would silently abort setup.sh entirely.
+            return 0
         }
 
         if [[ "${_TEMPORAL_TOGGLE}" == "true" ]]; then
             _check_db_migration_needed \
                 "temporal.enabled" "temporal" "SELECT count(*) FROM namespaces" \
+                "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
+            # temporal_visibility has its own tables (no namespaces table) —
+            # use schema presence (any tables at all) as the migrated-or-not
+            # signal, so a partial migration (temporal restored,
+            # temporal_visibility not) is caught too.
+            _check_db_migration_needed \
+                "temporal.enabled" "temporal_visibility" \
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
         fi
         if [[ "${_KEYCLOAK_TOGGLE}" == "true" ]]; then

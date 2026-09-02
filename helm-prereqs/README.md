@@ -159,7 +159,7 @@ The tables below summarize the keys that must be set per site.
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
 | `postgresql.storageClass` | `"local-path-persistent"` | No | StorageClass for the nico-prereqs PostgreSQL PVCs. Override through Helm values when using a non-local StorageClass. |
 | `temporal.enabled` | `false` | No | Move Temporal's default/visibility stores onto `nico-pg-cluster` instead of the legacy standalone `postgres.postgres` StatefulSet. Both targets are supported side by side — see [Consolidating Temporal/Keycloak onto nico-pg-cluster](#consolidating-temporalkeycloak-onto-nico-pg-cluster). |
-| `keycloak.enabled` | `false` | No | Move Keycloak's database onto `nico-pg-cluster` instead of `postgres.postgres`. Distinct from `nico-rest-api.config.keycloak.enabled` in `values/nico-rest.yaml`, which controls whether Keycloak is deployed at all. No-op if Keycloak isn't deployed. |
+| `keycloak.enabled` | `false` | No | Move Keycloak's database onto `nico-pg-cluster` instead of `postgres.postgres`. Distinct from `nico-rest-api.config.keycloak.enabled` in `values/nico-rest.yaml`, which controls whether Keycloak is deployed at all — this toggle provisions the database regardless, so it just goes unused if Keycloak itself isn't deployed. |
 
 ### `values/nico-core.yaml`
 

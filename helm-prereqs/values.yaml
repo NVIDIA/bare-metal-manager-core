@@ -216,8 +216,10 @@ flow:
 ## ---------------------------------------------------------------------------
 temporal:
   enabled: false
-  ## Namespace the Temporal helm release deploys into.
-  namespace: temporal
+  ## No namespace field: Temporal always deploys into the "temporal"
+  ## namespace, hardcoded throughout setup.sh (TLS bootstrap, rollout waits,
+  ## admintools execs) and the vendored temporal-helm namespace.yaml manifest
+  ## — it isn't actually configurable, so this toggle doesn't pretend it is.
 
 ## ---------------------------------------------------------------------------
 ## keycloak — dev OIDC IdP database.
@@ -232,13 +234,20 @@ temporal:
 ## Disabled by default — see temporal.enabled above; the same
 ## opt-in/migration story applies. This is a separate toggle from
 ## `keycloak.enabled` in values/nico-rest.yaml, which controls whether
-## Keycloak itself is deployed at all (setup.sh phase 7d) — this toggle only
-## controls which database it's provisioned against, and is a no-op if
-## Keycloak isn't deployed.
+## Keycloak itself is deployed at all (setup.sh phase 7d). Setting this true
+## provisions the keycloak.nico user/database and ESO credential sync
+## regardless of that other toggle — it does not check whether Keycloak is
+## actually deployed, so enabling it with Keycloak turned off just leaves
+## those resources unused rather than being a no-op.
 ## ---------------------------------------------------------------------------
 keycloak:
   enabled: false
   ## Namespace Keycloak deploys into (KEYCLOAK_NS in keycloak/setup.sh).
+  ## Consumed consistently by setup.sh, this ESO sync, and the migration
+  ## script. NOT propagated automatically to values/nico-rest.yaml's
+  ## nico-rest-api.config.keycloak.baseURL/externalBaseURL (a hand-edited
+  ## site value, not templated) — if you change this from "nico-rest", update
+  ## that hostname to match, or REST won't be able to reach Keycloak.
   namespace: nico-rest
 
 ## ---------------------------------------------------------------------------

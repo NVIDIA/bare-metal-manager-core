@@ -20,9 +20,10 @@
 # shared nico-pg-cluster.
 #
 # This is a stop-the-world dump/restore, not a zero-downtime migration:
-# Temporal and/or Keycloak are scaled to zero for the duration so no writes
-# land on postgres.postgres after the dump is taken. Expect Temporal workflow
-# processing and Keycloak logins to be unavailable while this runs.
+# Temporal and/or Keycloak are scaled to zero for the duration and STAY at
+# zero on success — see "Why workloads stay stopped" below. Expect Temporal
+# workflow processing and Keycloak logins to be unavailable until the
+# follow-up setup.sh run.
 #
 # Prerequisites (this script checks and refuses to proceed otherwise):
 #   1. temporal.enabled and/or keycloak.enabled set true in
@@ -34,9 +35,15 @@
 #   2. The legacy postgres.postgres StatefulSet is still running with the
 #      data to migrate.
 #
-# After this script succeeds, re-run setup.sh: phases 7d/7f detect the
-# enabled toggles and point Temporal/Keycloak at nico-pg-cluster, then scale
-# the workloads back up.
+# Why workloads stay stopped on success: scaling back up here would resume
+# Temporal/Keycloak against their OLD postgres.postgres configuration — they
+# don't repoint to nico-pg-cluster until the next setup.sh run applies that
+# config. Any workflow activity or Keycloak login in that window would write
+# to postgres.postgres and be silently lost once setup.sh switches the
+# endpoint over. So: after a successful restore, this script leaves the
+# workload at zero replicas and re-running setup.sh brings it back up already
+# pointed at nico-pg-cluster. On a FAILED migration, the EXIT trap still
+# restores the original replica count immediately, since nothing was cut over.
 #
 # Usage:
 #   ./migrate-temporal-keycloak-db.sh [--db temporal|keycloak|both] [--dry-run]
@@ -53,6 +60,10 @@ DRY_RUN=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --db)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --db requires a value (temporal, keycloak, or both)" >&2
+                exit 1
+            fi
             DB_TARGET="$2"
             shift 2
             ;;
@@ -181,7 +192,10 @@ _scale_down() {
     done
     if ! "${DRY_RUN}"; then
         for _dep in "${_deployments[@]}"; do
-            kubectl rollout status deploy/"${_dep}" -n "${_ns}" --timeout=120s || true
+            # No `|| true`: a stuck rollout means a pod may still be writing
+            # to postgres.postgres, so let this abort the migration — the
+            # EXIT trap then restores the original replica count.
+            kubectl rollout status deploy/"${_dep}" -n "${_ns}" --timeout=120s
         done
     fi
 }
@@ -196,6 +210,13 @@ _scale_up() {
         _run kubectl scale deploy "${_dep}" -n "${_ns}" --replicas="${_SAVED_REPLICAS["${_ns}/${_dep}"]}"
     done
     unset "_SCALED_GROUPS[${_ns}]"
+}
+
+# Mark a group's migration as successfully complete: stop tracking it (so the
+# EXIT trap won't touch it) WITHOUT scaling it back up — see "Why workloads
+# stay stopped on success" above.
+_disarm_group() {
+    unset "_SCALED_GROUPS[$1]"
 }
 
 # ---------------------------------------------------------------------------
@@ -235,18 +256,26 @@ if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
     _scale_down temporal "${_TEMPORAL_DEPLOYMENTS[@]}"
     _dump_restore_db "temporal" "temporal.nico"
     _dump_restore_db "temporal_visibility" "temporal.nico"
-    _scale_up temporal "${_TEMPORAL_DEPLOYMENTS[@]}"
+    _disarm_group temporal
 fi
 
 if [[ "${DB_TARGET}" == "keycloak" || "${DB_TARGET}" == "both" ]]; then
-    _KEYCLOAK_NS="${KEYCLOAK_NS:-nico-rest}"
+    # values.yaml::keycloak.namespace is the canonical source (matches what
+    # setup.sh and the ESO ClusterExternalSecret target); KEYCLOAK_NS lets an
+    # operator override it explicitly, same as keycloak/setup.sh honors.
+    _KEYCLOAK_NS="${KEYCLOAK_NS:-$(grep -A3 '^keycloak:' "${PREREQS_DIR}/values.yaml" \
+        | grep 'namespace:' | head -1 | awk '{print $2}')}"
+    _KEYCLOAK_NS="${_KEYCLOAK_NS:-nico-rest}"
     _scale_down "${_KEYCLOAK_NS}" keycloak
     _dump_restore_db "keycloak" "keycloak.nico"
-    _scale_up "${_KEYCLOAK_NS}" keycloak
+    _disarm_group "${_KEYCLOAK_NS}"
 fi
 
 echo ""
 echo "=== Migration complete ==="
+echo "Migrated workloads are left at zero replicas — they stay stopped until"
+echo "setup.sh repoints them at nico-pg-cluster, so nothing writes to the"
+echo "already-migrated legacy database in the meantime."
 echo "Next steps:"
 if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
     echo "  - Confirm temporal.enabled: true in ${PREREQS_DIR}/values.yaml"
