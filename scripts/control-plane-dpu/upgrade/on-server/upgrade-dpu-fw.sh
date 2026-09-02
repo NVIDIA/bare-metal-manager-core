@@ -76,8 +76,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # fd 3 initially = terminal (for early die() before log ready);
 # reassigned below to tee so it writes to both log and terminal.
 exec 3>&2
+# Print an error to the console fd and abort.
 die() { echo "ERROR: $*" >&3; exit 1; }
 
+# Print this script's header comment as usage text and exit.
 usage() {
     grep '^#' "$0" | grep -v '#!/' | sed 's/^# \{0,1\}//'
     exit 1
@@ -105,6 +107,7 @@ echo "============================================================" >&3
 echo "  Logging to: $LOG_FILE" >&3
 echo "============================================================" >&3
 
+# Timestamped console log line.
 log() { echo "[$(date '+%H:%M:%S')] $*" >&3; }
 
 # ── Validate working directory ─────────────────────────────────────────────────
@@ -178,6 +181,7 @@ if [[ "$REGEN_CREDENTIALS" != true ]]; then
     for _f in "${_cred_files[@]}"; do
         [[ -f "$_f" ]] && _cred_n=$(( _cred_n + 1 ))
     done
+    # Print the prescriptive recovery commands for unusable credentials.
     _cred_recovery_help() {
         echo "" >&3
         echo "RECOVERY — the provisioning SSH key is unusable, but the DPU password still works:" >&3
@@ -219,6 +223,10 @@ BACKUP_UBUNTU_SHADOW="$SCRIPT_DIR/backup/ubuntu_shadow"
 
 # ── Pre-upgrade backup ─────────────────────────────────────────────────────────
 
+# Save the DPU's live startup.yaml (or stage the operator-provided file),
+# capture the live ubuntu password hash when readable, and record the p0 MAC.
+# Idempotent via the upgradebackup touchfile; nothing destructive runs before
+# this completes.
 upgrade_backup() {
     if [ -f "$TOUCHFILE_UPGRADE_BACKUP" ]; then
         echo "Pre-upgrade backup already completed, skipping. Remove $TOUCHFILE_UPGRADE_BACKUP to force." >&3
@@ -349,6 +357,9 @@ upgrade_backup() {
 # ISO's credentials while keeping SSH-key continuity (no lockout on resume).
 # Uses the path variables defined by the sourced (unchanged) dpuinstall.sh.
 
+# Re-render the prepared bf.cfg from this ISO's template, keeping the existing
+# SSH key and (by default) the DPU's current ubuntu password. No-op after the
+# flash or when no complete credential set exists.
 refresh_prepared_bf_cfg() {
     # After a successful flash the injected config is already on the DPU;
     # leave the resume path untouched.

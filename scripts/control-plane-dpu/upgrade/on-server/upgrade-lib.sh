@@ -9,10 +9,13 @@
 
 # ── MAC helpers ────────────────────────────────────────────────────────────────
 
+# True when the argument is a colon-separated 6-octet MAC address.
 is_valid_mac() { [[ "$1" =~ ^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$ ]]; }
 
+# Lowercase a MAC and strip surrounding whitespace for comparison.
 normalize_mac() { echo "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'; }
 
+# Case- and whitespace-insensitive MAC equality.
 macs_equal() { [ "$(normalize_mac "$1")" = "$(normalize_mac "$2")" ]; }
 
 # Reads `lshw -c network -quiet` output on stdin and prints the MAC address of
@@ -56,6 +59,8 @@ detect_bluefield_p0_mac() {
 
 # ── DPU login for the pre-upgrade backup ──────────────────────────────────────
 
+UPGRADE_SSH_OPTS=()
+
 # Builds UPGRADE_SSH_OPTS (global array) for logging in to the *running* DPU
 # before the upgrade. Two modes:
 #   build_upgrade_ssh_opts key <path-to-private-key>
@@ -67,7 +72,6 @@ detect_bluefield_p0_mac() {
 # (retries, resume) instead of being re-trusted every time. There is
 # deliberately no /dev/null fallback: discarding host keys would let every
 # reconnection trust a fresh, unverified endpoint.
-UPGRADE_SSH_OPTS=()
 build_upgrade_ssh_opts() {
     local mode="$1" key="${2:-}"
     if [ -z "${UPGRADE_KNOWN_HOSTS:-}" ]; then

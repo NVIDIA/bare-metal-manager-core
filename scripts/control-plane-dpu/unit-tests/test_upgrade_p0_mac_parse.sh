@@ -9,6 +9,7 @@ UNIT_TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$UNIT_TEST_DIR/lib.sh"
 source "$UNIT_TEST_DIR/../upgrade/on-server/upgrade-lib.sh"
 
+# Wrapper: run the extraction, mapping no-match to empty output.
 parse() { parse_lshw_bluefield_p0_mac || true; }
 
 LSHW_BF_BOTH_PORTS='  *-network:0

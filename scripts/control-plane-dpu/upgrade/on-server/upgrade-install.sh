@@ -34,9 +34,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Save terminal as fd 3 so die() always writes to screen even after log redirect
 exec 3>&2
+# Print an error to the console fd and abort.
 die() { echo "ERROR: $*" >&3; exit 1; }
+# Timestamped console log line.
 log() { echo "[$(date '+%H:%M:%S')] $*" >&3; }
 
+# Print this script's header comment as usage text and exit.
 usage() {
     grep '^#' "$0" | grep -v '#!/' | sed 's/^# \{0,1\}//'
     exit 1

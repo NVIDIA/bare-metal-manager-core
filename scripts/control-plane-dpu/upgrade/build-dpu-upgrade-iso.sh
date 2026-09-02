@@ -76,12 +76,16 @@ ON_SERVER_DIR="$PARENT_DIR/on-server"
 TEMPLATES_DIR="$ON_SERVER_DIR/templates"
 UPGRADE_ON_SERVER_DIR="$SCRIPT_DIR/on-server"
 
+# Print an error and abort the build.
 die()  { echo "ERROR: $*" >&2; exit 1; }
+# Timestamped progress line.
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
+# Banner for a major build phase.
 step() { echo; echo "------------------------------------------------------------"; \
          echo "[$(date '+%H:%M:%S')] $*"; \
          echo "------------------------------------------------------------"; }
 
+# Print this script's header comment as usage text and exit.
 usage() {
     grep '^#' "$0" | grep -v '#!/' | sed 's/^# \{0,1\}//'
     exit 1
@@ -203,6 +207,7 @@ log "Tools: OK (ISO tool: $ISO_TOOL)"
 
 # ── bf.cfg renderer (gomplate) ────────────────────────────────────────────────
 
+# Render bf.cfg.template with the operator-supplied ubuntu password hash.
 render_bf_cfg() {
     local vars_file
     vars_file="$(mktemp "$OUTPUT_DIR/gomplate_vars_XXXXXX")"
@@ -335,6 +340,7 @@ EOF
 if [[ "${#INCLUDE_STARTUP_YAMLS[@]}" -gt 0 ]]; then
     log "Embedding startup configs under startup-configs/..."
     mkdir -p "$STAGE_DIR/startup-configs"
+    # Copy one saved startup.yaml into the ISO staging dir, rejecting empties and duplicates.
     stage_startup_config() {
         local f="$1" dest
         dest="$STAGE_DIR/startup-configs/$(basename "$f")"

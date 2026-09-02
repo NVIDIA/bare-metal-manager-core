@@ -23,8 +23,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # fd 3 initially = terminal (for early die() before log ready);
 # reassigned below to tee so it writes to both log and terminal.
 exec 3>&2
+# Print an error to the console fd and abort.
 die() { echo "ERROR: $*" >&3; exit 1; }
 
+# Print this script's header comment as usage text and exit.
 usage() {
     grep '^#' "$0" | grep -v '#!/' | sed 's/^# \{0,1\}//'
     exit 1
