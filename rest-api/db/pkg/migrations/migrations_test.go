@@ -157,8 +157,7 @@ func TestDomainOwnershipMigration(t *testing.T) {
 	dbSession := util.GetTestDBSession(t, true)
 	defer dbSession.Close()
 
-	require.NoError(t, dbSession.DB.ResetModel(ctx, (*model.User)(nil)))
-	require.NoError(t, dbSession.DB.ResetModel(ctx, (*model.Domain)(nil)))
+	model.TestSetupSchema(t, dbSession)
 	user := model.TestBuildUser(t, dbSession, uuid.NewString(), "test-org", []string{authz.TenantAdminRole})
 	domain, err := model.NewDomainDAO(dbSession).Create(ctx, nil, model.DomainCreateInput{
 		Hostname:  "legacy.example.com",
