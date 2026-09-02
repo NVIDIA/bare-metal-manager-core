@@ -460,6 +460,7 @@ func TestGeneratedCommandInfos_DomainAndSubnetSurface(t *testing.T) {
 		"domain create":     "create-domain",
 		"domain list":       "get-all-domain",
 		"domain get":        "get-domain",
+		"domain update":     "update-domain",
 		"domain delete":     "delete-domain",
 		"subnet create":     "create-subnet",
 		"subnet attach-vpc": "attach-vpc-to-subnet",
@@ -471,9 +472,10 @@ func TestGeneratedCommandInfos_DomainAndSubnetSurface(t *testing.T) {
 
 	for name, expectedFlags := range map[string][]string{
 		"domain create":     {"name", "site-id"},
-		"domain list":       {"site-id", "tenant-id"},
+		"domain list":       {"site-id", "tenant-id", "page-number", "page-size", "order-by"},
+		"domain update":     {"name"},
 		"subnet create":     {"subdomain-id"},
-		"subnet attach-vpc": {"vpc-id", "allow-replace"},
+		"subnet attach-vpc": {"vpc-id"},
 	} {
 		flagNames := make(map[string]struct{})
 		for _, flag := range infos[name].Flags {
@@ -481,6 +483,9 @@ func TestGeneratedCommandInfos_DomainAndSubnetSurface(t *testing.T) {
 		}
 		for _, expectedFlag := range expectedFlags {
 			assert.Containsf(t, flagNames, expectedFlag, "%s flag", name)
+		}
+		if name == "subnet attach-vpc" {
+			assert.NotContains(t, flagNames, "allow-replace")
 		}
 	}
 }
