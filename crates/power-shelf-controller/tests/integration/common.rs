@@ -119,6 +119,7 @@ impl ControllerEnv {
                     per_object_metrics_registry: per_object_metrics_registry.clone(),
                     rack_firmware_reprovisioning_enabled: false,
                     redfish_client_pool: redfish_sim.clone(),
+                    bmc_credential_ops: redfish_sim.clone(),
                     bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                         db::credential_rotation::CredentialRotationType::Bmc,
                     ),
@@ -151,6 +152,9 @@ pub(super) fn services_without_component_manager(
     pool: &PgPool,
     rack_firmware_reprovisioning_enabled: bool,
 ) -> PowerShelfStateHandlerServices {
+    // One shared sim so tests that queue expectations or read history see
+    // the same instance behind both handles.
+    let redfish_sim: Arc<RedfishSim> = Arc::new(RedfishSim::default());
     PowerShelfStateHandlerServices {
         db_pool: pool.clone(),
         component_manager: None,
@@ -160,7 +164,8 @@ pub(super) fn services_without_component_manager(
             Duration::from_secs(60),
         ),
         rack_firmware_reprovisioning_enabled,
-        redfish_client_pool: Arc::new(RedfishSim::default()),
+        redfish_client_pool: redfish_sim.clone(),
+        bmc_credential_ops: redfish_sim,
         bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
             db::credential_rotation::CredentialRotationType::Bmc,
         ),

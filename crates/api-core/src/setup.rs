@@ -55,7 +55,7 @@ use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::{BmcCredentialOps, RedfishClientPool};
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
 use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
@@ -140,7 +140,7 @@ fn create_ipmi_tool(
 fn create_redfish_pool(
     carbide_config: &CarbideConfig,
     credential_manager: Arc<dyn CredentialManager>,
-) -> eyre::Result<Arc<dyn RedfishClientPool>> {
+) -> eyre::Result<(Arc<dyn RedfishClientPool>, Arc<dyn BmcCredentialOps>)> {
     let pool = libredfish::RedfishClientPool::builder()
         .danger_accept_invalid_certs()
         .build()
@@ -184,7 +184,7 @@ fn create_redfish_pool(
         (None, None, _) => {} // leave bmc_proxy untouched
     }
 
-    Ok(carbide_redfish::libredfish::new_pool(
+    Ok(carbide_redfish::libredfish::new_pool_with_credential_ops(
         credential_manager,
         pool,
         carbide_config.site_explorer.bmc_proxy.clone(),
@@ -208,7 +208,8 @@ pub(crate) async fn start_runtime(
     admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     cancel_token: CancellationToken,
 ) -> eyre::Result<SocketAddr> {
-    let shared_redfish_pool = create_redfish_pool(&carbide_config, credential_manager.clone())?;
+    let (shared_redfish_pool, bmc_credential_ops) =
+        create_redfish_pool(&carbide_config, credential_manager.clone())?;
     let shared_nv_redfish_pool =
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
@@ -399,7 +400,7 @@ pub(crate) async fn start_runtime(
     ));
 
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
-        shared_redfish_pool.clone(),
+        bmc_credential_ops.clone(),
         shared_nv_redfish_pool,
         ipmi_tool.clone(),
         credential_manager.clone(),
@@ -525,6 +526,7 @@ pub(crate) async fn start_runtime(
         eth_data,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
+        bmc_credential_ops: bmc_credential_ops.clone(),
         bmc_session_manager,
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
@@ -1104,6 +1106,7 @@ async fn initialize_and_start_controllers<'a>(
         database_connection: db_pool,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
+        bmc_credential_ops,
         work_lock_manager_handle,
         rms_client,
         component_manager,
@@ -1494,6 +1497,7 @@ async fn initialize_and_start_controllers<'a>(
                 db_pool: db_pool.clone(),
                 db_reader: db_pool.clone().into(),
                 redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_credential_ops: bmc_credential_ops.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 component_manager: component_manager.clone().map(Arc::new),
@@ -1713,6 +1717,7 @@ async fn initialize_and_start_controllers<'a>(
                     .power_shelf_state_controller
                     .rack_firmware_reprovisioning_enabled,
                 redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_credential_ops: bmc_credential_ops.clone(),
                 bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::Bmc,
                 ),
@@ -1786,6 +1791,7 @@ async fn initialize_and_start_controllers<'a>(
                     .effective_switch_mtls_services_as_i32(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_credential_ops: bmc_credential_ops.clone(),
                 bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::Bmc,
                 ),

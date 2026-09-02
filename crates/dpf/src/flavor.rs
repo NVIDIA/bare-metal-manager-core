@@ -887,6 +887,41 @@ fn get_default_grub() -> DpuFlavorGrub {
     }
 }
 
+/// Returns HBN's DPF reference AppArmor extensions.
+///
+/// The rsyslog policy permits the complete rotation chain, while the tcpdump policy accepts
+/// signals from `runc`. Cloud-init writes both before DPF's provisioning reboot loads the profiles.
+/// Since these files are part of the flavor hash, changing them reprovisions every DPF DPU.
+fn hbn_apparmor_config_files() -> [DpuFlavorConfigFiles; 2] {
+    [
+        DpuFlavorConfigFiles {
+            path: "/etc/apparmor.d/local/usr.sbin.rsyslogd".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some(
+                concat!(
+                    "signal (receive) peer=runc,\n",
+                    "capability chown,\n",
+                    "/usr/{bin,sbin}/* ixr,\n",
+                    "/etc/logrotate.d/* r,\n",
+                    "/var/lib/logrotate/{,**} rwk,\n",
+                )
+                .to_string(),
+            ),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/etc/apparmor.d/local/usr.bin.tcpdump".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("signal (receive) peer=runc,\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+    ]
+}
+
 /// Returns the base set of config files, plus an optional containerd proxy drop-in if `proxy` is set.
 ///
 /// `deployment_type` selects the few settings that differ between the deployments sharing this
@@ -975,6 +1010,8 @@ fn get_config_files(
             r#type: None,
         },
     ];
+
+    config_files.extend(hbn_apparmor_config_files());
     config_files.extend(ovn_encap_config_files());
 
     if let Some(proxy) = proxy {
@@ -1503,6 +1540,9 @@ fn get_bf4_astra_config_files(
             r#type: Some(DpuFlavorConfigFilesType::AgentApplied),
         },
     ];
+
+    config_files.extend(hbn_apparmor_config_files());
+
     if let Some(proxy) = proxy {
         validate_proxy_string(&proxy.https_proxy, "https_proxy")?;
 
@@ -2883,12 +2923,12 @@ mod tests {
                     .count();
                 (files.len(), proxy_file_count)
             };
-            "no proxy keeps the twelve Astra base files" {
-                None => (12, 0),
+            "no proxy keeps the fourteen Astra base files" {
+                None => (14, 0),
             }
 
             "configured proxy appends exactly one proxy file" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (13, 1),
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => (15, 1),
             }
         );
     }
@@ -2906,16 +2946,74 @@ mod tests {
                     .unwrap()
                     .len()
             };
-            "no proxy yields nine base files" {
-                None => 9,
+            "no proxy yields eleven base files" {
+                None => 11,
             }
 
-            "proxy with empty no_proxy appends a tenth" {
-                proxy("http://proxy:3128", &[]) => 10,
+            "proxy with empty no_proxy appends a twelfth" {
+                proxy("http://proxy:3128", &[]) => 12,
             }
 
             "proxy with no_proxy list still appends exactly one" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 10,
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 12,
+            }
+        );
+    }
+
+    #[test]
+    fn every_deployment_type_includes_hbn_apparmor_extensions() {
+        value_scenarios!(
+            run = |deployment_type| {
+                let files = match deployment_type {
+                    DpuDeploymentType::Bf4Astra => {
+                        astra_flavor_spec(&None).config_files.unwrap()
+                    }
+                    deployment_type => default_flavor_for("ns", &None, deployment_type)
+                        .unwrap()
+                        .spec
+                        .config_files
+                        .unwrap(),
+                };
+                let has_file = |path: &str, raw: &str| {
+                    files.iter().find(|file| file.path == path).is_some_and(|file| {
+                        matches!(
+                            file.operation,
+                            Some(DpuFlavorConfigFilesOperation::Override)
+                        ) && file.permissions.as_deref() == Some("0644")
+                            && file.raw.as_deref() == Some(raw)
+                            && file.content_from.is_none()
+                            && file.r#type.is_none()
+                    })
+                };
+
+                has_file(
+                    "/etc/apparmor.d/local/usr.sbin.rsyslogd",
+                    concat!(
+                        "signal (receive) peer=runc,\n",
+                        "capability chown,\n",
+                        "/usr/{bin,sbin}/* ixr,\n",
+                        "/etc/logrotate.d/* r,\n",
+                        "/var/lib/logrotate/{,**} rwk,\n",
+                    ),
+                ) && has_file(
+                    "/etc/apparmor.d/local/usr.bin.tcpdump",
+                    "signal (receive) peer=runc,\n",
+                )
+            };
+            "BF3" {
+                DpuDeploymentType::Bf3 => true,
+            }
+
+            "GB200 BF3" {
+                DpuDeploymentType::Bf3Gb200 => true,
+            }
+
+            "generic BF4" {
+                DpuDeploymentType::Bf4Generic => true,
+            }
+
+            "Astra BF4" {
+                DpuDeploymentType::Bf4Astra => true,
             }
         );
     }

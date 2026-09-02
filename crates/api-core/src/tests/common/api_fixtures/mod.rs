@@ -325,6 +325,7 @@ impl TestEnv {
             db_pool: self.pool.clone(),
             db_reader: self.pool.clone().into(),
             redfish_client_pool: self.redfish_sim.clone(),
+            bmc_credential_ops: self.redfish_sim.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
             component_manager: self.test_component_manager.clone(),
@@ -1505,6 +1506,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 db_reader: db_pool.clone().into(),
                 redfish_client_pool: redfish_sim.clone(),
+                bmc_credential_ops: redfish_sim.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
                 component_manager: test_component_manager.clone(),
@@ -1652,6 +1654,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                 ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 redfish_client_pool: redfish_sim.clone(),
+                bmc_credential_ops: redfish_sim.clone(),
                 bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::Bmc,
                 ),
