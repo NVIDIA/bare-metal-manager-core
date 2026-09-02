@@ -551,7 +551,7 @@ fi
 # ---------------------------------------------------------------------------
 # 2. Required tools
 # ---------------------------------------------------------------------------
-for _tool in helm helmfile kubectl jq ssh-keygen; do
+for _tool in helm helmfile kubectl jq ssh-keygen envsubst; do
     command -v "${_tool}" &>/dev/null || \
         WARNINGS+=("'${_tool}' not found in PATH — install it before running setup.sh")
 done
@@ -1021,6 +1021,70 @@ EOF
     done
 
     _cleanup_preflight_pods
+
+    # -----------------------------------------------------------------------
+    # 8. Temporal/Keycloak DB consolidation — opt-in transition safety.
+    #
+    # values.yaml::temporal.enabled / keycloak.enabled point Temporal/Keycloak
+    # at nico-pg-cluster instead of the legacy standalone postgres.postgres
+    # StatefulSet. If a site already has real data on postgres.postgres and
+    # the corresponding nico-pg-cluster database is empty, setup.sh would
+    # silently start Temporal/Keycloak against a fresh, empty database —
+    # orphaning existing workflow history / Keycloak users instead of
+    # migrating them. Catch that here rather than letting it happen silently;
+    # the fix is to run helm-prereqs/scripts/migrate-temporal-keycloak-db.sh
+    # first. No-ops when postgres.postgres or nico-pg-cluster don't exist yet
+    # (fresh installs, or the toggle was already on from the first run).
+    # -----------------------------------------------------------------------
+    _TEMPORAL_TOGGLE="$(grep -A3 '^temporal:' "${_SITE_VALUES_CFG}" 2>/dev/null \
+        | grep 'enabled:' | head -1 | awk '{print $2}')"
+    _KEYCLOAK_TOGGLE="$(grep -A3 '^keycloak:' "${_SITE_VALUES_CFG}" 2>/dev/null \
+        | grep 'enabled:' | head -1 | awk '{print $2}')"
+
+    if [[ "${_TEMPORAL_TOGGLE}" == "true" || "${_KEYCLOAK_TOGGLE}" == "true" ]]; then
+        _LEGACY_PG_POD="$(kubectl get pods -n postgres -l app=postgres \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+        _NICO_PG_POD="$(kubectl get pods -n postgres \
+            -l cluster-name=nico-pg-cluster,spilo-role=master \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+
+        _check_db_migration_needed() {
+            local _label="$1" _db="$2" _count_query="$3" _script_hint="$4"
+
+            [[ -n "${_LEGACY_PG_POD}" && -n "${_NICO_PG_POD}" ]] || return 0
+
+            # Nothing on the legacy side to lose.
+            local _legacy_count
+            _legacy_count="$(kubectl exec -n postgres "${_LEGACY_PG_POD}" -- \
+                psql -U postgres -d "${_db}" -tAc "${_count_query}" 2>/dev/null || echo 0)"
+            [[ "${_legacy_count}" =~ ^[0-9]+$ ]] || return 0
+            [[ "${_legacy_count}" -gt 0 ]] || return 0
+
+            # Target database doesn't exist on nico-pg-cluster yet — nothing to compare.
+            kubectl exec -n postgres "${_NICO_PG_POD}" -- \
+                psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${_db}'" 2>/dev/null \
+                | grep -q 1 || return 0
+
+            local _nico_count
+            _nico_count="$(kubectl exec -n postgres "${_NICO_PG_POD}" -- \
+                psql -U postgres -d "${_db}" -tAc "${_count_query}" 2>/dev/null || echo 0)"
+
+            if [[ "${_nico_count}" =~ ^[0-9]+$ && "${_nico_count}" -eq 0 ]]; then
+                ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but nico-pg-cluster/${_db} is empty — run '${_script_hint}' before proceeding, or this data will be orphaned")
+            fi
+        }
+
+        if [[ "${_TEMPORAL_TOGGLE}" == "true" ]]; then
+            _check_db_migration_needed \
+                "temporal.enabled" "temporal" "SELECT count(*) FROM namespaces" \
+                "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
+        fi
+        if [[ "${_KEYCLOAK_TOGGLE}" == "true" ]]; then
+            _check_db_migration_needed \
+                "keycloak.enabled" "keycloak" "SELECT count(*) FROM realm" \
+                "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db keycloak"
+        fi
+    fi
 
 fi  # _CLUSTER_REACHABLE
 

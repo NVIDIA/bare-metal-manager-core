@@ -18,7 +18,7 @@
 # setup.sh — install the NICo prerequisite stack
 #
 # Tool requirements:
-#   helmfile, helm, kubectl, jq, ssh-keygen
+#   helmfile, helm, kubectl, jq, ssh-keygen, envsubst (gettext)
 #
 # Required environment:
 #   KUBECONFIG            Optional only if the current kubectl context already
@@ -1791,10 +1791,17 @@ echo "=== [7b/7] NICo REST CA issuer ClusterIssuer ==="
 (cd "${NICO_REST_DIR}" && kubectl apply -k deploy/kustomize/base/cert-manager-io)
 
 # --- 7c. NICo REST postgres --------------------------------------------------------
-# Simple postgres StatefulSet with all NICo databases pre-initialised:
-# forge, temporal, temporal_visibility, keycloak.
-# Lives alongside nico-pg-cluster in the postgres namespace — different
-# service name ("postgres") so Temporal and NICo values work without changes.
+# Legacy standalone postgres StatefulSet with pre-initialised databases:
+# nico (orphaned — no live component targets it), temporal, temporal_visibility,
+# keycloak. Lives alongside nico-pg-cluster in the postgres namespace —
+# different service name ("postgres") so Temporal and Keycloak values work
+# without changes.
+#
+# Still deployed unconditionally: it remains the default target for Temporal
+# and Keycloak until a site opts into temporal.enabled/keycloak.enabled
+# (helm-prereqs/values.yaml) and runs
+# helm-prereqs/scripts/migrate-temporal-keycloak-db.sh to move existing data
+# onto nico-pg-cluster. Both targets are supported side by side.
 _SETUP_PHASE="[7c/7] NICo REST postgres"
 echo "=== [7c/7] NICo REST postgres ==="
 (cd "${NICO_REST_DIR}" && kubectl apply -k deploy/kustomize/base/postgres)
@@ -1812,6 +1819,45 @@ _KC_ENABLED="$(grep -A5 'keycloak:' "${SCRIPT_DIR}/values/nico-rest.yaml" \
 
 if [[ "${_KC_ENABLED}" == "true" ]]; then
     echo "=== [7d/7] Keycloak ==="
+
+    # helm-prereqs/values.yaml::keycloak.enabled — whether Keycloak's DB lives
+    # on nico-pg-cluster (opt-in) instead of the legacy postgres.postgres
+    # StatefulSet (default). Distinct from nico-rest.yaml's keycloak.enabled
+    # checked above, which gates whether Keycloak is deployed at all.
+    _KC_DB_CONSOLIDATED="$(grep -A3 '^keycloak:' "${SCRIPT_DIR}/values.yaml" \
+        | grep 'enabled:' | head -1 | awk '{print $2}' || echo "false")"
+    # Same helm-prereqs/values.yaml::keycloak block — this is the namespace
+    # eso-external-secrets.yaml's nico-keycloak-db-eso actually targets, so
+    # KEYCLOAK_NS (read by keycloak/setup.sh, default nico-rest) must match it.
+    export KEYCLOAK_NS="$(grep -A3 '^keycloak:' "${SCRIPT_DIR}/values.yaml" \
+        | grep 'namespace:' | head -1 | awk '{print $2}' || echo "nico-rest")"
+
+    if [[ "${_KC_DB_CONSOLIDATED}" == "true" ]]; then
+        echo "Waiting for Keycloak DB credentials to be synced by ESO (nico-keycloak-pg-creds in ${KEYCLOAK_NS})..."
+        for _kc_i in $(seq 1 24); do
+            if kubectl get secret nico-keycloak-pg-creds -n "${KEYCLOAK_NS}" &>/dev/null; then
+                break
+            fi
+            if [[ "${_kc_i}" -eq 24 ]]; then
+                echo "ERROR: nico-keycloak-pg-creds not synced after 120s." >&2
+                echo "  Check: kubectl describe clusterexternalsecret nico-keycloak-db-eso" >&2
+                echo "  Ensure keycloak.enabled=true in helm-prereqs/values.yaml." >&2
+                exit 1
+            fi
+            echo "  nico-keycloak-pg-creds not yet synced (${_kc_i}/24) — retrying in 5s..."
+            sleep 5
+        done
+        echo "Keycloak DB credentials ready — targeting nico-pg-cluster"
+        # Reference the ESO-synced Secret directly (secretKeyRef in
+        # deployment.yaml) rather than reading the password into this shell —
+        # it never needs to touch a plaintext env value or process argument.
+        export KEYCLOAK_DB_HOST="nico-pg-cluster.postgres.svc.cluster.local"
+        export KEYCLOAK_DB_NAME="keycloak"
+        export KEYCLOAK_DB_USER="keycloak.nico"
+        export KEYCLOAK_DB_PASSWORD_SECRET_NAME="nico-keycloak-pg-creds"
+        export KEYCLOAK_DB_PASSWORD_SECRET_KEY="password"
+    fi
+
     "${SCRIPT_DIR}/keycloak/setup.sh"
     echo "Keycloak ready"
 else
@@ -1835,12 +1881,82 @@ kubectl wait --for=condition=Ready certificate/server-site-cert \
 echo "Temporal TLS certs ready"
 
 # --- 7f. Temporal ------------------------------------------------------------
+# helm-prereqs/values.yaml::temporal.enabled — whether Temporal's default and
+# visibility stores live on nico-pg-cluster (opt-in) instead of the legacy
+# postgres.postgres StatefulSet (default). See helm-prereqs/values.yaml for
+# the transition story and helm-prereqs/scripts/migrate-temporal-keycloak-db.sh
+# for moving existing workflow history over.
 _SETUP_PHASE="[7f/7] Temporal"
 echo "=== [7f/7] Temporal ==="
-helm upgrade --install temporal "${NICO_REST_DIR}/temporal-helm/temporal" \
-    --namespace temporal \
-    -f "${NICO_REST_DIR}/temporal-helm/temporal/values-kind.yaml" \
+
+_TEMPORAL_DB_CONSOLIDATED="$(grep -A3 '^temporal:' "${SCRIPT_DIR}/values.yaml" \
+    | grep 'enabled:' | head -1 | awk '{print $2}' || echo "false")"
+
+TEMPORAL_CMD=(
+    helm upgrade --install temporal "${NICO_REST_DIR}/temporal-helm/temporal"
+    --namespace temporal
+    -f "${NICO_REST_DIR}/temporal-helm/temporal/values-kind.yaml"
     --timeout 300s --wait
+)
+
+if [[ "${_TEMPORAL_DB_CONSOLIDATED}" == "true" ]]; then
+    echo "Waiting for Temporal DB credentials to be synced by ESO (nico-temporal-pg-creds in temporal)..."
+    for _tp_i in $(seq 1 24); do
+        if kubectl get secret nico-temporal-pg-creds -n temporal &>/dev/null; then
+            break
+        fi
+        if [[ "${_tp_i}" -eq 24 ]]; then
+            echo "ERROR: nico-temporal-pg-creds not synced after 120s." >&2
+            echo "  Check: kubectl describe clusterexternalsecret nico-temporal-db-eso" >&2
+            echo "  Ensure temporal.enabled=true in helm-prereqs/values.yaml." >&2
+            exit 1
+        fi
+        echo "  nico-temporal-pg-creds not yet synced (${_tp_i}/24) — retrying in 5s..."
+        sleep 5
+    done
+    echo "Temporal DB credentials ready — targeting nico-pg-cluster"
+
+    # Mirror the nico-rest-workflow worker fix (#3284): override the chart's
+    # postgres.postgres defaults at install time rather than editing
+    # values-kind.yaml in place, so the legacy target keeps working unchanged
+    # for sites that haven't opted in. nico-temporal-pg-creds (synced by ESO
+    # above) already carries a "password" key, matching the chart's
+    # persistence.secretKey default — no need to copy it into another Secret.
+    #
+    # tls.enabled: true is required — nico-pg-cluster's pg_hba.conf only
+    # accepts encrypted connections (Zalando operator default), and any
+    # unrecognized key under persistence.default/visibility.sql passes
+    # straight through into the rendered SQL persistence config
+    # (server-configmap.yaml), so this is the supported way to turn it on.
+    # Without it, temporal-schema-update crash-loops on every attempt with
+    # "pg_hba.conf rejects connection ... no encryption" (verified on dev6).
+    _TEMPORAL_CREDS_FILE="$(mktemp)"
+    cat > "${_TEMPORAL_CREDS_FILE}" <<EOF
+server:
+  config:
+    persistence:
+      secretName: "nico-temporal-pg-creds"
+      default:
+        sql:
+          host: "nico-pg-cluster.postgres.svc.cluster.local"
+          database: "temporal"
+          user: "temporal.nico"
+          existingSecret: "nico-temporal-pg-creds"
+          tls:
+            enabled: true
+      visibility:
+        sql:
+          host: "nico-pg-cluster.postgres.svc.cluster.local"
+          database: "temporal_visibility"
+          user: "temporal.nico"
+          existingSecret: "nico-temporal-pg-creds"
+          tls:
+            enabled: true
+EOF
+    TEMPORAL_CMD+=(-f "${_TEMPORAL_CREDS_FILE}")
+fi
+
+"${TEMPORAL_CMD[@]}"
 echo "Temporal ready"
 
 # Create the Temporal namespaces required by NICo REST workers (requires mTLS)

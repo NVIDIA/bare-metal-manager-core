@@ -60,6 +60,16 @@ spec:
     # the RMS migrations create tables/indexes there and need nothing wider.
     rms.nico: []
     {{- end }}
+    {{- if .Values.temporal.enabled }}
+    temporal.nico:
+      - superuser
+      - createdb
+    {{- end }}
+    {{- if .Values.keycloak.enabled }}
+    keycloak.nico:
+      - superuser
+      - createdb
+    {{- end }}
   databases:
     nico_system_nico: nico-system.nico
     {{- if .Values.rest.enabled }}
@@ -70,6 +80,13 @@ spec:
     {{- end }}
     {{- if .Values.rms.enabled }}
     rms: rms.nico
+    {{- end }}
+    {{- if .Values.temporal.enabled }}
+    temporal: temporal.nico
+    temporal_visibility: temporal.nico
+    {{- end }}
+    {{- if .Values.keycloak.enabled }}
+    keycloak: keycloak.nico
     {{- end }}
   patroni:
     # Templated (no `| default`): Go templates treat an explicit `false` as empty,
