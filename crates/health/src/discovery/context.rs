@@ -31,8 +31,9 @@ use crate::api_client::ApiClientWrapper;
 use crate::bmc::BmcClient;
 use crate::collectors::{Collector, LogDowngradeRegistry, NmxcSchemaOverride, SharedInventory};
 use crate::config::{
-    Config, Configurable, DiscoveryConfig, FirmwareCollectorConfig as FirmwareCollectorOptions,
-    GpuInventoryConfig, LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
+    AttributesConfig, Config, Configurable, DiscoveryConfig,
+    FirmwareCollectorConfig as FirmwareCollectorOptions, GpuInventoryConfig,
+    LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
     LogsCollectorConfig as LogsCollectorOptions, MetricsCollectorConfig as MetricsCollectorOptions,
     MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions,
     NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
@@ -296,6 +297,9 @@ pub struct DiscoveryLoopContext {
 
     /// Whether log collectors should attach diagnostic payload carriers.
     pub(crate) logs_include_diagnostics: bool,
+
+    /// Opt-in identity attributes attached to logs and metric datapoints.
+    pub(crate) attributes: AttributesConfig,
 }
 
 impl DiscoveryLoopContext {
@@ -393,6 +397,7 @@ impl DiscoveryLoopContext {
             },
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
             logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
+            attributes: config.attributes.clone(),
         })
     }
 }

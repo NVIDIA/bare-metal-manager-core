@@ -34,10 +34,12 @@ use super::redfish::{
     nvidia_error_id, redfish_event_type_string, redfish_log_type,
 };
 use crate::HealthError;
+use crate::collectors::inventory::SharedInventory;
 use crate::collectors::runtime::{
     EventStream, StreamingCollector, StreamingConnectResult, open_sse_stream,
 };
 use crate::endpoint::BmcEndpoint;
+use crate::metrics::MetricLabel;
 use crate::sink::{CollectorEvent, LogRecord};
 
 const EVENT_RECORD_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -70,23 +72,28 @@ struct EventRecordResolutionFailed {
 }
 
 /// Configuration for the Redfish SSE log collector.
-pub struct SseLogCollectorConfig {
+pub struct SseLogCollectorConfig<B: Bmc> {
     /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
 
     /// Bounds event-record resolution to the endpoint Redfish operation limit.
     pub request_concurrency: NonZeroUsize,
+
+    /// Entity inventory used to resolve `origin_of_condition` to the GPU
+    /// currently occupying that chassis slot. `None` disables enrichment.
+    pub(crate) gpu_inventory: Option<SharedInventory<B>>,
 }
 
 pub struct SseLogCollector<B: Bmc> {
     bmc: Arc<B>,
     include_diagnostics: bool,
     request_concurrency: usize,
+    gpu_inventory: Option<SharedInventory<B>>,
 }
 
 #[async_trait]
 impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
-    type Config = SseLogCollectorConfig;
+    type Config = SseLogCollectorConfig<B>;
 
     fn new_runner(
         bmc: Arc<B>,
@@ -97,6 +104,7 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
             bmc,
             include_diagnostics: config.include_diagnostics,
             request_concurrency: config.request_concurrency.get(),
+            gpu_inventory: config.gpu_inventory,
         })
     }
 
@@ -108,6 +116,7 @@ impl<B: Bmc + 'static> StreamingCollector<B> for SseLogCollector<B> {
             Arc::clone(&self.bmc),
             self.include_diagnostics,
             self.request_concurrency,
+            self.gpu_inventory.clone(),
         );
 
         Ok(StreamingConnectResult::Connected(event_stream))
@@ -123,6 +132,7 @@ fn map_event_stream<'a, B, S>(
     bmc: Arc<B>,
     include_diagnostics: bool,
     request_concurrency: usize,
+    gpu_inventory: Option<SharedInventory<B>>,
 ) -> EventStream<'a>
 where
     B: Bmc + 'static,
@@ -134,12 +144,14 @@ where
         .map(move |result| {
             let bmc = Arc::clone(&bmc);
             let fetch_permits = Arc::clone(&fetch_permits);
+            let gpu_inventory = gpu_inventory.clone();
             async move {
                 map_payload(
                     result,
                     bmc.as_ref(),
                     include_diagnostics,
                     fetch_permits.as_ref(),
+                    gpu_inventory.as_ref(),
                 )
                 .await
             }
@@ -154,6 +166,7 @@ async fn map_payload<B: Bmc>(
     bmc: &B,
     include_diagnostics: bool,
     fetch_permits: &Semaphore,
+    gpu_inventory: Option<&SharedInventory<B>>,
 ) -> Vec<Result<CollectorEvent, HealthError>> {
     match result {
         Ok(EventStreamPayload::Event(event)) => {
@@ -163,6 +176,7 @@ async fn map_payload<B: Bmc>(
                 include_diagnostics,
                 fetch_permits,
                 EVENT_RECORD_RESOLUTION_TIMEOUT,
+                gpu_inventory,
             )
             .await
         }
@@ -178,6 +192,7 @@ async fn event_to_logs<B: Bmc>(
     include_diagnostics: bool,
     fetch_permits: &Semaphore,
     resolution_timeout: Duration,
+    gpu_inventory: Option<&SharedInventory<B>>,
 ) -> Vec<Result<CollectorEvent, HealthError>> {
     let deadline = tokio::time::Instant::now() + resolution_timeout;
 
@@ -190,8 +205,48 @@ async fn event_to_logs<B: Bmc>(
     .await
     .into_iter()
     .flatten()
-    .map(|record| Ok(record_to_log(&record, include_diagnostics)))
+    .map(|record| {
+        let gpu = gpu_attributes_for_record(gpu_inventory, &record);
+        Ok(record_to_log(&record, include_diagnostics, gpu))
+    })
     .collect()
+}
+
+/// Resolves the GPU occupying the slot named by `origin_of_condition`.
+///
+/// `origin_of_condition` is a location (`/redfish/v1/Chassis/HGX_GPU_SXM_1`),
+/// not a device identity: it survives a GPU swap while the silicon behind it
+/// changes. Resolving it against the current inventory snapshot yields the
+/// identity of the device that produced the event.
+///
+/// Every step is best-effort. Non-GPU origins are common, and the snapshot is
+/// absent until the first discovery pass completes; both degrade to an
+/// unenriched record rather than a dropped one.
+fn gpu_attributes_for_record<B: Bmc>(
+    gpu_inventory: Option<&SharedInventory<B>>,
+    record: &nv_redfish::schema::event::EventRecord,
+) -> Vec<MetricLabel> {
+    let Some(shared) = gpu_inventory else {
+        return Vec::new();
+    };
+    let Some(origin) = record.origin_of_condition.as_ref() else {
+        return Vec::new();
+    };
+    let odata_id = origin.odata_id.to_string();
+    let Some(origin_id) = odata_id.rsplit('/').find(|part| !part.is_empty()) else {
+        return Vec::new();
+    };
+    let Some(snapshot) = shared.load_full() else {
+        return Vec::new();
+    };
+
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.gpu_origin_id().as_deref() == Some(origin_id))
+        .and_then(|entity| entity.gpu_identity())
+        .map(|gpu| gpu.attributes())
+        .unwrap_or_default()
 }
 
 async fn resolve_event_record<B: Bmc>(
@@ -257,6 +312,7 @@ async fn resolve_event_record<B: Bmc>(
 fn record_to_log(
     record: &nv_redfish::schema::event::EventRecord,
     include_diagnostics: bool,
+    gpu_attributes: Vec<MetricLabel>,
 ) -> CollectorEvent {
     let diagnostic_data_type =
         nullable_ref(&record.diagnostic_data_type).and_then(redfish_enum_string);
@@ -329,6 +385,7 @@ fn record_to_log(
             origin.odata_id.to_string(),
         ));
     }
+    attributes.extend(gpu_attributes);
     if let Some(log_entry_id) = &log_entry_id {
         attributes.push((Cow::Borrowed("log_entry_id"), log_entry_id.clone()));
     }
@@ -399,6 +456,7 @@ mod tests {
             include_diagnostics,
             &fetch_permits,
             resolution_timeout,
+            None,
         )
         .await
     }
@@ -428,7 +486,14 @@ mod tests {
         let endpoint = test_endpoint(mac("00:11:22:33:44:55"));
 
         let fetch_permits = Semaphore::new(1);
-        let events = map_payload(Ok(payload), endpoint.bmc().as_ref(), false, &fetch_permits).await;
+        let events = map_payload(
+            Ok(payload),
+            endpoint.bmc().as_ref(),
+            false,
+            &fetch_permits,
+            None,
+        )
+        .await;
 
         let [Ok(CollectorEvent::Log(record))] = events.as_slice() else {
             panic!("expected one SSE log record");
@@ -700,6 +765,7 @@ mod tests {
                 false,
                 task_permits.as_ref(),
                 Duration::from_secs(1),
+                None,
             )
             .await
         });
@@ -771,7 +837,7 @@ mod tests {
             Ok(EventStreamPayload::Event(referenced_event(&[hung_path]))),
             Ok(EventStreamPayload::Event(referenced_event(&[good_path]))),
         ]);
-        let mut event_stream = map_event_stream(sse_stream, bmc, false, 2);
+        let mut event_stream = map_event_stream(sse_stream, bmc, false, 2, None);
         let next_event = tokio::spawn(async move { event_stream.next().await });
 
         tokio::time::timeout(Duration::from_secs(1), good_request_started.notified())
@@ -804,12 +870,12 @@ mod tests {
         }))
         .expect("valid CPER event record");
 
-        let without_diagnostics = record_to_log(&record, false);
+        let without_diagnostics = record_to_log(&record, false, Vec::new());
         let without_diagnostics = log_record(&without_diagnostics);
         assert_eq!(without_diagnostics.body, "PCIe error");
         assert!(without_diagnostics.diagnostic_record.is_none());
 
-        let with_diagnostics = record_to_log(&record, true);
+        let with_diagnostics = record_to_log(&record, true, Vec::new());
         let with_diagnostics = log_record(&with_diagnostics);
         assert_eq!(with_diagnostics.body, "PCIe error");
         assert!(with_diagnostics.diagnostic_record.is_some());
@@ -849,7 +915,11 @@ mod tests {
     /// schema field parsed.
     #[test]
     fn severity_resolution_chain() {
-        let event = record_to_log(&severity_record(Some("Critical"), Some("WARNING")), false);
+        let event = record_to_log(
+            &severity_record(Some("Critical"), Some("WARNING")),
+            false,
+            Vec::new(),
+        );
         let record = log_record(&event);
         assert_eq!(record.severity, LogSeverity::Fatal);
         assert_eq!(
@@ -860,7 +930,11 @@ mod tests {
 
         // "CRITICAL" is outside the schema, so MessageSeverity lands on
         // UnsupportedValue and the raw Severity string carries the value.
-        let event = record_to_log(&severity_record(Some("CRITICAL"), Some("Critical")), false);
+        let event = record_to_log(
+            &severity_record(Some("CRITICAL"), Some("Critical")),
+            false,
+            Vec::new(),
+        );
         let record = log_record(&event);
         assert_eq!(record.severity, LogSeverity::Fatal);
         assert_eq!(
@@ -869,16 +943,204 @@ mod tests {
         );
         assert_eq!(attribute(record, "message_severity"), None);
 
-        let event = record_to_log(&severity_record(None, None), false);
+        let event = record_to_log(&severity_record(None, None), false, Vec::new());
         let record = log_record(&event);
         assert_eq!(record.severity, LogSeverity::Unspecified);
         assert_eq!(attribute(record, "redfish.event.severity"), Some("Unknown"));
         assert_eq!(attribute(record, "message_severity"), None);
 
-        let event = record_to_log(&severity_record(Some("Meltdown"), None), false);
+        let event = record_to_log(&severity_record(Some("Meltdown"), None), false, Vec::new());
         let record = log_record(&event);
         assert_eq!(record.severity, LogSeverity::Unspecified);
         assert_eq!(attribute(record, "redfish.event.severity"), Some("Unknown"));
         assert_eq!(attribute(record, "message_severity"), None);
+    }
+}
+
+/// Verifies the join that gives an SSE log record its GPU identity: discovery
+/// records what occupies each chassis slot, and a log record naming that slot
+/// in `OriginOfCondition` is attributed to the device found there.
+#[cfg(test)]
+mod gpu_enrichment_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Instant;
+
+    use arc_swap::ArcSwapOption;
+    use bmc_mock::test_support::{TestBmc, nvidia_dgx_h100_bmc};
+    use serde_json::json;
+
+    use super::gpu_attributes_for_record;
+    use crate::collectors::discovery::{
+        gpu_identity_from_chassis, gpu_identity_from_processor, gpu_processor_ids,
+    };
+    use crate::collectors::inventory::{DiscoveredEntity, EntityInventory, SharedInventory};
+
+    /// Build the inventory snapshot the way the discovery collector does —
+    /// processors first, then chassis matched against them — so the join is
+    /// exercised against identities the mock BMC actually serves.
+    async fn h100_inventory() -> SharedInventory<TestBmc> {
+        let h = nvidia_dgx_h100_bmc().await;
+
+        let mut entities = Vec::new();
+
+        let systems = h
+            .service_root
+            .systems()
+            .await
+            .expect("systems collection")
+            .expect("systems collection is present");
+        for system in systems.members().await.expect("system members") {
+            let system = Arc::new(system);
+            for processor in system
+                .processors()
+                .await
+                .expect("processors")
+                .unwrap_or_default()
+            {
+                let gpu = gpu_identity_from_processor::<TestBmc>(&processor);
+                entities.push(DiscoveredEntity::Processor {
+                    entity: Arc::new(processor),
+                    system: system.clone(),
+                    sensors: Vec::new(),
+                    gpu,
+                });
+            }
+        }
+
+        let gpu_processors = gpu_processor_ids(&entities);
+
+        let chassis_list = h
+            .service_root
+            .chassis()
+            .await
+            .expect("chassis collection")
+            .expect("chassis collection is present");
+        for chassis in chassis_list.members().await.expect("chassis members") {
+            let gpu = gpu_identity_from_chassis::<TestBmc>(&chassis, &gpu_processors);
+            entities.push(DiscoveredEntity::Chassis {
+                entity: Arc::new(chassis),
+                sensors: Vec::new(),
+                gpu,
+            });
+        }
+
+        Arc::new(ArcSwapOption::from_pointee(EntityInventory {
+            entities,
+            discovered_at: Instant::now(),
+            generation: 1,
+        }))
+    }
+
+    fn xid_record(origin: Option<&str>) -> nv_redfish::schema::event::EventRecord {
+        let mut value = json!({
+            "@odata.id": "/redfish/v1/EventService/SSE#/Events/1",
+            "MemberId": "1",
+            "EventType": "Alert",
+            "MessageId": "Nvidia.1.0.XidError",
+            "Message": "Xid 79: GPU has fallen off the bus",
+            "MessageSeverity": "Critical",
+        });
+        if let Some(origin) = origin {
+            value["OriginOfCondition"] = json!({ "@odata.id": origin });
+        }
+        serde_json::from_value(value).expect("valid event record")
+    }
+
+    fn attributes_of(
+        inventory: Option<&SharedInventory<TestBmc>>,
+        origin: Option<&str>,
+    ) -> HashMap<String, String> {
+        gpu_attributes_for_record(inventory, &xid_record(origin))
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn gpu_origin_resolves_uuid_serial_and_model() {
+        let inventory = h100_inventory().await;
+
+        let attributes = attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_3"));
+
+        assert_eq!(
+            attributes.get("gpu_model").map(String::as_str),
+            Some("H100 80GB HBM3")
+        );
+        for key in ["gpu_uuid", "gpu_serial", "gpu_chassis_serial"] {
+            assert!(
+                attributes.contains_key(key),
+                "expected a {key} attribute, got {attributes:?}"
+            );
+        }
+    }
+
+    /// A GPU event can name the GPU's processor rather than its chassis, so both
+    /// origin shapes must resolve to the same device.
+    #[tokio::test]
+    async fn processor_origin_resolves_the_same_gpu_as_its_chassis() {
+        let inventory = h100_inventory().await;
+
+        let via_processor = attributes_of(
+            Some(&inventory),
+            Some("/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_3"),
+        );
+        let via_chassis =
+            attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_3"));
+
+        assert!(
+            via_processor.contains_key("gpu_uuid"),
+            "got {via_processor:?}"
+        );
+        assert_eq!(via_processor.get("gpu_uuid"), via_chassis.get("gpu_uuid"));
+        assert_eq!(via_processor.get("gpu_serial"), via_chassis.get("gpu_serial"));
+    }
+
+    /// Two slots must not be attributed to the same physical GPU, which is the
+    /// whole reason the label carries a UUID rather than the slot name.
+    #[tokio::test]
+    async fn distinct_slots_resolve_distinct_uuids() {
+        let inventory = h100_inventory().await;
+
+        let first = attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_1"));
+        let second = attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_2"));
+
+        assert_ne!(first.get("gpu_uuid"), second.get("gpu_uuid"));
+        assert!(first.contains_key("gpu_uuid"));
+    }
+
+    #[tokio::test]
+    async fn trailing_slash_in_origin_still_resolves() {
+        let inventory = h100_inventory().await;
+
+        let attributes =
+            attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_4/"));
+
+        assert!(attributes.contains_key("gpu_uuid"), "got {attributes:?}");
+    }
+
+    #[tokio::test]
+    async fn non_gpu_origin_yields_no_attributes() {
+        let inventory = h100_inventory().await;
+
+        assert!(
+            attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_Chassis_0")).is_empty()
+        );
+        assert!(
+            attributes_of(Some(&inventory), Some("/redfish/v1/Systems/System_0")).is_empty(),
+            "an origin outside the chassis collection must not match a chassis id"
+        );
+    }
+
+    #[tokio::test]
+    async fn records_without_origin_or_inventory_are_left_unenriched() {
+        let inventory = h100_inventory().await;
+
+        assert!(attributes_of(Some(&inventory), None).is_empty());
+        assert!(attributes_of(None, Some("/redfish/v1/Chassis/HGX_GPU_SXM_1")).is_empty());
+
+        // Before the first discovery pass completes the snapshot is empty.
+        let empty: SharedInventory<TestBmc> = Arc::new(ArcSwapOption::empty());
+        assert!(attributes_of(Some(&empty), Some("/redfish/v1/Chassis/HGX_GPU_SXM_1")).is_empty());
     }
 }
