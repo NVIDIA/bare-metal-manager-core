@@ -15,8 +15,7 @@ ingests it again. If you confirm it is gone, it does not return and the
 control-plane records are removed.
 
 Decommissioning is the graceful device-cleanup step before you force-delete
-or move the hardware. Tenant lifecycle cleanup is different: it returns a
-host to `Ready` in the same installation without removing NICo ownership.
+or move the hardware.
 
 <Warning>
 Run decommissioning while the current NICo API, database, credentials store,
@@ -36,10 +35,11 @@ the devices can be unrecoverable.
 
 ## Decommission a rack
 
-The Flow `DecommissionRack` API returns `Unimplemented`. Decommission each
-component with `nico-admin-cli`. Hosts must be `Ready` (no assigned instance)
-before you start. Switch and power-shelf decommissioning also reject the
-request while a managed host in the same rack remains assigned.
+Decommission each component with `nico-admin-cli`. Hosts must be `Ready` (no
+assigned instance) before you start. Host machines are already sanitized
+during the process of returning from Assigned to Ready. Switch and
+power-shelf decommissioning also reject the request while a managed host in
+the same rack remains assigned.
 
 Use this order:
 
@@ -59,8 +59,7 @@ devices are being reset.
 
 Use these commands when you are removing decommissioned hardware from this
 site. They remove interfaces, suppressions, and retained boot entries where
-those exist. Skip force-delete when you are moving the hardware to a new
-site and tearing down this installation.
+those exist.
 
 Host:
 
@@ -99,8 +98,11 @@ force-delete them, so the same installation does not immediately ingest a
 reset device.
 
 Some Redfish and RMS reset calls return after accepting a request rather than
-after the hardware finishes applying it. Verify the resulting device state and
-factory credentials before you force-delete or tear down the installation.
+after the hardware finishes applying it. After DHCP is suppressed, the devices
+become unreachable because the DHCP server ignores requests from those MAC
+addresses, so NICo cannot poll the reset to completion. Verify the resulting
+device state and factory credentials before you force-delete or tear down the
+installation.
 
 ## Rebuild and re-ingest
 
