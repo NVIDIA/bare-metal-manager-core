@@ -343,6 +343,7 @@ impl StateControllerIO for MachineStateControllerIO {
                     ("decommissioning", "suppressingoobdhcp")
                 }
                 DecommissioningState::PowerCyclingHost => ("decommissioning", "powercyclinghost"),
+                DecommissioningState::PoweringOnHost => ("decommissioning", "poweringonhost"),
                 DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                     ("decommissioning", "waitingforoobdhcpacknowledgement")
                 }
@@ -388,6 +389,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::RotatingBmc { .. } => ("rotatingbmc", ""),
             ManagedHostState::RotatingHostUefi { .. } => ("rotatinghostuefi", ""),
             ManagedHostState::RotatingDpuUefi { .. } => ("rotatingdpuuefi", ""),
+            ManagedHostState::RotatingNicLockdown => ("rotatingniclockdown", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }

@@ -22,13 +22,11 @@ use std::net::IpAddr;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
-use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use db::machine_interface::find_by_mac_address;
 use db::{
-    DatabaseError, expected_machine as db_expected_machine, power_shelf as db_power_shelf,
-    rack as db_rack, switch as db_switch,
+    DatabaseError, expected_machine as db_expected_machine, rack as db_rack, switch as db_switch,
 };
 use futures_util::FutureExt;
 use health_report::HealthReport;
@@ -42,8 +40,6 @@ use model::machine::{
     MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
     MeasuringState, SpdmMeasuringState, ValidationState,
 };
-use model::power_shelf::power_shelf_id::from_hardware_info;
-use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack::RackConfig;
 use model::site_explorer::{Chassis, EndpointExplorationReport, EndpointType};
 use model::switch::{NewSwitch, SwitchConfig};
@@ -1817,63 +1813,6 @@ pub(in crate::tests) async fn new_dpu_in_network_install(
         dpu_ids: vec![dpu_machine_id],
         api: env.api.clone(),
     })
-}
-
-/// Creates a new power shelf for testing purposes
-pub(in crate::tests) async fn new_power_shelf(
-    env: &TestEnv,
-    name: Option<String>,
-    capacity: Option<u32>,
-    voltage: Option<u32>,
-    _location: Option<String>,
-) -> eyre::Result<PowerShelfId> {
-    let mut txn = env.pool.begin().await.unwrap();
-
-    // Generate a unique name if not provided
-    let power_shelf_name = name.unwrap_or_else(|| {
-        format!(
-            "Test Power Shelf {}",
-            &uuid::Uuid::new_v4().to_string()[..8]
-        )
-    });
-
-    // Generate power shelf ID using hardware info
-    let power_shelf_serial = &power_shelf_name;
-    let power_shelf_vendor = "NVIDIA";
-    let power_shelf_model = "PowerShelf";
-
-    let power_shelf_id = from_hardware_info(
-        power_shelf_serial,
-        power_shelf_vendor,
-        power_shelf_model,
-        PowerShelfIdSource::ProductBoardChassisSerial,
-        PowerShelfType::Rack,
-    )
-    .map_err(|e| eyre::eyre!("failed to create power shelf ID: {:?}", e))?;
-
-    // Create power shelf configuration
-    let config = PowerShelfConfig {
-        name: power_shelf_name,
-        capacity: capacity.or(Some(100)),
-        voltage: voltage.or(Some(240)),
-    };
-
-    // Create the power shelf
-    let new_power_shelf = NewPowerShelf {
-        id: power_shelf_id,
-        config,
-        bmc_mac_address: None,
-        metadata: None,
-        rack_id: None,
-    };
-
-    let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
-        .await
-        .map_err(|e| eyre::eyre!("failed to create power shelf: {:?}", e))?;
-
-    txn.commit().await.unwrap();
-
-    Ok(power_shelf_id)
 }
 
 /*

@@ -87,6 +87,9 @@ pub const ROTATING_HOST_UEFI: Duration = Duration::from_secs(40 * 60);
 // retry.
 pub const ROTATING_DPU_UEFI: Duration = Duration::from_secs(40 * 60);
 
+/// SLA for NIC lockdown key rotation
+pub const ROTATING_NIC_LOCKDOWN: Duration = Duration::from_secs(40 * 60);
+
 /// SLA for Site Explorer suppression acknowledgement during decommissioning.
 pub const DECOMMISSIONING_SUPPRESSING_SITE_EXPLORER: Duration = Duration::from_secs(5 * 60);
 
@@ -103,6 +106,9 @@ pub const DECOMMISSIONING_SUPPRESSING_OOB_DHCP: Duration = Duration::from_secs(5
 
 /// SLA for the host power cycle that forces OOB rediscovery during decommissioning.
 pub const DECOMMISSIONING_POWER_CYCLING_HOST: Duration = Duration::from_secs(5 * 60);
+
+/// SLA for powering the host back on after the decommissioning power cycle.
+pub const DECOMMISSIONING_POWERING_ON_HOST: Duration = Duration::from_secs(5 * 60);
 
 /// SLA for waiting for OOB DHCP suppression acknowledgement after the host power
 /// cycle.

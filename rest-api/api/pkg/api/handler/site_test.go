@@ -512,6 +512,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 				require.NotNil(t, rst.Capabilities)
 				assert.True(t, rst.Capabilities.NativeNetworking)
 				assert.True(t, rst.Capabilities.NetworkSecurityGroup)
+				assert.True(t, rst.Capabilities.Flow)
 				assert.False(t, rst.Capabilities.VpcSlaac)
 				assert.False(t, rst.Capabilities.DPSPowerManagement)
 
@@ -524,6 +525,7 @@ func TestCreateSiteHandler_Handle(t *testing.T) {
 				require.NotNil(t, createdSite.Config)
 				assert.True(t, createdSite.Config.NativeNetworking)
 				assert.True(t, createdSite.Config.NetworkSecurityGroup)
+				assert.True(t, createdSite.Config.Flow)
 				assert.False(t, createdSite.Config.VpcSlaac)
 
 				if !tt.siteMgrDisabled {

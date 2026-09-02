@@ -344,6 +344,24 @@ pub(crate) async fn forge_agent_control(
                 }
             }
 
+            // The host is rekeying its SuperNIC lockdown keys (idle-only). Pump
+            // the DPA state machine so scout runs the tenant-free
+            // RotateKeyUnlocking -> RotateKeyLocking cycle for each card.
+            ManagedHostState::RotatingNicLockdown => {
+                txn.commit().await?;
+                match crate::handlers::svpc::process_scout_req(api, machine_id).await {
+                    Ok(action) => (action, None),
+                    Err(error) => {
+                        tracing::error!(
+                            machine_id = %machine_id,
+                            error = %error,
+                            "Failed to build SuperNIC rekey action during lockdown rotation",
+                        );
+                        (Action::noop(), None)
+                    }
+                }
+            }
+
             ManagedHostState::Decommissioning {
                 decommissioning_state:
                     DecommissioningState::DeconfiguringHost {

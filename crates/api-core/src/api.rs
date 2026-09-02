@@ -1444,6 +1444,16 @@ impl Forge for Api {
             .await
     }
 
+    async fn trigger_nic_lockdown_credential_rotation(
+        &self,
+        request: Request<rpc::NicLockdownCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nic_lockdown_credential_rotation::trigger_nic_lockdown_credential_rotation(
+            self, request,
+        )
+        .await
+    }
+
     async fn mark_manual_firmware_upgrade_complete(
         &self,
         request: Request<MachineId>,
@@ -1516,6 +1526,13 @@ impl Forge for Api {
         request: Request<rpc::AdminBmcResetRequest>,
     ) -> Result<Response<rpc::AdminBmcResetResponse>, Status> {
         crate::handlers::bmc_endpoint_explorer::admin_bmc_reset(self, request).await
+    }
+
+    async fn admin_gpu_reset(
+        &self,
+        request: Request<rpc::AdminGpuResetRequest>,
+    ) -> Result<Response<rpc::AdminGpuResetResponse>, Status> {
+        crate::handlers::gpu_reset::admin_gpu_reset(self, request).await
     }
 
     async fn disable_secure_boot(

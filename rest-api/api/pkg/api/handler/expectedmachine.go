@@ -1259,6 +1259,52 @@ func NewUpdateExpectedMachinesHandler(dbSession *cdb.Session, scp *sc.ClientPool
 	}
 }
 
+type expectedMachineUpdateFieldSet struct {
+	bmcMacAddress            bool
+	defaultBmcUsername       bool
+	defaultBmcPassword       bool
+	chassisSerialNumber      bool
+	fallbackDPUSerialNumbers bool
+	skuID                    bool
+	rackID                   bool
+	name                     bool
+	manufacturer             bool
+	model                    bool
+	description              bool
+	slotID                   bool
+	trayIdx                  bool
+	hostID                   bool
+	isDpfEnabled             bool
+	labels                   bool
+	hostLifecycleProfile     bool
+}
+
+// expectedMachineUpdateFields records field presence across the complete update
+// request without comparing values. Keep it in sync with
+// `model.APIExpectedMachineUpdateRequest`: `ID` selects the row, and
+// `bmcIpAddress` is the sole documented per-machine exception.
+func expectedMachineUpdateFields(req model.APIExpectedMachineUpdateRequest) expectedMachineUpdateFieldSet {
+	return expectedMachineUpdateFieldSet{
+		bmcMacAddress:            req.BmcMacAddress != nil,
+		defaultBmcUsername:       req.DefaultBmcUsername != nil,
+		defaultBmcPassword:       req.DefaultBmcPassword != nil,
+		chassisSerialNumber:      req.ChassisSerialNumber != nil,
+		fallbackDPUSerialNumbers: req.FallbackDPUSerialNumbers != nil,
+		skuID:                    req.SkuID != nil,
+		rackID:                   req.RackID != nil,
+		name:                     req.Name != nil,
+		manufacturer:             req.Manufacturer != nil,
+		model:                    req.Model != nil,
+		description:              req.Description != nil,
+		slotID:                   req.SlotID != nil,
+		trayIdx:                  req.TrayIdx != nil,
+		hostID:                   req.HostID != nil,
+		isDpfEnabled:             req.IsDpfEnabled != nil,
+		labels:                   req.Labels != nil,
+		hostLifecycleProfile:     req.HostLifecycleProfile.ToDBModelPtr() != nil,
+	}
+}
+
 // Handle godoc
 // @Summary Batch update ExpectedMachines
 // @Description Update multiple ExpectedMachines in a single request. All machines must belong to the same site.
@@ -1307,6 +1353,9 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	idMap := make(map[uuid.UUID]int)        // Map Expected Machine ID to its index in the request array
 	serialMap := make(map[string]int)
 	requestedSkuIDs := make(map[string]bool)
+	// The public batch contract requires one update field set. Enforce it before
+	// `UpdateMultiple` can apply its shared column list to rows that omitted a field.
+	batchFields := expectedMachineUpdateFields(apiRequests[0])
 	for i, req := range apiRequests {
 		strIndex := strconv.Itoa(i) // index/key as string for validation errors map
 		itemErrors := validation.Errors{}
@@ -1345,6 +1394,10 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 
 		if req.SkuID != nil {
 			requestedSkuIDs[*req.SkuID] = true
+		}
+
+		if expectedMachineUpdateFields(req) != batchFields {
+			common.AddToValidationErrors(itemErrors, "fields", errors.New("must provide the same set of fields as batch item 0, except bmcIpAddress"))
 		}
 
 		if len(itemErrors) > 0 {

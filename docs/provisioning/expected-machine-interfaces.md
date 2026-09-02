@@ -1,4 +1,4 @@
-# Configure Expected Machine Interfaces
+# Configure Expected Machine Interfaces <Badge intent="info">v2.1</Badge> <Badge intent="launch" minimal>New</Badge>
 
 Expected Machine interface declarations tell NICo how to allocate addresses for
 host, DPU OS, DPU BMC, and host BMC interfaces during ingestion. Use the

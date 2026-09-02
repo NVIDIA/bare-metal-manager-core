@@ -93,6 +93,24 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         node_name: &str,
     ) -> Result<DpuPhase, DpfError>;
 
+    /// Read every requested DPU phase only when one deployment owns the full
+    /// set and each Ready DPU matches its flavor and provisioning source.
+    async fn get_dpu_phases_for_deployment_type(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<Option<BTreeMap<String, DpuPhase>>, DpfError>;
+
+    /// Delete source deployment DPU CRs while preserving target replacements.
+    async fn delete_source_dpus_for_deployment_migration(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError>;
+
     /// Check if a DPU node is waiting for external reboot.
     async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError>;
 
@@ -116,6 +134,17 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
         node_name: &str,
         deployment_type: DpuDeploymentType,
     ) -> Result<bool, DpfError>;
+
+    /// Atomically moves a DPUNode from one deployment selector to another.
+    ///
+    /// A completed transfer does nothing, while a node matching neither selector
+    /// is rejected.
+    async fn transfer_dpu_node_deployment_labels(
+        &self,
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError>;
 
     /// Curated snapshot of all DPF CRs related to one host (DPUNode +
     /// DPUDevices + DPUs). `node_name` is the full DPUNode CR name.
@@ -646,6 +675,34 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.get_dpu_phase(dpu_device_name, node_name).await
     }
 
+    async fn get_dpu_phases_for_deployment_type(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        deployment_type: DpuDeploymentType,
+    ) -> Result<Option<BTreeMap<String, DpuPhase>>, DpfError> {
+        self.sdk
+            .get_dpu_phases_for_deployment_type(dpu_device_names, node_name, deployment_type)
+            .await
+    }
+
+    async fn delete_source_dpus_for_deployment_migration(
+        &self,
+        dpu_device_names: &[String],
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        self.sdk
+            .delete_source_dpus_for_deployment_migration(
+                dpu_device_names,
+                node_name,
+                source_deployment_type,
+                target_deployment_type,
+            )
+            .await
+    }
+
     async fn is_reboot_required(&self, node_name: &str) -> Result<bool, DpfError> {
         self.sdk.is_reboot_required(node_name).await
     }
@@ -703,6 +760,21 @@ impl DpfOperations for DpfSdkOps {
     ) -> Result<bool, DpfError> {
         self.sdk
             .verify_node_labels(node_name, deployment_type)
+            .await
+    }
+
+    async fn transfer_dpu_node_deployment_labels(
+        &self,
+        node_name: &str,
+        source_deployment_type: DpuDeploymentType,
+        target_deployment_type: DpuDeploymentType,
+    ) -> Result<(), DpfError> {
+        self.sdk
+            .transfer_dpu_node_deployment_labels(
+                node_name,
+                source_deployment_type,
+                target_deployment_type,
+            )
             .await
     }
 

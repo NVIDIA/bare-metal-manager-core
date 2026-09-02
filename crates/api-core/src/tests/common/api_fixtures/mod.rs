@@ -48,16 +48,13 @@ use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
 use carbide_nvlink_manager::{
     NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
 };
-use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
-use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
-use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_rack::rms_client::test_support::RmsSim;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
-use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
+use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_secrets::credentials::{
     CompositeCredentialManager, CredentialKey, CredentialManager, CredentialReader, CredentialType,
     Credentials,
@@ -186,7 +183,6 @@ pub(in crate::tests) struct TestEnvOverrides {
     pub(in crate::tests) nmxc_fail_after_n_creates: Option<usize>,
     pub(in crate::tests) compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
     pub(in crate::tests) nmxc_simulator: Option<bool>,
-    pub(in crate::tests) redfish_overrides: Option<RedfishOverrides>,
 
     /// Optional compute-tray backend injected into the component manager.
     pub(in crate::tests) compute_tray_manager:
@@ -198,13 +194,6 @@ pub(in crate::tests) struct TestEnvOverrides {
     pub(in crate::tests) nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub(in crate::tests) vpc_prefixes_drain_period: Option<chrono::Duration>,
     pub(in crate::tests) dhcp_lease_expiry_handling: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(in crate::tests) struct RedfishOverrides {
-    pub(in crate::tests) no_component_integrities: bool,
-    pub(in crate::tests) firmware_for_component_error: bool,
-    pub(in crate::tests) get_task_trigger_evidence_returns_interrupted: bool,
 }
 
 impl TestEnvOverrides {
@@ -284,7 +273,6 @@ pub(crate) struct TestEnv {
     vpc_prefix_controller: Arc<Mutex<StateController<VpcPrefixStateControllerIO>>>,
     extension_service_controller: Arc<Mutex<StateController<ExtensionServiceStateControllerIO>>>,
     ib_partition_controller: Arc<Mutex<StateController<IBPartitionStateControllerIO>>>,
-    power_shelf_controller: Arc<Mutex<StateController<PowerShelfStateControllerIO>>>,
     rack_controller: Arc<Mutex<StateController<RackStateControllerIO>>>,
     switch_controller: Arc<Mutex<StateController<SwitchStateControllerIO>>>,
     pub(in crate::tests) reachability_params: ReachabilityParams,
@@ -354,6 +342,9 @@ impl TestEnv {
                 carbide_credential_rotation::RotationGate::new_for_family(
                     db::credential_rotation::CredentialRotationType::DpuBmcService,
                 ),
+            nic_lockdown_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::LockdownIkm,
+            ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
         }
@@ -470,6 +461,7 @@ impl TestEnv {
             ManagedHostState::RotatingHostUefi { .. } => state.clone(),
             ManagedHostState::Decommissioning { .. } => state.clone(),
             ManagedHostState::RotatingDpuUefi { .. } => state.clone(),
+            ManagedHostState::RotatingNicLockdown => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
@@ -654,17 +646,6 @@ impl TestEnv {
             .await
             .run_single_iteration()
             .boxed()
-            .await;
-    }
-
-    /// Runs one iteration of the power shelf state controller handler with the services
-    /// in this test environment
-    #[allow(clippy::await_holding_refcell_ref)]
-    pub(in crate::tests) async fn run_power_shelf_controller_iteration(&self) {
-        self.power_shelf_controller
-            .lock()
-            .await
-            .run_single_iteration()
             .await;
     }
 
@@ -1254,16 +1235,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         credential_manager.clone(),
     ));
 
-    let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
-        Arc::new(RedfishSim::with_test_overrides(RedfishSimTestOverrides {
-            no_component_integrities: redfish_overrides.no_component_integrities,
-            firmware_for_component_error: redfish_overrides.firmware_for_component_error,
-            get_task_trigger_evidence_returns_interrupted: redfish_overrides
-                .get_task_trigger_evidence_returns_interrupted,
-        }))
-    } else {
-        Arc::new(RedfishSim::default())
-    };
+    let redfish_sim = Arc::new(RedfishSim::default());
 
     // Seed the site-wide host and DPU UEFI site-default credentials (version 0).
     // These are written during site setup in production; tests don't run that.
@@ -1550,6 +1522,10 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                     carbide_credential_rotation::RotationGate::new_for_family(
                         db::credential_rotation::CredentialRotationType::DpuBmcService,
                     ),
+                nic_lockdown_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::LockdownIkm,
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,
             }
@@ -1661,29 +1637,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         .state_handler(Arc::new(ExtensionServiceStateHandler))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build ExtensionServiceStateController");
-
-    let power_shelf_controller = StateController::builder()
-        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
-        .meter("carbide_power_shelves", test_meter.meter())
-        .processor_id(state_controller_id.clone())
-        .services(
-            PowerShelfStateHandlerServices {
-                db_pool: db_pool.clone(),
-                component_manager: test_component_manager.clone(),
-                credential_manager: credential_manager.clone(),
-                per_object_metrics_registry: per_object_metrics_registry.clone(),
-                rack_firmware_reprovisioning_enabled: false,
-                redfish_client_pool: redfish_sim.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
-                    db::credential_rotation::CredentialRotationType::Bmc,
-                ),
-                bmc_rotation_enabled: false,
-            }
-            .into(),
-        )
-        .state_handler(Arc::new(PowerShelfStateHandler::default()))
-        .build_for_manual_iterations(cancel_token.clone())
-        .expect("Unable to build PowerShelfStateController");
 
     let switch_controller = StateController::builder()
         .database(db_pool.clone(), api.work_lock_manager_handle.clone())
@@ -1860,7 +1813,6 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         network_segment_controller: Arc::new(Mutex::new(network_controller)),
         vpc_prefix_controller: Arc::new(Mutex::new(vpc_prefix_controller)),
         extension_service_controller: Arc::new(Mutex::new(extension_service_controller)),
-        power_shelf_controller: Arc::new(Mutex::new(power_shelf_controller)),
         rack_controller: Arc::new(Mutex::new(rack_controller)),
         reachability_params,
         attestation_enabled,

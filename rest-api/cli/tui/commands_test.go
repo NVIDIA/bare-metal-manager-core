@@ -22,6 +22,54 @@ import (
 
 // --- Upstream tests ---
 
+func TestCmdSiteCreateRejectsResponseWithoutID(t *testing.T) {
+	for _, response := range []string{"null", "{}"} {
+		t.Run(response, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				_, _ = io.WriteString(w, response)
+			}))
+			defer server.Close()
+
+			session := NewSession(appcli.NewClient(server.URL, "acme", "token", nil, false), "acme", "")
+			_, err := withStdin(t, "site-name\n\n\n\n\n\n\n", func() (string, error) {
+				return "", cmdSiteCreate(session, nil)
+			})
+
+			require.EqualError(t, err, "parsing created site response: missing id")
+		})
+	}
+}
+
+func TestParseMutationResponseRequiringID(t *testing.T) {
+	tests := []struct {
+		name      string
+		response  string
+		wantID    string
+		wantError string
+	}{
+		{name: "malformed JSON", response: "[", wantError: "parsing created site response:"},
+		{name: "null", response: "null", wantError: "parsing created site response: missing id"},
+		{name: "empty object", response: "{}", wantError: "parsing created site response: missing id"},
+		{name: "blank id", response: `{"id":"  "}`, wantError: "parsing created site response: missing id"},
+		{name: "valid object", response: `{"id":"site-1","name":"Site One"}`, wantID: "site-1"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := parseMutationResponseRequiringID([]byte(test.response), "created site")
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				assert.Nil(t, parsed)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantID, str(parsed, "id"))
+		})
+	}
+}
+
 func TestAppendScopeFlags_NoSession(t *testing.T) {
 	got := appendScopeFlags(nil, []string{"machine", "list"})
 	want := []string{"machine", "list"}
@@ -129,6 +177,78 @@ func TestLogCmd_NoScope(t *testing.T) {
 	if strings.Contains(output, "--site-id") {
 		t.Errorf("LogCmd output should not contain --site-id when no scope set: %q", output)
 	}
+}
+
+func TestCmdInstanceListRendersIPAddresses(t *testing.T) {
+	cache := NewCache()
+	cache.Set("vpc", []NamedItem{{Name: "VPC One", ID: "vpc-1"}})
+	cache.Set("site", []NamedItem{{Name: "Site One", ID: "site-1"}})
+	cache.Set("instance", []NamedItem{
+		{
+			Name: "with-addresses", ID: "instance-1", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw: map[string]interface{}{
+				"interfaces": []interface{}{
+					map[string]interface{}{"ipAddresses": []interface{}{"192.0.2.10"}},
+					map[string]interface{}{"ipAddresses": []interface{}{"2001:db8::10"}},
+				},
+			},
+		},
+		{
+			Name: "without-addresses", ID: "instance-2", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw:   map[string]interface{}{"interfaces": []interface{}{}},
+		},
+		{
+			Name: "auto-network", ID: "instance-3", Status: "Ready",
+			Extra: map[string]string{"vpcId": "vpc-1", "siteId": "site-1"},
+			Raw: map[string]interface{}{
+				"interfaces": []interface{}{},
+				"status": map[string]interface{}{
+					"network": map[string]interface{}{
+						"interfaces": []interface{}{
+							map[string]interface{}{"ipAddresses": []interface{}{"198.51.100.10"}},
+						},
+					},
+				},
+			},
+		},
+	})
+	session := &Session{Cache: cache}
+	session.Resolver = NewResolver(cache)
+
+	var runErr error
+	output := captureStdout(func() {
+		runErr = cmdInstanceList(session, nil)
+	})
+	require.NoError(t, runErr)
+
+	lines := strings.Split(output, "\n")
+	var header, populated, empty, autoNetwork string
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "NAME"):
+			header = line
+		case strings.HasPrefix(line, "with-addresses"):
+			populated = line
+		case strings.HasPrefix(line, "without-addresses"):
+			empty = line
+		case strings.HasPrefix(line, "auto-network"):
+			autoNetwork = line
+		}
+	}
+	require.NotEmpty(t, header)
+	require.NotEmpty(t, populated)
+	require.NotEmpty(t, empty)
+	require.NotEmpty(t, autoNetwork)
+
+	ipAddressesColumn := strings.Index(header, "IP ADDRESSES")
+	statusColumn := strings.Index(header, "STATUS")
+	require.Greater(t, ipAddressesColumn, 0)
+	require.Greater(t, statusColumn, ipAddressesColumn)
+	assert.Equal(t, "192.0.2.10, 2001:db8::10", strings.TrimSpace(populated[ipAddressesColumn:statusColumn]))
+	assert.Equal(t, "-", strings.TrimSpace(empty[ipAddressesColumn:statusColumn]))
+	assert.Equal(t, "198.51.100.10", strings.TrimSpace(autoNetwork[ipAddressesColumn:statusColumn]))
 }
 
 func TestShellQuoteCLIArg(t *testing.T) {
@@ -819,6 +939,20 @@ func TestParseLabelArgs(t *testing.T) {
 		_, _, _, err := parseLabelArgs([]string{"--sort-label"})
 		assert.Error(t, err)
 	})
+	t.Run("sort-label rejects another option", func(t *testing.T) {
+		remaining, labels, sortKey, err := parseLabelArgs([]string{"--sort-label", "--label", "env=prod"})
+		require.Error(t, err)
+		assert.Nil(t, remaining)
+		assert.Nil(t, labels)
+		assert.Empty(t, sortKey)
+	})
+	t.Run("label rejects another option", func(t *testing.T) {
+		remaining, labels, sortKey, err := parseLabelArgs([]string{"--label", "--sort-label", "rack"})
+		require.Error(t, err)
+		assert.Nil(t, remaining)
+		assert.Nil(t, labels)
+		assert.Empty(t, sortKey)
+	})
 	t.Run("dangling label flag", func(t *testing.T) {
 		_, _, _, err := parseLabelArgs([]string{"--label"})
 		assert.Error(t, err)
@@ -950,6 +1084,206 @@ func TestVPCFilteringDoesNotMutateCachedSlice(t *testing.T) {
 	assert.Equal(t, "m1", cached[0].Name)
 	assert.Equal(t, "m2", cached[1].Name)
 	assert.Equal(t, "m3", cached[2].Name)
+}
+
+func TestValidateIPv4SubnetPrefixLength(t *testing.T) {
+	// Keep these client-side bounds aligned with SubnetCreateRequest in
+	// openapi/spec.yaml.
+	tests := []struct {
+		name         string
+		prefixLength int
+		wantError    bool
+	}{
+		{name: "below minimum", prefixLength: 7, wantError: true},
+		{name: "minimum", prefixLength: 8},
+		{name: "maximum", prefixLength: 30},
+		{name: "above maximum", prefixLength: 31, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateIPv4SubnetPrefixLength(test.prefixLength)
+			if test.wantError {
+				require.EqualError(t, err, "prefix length must be between 8 and 30")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestFilterSubnetVPCs(t *testing.T) {
+	tests := []struct {
+		name         string
+		vpc          NamedItem
+		wantIncluded bool
+	}{
+		{
+			name: "Ready ETHERNET_VIRTUALIZER included",
+			vpc: NamedItem{
+				Name:   "Ethernet virtualizer VPC",
+				ID:     "vpc-etv",
+				Status: "Ready",
+				Extra:  map[string]string{"networkVirtualizationType": "ETHERNET_VIRTUALIZER"},
+			},
+			wantIncluded: true,
+		},
+		{
+			name: "Ready FNN excluded",
+			vpc: NamedItem{
+				Name:   "FNN VPC",
+				ID:     "vpc-fnn",
+				Status: "Ready",
+				Extra:  map[string]string{"networkVirtualizationType": "FNN"},
+			},
+		},
+		{
+			name: "pending ETHERNET_VIRTUALIZER excluded",
+			vpc: NamedItem{
+				Name:   "Pending Ethernet virtualizer VPC",
+				ID:     "vpc-pending",
+				Status: "Pending",
+				Extra:  map[string]string{"networkVirtualizationType": "ETHERNET_VIRTUALIZER"},
+			},
+		},
+		{
+			name: "Ready legacy VPC without type included",
+			vpc: NamedItem{
+				Name:   "Legacy VPC",
+				ID:     "vpc-legacy",
+				Status: "Ready",
+				Extra:  map[string]string{},
+			},
+			wantIncluded: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := filterSubnetVPCs([]NamedItem{test.vpc})
+			if !test.wantIncluded {
+				assert.Empty(t, got)
+				return
+			}
+			require.Equal(t, []NamedItem{test.vpc}, got)
+		})
+	}
+}
+
+func TestBuildSubnetIPBlockSelectItems(t *testing.T) {
+	tests := []struct {
+		name         string
+		block        NamedItem
+		siteID       string
+		wantIncluded bool
+	}{
+		{
+			name: "same-site current-tenant IPv4 included",
+			block: NamedItem{
+				Name:   "IPv4 block",
+				ID:     "ipv4-same-site",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID:       "site-1",
+			wantIncluded: true,
+		},
+		{
+			name: "same-site current-tenant IPv6 excluded",
+			block: NamedItem{
+				Name:   "IPv6 block",
+				ID:     "ipv6-same-site",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv6"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "other-site current-tenant IPv4 excluded",
+			block: NamedItem{
+				Name:   "Other site IPv4 block",
+				ID:     "ipv4-other-site",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-2", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "provider-owned IPv4 excluded",
+			block: NamedItem{
+				Name:   "Provider IPv4 block",
+				ID:     "ipv4-provider",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "other-tenant IPv4 excluded",
+			block: NamedItem{
+				Name:   "Other tenant IPv4 block",
+				ID:     "ipv4-other-tenant",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-2", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "pending current-tenant IPv4 excluded",
+			block: NamedItem{
+				Name:   "Pending IPv4 block",
+				ID:     "ipv4-pending",
+				Status: "Pending",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "empty site scope accepts current-tenant IPv4",
+			block: NamedItem{
+				Name:   "IPv4 block",
+				ID:     "ipv4-without-site-scope",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			wantIncluded: true,
+		},
+		{
+			name: "missing name uses ID as label",
+			block: NamedItem{
+				ID:     "ipv4-unnamed",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID:       "site-1",
+			wantIncluded: true,
+		},
+		{
+			name: "missing ID excluded",
+			block: NamedItem{
+				Name:   "ID-less IPv4 block",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			items := buildSubnetIPBlockSelectItems([]NamedItem{test.block}, test.siteID, "tenant-1")
+			if !test.wantIncluded {
+				assert.Empty(t, items)
+				return
+			}
+			require.Len(t, items, 1)
+			label := test.block.Name
+			if label == "" {
+				label = test.block.ID
+			}
+			assert.Equal(t, SelectItem{Label: label, ID: test.block.ID}, items[0])
+		})
+	}
 }
 
 func TestBuildIPBlockCreateBody_UsesAPIFieldNames(t *testing.T) {
@@ -1373,7 +1707,8 @@ func captureStdout(f func()) string {
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	_, err := io.Copy(&buf, r)
+	if err != nil {
 		panic(err)
 	}
 	return buf.String()

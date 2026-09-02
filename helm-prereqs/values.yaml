@@ -160,26 +160,42 @@ rest:
   namespace: nico-rest
 
 ## ---------------------------------------------------------------------------
-## flow — NICo Flow (rack lifecycle orchestrator, formerly RLA).
+## flow — NICo Flow task, policy, and automation service.
 ##
 ## This toggle controls only the helm-prereqs side of Flow:
-##   - per-component databases (flow / psm / nsm) on nico-pg-cluster
-##   - ClusterExternalSecrets that sync those DB credentials into the flow
+##   - the Flow database on nico-pg-cluster
+##   - the ClusterExternalSecret that syncs its credentials into the flow
 ##     namespace (eso-external-secrets.yaml)
-##   - psm/nsm Vault tokens (flow-vault-tokens-job post-install hook)
 ##
 ## The flow Deployment itself ships as a separate helm release from
-## helm/charts/nico-flow, installed by setup.sh phase 7i. That phase is NOT
+## helm/charts/nico-flow, installed by setup.sh phase 7h. That phase is NOT
 ## driven by this value — it is unconditionally invoked unless setup.sh is
 ## passed --skip-flow. If you set flow.enabled=false here you should also
-## pass --skip-flow on the setup.sh command line, otherwise phase 7i will
-## try to install a chart whose prerequisites (DB creds, Vault tokens) are
-## missing and fail.
+## pass --skip-flow on the setup.sh command line, otherwise phase 7h will
+## try to install a chart whose database credentials are missing and fail.
 ## ---------------------------------------------------------------------------
+## ---------------------------------------------------------------------------
+## rms — NVIDIA Rack Manager Service (rack-manager chart) prerequisites.
+##
+## This toggle controls only the helm-prereqs side of RMS:
+##   - the rms database and rms.nico user on nico-pg-cluster (postgresql.yaml)
+##   - the rms-db-eso ClusterExternalSecret that syncs the credentials into
+##     the rack-manager namespace (eso-external-secrets.yaml)
+##
+## The rack-manager chart itself is installed by setup.sh phase 5c, by
+## DEFAULT (opt out with --skip-rms). Deliberately NOT driven by that flag:
+## --skip-rms skips only the chart install and never deprovisions these
+## prerequisites — removing them would strand a running rack-manager release
+## (same contract as --skip-flow). To skip the prerequisites too, set
+## enabled: false here, paired with --skip-rms.
+## ---------------------------------------------------------------------------
+rms:
+  enabled: true
+
 flow:
   enabled: true
   ## Namespace flow runs in — must match the helm install -n flag for the
-  ## flow release.  ESO and the vault-config-job target this namespace.
+  ## flow release. ESO targets this namespace.
   namespace: flow
 
 ## ---------------------------------------------------------------------------

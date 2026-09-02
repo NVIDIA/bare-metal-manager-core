@@ -1,4 +1,4 @@
-# Component Manager RMS Backends (Day 1) <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# Component Manager RMS Backends (Day 1) <Badge intent="info">v2.0</Badge>
 
 Operator guide for configuring **Rack Manager Service (RMS)** backends in the
 `[component_manager]` section of `nico-api` site config, and the **rack profile**
@@ -15,6 +15,8 @@ at runtime when an RMS operation runs (refer to
 Canonical field reference: [`crates/api-core/src/cfg/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/cfg/README.md).
 Configure the `[rms]` block (mTLS connectivity to the external RMS) separately;
 the examples on this page cover the component-manager and rack-profile fields.
+The `nsm` and `psm` backend values require externally managed services; the
+NICo deployment charts do not install NSM or PSM.
 
 ---
 

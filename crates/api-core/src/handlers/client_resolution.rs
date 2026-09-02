@@ -25,10 +25,10 @@ use db::db_read::DbReader;
 use model::instance::config::tenant_config::HOSTNAME_RE;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{InstanceState, MachineInterfaceSnapshot, ManagedHostState};
+use model::machine::{InstanceState, Machine, MachineInterfaceSnapshot, ManagedHostState};
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
-use model::rack_type::select_dpu_nvconfig_profile;
+use model::rack_type::{RackProductFamily, select_dpu_nvconfig_profile};
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -236,9 +236,50 @@ pub(super) async fn resolve_machine_interface(
     }
 }
 
-/// Selects a DPU profile from the attached host's rack and the DPU's hardware
-/// identity. Missing relationships mean no platform profile applies; database
-/// failures still propagate to the caller.
+/// Returns the product family reported by Site Explorer, or falls back to the
+/// configured rack profile when that report does not name a known family.
+async fn resolve_host_product_family(
+    api: &Api,
+    conn: &mut PgConnection,
+    host: &Machine,
+) -> Result<Option<RackProductFamily>, CarbideError> {
+    if let Some(host_bmc_ip) = host.status.bmc_info.ip {
+        let endpoints = db::explored_endpoints::find_by_ips(&mut *conn, vec![host_bmc_ip]).await?;
+        if let Some(product_family) = endpoints
+            .first()
+            .and_then(|endpoint| endpoint.report.model())
+            .as_deref()
+            .and_then(RackProductFamily::from_hardware_model)
+        {
+            return Ok(Some(product_family));
+        }
+    }
+
+    let Some(rack_id) = host.rack_id.as_ref() else {
+        return Ok(None);
+    };
+    let Some(rack) = db::rack::find_by(
+        &mut *conn,
+        ObjectColumnFilter::One(db::rack::IdColumn, rack_id),
+    )
+    .await?
+    .pop() else {
+        return Ok(None);
+    };
+    let Some(rack_profile_id) = rack.rack_profile_id.as_ref() else {
+        return Ok(None);
+    };
+
+    Ok(api
+        .runtime_config
+        .rack_profiles
+        .get(rack_profile_id.as_str())
+        .and_then(|profile| profile.product_family.clone()))
+}
+
+/// Selects a DPU profile from the attached host's observed or configured
+/// product family and the DPU's hardware identity. Missing relationships mean
+/// no platform profile applies; database failures still propagate.
 async fn resolve_dpu_nvconfig_profile(
     api: &Api,
     conn: &mut PgConnection,
@@ -255,27 +296,7 @@ async fn resolve_dpu_nvconfig_profile(
     else {
         return Ok(None);
     };
-    let Some(rack_id) = host.rack_id.as_ref() else {
-        return Ok(None);
-    };
-    let Some(rack) = db::rack::find_by(
-        &mut *conn,
-        ObjectColumnFilter::One(db::rack::IdColumn, rack_id),
-    )
-    .await?
-    .pop() else {
-        return Ok(None);
-    };
-    let Some(rack_profile_id) = rack.rack_profile_id.as_ref() else {
-        return Ok(None);
-    };
-    let Some(rack_profile) = api
-        .runtime_config
-        .rack_profiles
-        .get(rack_profile_id.as_str())
-    else {
-        return Ok(None);
-    };
+    let product_family = resolve_host_product_family(api, conn, &host).await?;
 
     let Some(dpu) =
         db::machine::find_one(&mut *conn, dpu_machine_id, MachineSearchConfig::default()).await?
@@ -283,11 +304,10 @@ async fn resolve_dpu_nvconfig_profile(
         return Ok(None);
     };
 
-    Ok(select_dpu_nvconfig_profile(
-        rack_profile.product_family.as_ref(),
-        dpu.status.hardware_info.as_ref(),
+    Ok(
+        select_dpu_nvconfig_profile(product_family.as_ref(), dpu.status.hardware_info.as_ref())
+            .map(rpc::DpuNvConfigProfile::from),
     )
-    .map(rpc::DpuNvConfigProfile::from))
 }
 
 /// Resolve a client IP to its `CloudInitInstructions` response. The

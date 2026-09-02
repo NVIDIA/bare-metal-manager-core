@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFetchVPCPrefixIPBlocksUsesCurrentTenantScope(t *testing.T) {
+func TestSession_fetchTenantIPBlocks(t *testing.T) {
 	providerRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -35,7 +35,7 @@ func TestFetchVPCPrefixIPBlocksUsesCurrentTenantScope(t *testing.T) {
 			assert.Equal(t, "tenant-a", r.URL.Query().Get("tenantId"))
 			assert.Empty(t, r.URL.Query().Get("infrastructureProviderId"))
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `[{"id":"provider-id","name":"provider","siteId":"site-a","status":"Ready","tenantId":null},{"id":"other-tenant-id","name":"other tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-b"},{"id":"tenant-id","name":"tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-a"}]`)
+			_, _ = io.WriteString(w, `[{"id":"provider-id","name":"provider","siteId":"site-a","status":"Ready","tenantId":null,"protocolVersion":"IPv4"},{"id":"other-tenant-id","name":"other tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-b","protocolVersion":"IPv4"},{"id":"tenant-id","name":"tenant","siteId":"site-a","status":"Ready","tenantId":"tenant-a","protocolVersion":"IPv4"}]`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -51,7 +51,7 @@ func TestFetchVPCPrefixIPBlocksUsesCurrentTenantScope(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "provider-a", providerID)
 
-	items, tenantID, err := session.fetchVPCPrefixIPBlocks(ctx)
+	items, tenantID, err := session.fetchTenantIPBlocks(ctx)
 
 	require.NoError(t, err)
 	assert.Equal(t, "tenant-a", tenantID)
@@ -60,6 +60,7 @@ func TestFetchVPCPrefixIPBlocksUsesCurrentTenantScope(t *testing.T) {
 	assert.Empty(t, items[0].Extra["tenantId"])
 	assert.Equal(t, "tenant-b", items[1].Extra["tenantId"])
 	assert.Equal(t, "tenant-a", items[2].Extra["tenantId"])
+	assert.Equal(t, "IPv4", items[2].Extra["protocolVersion"])
 
 	selectItems := buildIPBlockSelectItems(items, tenantID)
 	require.Len(t, selectItems, 2)

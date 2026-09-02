@@ -127,6 +127,8 @@ API GET /v2/org/{org}/nico/subnet the `items/usageStats/acquiredIPs` response's 
 API GET /v2/org/{org}/nico/subnet the `items/usageStats/acquiredPrefixes` response's property type/format changed from `integer`/`int64` to `integer`/`uint64` for status `200`
 API GET /v2/org/{org}/nico/subnet the `items/usageStats/availableIPs` response's property type/format changed from `integer`/`int64` to `integer`/`uint64` for status `200`
 API GET /v2/org/{org}/nico/subnet the `items/usageStats/availableSmallestPrefixes` response's property type/format changed from `integer`/`int64` to `integer`/`uint64` for status `200`
+API POST /v2/org/{org}/nico/subnet the request property `ipv4BlockId` became not nullable
+API POST /v2/org/{org}/nico/subnet the request property `ipv4BlockId` became required
 API POST /v2/org/{org}/nico/subnet the `usageStats/acquiredIPs` response's property type/format changed from `integer`/`int64` to `integer`/`uint64` for status `201`
 API POST /v2/org/{org}/nico/subnet the `usageStats/acquiredPrefixes` response's property type/format changed from `integer`/`int64` to `integer`/`uint64` for status `201`
 API POST /v2/org/{org}/nico/subnet the `usageStats/availableIPs` response's property type/format changed from `integer`/`int64` to `integer`/`uint64` for status `201`

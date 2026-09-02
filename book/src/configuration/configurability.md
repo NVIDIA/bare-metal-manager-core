@@ -68,7 +68,7 @@ See [`helm/README.md`](../../../helm/README.md#configuration) for the full list.
 | `nico-dhcp` | on | DHCP for PXE boot — DPUs need it to come up. |
 | `nico-dns` | on | Authoritative DNS for managed machines and VPCs. |
 | `nico-dsx-exchange-consumer` | off | Optional MQTT event consumer; requires a broker. |
-| `nico-flow` | off | Workflow orchestrator; deployed separately when needed. |
+| `nico-flow` | off | Umbrella dependency only; `setup.sh` installs Flow as a separate release by default. |
 | `nico-hardware-health` | on | Hardware health collector. |
 | `nico-ntp` | on | chrony NTP servers; DPU pre-ingestion needs synced clocks. |
 | `nico-pxe` | on | HTTP PXE boot server. |
@@ -248,6 +248,8 @@ use non-RMS backends.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
+The `nsm` and `psm` backend values require externally managed services; the
+NICo deployment charts do not install NSM or PSM.
 
 Example: GB200 rack where all component-manager roles use RMS:
 
@@ -1329,7 +1331,6 @@ and upgrade — knowing they exist helps when debugging stuck rollouts:
 | `gen-site-ca` | helm-prereqs pre-install | Before `nico-prereqs` install | Generates the self-signed site-root certificate that bootstraps Vault TLS. |
 | `vault-pki-config` | helm-prereqs post-install | After Vault is unsealed | Configures the Vault PKI secrets engine, creates the `nico-issuer` role, sets up the AppRole auth used by `nico-api`. |
 | `ssh-host-key` | helm-prereqs pre-install | Before `nico-ssh-console-rs` install | Generates an Ed25519 SSH host key and writes it to the `ssh-host-key` Secret. |
-| `flow-vault-tokens` | helm-prereqs post-install | After `nico-api` install | Issues per-namespace Vault tokens consumed by the flow service when enabled. |
 | `nico-api-migrate` | NICo Core pre-upgrade | Before every `nico-api` upgrade | Runs `nico-api migrate` against the Postgres datastore. Failures abort the upgrade. |
 | `nico-rest cert-manager` ClusterIssuer apply | Phase 7b | Before nico-rest pods come up | Installs the `nico-rest-ca-issuer` ClusterIssuer for REST-side TLS. |
 
@@ -1453,7 +1454,7 @@ on or off.
 |-----------|-------|------|---------|----------------|
 | `nico-ntp` | Helm | `nico-ntp.enabled` | on | Leave on unless upstream NTP is reachable from the provisioning network. |
 | `nico-dsx-exchange-consumer` | Helm | `nico-dsx-exchange-consumer.enabled` | off | Enable when the site has an MQTT broker and you want BMS metadata + managed-host events. |
-| `nico-flow` | Helm | `nico-flow.enabled` | off | Workflow orchestrator; enable when running Temporal-backed workflows. |
+| `nico-flow` | Helm | `nico-flow.enabled` | off | Leave off in the umbrella; `setup.sh` installs Flow as a separate release by default. |
 | `unbound` | Helm | `unbound.enabled` | off | Enable when DPUs need the `.forge` compatibility zone and no external DNS serves it. |
 | SSH-console Loki sidecar | Helm | `nico-ssh-console-rs.lokiLogCollector.enabled` | off | Enable when shipping SSH session logs to Loki. |
 | ServiceMonitor (per chart) | Helm | `<chart>.serviceMonitor.enabled` | off | Enable when the Prometheus Operator is installed. |

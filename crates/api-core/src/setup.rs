@@ -674,16 +674,27 @@ async fn initialize_dpf_sdk(
         intercept_bridging.as_ref(),
     );
 
+    let astra_interfaces = carbide_dpf::sdk::build_dpu_interfaces_vec();
+
     // SDK construction writes the shared BMC Secret, so capacity validation must remain on the
     // pure configuration path and finish before Kubernetes repository construction.
+    let service_vpc_interfaces = crate::dpf_services::service_vpc_interfaces(
+        &effective_interfaces,
+        carbide_config.dpu_config.service_vpc_slot_count,
+    )
+    .map_err(|error| eyre::eyre!("invalid DPF HBN interface configuration: {error}"))?;
+    let additional_managed_sf = carbide_config
+        .dpu_config
+        .service_vpc_slot_count
+        .checked_add(carbide_config.dpu_config.additional_managed_sf)
+        .ok_or_else(|| eyre::eyre!("dpu_config managed SF count exceeds u32"))?;
     carbide_dpf::calculate_pf_total_sf(
         &effective_interfaces,
         intercept_bridging.as_ref(),
         carbide_config.dpf.pf_total_sf_reserved,
+        additional_managed_sf,
     )
     .map_err(|error| eyre::eyre!("invalid DPF SF configuration: {error}"))?;
-
-    let astra_interfaces = carbide_dpf::sdk::build_dpu_interfaces_vec();
 
     let repo = carbide_dpf::KubeRepository::new()
         .await
@@ -734,6 +745,14 @@ async fn initialize_dpf_sdk(
                 | DpuDeploymentType::Bf3Gb200
                 | DpuDeploymentType::Bf4Generic => &effective_interfaces,
             };
+            let (service_vpc_interfaces, additional_managed_sf) = match deployment_type {
+                DpuDeploymentType::Bf4Astra => (&[][..], 0),
+                DpuDeploymentType::Bf3
+                | DpuDeploymentType::Bf3Gb200
+                | DpuDeploymentType::Bf4Generic => {
+                    (service_vpc_interfaces.as_slice(), additional_managed_sf)
+                }
+            };
             carbide_dpf::InitDpfResourcesConfig {
                 bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
                 bluefield_software,
@@ -746,10 +765,12 @@ async fn initialize_dpf_sdk(
                     &services,
                     &carbide_config.dpf.dpu_agent_bootstrap_ca,
                     interfaces,
+                    service_vpc_interfaces,
                     &carbide_config.node_auth,
                 ),
                 num_of_vfs: carbide_config.dpu_config.num_of_vfs,
                 pf_total_sf_reserved: carbide_config.dpf.pf_total_sf_reserved,
+                additional_managed_sf,
                 intercept_bridging: match deployment_type {
                     DpuDeploymentType::Bf4Astra => None,
                     DpuDeploymentType::Bf3
@@ -758,6 +779,9 @@ async fn initialize_dpf_sdk(
                 },
                 interfaces: interfaces.clone(),
                 proxy: carbide_config.dpf.proxy.clone(),
+                extra_bfcfg_parameters: carbide_config
+                    .dpf
+                    .resolved_bfcfg_parameters_for(deployment),
                 deployment_type,
             }
         };
@@ -1486,6 +1510,10 @@ async fn initialize_and_start_controllers<'a>(
                 dpu_bmc_service_rotation_gate:
                     carbide_credential_rotation::RotationGate::new_for_family(
                         db::credential_rotation::CredentialRotationType::DpuBmcService,
+                    ),
+                nic_lockdown_rotation_gate:
+                    carbide_credential_rotation::RotationGate::new_for_family(
+                        db::credential_rotation::CredentialRotationType::LockdownIkm,
                     ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,

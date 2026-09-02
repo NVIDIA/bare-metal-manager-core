@@ -36,7 +36,7 @@ type OperatingSystemUpdateRequest struct {
 	ImageAuthType NullableString `json:"imageAuthType,omitempty"`
 	// Auth token to retrieve the image from image URL, required if imageAuthType is specified. Can be updated independently without re-sending imageUrl/imageSha.
 	ImageAuthToken NullableString `json:"imageAuthToken,omitempty"`
-	// Disk path where the image should be mounted, optional
+	// Optional whole-disk target that will be overwritten with the image. Accepts `smallest`, `/dev/nvme<controller>n<namespace>`, `/dev/sd<letters>`, or `/dev/disk/by-id/<identifier>`. `smallest` selects the smallest suitable disk, preferring one with an EFI partition to break a size tie. When omitted or empty, the Site prefers a disk with an EFI partition, then falls back to `/dev/nvme0n1` or `/dev/sda`.
 	ImageDisk NullableString `json:"imageDisk,omitempty"`
 	// Root filesystem UUID; this or `rootFsLabel` is required for image-based OS
 	RootFsId NullableString `json:"rootFsId,omitempty"`

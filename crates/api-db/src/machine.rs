@@ -85,6 +85,64 @@ lazy_static! {
     );
 }
 
+/// An item associated with a row in `machines`.
+pub trait MachineRowLockItem {
+    /// Returns the ID used to order machine-row lock acquisition.
+    fn machine_id(&self) -> MachineId;
+}
+
+impl MachineRowLockItem for MachineId {
+    fn machine_id(&self) -> MachineId {
+        *self
+    }
+}
+
+impl<T> MachineRowLockItem for (MachineId, T) {
+    fn machine_id(&self) -> MachineId {
+        self.0
+    }
+}
+
+/// An owning iterator in canonical `machines` row-lock acquisition order.
+///
+/// PostgreSQL holds row locks acquired by `UPDATE` until the transaction ends.
+/// If two transactions update overlapping machine batches in different orders,
+/// each can hold a row needed by the other, and PostgreSQL aborts one with
+/// SQLSTATE 40P01 (`deadlock_detected`). A common order prevents that cycle.
+///
+/// Construct this before the batch's first machine-row write so concurrent
+/// transactions acquire row locks in the same order.
+pub struct MachineRowLockOrderIter<T>(std::vec::IntoIter<T>);
+
+impl<T: MachineRowLockItem> MachineRowLockOrderIter<T> {
+    /// Orders machine-scoped batch items by their machine IDs.
+    pub fn new(mut items: Vec<T>) -> Self {
+        items.sort_unstable_by_key(MachineRowLockItem::machine_id);
+        Self(items.into_iter())
+    }
+}
+
+impl<T> MachineRowLockOrderIter<T> {
+    /// Returns the remaining ordered items as a slice.
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+}
+
+impl<T> Iterator for MachineRowLockOrderIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<T> ExactSizeIterator for MachineRowLockOrderIter<T> {}
+
 /// Load a Machine object matching an interface, creating it if not already present.
 /// Returns a tuple of (Machine, bool did_we_just_create_it)
 ///
@@ -2828,6 +2886,75 @@ pub async fn clear_uefi_credential_rotation_requested(
             e => DatabaseError::new("clear_uefi_credential_rotation_requested", e),
         })?;
     Ok(())
+}
+
+/// Record that an operator has requested rotating the NIC lockdown keys for a host
+/// (bypasses the site-config flag for NIC lockdown rotation)
+pub async fn set_lockdown_ikm_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET lockdown_ikm_credential_rotation_requested = true \
+                 WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("set_lockdown_ikm_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Clear the force NIC lockdown rotation flag for this host
+pub async fn clear_lockdown_ikm_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET lockdown_ikm_credential_rotation_requested = false \
+                 WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("clear_lockdown_ikm_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Read a host's one-shot NIC lockdown IKM rotation force flag. The SVPC scout
+/// handler consults this so the tenant-allocation lock migrates a force-flagged
+/// host's cards to the site-wide target even when the site-wide gate is off,
+/// mirroring the idle rekey path.
+pub async fn get_lockdown_ikm_credential_rotation_requested(
+    conn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<bool> {
+    let query = "SELECT lockdown_ikm_credential_rotation_requested FROM machines WHERE id = $1";
+    sqlx::query_scalar::<_, bool>(query)
+        .bind(machine_id)
+        .fetch_one(conn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("get_lockdown_ikm_credential_rotation_requested", e),
+        })
 }
 
 pub async fn update_dpu_asns(

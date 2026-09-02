@@ -342,6 +342,10 @@ You can combine common options as needed:
 
 The `setup.sh` script installs all prerequisites and NICo components in sequential phases:
 
+When upgrading a deployment that previously bundled PSM and NSM, complete the
+[preserve-or-overwrite steps](../../helm-prereqs/README.md#upgrading-deployments-that-bundled-psm-and-nsm)
+before continuing.
+
 <Anchor id="setup-script-phases"/>
 
 | Phase | What it installs |
@@ -357,7 +361,7 @@ The `setup.sh` script installs all prerequisites and NICo components in sequenti
 | 5b | DPF stack for DPU provisioning (default; `--skip-dpf` to opt out) |
 | 6 | **NICo Core** (nico helm release) |
 | 7a-7g | **NICo REST** base stack (source and CA setup, PostgreSQL, Keycloak, Temporal, REST services) |
-| 7h | **NICo Flow** (Flow, PSM, and NSM), unless `--skip-flow` is used |
+| 7h | **NICo Flow**, unless `--skip-flow` is used |
 | 7i | **NICo REST site-agent** |
 
 The following components are deployed:
@@ -379,7 +383,7 @@ NICo REST                  (../helm/rest/nico-rest)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
   └── nico-rest             (API, cert-manager, workflow, site-manager)
-NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
+NICo Flow                  (../helm/charts/nico-flow)
 NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
 ```
 

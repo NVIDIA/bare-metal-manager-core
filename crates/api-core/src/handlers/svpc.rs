@@ -77,6 +77,12 @@ pub(super) async fn process_scout_req(
         return Ok(fac::Action::noop());
     }
 
+    // Whether a tenant-allocation lock this pass should migrate the card to the
+    // site-wide target. It is host-scoped (the same for every card) and needed
+    // only if some card actually reaches `Locking`, so it is resolved lazily and
+    // cached here -- at most one read per pass, and none when no card locks.
+    let mut rotate_lockdown_key: Option<bool> = None;
+
     let mut device_actions = Vec::new();
 
     for sn in &dpa_snapshots {
@@ -106,7 +112,30 @@ pub(super) async fn process_scout_req(
                 build_apply_profile_command(api, sn, machine_id, pci_name)?
             }
             DpaInterfaceControllerState::Locking => {
-                build_lock_command(api, sn, machine_id, pci_name).await?
+                // Tenant-allocation lock: migrate to the site-wide target when the
+                // gate is on or this host is force-flagged, otherwise re-lock at
+                // the card's current version. Resolve+cache the host-scoped
+                // decision on the first `Locking` card of the pass.
+                let rotate = match rotate_lockdown_key {
+                    Some(v) => v,
+                    None => {
+                        let v = resolve_rotate_lockdown_key(api, machine_id).await?;
+                        rotate_lockdown_key = Some(v);
+                        v
+                    }
+                };
+                build_lock_command(api, sn, machine_id, pci_name, rotate).await?
+            }
+            DpaInterfaceControllerState::RotateKeyUnlocking => {
+                // Tenant-free lockdown rotation in progress: unlock nic
+                build_unlock_command(api, sn, machine_id, pci_name).await?
+            }
+            DpaInterfaceControllerState::RotateKeyLocking => {
+                // Tenant-free lockdown rotation in progress: relock at the
+                // site-wide target unconditionally. Entering this state already
+                // committed to migrating (the unlock phase NULLed the card's
+                // current version), so this must not consult the gate.
+                build_lock_command(api, sn, machine_id, pci_name, true).await?
             }
         };
 
@@ -128,8 +157,30 @@ pub(super) async fn process_scout_req(
     Ok(fac::Action::MlxAction(fac::MlxAction { device_actions }))
 }
 
-/// Resolve the lockdown IKM version to *lock* a card under on this assignment
-/// cycle.
+/// Decide whether a tenant-allocation lock should migrate the host's cards to
+/// the site-wide lockdown IKM target this pass.
+///
+/// The site-wide `nic_lockdown_ikm_rotation_enabled` gate is the lazy-migration
+/// switch: when on, cards migrate to the new IKM as tenants cycle. The per-host
+/// `lockdown_ikm_credential_rotation_requested` force flag overrides it so an
+/// operator can converge a single host while the site-wide gate is still off.
+///
+/// The gate is checked first so the host-scoped DB read is skipped whenever the
+/// gate is on (the answer is already `true`); the force flag is only consulted
+/// when the gate is off.
+async fn resolve_rotate_lockdown_key(api: &Api, machine_id: MachineId) -> CarbideResult<bool> {
+    if api.runtime_config.nic_lockdown_ikm_rotation_enabled {
+        return Ok(true);
+    }
+    let mut conn = api.database_connection.acquire().await.map_err(|e| {
+        CarbideError::GenericErrorFromReport(eyre!(
+            "failed to acquire connection to read nic lockdown force flag: {e}"
+        ))
+    })?;
+    Ok(db::machine::get_lockdown_ikm_credential_rotation_requested(&mut conn, machine_id).await?)
+}
+
+/// Resolve the lockdown IKM version to *lock* a card under.
 ///
 /// An in-flight lock takes precedence over either branch below: if a lock is
 /// already staged (`rotating_to_version` set), we re-derive that exact version.
@@ -139,14 +190,23 @@ pub(super) async fn process_scout_req(
 /// lockmode, never the version). Re-reading the site-wide target or the card's
 /// last-confirmed `current_version` on a later reconciliation could overwrite the
 /// staged marker and record a convergence version the hardware was never on --
-/// e.g. if `lockdown_ikm_rotation_enabled` flips between staging the lock and
-/// observing it. This mirrors the unlock path, which already prefers
-/// `rotating_to_version`.
+/// e.g. if the migration decision flips between staging the lock and observing
+/// it. This mirrors the unlock path, which already prefers `rotating_to_version`.
 ///
-/// When no lock is in flight, the branch is chosen by the flag. With
-/// `lockdown_ikm_rotation_enabled`, this is the staged site-wide target, so
-/// cards migrate forward to the new IKM as tenants cycle (the lazy-migration
-/// path). With rotation disabled -- the default -- it is the card's own current
+/// When no lock is in flight, the version is chosen by `migrate_to_target`. The
+/// caller owns that decision, so this resolver is shared by both lock paths:
+///
+/// - The tenant-allocation `Locking` passes `force || nic_lockdown_ikm_rotation_enabled`.
+///   The site-wide flag is the lazy-migration gate (cards migrate to the new IKM
+///   as tenants cycle); the per-host force flag overrides it so an operator can
+///   converge one host even while the site-wide gate is off.
+/// - The idle `RotateKeyLocking` passes `true` unconditionally: entering that
+///   state is itself the commitment to migrate (the unlock phase already NULLed
+///   `current_version`), so it must resolve to the target regardless of the flag
+///   -- otherwise a mid-rekey kill-switch flip would fall through to the seed and
+///   silently downgrade the card.
+///
+/// When `migrate_to_target` is false, the version is the card's own current
 /// tracked version, so a staged `RotateCredential(lockdown_ikm)` target does not
 /// migrate any card until the deliberate cutover flip, and an already-migrated
 /// card re-locks at the version it is on rather than being reverted.
@@ -158,7 +218,11 @@ pub(super) async fn process_scout_req(
 /// mirroring `record_device_converged`. A per-card row, by contrast, is created
 /// lazily on first lock and only backfilled for already-locked cards, so a card
 /// with no row / no tracked version legitimately falls back to the seed version.
-async fn resolve_lock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i32> {
+async fn resolve_lock_ikm_version(
+    api: &Api,
+    mac: MacAddress,
+    migrate_to_target: bool,
+) -> CarbideResult<i32> {
     let mut conn = api.database_connection.acquire().await.map_err(|e| {
         CarbideError::GenericErrorFromReport(eyre!(
             "failed to acquire connection to resolve lockdown lock IKM version: {e}"
@@ -179,7 +243,7 @@ async fn resolve_lock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i
     // Versions stay DB-native `i32` throughout this handler (Postgres has no
     // unsigned int); the sole `u32` conversion happens once at the derivation
     // boundary (`ikm_version_u32` -> `build_supernic_lockdown_key`).
-    let version = if api.runtime_config.lockdown_ikm_rotation_enabled {
+    let version = if migrate_to_target {
         db::credential_rotation::current_target_version(
             &mut conn,
             db::credential_rotation::CredentialRotationType::LockdownIkm,
@@ -202,7 +266,7 @@ async fn resolve_lock_ikm_version(api: &Api, mac: MacAddress) -> CarbideResult<i
 /// under it), otherwise the last-confirmed `current_version`, otherwise the seed
 /// version for a card with no tracked lock yet.
 ///
-/// This is always version-aware, independent of `lockdown_ikm_rotation_enabled`: a
+/// This is always version-aware, independent of `nic_lockdown_ikm_rotation_enabled`: a
 /// card that already migrated to a newer IKM must be unlocked with that IKM, or
 /// it would be bricked. Because the assignment cycle always unlocks a card
 /// before re-locking it, a locked card's version is always exactly this resolved
@@ -404,18 +468,32 @@ fn build_apply_profile_command(
 }
 
 /// Build and return a command to lock the DPA.
+///
+/// `migrate_to_target` selects the lock version via [`resolve_lock_ikm_version`]:
+/// the tenant-allocation `Locking` passes `force || nic_lockdown_ikm_rotation_enabled`
+/// (lazy migration, overridable per host), while the idle `RotateKeyLocking`
+/// passes `true` because entering that state already committed to converging on
+/// the site-wide target.
 async fn build_lock_command(
     api: &Api,
     sn: &DpaInterface,
     machine_id: MachineId,
     pci_name: &str,
+    migrate_to_target: bool,
 ) -> CarbideResult<DpaCommand<'static>> {
-    // Resolve the IKM version to lock this card under: the site-wide target when
-    // rotation is enabled, else the card's current version (see
-    // `resolve_lock_ikm_version`). Kept as DB-native `i32` for the staging write
-    // below, and converted to `u32` for the derivation layer; the rotation
-    // columns carry a non-negative CHECK, so a negative is a corrupted invariant.
-    let target_version = resolve_lock_ikm_version(api, sn.mac_address).await?;
+    let target_version = resolve_lock_ikm_version(api, sn.mac_address, migrate_to_target).await?;
+    lock_command_for_target(api, sn, machine_id, pci_name, target_version).await
+}
+
+/// Shared lock builder: derive the lock key at `target_version`, stage it as the
+/// in-flight `rotating_to_version` marker, and return the `OpCode::Lock`.
+async fn lock_command_for_target(
+    api: &Api,
+    sn: &DpaInterface,
+    machine_id: MachineId,
+    pci_name: &str,
+    target_version: i32,
+) -> CarbideResult<DpaCommand<'static>> {
     let ikm_version = u32::try_from(target_version).map_err(|e| CarbideError::Internal {
         message: format!(
             "lockdown IKM lock version {target_version} is negative for DPA {pci_name}: {e}"
@@ -442,8 +520,7 @@ async fn build_lock_command(
     // -- never the (possibly advanced) site-wide target re-read at observation
     // time. Staging first means we only ever issue a lock for a version we have
     // already recorded our intent to use; if the write fails we surface the error
-    // and do not lock. The writer is idempotent across the per-cycle
-    // re-derivation while Locking.
+    // and do not lock.
     let mut conn = api.database_connection.acquire().await.map_err(|e| {
         CarbideError::GenericErrorFromReport(eyre!(
             "failed to acquire connection to stage lockdown IKM rotation for DPA {pci_name}: {e}"

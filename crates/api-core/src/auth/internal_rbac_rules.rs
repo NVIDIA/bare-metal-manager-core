@@ -342,6 +342,7 @@ impl InternalRBACRules {
         x.perm("GetCredentialRotationStatus", vec![ForgeAdminCLI]);
         x.perm("TriggerBmcCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("TriggerUefiCredentialRotation", vec![ForgeAdminCLI]);
+        x.perm("TriggerNicLockdownCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("GetRouteServers", vec![ForgeAdminCLI]);
         x.perm("AddRouteServers", vec![ForgeAdminCLI]);
         x.perm("RemoveRouteServers", vec![ForgeAdminCLI]);
@@ -540,6 +541,7 @@ impl InternalRBACRules {
         x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, SiteAgent, Flow]);
+        x.perm("AdminGpuReset", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);

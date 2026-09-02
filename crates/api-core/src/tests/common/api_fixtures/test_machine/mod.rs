@@ -157,6 +157,39 @@ impl TestMachine {
         machine.bmc_addr().map(|addr| addr.ip())
     }
 
+    /// Replaces the model in this machine's persisted Site Explorer report.
+    pub(in crate::tests) async fn set_exploration_model(&self, txn: &mut Txn<'_>, model: &str) {
+        let bmc_ip = self
+            .bmc_ip(txn)
+            .await
+            .expect("fixture machine should have a BMC IP");
+        let endpoint = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
+            .await
+            .unwrap()
+            .pop()
+            .expect("fixture machine should have a Site Explorer report");
+        let old_version = endpoint.report_version;
+        let waiting_for_explorer_refresh = endpoint.waiting_for_explorer_refresh;
+        let mut report = endpoint.report;
+        report
+            .systems
+            .first_mut()
+            .expect("fixture report should contain a Redfish system")
+            .model = Some(model.to_string());
+        report.model = report.model();
+
+        let updated = db::explored_endpoints::try_update(
+            bmc_ip,
+            old_version,
+            &report,
+            waiting_for_explorer_refresh,
+            txn.as_mut(),
+        )
+        .await
+        .unwrap();
+        assert!(updated, "fixture Site Explorer report should be updated");
+    }
+
     pub(in crate::tests) async fn json_history(
         &self,
         limit: Option<usize>,

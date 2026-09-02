@@ -202,6 +202,11 @@ verification expectations.
   send its ID in the list request, and require each returned row to match that
   exact tenant ID. Test a dual-role caller whose response also contains
   provider-owned and other-tenant resources.
+- When a site-wide TUI resource picker must ignore a narrower active scope,
+  clear that scope and invalidate filtered caches before fetching, then restore
+  the scope and invalidate filtered caches again on every return path so
+  site-wide entries cannot be reused under the restored scope. Test the scoped
+  case.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
@@ -263,6 +268,22 @@ verification expectations.
 - Be prudent when declaring utility functions that pass around arbitrary set of
   arguments. If it's used only once or breaks the flow of reading the caller code,
   it is often better to keep the logic inline
+
+### Interactive CLI review checks
+
+- When an option consumes a separate value, test that another option token is
+  rejected instead of consumed as that value.
+- Propagate terminal restoration errors. Restore the terminal successfully
+  before starting another interactive selector. Return one non-nil error
+  unchanged. Use `errors.Join` only when the operation and restoration both
+  fail. Treat only a direct cancellation sentinel as successful so a joined
+  restoration failure propagates. Test normal PTY, cancellation, and
+  restoration-failure paths.
+- Table-test shell argument quoting with empty input, whitespace, quotes,
+  backslashes, control characters, non-ASCII text, and shell metacharacters.
+- When a mutation success message reads fields from a response object, reject
+  malformed JSON, `null`, empty objects, and missing display fields before
+  printing success.
 
 ### REST endpoints through the Core gRPC proxy
 
@@ -848,8 +869,8 @@ All commits **must** meet the following signing requirement:
 - Before requesting review for a Go change, run `make lint-go` and inspect its
   complete analyzer output. Its `golangci-lint` command uses
   `--issues-exit-code 0`, so a successful command does not mean the output is
-  clean. Run `go tool golangci-lint run <changed-packages>` without that
-  override and fix every finding in the changed package.
+  clean. Run `go tool golangci-lint run` with the changed Go package patterns
+  as arguments, without that override, and fix every finding in those packages.
 - When CLI flags override configuration, copy the complete configured object
   first and overlay only explicitly set flags. Test no override, one override,
   and unset configured fields so unrelated options cannot be discarded.
