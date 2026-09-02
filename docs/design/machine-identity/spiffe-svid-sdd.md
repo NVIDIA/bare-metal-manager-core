@@ -11,7 +11,7 @@
 | 0.3 | 05/11/2026 | Binu Ramakrishnan | DPU agent / FMDS optional HTTP sign proxy (`[machine-identity]` `sign-proxy-url`, `sign-proxy-tls-root-ca`); `FmdsMachineIdentityConfig` in FMDS config push |
 | 0.4 | 05/11/2026 | Binu Ramakrishnan | Signing key rotation (two slots), overlap policy on rotate only |
 | 0.5 | 06/02/2026 | Binu Ramakrishnan | Site master encryption key re-wrap (`ReencryptTenantIdentitySecrets` gRPC); envelope `key_id` in ciphertext (drop DB `encryption_key_id` column) |
-|  |  |  |  |
+| 0.6 | 09/02/2026 | Bill Minckler | Signing-key master key is read through the credential chain rather than only from Vault |
 
 # **1\. Introduction**
 
@@ -356,7 +356,7 @@ NICo Tenant issue JWT-SVID to tenant workload, routed back through NICo
 ## **3.4 Data Model and Storage**
 
 ### **3.4.1 Database Design**
-A new table will be created to store tenant signing key pairs and optional token delegation config. The private key will be encrypted with a master key stored in Vault. Token delegation columns are nullable when an org does not use delegation.
+A new table will be created to store tenant signing key pairs and optional token delegation config. The private key is encrypted with a site master key read through the credential chain (`machine_identity/encryption_keys/{key_id}`), which may be served by Postgres, Vault, or a local environment or file source. Token delegation columns are nullable when an org does not use delegation.
 
 | tenant\_identity\_config |  |  |
 | :---- | :---- | :---- |

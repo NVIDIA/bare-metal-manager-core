@@ -32,18 +32,11 @@ that issues identity tokens *to tenant workloads* via IMDS; this design covers
 how *NICo's own node agents* authenticate to the NICo API.
 
 > **Vault-removal status:** This document describes the implementation merged
-> for [#355](https://github.com/NVIDIA/infra-controller/issues/355). That
-> implementation still signs with the private key of the Vault-issued mTLS
-> machine certificate and sends the certificate chain in `x5c`. The BlueField
-> IRoT work never merged and was closed as not planned. Phase 2 now tracks an
-> fTPM-backed replacement in
-> [#5272](https://github.com/NVIDIA/infra-controller/issues/5272) for BF3/BF4;
-> the Scout-side signing-key holder remains open. The replacement requires a
-> certificate to be installed manually, and that certificate's installation,
-> renewal, replacement, revocation, and recovery are open questions. Nodes
-> continue to re-mint tokens locally; this design has no server token-refresh
-> RPC. The phase-2 epic also names CLI authentication, which is outside #355
-> and has no implementation subtask. See the
+> for [#355](https://github.com/NVIDIA/infra-controller/issues/355), which signs
+> with the private key of the Vault-issued mTLS machine certificate. The
+> hardware-backed replacement is
+> [#5272](https://github.com/NVIDIA/infra-controller/issues/5272); the cross-epic
+> status lives in Section 8 of the
 > [Vault-free runtime high-level design](../eliminate-vault-dependency-design.md).
 
 ## How it works

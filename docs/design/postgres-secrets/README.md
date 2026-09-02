@@ -8,6 +8,7 @@
 | :---: | :---: | :---- | :---- |
 | 0.1 | 2026-07-07 | Chet Nichols III | Initial version |
 | 0.2 | 2026-08-27 | Bill Minckler | Clarify production KMS work and KEK-retirement requirements |
+| 0.3 | 2026-09-02 | Bill Minckler | Describe the re-wrap work lock and defer the rollback procedure to the operator page |
 
 ## 1. Introduction
 
@@ -16,14 +17,10 @@ This design document specifies the NICo Core secret-storage subsystem: a configu
 The document outlines the architecture, runtime flows, data model, configuration, and security considerations, and describes how the credential chain, its backends, and the key-encryption-key (KEK) providers interact.
 
 > **Vault-removal status:** This document describes the implemented storage and
-> migration subsystem. Vault/OpenBao Transit is its server-side KMS backend.
-> The Integrated backend keeps key material in the NICo process and can load it
-> from an environment variable, file, or inline value. A hardened Integrated
-> deployment backed by a CSI secrets-store or External-Secrets mount is one
-> interim candidate in
-> [#3253](https://github.com/NVIDIA/infra-controller/issues/3253), alongside
-> managed KMS, HSM, and KMIP providers; #3253 still owns provider selection and
-> production qualification. The alternatives are summarized in the
+> migration subsystem. Selection and production qualification of a non-Vault KEK
+> provider are tracked in
+> [#3253](https://github.com/NVIDIA/infra-controller/issues/3253); the cross-epic
+> status lives in Section 8 of the
 > [Vault-free runtime high-level design](../eliminate-vault-dependency-design.md).
 
 ### 1.1 Purpose
@@ -108,7 +105,7 @@ At run time:
 | `carbide-secrets` (`crates/secrets`) | The vendor-neutral credential abstraction: the reader/writer/manager traits, the chained reader (first non-`None` wins), and the Vault/OpenBao KV v2 client |
 | `carbide-api-core` secrets module (`crates/api-core/src/secrets/`) | The Postgres backend: envelope encryption (per-write DEK, AES-256-GCM, AAD = path), the append-only journal, path → KEK routing, re-wrap, and the one-time Vault import |
 | `carbide-kms-provider` (`crates/kms-provider`) | The KEK layer: the `KmsBackend` trait and the Integrated (local key material), Transit (Vault/OpenBao server-side), and Multi (active writer + owner-routed reads) providers |
-| Database (Postgres) | Hosts the append-only `secrets` table and provides the advisory locks making create, import, and re-wrap safe across replicas |
+| Database (Postgres) | Hosts the append-only `secrets` table and provides the advisory locks and work-lock leases making create, import, and re-wrap safe across replicas |
 | Vault/OpenBao | KV v2 secret store (legacy backend, import source, and optional read fallback) and, optionally, the Transit engine used as a KEK provider |
 | `nico-admin-cli` | Operator surface for the management RPC: `secrets re-wrap [--batch-size N]` |
 
@@ -142,7 +139,7 @@ The write path turns a plaintext credential into a self-describing encrypted row
 
 ### 3.3 KEK Routing and Rotation (Re-Wrap)
 
-Routing selects the KEK for new writes only: a prefix → `kek_id` map matched longest-prefix-first, with a required "/" catch-all. Rotation is therefore a two-step operation: point routing at the new `kek_id`, then run `secrets re-wrap` to re-align existing rows. The re-wrap walk takes a session advisory lock so only one run proceeds at a time, scans the journal in `seq` order in batches, and, for each row whose `kek_id` differs from the routed target, unwraps the DEK with the old KEK and re-wraps it under the active one, updating only the DEK-wrapping columns (`encrypted_dek`, `dek_nonce`, `kek_id`). The value ciphertext is untouched, so the sweep is cheap, idempotent, and resumable. `stale_remaining` counts live rows still wrapped by a KEK that no route references; it does not inspect backups. After it reaches zero, retain the old KEK through the backup-retention and rollback windows. Restoring a pre-re-wrap backup requires that KEK. Rolling the live database back keeps both providers configured, makes the old provider active, reverses routing to its KEK, restarts NICo, and runs re-wrap again; the new provider remains available for unwraps until the reverse sweep completes.
+Routing selects the KEK for new writes only: a prefix → `kek_id` map matched longest-prefix-first, with a required "/" catch-all. Rotation is therefore a two-step operation: point routing at the new `kek_id`, then run `secrets re-wrap` to re-align existing rows. The re-wrap walk holds a lease in the `work_locks` table so only one run proceeds at a time, scans the journal in `seq` order in batches, and, for each row whose `kek_id` differs from the routed target, unwraps the DEK with the old KEK and re-wraps it under the active one, updating only the DEK-wrapping columns (`encrypted_dek`, `dek_nonce`, `kek_id`). The value ciphertext is untouched, so the sweep is cheap, idempotent, and resumable. `stale_remaining` counts live rows still wrapped by a KEK that no route references; it does not inspect backups. After it reaches zero, retain the old KEK through the backup-retention and rollback windows. Restoring a pre-re-wrap backup requires that KEK. The rollback procedure is defined in [Secrets Storage](../../configuration/secrets-storage.md).
 
 ![Path-to-KEK routing for writes and the re-wrap walk rotating existing rows](kek-routing-rewrap-flow.png)
 
@@ -173,7 +170,7 @@ The subsystem is adopted as a sequence of configuration changes, each reversible
 
 #### 3.6.1 Database Design
 
-The store is a single append-only table. Many rows can share a path; the newest by `seq` is authoritative. Older rows are kept as history, so an operator can roll back a credential rotation by removing just the newest journal entry (`delete_credentials`, by contrast, removes every row for a path). Two internal paths begin with "/". `/_vault_import` is a real journal row: the import-complete marker. `/_re_wrap` is not stored as a row; it is only the key for the re-wrap session advisory lock (`pg_advisory_lock` over a hash of the string). Real credential paths never start with a slash, so they cannot collide with the marker.
+The store is a single append-only table. Many rows can share a path; the newest by `seq` is authoritative. Older rows are kept as history, so an operator can roll back a credential rotation by removing just the newest journal entry (`delete_credentials`, by contrast, removes every row for a path). One internal path begins with "/": `/_vault_import` is a real journal row, the import-complete marker. Re-wrap stores nothing in the journal; it holds a lease keyed `secrets::re_wrap_stale` in the `work_locks` table. Real credential paths never start with a slash, so they cannot collide with the marker.
 
 | Field | Type | Nullable | Description |
 | :---- | :---- | :---- | :---- |
@@ -232,7 +229,7 @@ The subsystem exposes one management RPC; everything else is configuration appli
 **`ReWrapSecrets(batch_size?)`**
 
 * Input: `batch_size` (optional `u32`; the server supplies a default and enforces its own limits).
-* Behavior: acquire the session advisory lock (one re-wrap at a time); walk the journal by `seq`; for each row whose `kek_id` differs from the routed target, unwrap with the old KEK and re-wrap under the active KEK; update only the DEK-wrapping columns (`encrypted_dek`, `dek_nonce`, `kek_id`). KMS work happens outside the transaction and batches commit independently, so a run is resumable.
+* Behavior: acquire the `work_locks` lease (one re-wrap at a time); walk the journal by `seq`; for each row whose `kek_id` differs from the routed target, unwrap with the old KEK and re-wrap under the active KEK; update only the DEK-wrapping columns (`encrypted_dek`, `dek_nonce`, `kek_id`). KMS work happens outside the transaction and batches commit independently, so a run is resumable.
 * Output: `re_wrapped`, `already_current`, and `stale_remaining` counts (`stale_remaining` counts live rows wrapped by a KEK that no route references; zero does not account for retained backups or an operator-defined rollback window).
 * Errors: re-wrap already in progress (lock held), KMS failure, Postgres failure.
 * Exposed as: `nico-admin-cli secrets re-wrap [--batch-size N]`.
