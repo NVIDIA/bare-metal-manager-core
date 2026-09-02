@@ -787,24 +787,26 @@ impl MainLoop {
         }
     }
 
+    // The return value uses the outer Result to indicate success/failure and
+    // the inner bool to indicate whether it actually restarted OVS.
     async fn restart_ovs_after_admin_network_change_if_needed(
         &mut self,
         conf: &ManagedHostNetworkConfigResponse,
         status_out: &mut rpc::DpuNetworkStatus,
-    ) -> bool {
+    ) -> Result<bool, ()> {
         if !conf.use_admin_network_changed.unwrap_or_default() {
-            return true;
+            return Ok(false);
         }
 
         let now = Instant::now();
-        let mut can_ack_network_config = true;
-        if !self.options.agent_platform_type.is_dpu_os() {
+        let result = if !self.options.agent_platform_type.is_dpu_os() {
             tracing::info!(
                 agent_platform_type = ?self.options.agent_platform_type,
                 managed_host_config_version =
                     conf.managed_host_config_version.as_str(),
                 "Skip OVS restart because agent is not running on DPU OS"
             );
+            Ok(false)
         } else if self.last_ovs_restart_version.as_deref()
             == Some(conf.managed_host_config_version.as_str())
         {
@@ -812,6 +814,7 @@ impl MainLoop {
                 managed_host_config_version = conf.managed_host_config_version.as_str(),
                 "Skip OVS restart because this network config version already restarted OVS"
             );
+            Ok(false)
         } else if self
             .ovs_restart_retry_backoff
             .as_ref()
@@ -826,34 +829,38 @@ impl MainLoop {
             );
             status_out.network_config_error =
                 Some("waiting to retry OVS restart after prior failure".to_string());
-            can_ack_network_config = false;
+            Err(())
         } else {
             tracing::info!(
                 managed_host_config_version = conf.managed_host_config_version.as_str(),
                 "Restart OVS because use_admin_network_changed is set to true"
             );
-            if let Err(err) = crate::ovs::restart_ovs()
+            match crate::ovs::restart_ovs()
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                carbide_instrument::emit(OvsRestart::Retrying {
-                    error: format!("{err:#}"),
-                    managed_host_config_version: conf.managed_host_config_version.clone(),
-                });
-                status_out.network_config_error = Some(err.to_string());
-                self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
-                    managed_host_config_version: conf.managed_host_config_version.clone(),
-                    retry_after: Instant::now() + OVS_RESTART_RETRY_BACKOFF,
-                });
-                can_ack_network_config = false;
-            } else {
-                self.last_ovs_restart_version = Some(conf.managed_host_config_version.clone());
-                self.ovs_restart_retry_backoff = None;
+                Err(err) => {
+                    carbide_instrument::emit(OvsRestart::Retrying {
+                        error: format!("{err:#}"),
+                        managed_host_config_version: conf.managed_host_config_version.clone(),
+                    });
+                    status_out.network_config_error = Some(err.to_string());
+                    self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
+                        managed_host_config_version: conf.managed_host_config_version.clone(),
+                        retry_after: Instant::now() + OVS_RESTART_RETRY_BACKOFF,
+                    });
+                    Err(())
+                }
+                Ok(()) => {
+                    self.last_ovs_restart_version = Some(conf.managed_host_config_version.clone());
+                    self.ovs_restart_retry_backoff = None;
+                    Ok(true)
+                }
             }
-        }
-        tracing::info!(can_ack_network_config, "Finished restarting OVS");
+        };
+        tracing::info!(success = result.is_ok(), "Finished restarting OVS");
 
-        can_ack_network_config
+        result
     }
 
     /// Runs a single iteration of the main loop
@@ -1120,8 +1127,8 @@ impl MainLoop {
                                     &conf,
                                     &mut status_out,
                                 )
-                                .await;
-
+                                .await
+                                .is_ok();
                             if can_ack_network_config {
                                 (
                                     current_host_network_config_version,
