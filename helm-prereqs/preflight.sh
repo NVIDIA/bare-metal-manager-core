@@ -1099,12 +1099,15 @@ EOF
                 return 0
             fi
 
-            # A dump/restore of the same table should leave equal counts —
-            # anything less means an incomplete or partial migration, not
-            # just "empty". (Nothing else writes to nico-pg-cluster/${_db}
-            # before setup.sh cuts the workload over to it.)
-            if [[ "${_nico_count}" -lt "${_legacy_count}" ]]; then
-                ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but nico-pg-cluster/${_db} only has ${_nico_count} — migration looks incomplete. Run '${_script_hint}' before proceeding, or this data will be orphaned")
+            # A dump/restore of the same table should leave equal counts.
+            # Fewer means an incomplete/partial migration; more means the
+            # target has diverged from what was actually dumped (e.g. a
+            # stale prior migration attempt) — either way it's not the clean
+            # 1:1 restore this check exists to confirm. (Nothing else writes
+            # to nico-pg-cluster/${_db} before setup.sh cuts the workload
+            # over to it.)
+            if [[ "${_nico_count}" -ne "${_legacy_count}" ]]; then
+                ERRORS+=("${_label}: postgres.postgres/${_db} has ${_legacy_count} row(s) but nico-pg-cluster/${_db} has ${_nico_count} — migration looks incomplete or stale. Run '${_script_hint}' before proceeding, or this data will be orphaned")
             fi
             # This function communicates findings via ERRORS, not its own
             # exit code — without this, a false `-eq 0` above (the "all
