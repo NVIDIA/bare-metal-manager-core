@@ -200,7 +200,7 @@ async fn test_machine_validation_with_error(
     env.api
         .machine_validation_completed(tonic::Request::new(
             rpc::forge::MachineValidationCompletedRequest {
-                machine_id: Some(mh.host().id),
+                machine_id: Some(mh.host().id.into()),
                 machine_validation_error: None,
                 validation_id: Some(validation_id),
             },
@@ -2019,7 +2019,7 @@ async fn test_machine_validation_manager_reconciles_stale_run(
     env.api
         .machine_validation_completed(tonic::Request::new(
             rpc::forge::MachineValidationCompletedRequest {
-                machine_id: Some(mh.host().id),
+                machine_id: Some(mh.host().id.into()),
                 machine_validation_error: None,
                 validation_id: Some(validation_id),
             },

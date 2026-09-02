@@ -111,7 +111,7 @@ pub(crate) async fn resolve_machine_interface_for_test(
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) async fn process_scout_req_for_test(
     api: &crate::Api,
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: carbide_uuid::machine::HostMachineId,
 ) -> crate::CarbideResult<rpc::forge_agent_control_response::Action> {
     svpc::process_scout_req(api, machine_id).await
 }

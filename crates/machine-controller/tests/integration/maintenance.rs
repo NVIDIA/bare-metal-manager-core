@@ -228,7 +228,7 @@ async fn enter_requested_state(
             .unwrap();
             ManagedHostState::Failed {
                 details,
-                machine_id: host.host.id,
+                machine_id: host.host.id.into(),
                 retry_count: 1,
             }
         }
@@ -236,7 +236,7 @@ async fn enter_requested_state(
 
     db::machine::set_machine_maintenance_requested(
         &mut txn,
-        host.host.id,
+        host.host.id.into(),
         "maintenance-test",
         operation,
     )

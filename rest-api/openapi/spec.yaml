@@ -21764,6 +21764,12 @@ components:
               deviceInstance: 0
               isPhysical: true
               virtualFunctionId: null
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+              deviceInstance: 0
+              attachmentType: Physical
+              virtualFunctionId: null
           nvLinkInterfaces:
             - nvLinkLogicalPartitionId: 2f8676fd-d228-4db5-ac76-1cfc74f48a23
               deviceInstance: 0
@@ -21939,6 +21945,12 @@ components:
           description: Associate one or more Partitions with this Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spectrumXAttachments:
+          type: array
+          maxItems: 64
+          description: 'Associate one or more SpectrumX Partitions with this Instance. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.'
+          items:
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to the DPUs of this Instance
@@ -21988,6 +22000,12 @@ components:
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 0
               isPhysical: true
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+              deviceInstance: 0
+              attachmentType: Physical
+              virtualFunctionId: null
           nvLinkInterfaces:
             - nvLinkLogicalPartitionId: 2f8676fd-d228-4db5-ac76-1cfc74f48a23
               deviceInstance: 0
@@ -22103,6 +22121,12 @@ components:
           description: InfiniBand interface configuration shared across all instances
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spectrumXAttachments:
+          type: array
+          maxItems: 64
+          description: 'SpectrumX Partition attachments shared across all Instances in the batch. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.'
+          items:
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to all instances in the batch
@@ -22180,6 +22204,12 @@ components:
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 2
               isPhysical: false
+              virtualFunctionId: null
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+              deviceInstance: 0
+              attachmentType: Physical
               virtualFunctionId: null
           dpuExtensionServiceDeployments:
             - dpuExtensionServiceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -22292,6 +22322,12 @@ components:
           description: Update InfiniBand Interfaces of the Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spectrumXAttachments:
+          type: array
+          maxItems: 64
+          description: 'Update SpectrumX Partition attachments of the Instance. Omitting this field leaves the Instance''s SpectrumX attachments unchanged; an explicit (possibly empty) list replaces them entirely. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.'
+          items:
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         nvLinkInterfaces:
           type: array
           description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
@@ -22717,6 +22753,50 @@ components:
             - integer
             - 'null'
           description: Must be specified if isPhysical is false
+    InstanceSpectrumXAttachmentCreateOrUpdateRequest:
+      title: InstanceSpectrumXAttachmentCreateOrUpdateRequest
+      type: object
+      examples:
+        - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+          deviceInstance: 0
+          attachmentType: Physical
+          virtualFunctionId: null
+        - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+          deviceInstance: 3
+          attachmentType: OVN
+          virtualFunctionId: null
+      description: Request data to attach a SpectrumX Partition to an Instance
+      properties:
+        spectrumXPartitionId:
+          type: string
+          format: uuid
+          description: ID of the SpectrumX Partition the attachment should associate with
+        device:
+          type: string
+          description: 'SpectrumX device to attach over, matching the device description reported for the Machine''s SpectrumX interfaces'
+        deviceInstance:
+          type: integer
+          minimum: 0
+          description: 'Index of the device, used to identify which interface card to attach the Partition to'
+        attachmentType:
+          type: string
+          enum:
+            - Physical
+            - Virtual
+            - OVN
+          description: 'Type of SpectrumX attachment. `Virtual` is not currently supported and is rejected.'
+        virtualFunctionId:
+          type:
+            - integer
+            - 'null'
+          description: Must be omitted, as virtual functions are not currently supported
+      required:
+        - spectrumXPartitionId
+        - device
+        - deviceInstance
+        - attachmentType
     NVLinkInterface:
       title: NVLinkInterface
       type: object

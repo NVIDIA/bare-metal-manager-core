@@ -4027,17 +4027,17 @@ mod tests {
         let machines = HashMap::from([
             (rack_id, machine_with_id(rack_scale_machine(), rack_id)),
             (
-                standalone_id,
-                machine_with_id(standalone_machine(), standalone_id),
+                standalone_id.into(),
+                machine_with_id(standalone_machine(), standalone_id.into()),
             ),
         ]);
 
         let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[rack_id, standalone_id], &HashMap::new());
+            prepare_dispatch_lists(&machines, &[rack_id, standalone_id.into()], &HashMap::new());
 
         assert!(results.is_empty());
         assert_eq!(rack, vec![rack_id]);
-        assert_eq!(standalone, vec![standalone_id]);
+        assert_eq!(standalone, vec![standalone_id.into()]);
     }
 
     #[test]
@@ -4067,7 +4067,7 @@ mod tests {
         let machines = HashMap::from([(known, standalone_machine())]);
 
         let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[unknown, known], &HashMap::new());
+            prepare_dispatch_lists(&machines, &[unknown.into(), known], &HashMap::new());
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].component_id, unknown.to_string());
@@ -4085,12 +4085,15 @@ mod tests {
         let fail_id = dpu_machine_id(0);
         let machines = HashMap::from([
             (ok_id, machine_with_id(rack_scale_machine(), ok_id)),
-            (fail_id, machine_with_id(standalone_machine(), fail_id)),
+            (
+                fail_id.into(),
+                machine_with_id(standalone_machine(), fail_id.into()),
+            ),
         ]);
-        let power_ok = HashMap::from([(ok_id, true), (fail_id, false)]);
+        let power_ok = HashMap::from([(ok_id, true), (fail_id.into(), false)]);
 
         let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[ok_id, fail_id], &power_ok);
+            prepare_dispatch_lists(&machines, &[ok_id, fail_id.into()], &power_ok);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].component_id, fail_id.to_string());
@@ -4104,7 +4107,7 @@ mod tests {
 
     #[test]
     fn partition_error_results_reports_one_error_per_machine() {
-        let ids = [host_machine_id(), dpu_machine_id(0)];
+        let ids = [host_machine_id(), dpu_machine_id(0).into()];
         let status = Status::unavailable("backend down");
 
         let results = partition_error_results(&ids, &status);
@@ -4132,10 +4135,10 @@ mod tests {
         no_mac.status.bmc_info.mac = None;
 
         let mut no_ip = standalone_machine();
-        no_ip.id = no_ip_id;
+        no_ip.id = no_ip_id.into();
         no_ip.status.bmc_info.ip = None;
 
-        let machines = HashMap::from([(no_mac_id, no_mac), (no_ip_id, no_ip)]);
+        let machines = HashMap::from([(no_mac_id, no_mac), (no_ip_id.into(), no_ip)]);
         let creds = TestCredentialManager::new(Credentials::UsernamePassword {
             username: "u".into(),
             password: "p".into(),
@@ -4144,7 +4147,7 @@ mod tests {
         let resolved = resolve_compute_tray_endpoints_from_machines(
             &creds,
             &machines,
-            &[missing_id, no_mac_id, no_ip_id],
+            &[missing_id.into(), no_mac_id, no_ip_id.into()],
         )
         .await;
 
@@ -4154,7 +4157,7 @@ mod tests {
             resolved
                 .unresolved
                 .iter()
-                .any(|u| u.id == missing_id && u.reason.contains("machine not found"))
+                .any(|u| u.id == missing_id.into() && u.reason.contains("machine not found"))
         );
         assert!(
             resolved
@@ -4166,7 +4169,7 @@ mod tests {
             resolved
                 .unresolved
                 .iter()
-                .any(|u| u.id == no_ip_id && u.reason.contains("BMC IP"))
+                .any(|u| u.id == no_ip_id.into() && u.reason.contains("BMC IP"))
         );
     }
 
@@ -4304,8 +4307,14 @@ mod tests {
 
         let machines = HashMap::from([
             (id_a, machine_with_rms_job),
-            (id_b, machine_with_id(standalone_machine(), id_b)),
-            (id_c, machine_with_id(standalone_machine(), id_c)),
+            (
+                id_b.into(),
+                machine_with_id(standalone_machine(), id_b.into()),
+            ),
+            (
+                id_c.into(),
+                machine_with_id(standalone_machine(), id_c.into()),
+            ),
         ]);
 
         struct Case {
@@ -4317,7 +4326,7 @@ mod tests {
             expect_fallback_indices: &'static [usize],
         }
 
-        let all_ids = [id_a, id_b, id_c];
+        let all_ids = [id_a, id_b.into(), id_c.into()];
 
         let cases = [
             Case {

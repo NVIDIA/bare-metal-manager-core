@@ -292,7 +292,7 @@ pub(crate) async fn find_by_machine_id(
 ) -> Result<Response<rpc::InstanceList>, Status> {
     log_request_data(&request);
 
-    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
+    let machine_id = convert_and_log_machine_id::<MachineId>(Some(&request.into_inner()))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -893,9 +893,13 @@ pub(crate) async fn update_phone_home_last_contact(
         let caller_is_attached_dpu = if caller_is_host {
             false
         } else {
-            db::machine::find_host_by_dpu_machine_id(&mut txn, caller_machine_id)
-                .await?
-                .is_some_and(|host| host.id == instance.machine_id)
+            db::machine::find_host_by_dpu_machine_id(
+                &mut txn,
+                &carbide_uuid::machine::DpuMachineId::try_from(*caller_machine_id)
+                    .map_err(|error| CarbideError::InvalidArgument(error.to_string()))?,
+            )
+            .await?
+            .is_some_and(|host| host.id == instance.machine_id)
         };
 
         if !caller_is_host && !caller_is_attached_dpu {
@@ -2129,8 +2133,11 @@ async fn update_instance_spx_config(
         only_svpc: false,
         only_astra: false,
     };
+    let host_machine_id = carbide_uuid::machine::HostMachineId::try_from(mid)
+        .map_err(|error| CarbideError::internal(error.to_string()))?;
     let dpa_interfaces =
-        db::dpa_interface::find_by_machine_id(txn.as_mut(), mid, dpa_search_config).await?;
+        db::dpa_interface::find_by_machine_id(txn.as_mut(), host_machine_id, dpa_search_config)
+            .await?;
 
     mh_snapshot.dpa_interface_snapshots = dpa_interfaces;
 

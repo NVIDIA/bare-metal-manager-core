@@ -270,7 +270,8 @@ async fn force_request_converges_quarantined_dpu_uefi_when_disabled(
             Utc::now() + Duration::seconds(3600),
         )
         .await?;
-        db::machine::set_uefi_credential_rotation_requested(&mut conn, dpu_machine_id).await?;
+        db::machine::set_uefi_credential_rotation_requested(&mut conn, dpu_machine_id.into())
+            .await?;
     }
 
     // Iteration 1: the force request drives entry into RotatingDpuUefi for the
