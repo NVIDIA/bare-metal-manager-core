@@ -42,6 +42,8 @@ var (
 type DomainCreateInput struct {
 	Hostname           string
 	Org                string
+	TenantID           *uuid.UUID
+	SiteID             *uuid.UUID
 	ControllerDomainID *uuid.UUID
 	Status             string
 	CreatedBy          uuid.UUID
@@ -64,8 +66,11 @@ type DomainClearInput struct {
 
 // DomainFilterInput input parameters for GetAll method
 type DomainFilterInput struct {
+	DomainIDs          []uuid.UUID
 	Hostname           *string
 	Org                *string
+	TenantIDs          []uuid.UUID
+	SiteIDs            []uuid.UUID
 	ControllerDomainID *uuid.UUID
 	Status             *string
 }
@@ -78,6 +83,8 @@ type Domain struct {
 	ID                 uuid.UUID  `bun:"type:uuid,pk"`
 	Hostname           string     `bun:"hostname,notnull"`
 	Org                string     `bun:"org,notnull"`
+	TenantID           *uuid.UUID `bun:"tenant_id,type:uuid"`
+	SiteID             *uuid.UUID `bun:"site_id,type:uuid"`
 	ControllerDomainID *uuid.UUID `bun:"controller_domain_id,type:uuid"`
 	Status             string     `bun:"status,notnull"`
 	Created            time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
@@ -136,6 +143,8 @@ func (dsd DomainSQLDAO) Create(ctx context.Context, tx *db.Tx, input DomainCreat
 		ID:                 uuid.New(),
 		Hostname:           input.Hostname,
 		Org:                input.Org,
+		TenantID:           input.TenantID,
+		SiteID:             input.SiteID,
 		ControllerDomainID: input.ControllerDomainID,
 		Status:             input.Status,
 		CreatedBy:          input.CreatedBy,
@@ -200,6 +209,9 @@ func (dsd DomainSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter DomainFilt
 
 	query := db.GetIDB(tx, dsd.dbSession).NewSelect().Model(&d)
 
+	if len(filter.DomainIDs) > 0 {
+		query = query.Where("d.id IN (?)", bun.In(filter.DomainIDs))
+	}
 	if filter.Hostname != nil {
 		query = query.Where("d.hostname = ?", *filter.Hostname)
 
@@ -213,6 +225,12 @@ func (dsd DomainSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter DomainFilt
 		if domainDAOSpan != nil {
 			dsd.tracerSpan.SetAttribute(domainDAOSpan, "org", *filter.Org)
 		}
+	}
+	if len(filter.TenantIDs) > 0 {
+		query = query.Where("d.tenant_id IN (?)", bun.In(filter.TenantIDs))
+	}
+	if len(filter.SiteIDs) > 0 {
+		query = query.Where("d.site_id IN (?)", bun.In(filter.SiteIDs))
 	}
 	if filter.ControllerDomainID != nil {
 		query = query.Where("d.controller_domain_id = ?", *filter.ControllerDomainID)

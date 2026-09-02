@@ -787,6 +787,27 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteSubnetHandler(dbSession, tc, scp, cfg),
 		},
+		// DNS Domain endpoints
+		{
+			Path:    apiPathPrefix + "/domain",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateDomainHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/domain",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllDomainHandler(dbSession),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetDomainHandler(dbSession),
+		},
+		{
+			Path:    apiPathPrefix + "/domain/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteDomainHandler(dbSession, scp),
+		},
 		// OperatingSystem endpoints
 		{
 			Path:    apiPathPrefix + "/operating-system",

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -721,4 +722,57 @@ func TestDomainSQLDAO_Delete(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDomainSQLDAO_OwnershipFilters(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testDomainInitDB(t)
+	defer dbSession.Close()
+	testDomainSetupSchema(t, dbSession)
+	user := testDomainBuildUser(t, dbSession, "ownership-test-user")
+
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+	siteA := uuid.New()
+	siteB := uuid.New()
+	controllerDomainID := uuid.New()
+	domainDAO := NewDomainDAO(dbSession)
+
+	createDomain := func(hostname string, tenantID, siteID *uuid.UUID) *Domain {
+		domain, err := domainDAO.Create(ctx, nil, DomainCreateInput{
+			Hostname:           hostname,
+			Org:                "test-org",
+			TenantID:           tenantID,
+			SiteID:             siteID,
+			ControllerDomainID: &controllerDomainID,
+			Status:             DomainStatusReady,
+			CreatedBy:          user.ID,
+		})
+		require.NoError(t, err)
+		return domain
+	}
+
+	tenantASiteA := createDomain("a-a.example.com", &tenantA, &siteA)
+	createDomain("a-b.example.com", &tenantA, &siteB)
+	createDomain("b-a.example.com", &tenantB, &siteA)
+	legacy := createDomain("legacy.example.com", nil, nil)
+
+	domains, err := domainDAO.GetAll(ctx, nil, DomainFilterInput{TenantIDs: []uuid.UUID{tenantA}}, nil)
+	require.NoError(t, err)
+	require.Len(t, domains, 2)
+
+	domains, err = domainDAO.GetAll(ctx, nil, DomainFilterInput{SiteIDs: []uuid.UUID{siteA}}, nil)
+	require.NoError(t, err)
+	require.Len(t, domains, 2)
+
+	domains, err = domainDAO.GetAll(ctx, nil, DomainFilterInput{
+		DomainIDs: []uuid.UUID{tenantASiteA.ID, legacy.ID},
+		TenantIDs: []uuid.UUID{tenantA},
+		SiteIDs:   []uuid.UUID{siteA},
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, domains, 1)
+	assert.Equal(t, tenantASiteA.ID, domains[0].ID)
+	assert.Equal(t, &tenantA, domains[0].TenantID)
+	assert.Equal(t, &siteA, domains[0].SiteID)
 }

@@ -76,7 +76,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"task":                      3,
 		"rule":                      5,
 		"run":                       8,
-		"domain":                    4,
+		"domain":                    8,
 		"rack":                      13,
 		"tray":                      9,
 		"stats":                     4,
@@ -170,6 +170,12 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPatch, domainPath+"/firmware")
 			assertRouteExists(t, got, http.MethodPatch, domainPath+"/:id/power")
 			assertRouteExists(t, got, http.MethodPatch, domainPath+"/:id/firmware")
+
+			dnsDomainPath := "/org/:orgName/" + cfg.GetAPIName() + "/domain"
+			assertRouteExists(t, got, http.MethodPost, dnsDomainPath)
+			assertRouteExists(t, got, http.MethodGet, dnsDomainPath)
+			assertRouteExists(t, got, http.MethodGet, dnsDomainPath+"/:id")
+			assertRouteExists(t, got, http.MethodDelete, dnsDomainPath+"/:id")
 
 			skuPath := "/org/:orgName/" + cfg.GetAPIName() + "/sku"
 			assertRouteExists(t, got, http.MethodPost, skuPath)
