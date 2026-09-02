@@ -284,6 +284,7 @@ devspace deploy -n nico-system
 
 ## Files
 
+- [`GOTCHAS.md`](GOTCHAS.md)
 - [`prepare-ubuntu-host-for-dev.sh`](prepare-ubuntu-host-for-dev.sh)
 - [`setup-devspace-on-host.sh`](setup-devspace-on-host.sh)
 - [`reset-devspace-on-host.sh`](reset-devspace-on-host.sh)
