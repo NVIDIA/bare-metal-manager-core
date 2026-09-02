@@ -4364,7 +4364,7 @@ paths:
                 value:
                   name: spark-gpu-subnet
                   description: Subnet for dedicated GPU nodes
-  '/v2/org/{org}/nico/subnet/{id}/attach-vpc':
+  '/v2/org/{org}/nico/subnet/{subnetId}/attach-vpc':
     parameters:
       - schema:
           type: string
@@ -4375,7 +4375,7 @@ paths:
       - schema:
           type: string
           format: uuid
-        name: id
+        name: subnetId
         in: path
         required: true
         description: ID of the Subnet

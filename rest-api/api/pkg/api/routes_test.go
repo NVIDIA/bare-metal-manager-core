@@ -137,7 +137,7 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodGet, taskPath)
 			assertRouteBefore(t, got, http.MethodGet, taskPath, http.MethodGet, taskPath+"/:id")
 			subnetPath := "/org/:orgName/" + cfg.GetAPIName() + "/subnet"
-			assertRouteExists(t, got, http.MethodPost, subnetPath+"/:id/attach-vpc")
+			assertRouteExists(t, got, http.MethodPost, subnetPath+"/:subnetId/attach-vpc")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			dpuPath := "/org/:orgName/" + cfg.GetAPIName() + "/dpu"

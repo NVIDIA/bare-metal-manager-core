@@ -783,7 +783,7 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewUpdateSubnetHandler(dbSession, tc, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/subnet/:id/attach-vpc",
+			Path:    apiPathPrefix + "/subnet/:subnetId/attach-vpc",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewAttachSubnetVpcHandler(dbSession, scp),
 		},

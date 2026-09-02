@@ -979,10 +979,10 @@ func NewAttachSubnetVpcHandler(dbSession *cdb.Session, scp *sc.ClientPool) Attac
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
-// @Param id path string true "ID of Subnet"
+// @Param subnetId path string true "ID of Subnet"
 // @Param message body model.APISubnetAttachVpcRequest true "Subnet attach VPC request"
 // @Success 200 {object} model.APISubnet
-// @Router /v2/org/{org}/nico/subnet/{id}/attach-vpc [post]
+// @Router /v2/org/{org}/nico/subnet/{subnetId}/attach-vpc [post]
 func (asvh AttachSubnetVpcHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Subnet", "AttachVpc", c, asvh.tracerSpan)
 	if handlerSpan != nil {
@@ -1015,7 +1015,7 @@ func (asvh AttachSubnetVpcHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Subnet attach VPC request data", err)
 	}
 
-	subnetID, err := uuid.Parse(c.Param("id"))
+	subnetID, err := uuid.Parse(c.Param("subnetId"))
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Subnet ID in URL", nil)
 	}

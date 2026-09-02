@@ -113,7 +113,7 @@ func (f subnetAttachVpcFixture) request(t *testing.T, user *cdbm.User, subnetID 
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	ec := echo.New().NewContext(req, rec)
-	ec.SetParamNames("orgName", "id")
+	ec.SetParamNames("orgName", "subnetId")
 	ec.SetParamValues(f.org, subnetID)
 	if user != nil {
 		ec.Set("user", user)
