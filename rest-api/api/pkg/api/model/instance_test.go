@@ -1132,7 +1132,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
-						DeviceInstance:       0,
+						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
@@ -1156,7 +1156,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
-						DeviceInstance:       0,
+						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       "Bogus",
 					},
 				},
@@ -1308,7 +1308,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
-						DeviceInstance:       0,
+						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
@@ -1331,7 +1331,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
-						DeviceInstance:       0,
+						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       "Bogus",
 					},
 				},
@@ -2362,7 +2362,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
-						DeviceInstance:       0,
+						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       SpectrumXAttachmentTypeVirtual,
 						VirtualFunctionID:    cutil.GetPtr(1),
 					},
@@ -2377,7 +2377,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
-						DeviceInstance:       0,
+						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
@@ -3556,4 +3556,79 @@ func TestValidateInfiniBandRequestForMachineCapability(t *testing.T) {
 		assert.True(t, match.CountSatisfiable)
 		assert.Equal(t, []int{0}, match.UnsatisfiedRequestIndices)
 	})
+}
+
+func TestValidateSpectrumXAttachments(t *testing.T) {
+	device := "MT2910 Family [ConnectX-7]"
+	attachment := func(deviceInstance int, attachmentType SpectrumXAttachmentType, virtualFunctionID *int) APISpectrumXAttachmentCreateOrUpdateRequest {
+		return APISpectrumXAttachmentCreateOrUpdateRequest{
+			SpectrumXPartitionID: uuid.NewString(),
+			Device:               device,
+			DeviceInstance:       cutil.GetPtr(deviceInstance),
+			AttachmentType:       attachmentType,
+			VirtualFunctionID:    virtualFunctionID,
+		}
+	}
+	overCap := make([]APISpectrumXAttachmentCreateOrUpdateRequest, 0, MaxSpectrumXAttachmentCount+1)
+	for i := range MaxSpectrumXAttachmentCount + 1 {
+		overCap = append(overCap, attachment(i, SpectrumXAttachmentTypePhysical, nil))
+	}
+
+	tests := []struct {
+		name        string
+		attachments []APISpectrumXAttachmentCreateOrUpdateRequest
+		wantErr     bool
+	}{
+		{
+			name:        "empty list is valid so an update can clear attachments",
+			attachments: []APISpectrumXAttachmentCreateOrUpdateRequest{},
+		},
+		{
+			name: "distinct device instances are valid",
+			attachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
+				attachment(0, SpectrumXAttachmentTypePhysical, nil),
+				attachment(1, SpectrumXAttachmentTypePhysical, nil),
+			},
+		},
+		{
+			name: "duplicate device instance is rejected",
+			attachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
+				attachment(0, SpectrumXAttachmentTypePhysical, nil),
+				attachment(0, SpectrumXAttachmentTypeOVN, nil),
+			},
+			wantErr: true,
+		},
+		{
+			// Core's allocate_spx_port_mac keys duplicates on device and device instance only,
+			// so distinct virtual functions on one device instance do not make these unique.
+			name: "duplicate device instance with distinct virtual functions is rejected",
+			attachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
+				attachment(0, SpectrumXAttachmentTypeVirtual, cutil.GetPtr(1)),
+				attachment(0, SpectrumXAttachmentTypeVirtual, cutil.GetPtr(2)),
+			},
+			wantErr: true,
+		},
+		{
+			name:        "attachment count above the cap is rejected",
+			attachments: overCap,
+			wantErr:     true,
+		},
+		{
+			name: "per-attachment error propagates",
+			attachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
+				attachment(0, "Bogus", nil),
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSpectrumXAttachments(tt.attachments)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

@@ -29,8 +29,9 @@ type APISpectrumXAttachmentCreateOrUpdateRequest struct {
 	SpectrumXPartitionID string `json:"spectrumXPartitionId"`
 	// Device is the name of the SpectrumX device to use
 	Device string `json:"device"`
-	// DeviceInstance is the index of the device to use
-	DeviceInstance int `json:"deviceInstance"`
+	// DeviceInstance is the index of the device to use. This is a pointer so that an omitted
+	// property is rejected rather than decoding to 0 and attaching to the first device.
+	DeviceInstance *int `json:"deviceInstance"`
 	// AttachmentType is the type of SpectrumX attachment: Physical, Virtual, or OVN
 	AttachmentType SpectrumXAttachmentType `json:"attachmentType"`
 	// VirtualFunctionID must be specified if attachmentType is Virtual
@@ -46,6 +47,7 @@ func (sacr APISpectrumXAttachmentCreateOrUpdateRequest) Validate() error {
 		validation.Field(&sacr.Device,
 			validation.Required.Error(validationErrorValueRequired)),
 		validation.Field(&sacr.DeviceInstance,
+			validation.NotNil.Error(validationErrorValueRequired),
 			validation.Min(0).Error("value must be equal or greater than 0")),
 		validation.Field(&sacr.VirtualFunctionID,
 			validation.Min(0).Error("value must be equal or greater than 0")),
@@ -70,7 +72,7 @@ func (sacr APISpectrumXAttachmentCreateOrUpdateRequest) Validate() error {
 func (sacr APISpectrumXAttachmentCreateOrUpdateRequest) ToProto() *corev1.InstanceSpxAttachment {
 	attachment := &corev1.InstanceSpxAttachment{
 		Device:         sacr.Device,
-		DeviceInstance: uint32(sacr.DeviceInstance),
+		DeviceInstance: uint32(*sacr.DeviceInstance),
 		SpxPartitionId: &corev1.SpxPartitionId{Value: sacr.SpectrumXPartitionID},
 		AttachmentType: sacr.AttachmentType.ToProto(),
 	}

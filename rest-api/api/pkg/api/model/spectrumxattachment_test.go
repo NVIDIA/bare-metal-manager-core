@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -17,13 +18,16 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 	type fields struct {
 		spectrumXPartitionID string
 		device               string
-		deviceInstance       int
+		deviceInstance       *int
 		attachmentType       SpectrumXAttachmentType
 		virtualFunctionID    *int
 	}
 	tests := []struct {
-		name    string
-		fields  fields
+		name   string
+		fields fields
+		// body, when set, is decoded instead of building the request from fields so a case can
+		// exercise what an omitted or null JSON property actually decodes to.
+		body    string
 		wantErr bool
 	}{
 		{
@@ -31,7 +35,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       0,
+				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 			},
 			wantErr: false,
@@ -41,7 +45,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       3,
+				deviceInstance:       cutil.GetPtr(3),
 				attachmentType:       SpectrumXAttachmentTypeVirtual,
 				virtualFunctionID:    cutil.GetPtr(2),
 			},
@@ -52,7 +56,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       3,
+				deviceInstance:       cutil.GetPtr(3),
 				attachmentType:       SpectrumXAttachmentTypeVirtual,
 			},
 			wantErr: false,
@@ -62,7 +66,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       0,
+				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypeOVN,
 			},
 			wantErr: false,
@@ -72,7 +76,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: "badid",
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       0,
+				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 			},
 			wantErr: true,
@@ -81,7 +85,16 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			name: "test validation failure, missing device",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				deviceInstance:       0,
+				deviceInstance:       cutil.GetPtr(0),
+				attachmentType:       SpectrumXAttachmentTypePhysical,
+			},
+			wantErr: true,
+		},
+		{
+			name: "test validation failure, omitted deviceInstance",
+			fields: fields{
+				spectrumXPartitionID: uuid.New().String(),
+				device:               "MT2910 Family [ConnectX-7]",
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 			},
 			wantErr: true,
@@ -91,7 +104,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       0,
+				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       "Bogus",
 			},
 			wantErr: true,
@@ -101,7 +114,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       0,
+				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 				virtualFunctionID:    cutil.GetPtr(2),
 			},
@@ -112,11 +125,26 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       3,
+				deviceInstance:       cutil.GetPtr(3),
 				attachmentType:       SpectrumXAttachmentTypeVirtual,
 				virtualFunctionID:    cutil.GetPtr(-1),
 			},
 			wantErr: true,
+		},
+		{
+			name:    "test validation failure, deviceInstance omitted from the JSON body",
+			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"MT2910 Family [ConnectX-7]","attachmentType":"Physical"}`,
+			wantErr: true,
+		},
+		{
+			name:    "test validation failure, deviceInstance null in the JSON body",
+			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"MT2910 Family [ConnectX-7]","deviceInstance":null,"attachmentType":"Physical"}`,
+			wantErr: true,
+		},
+		{
+			name:    "test validation success, explicit zero deviceInstance in the JSON body",
+			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"MT2910 Family [ConnectX-7]","deviceInstance":0,"attachmentType":"Physical"}`,
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
@@ -127,6 +155,10 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 				DeviceInstance:       tt.fields.deviceInstance,
 				AttachmentType:       tt.fields.attachmentType,
 				VirtualFunctionID:    tt.fields.virtualFunctionID,
+			}
+			if tt.body != "" {
+				sacr = APISpectrumXAttachmentCreateOrUpdateRequest{}
+				require.NoError(t, json.Unmarshal([]byte(tt.body), &sacr))
 			}
 			err := sacr.Validate()
 			if tt.wantErr {
@@ -151,7 +183,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			request: APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: partitionID,
 				Device:               "MT2910 Family [ConnectX-7]",
-				DeviceInstance:       0,
+				DeviceInstance:       cutil.GetPtr(0),
 				AttachmentType:       SpectrumXAttachmentTypePhysical,
 			},
 			wantAttachmentType: corev1.SpxAttachmentType_Physical,
@@ -161,7 +193,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			request: APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: partitionID,
 				Device:               "MT2910 Family [ConnectX-7]",
-				DeviceInstance:       3,
+				DeviceInstance:       cutil.GetPtr(3),
 				AttachmentType:       SpectrumXAttachmentTypeVirtual,
 				VirtualFunctionID:    cutil.GetPtr(2),
 			},
@@ -173,7 +205,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			request: APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: partitionID,
 				Device:               "MT2910 Family [ConnectX-7]",
-				DeviceInstance:       1,
+				DeviceInstance:       cutil.GetPtr(1),
 				AttachmentType:       SpectrumXAttachmentTypeOVN,
 			},
 			wantAttachmentType: corev1.SpxAttachmentType_Ovn,
@@ -187,7 +219,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			require.NotNil(t, got.SpxPartitionId)
 			assert.Equal(t, tt.request.SpectrumXPartitionID, got.SpxPartitionId.Value)
 			assert.Equal(t, tt.request.Device, got.Device)
-			assert.Equal(t, uint32(tt.request.DeviceInstance), got.DeviceInstance)
+			assert.Equal(t, uint32(*tt.request.DeviceInstance), got.DeviceInstance)
 			assert.Equal(t, tt.wantAttachmentType, got.AttachmentType)
 			assert.Equal(t, tt.wantVirtualFunctionID, got.VirtualFunctionId)
 		})

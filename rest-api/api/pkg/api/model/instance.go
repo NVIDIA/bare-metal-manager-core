@@ -55,6 +55,11 @@ func ValidatePowerProfile(ctx context.Context, dpsEnabled bool, provider dpsclie
 const (
 	// MaxInterfaceCount is the maximum number of Interfaces allowed per Instance
 	MaxInterfaceCount = 16
+	// MaxSpectrumXAttachmentCount is the maximum number of SpectrumX Attachments allowed per Instance.
+	// Core caps the usable count at the Machine's SpectrumX PFs, and multiplane splits each port into
+	// one PF per plane, so an 8-SuperNIC HGX node on the 4-plane Astra profile exposes 32. This only
+	// keeps an unbounded list from reaching the Site, so it sits above that rather than near it.
+	MaxSpectrumXAttachmentCount = 64
 	// MachineIssueCategoryHardware is the category for hardware issues
 	MachineIssueCategoryHardware = "Hardware"
 	// MachineIssueCategoryNetwork is the category for network issues
@@ -401,6 +406,41 @@ func ValidateDpuExtensionServiceDeployments(desdrs []APIDpuExtensionServiceDeplo
 	return nil
 }
 
+// ValidateSpectrumXAttachments validates the SpectrumX Attachments for the Instance create/update request.
+// Each attachment consumes one device instance in Core's allocate_spx_port_mac, which rejects a repeated
+// device and device instance pair irrespective of virtualFunctionId. Reject it here so the caller gets a
+// 400 instead of a Site failure. Core bounds the real count by the Machine's SpectrumX interfaces, so
+// MaxSpectrumXAttachmentCount only keeps an unbounded list from reaching it.
+func ValidateSpectrumXAttachments(sacs []APISpectrumXAttachmentCreateOrUpdateRequest) error {
+	if len(sacs) > MaxSpectrumXAttachmentCount {
+		return validation.Errors{
+			"spectrumXAttachments": fmt.Errorf("at most %v SpectrumX Attachments can be specified", MaxSpectrumXAttachmentCount),
+		}
+	}
+
+	deviceInstanceMap := map[string]bool{}
+
+	for _, sac := range sacs {
+		err := sac.Validate()
+		if err != nil {
+			return err
+		}
+
+		deviceInstanceID := fmt.Sprintf("%s-%d", sac.Device, *sac.DeviceInstance)
+
+		_, exists := deviceInstanceMap[deviceInstanceID]
+		if exists {
+			return validation.Errors{
+				"spectrumXAttachments": fmt.Errorf("duplicate SpectrumX Attachment specified for Device %v, Device Instance: %v", sac.Device, *sac.DeviceInstance),
+			}
+		}
+
+		deviceInstanceMap[deviceInstanceID] = true
+	}
+
+	return nil
+}
+
 // ValidateNVLinkInterfaces validates the NVLink interfaces for Instance create/update request.
 // A subset of GPUs may be specified; specifying more interfaces than GPUs is not allowed.
 // Each DeviceInstance (GPU index) must be unique and within the valid range for the machine.
@@ -652,11 +692,9 @@ func (icr APIInstanceCreateRequest) Validate() error {
 	}
 
 	// Validate SpectrumX Attachments
-	for _, sac := range icr.SpectrumXAttachments {
-		err = sac.Validate()
-		if err != nil {
-			return err
-		}
+	err = ValidateSpectrumXAttachments(icr.SpectrumXAttachments)
+	if err != nil {
+		return err
 	}
 
 	// Validate DpuExtensionServiceDeployments
@@ -1038,11 +1076,9 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 	}
 
 	// Validate SpectrumX Attachments
-	for _, sac := range bicr.SpectrumXAttachments {
-		err = sac.Validate()
-		if err != nil {
-			return err
-		}
+	err = ValidateSpectrumXAttachments(bicr.SpectrumXAttachments)
+	if err != nil {
+		return err
 	}
 
 	// Validate DpuExtensionServiceDeployments
@@ -1668,7 +1704,8 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 
 // IsInterfaceUpdateRequest checks if the request is an instance interface update request
 func (iur *APIInstanceUpdateRequest) IsInterfaceUpdateRequest() bool {
-	return iur.Interfaces != nil || iur.AutoNetwork != nil || iur.InfiniBandInterfaces != nil || iur.NVLinkInterfaces != nil
+	return iur.Interfaces != nil || iur.AutoNetwork != nil || iur.InfiniBandInterfaces != nil || iur.NVLinkInterfaces != nil ||
+		iur.SpectrumXAttachments != nil
 }
 
 // IsRebootRequest checks if the request is an instance reboot request
@@ -1765,11 +1802,9 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 	}
 
 	// Validate SpectrumX Attachments
-	for _, sac := range iur.SpectrumXAttachments {
-		err = sac.Validate()
-		if err != nil {
-			return err
-		}
+	err = ValidateSpectrumXAttachments(iur.SpectrumXAttachments)
+	if err != nil {
+		return err
 	}
 
 	// Validate DpuExtensionServiceDeployments
