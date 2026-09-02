@@ -92,6 +92,8 @@ bootArtifactContainers: []
 #     command: ["sh", "-c", "cp -r /machine-validation /forge-boot-artifacts/blobs/internal"]
 
 ## Boot artifact serving configuration
+## The chart always mounts writable scratch storage at <servePath>/blobs/internal,
+## including when no boot artifact init containers are configured.
 bootArtifacts:
   servePath: /forge-boot-artifacts
 

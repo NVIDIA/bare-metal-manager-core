@@ -17,6 +17,18 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Always
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 10001
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsGroup
+          value: 10001
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 10001
 
   - it: uses a complete component image override
     set:
@@ -33,6 +45,18 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Never
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 10001
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsGroup
+          value: 10001
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 10001
 
   - it: uses the global pull policy when the component policy is unset
     set:
