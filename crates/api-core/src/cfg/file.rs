@@ -1472,7 +1472,7 @@ pub struct SecretsConfig {
     /// them, longest prefix winning. A "/" catch-all entry is required.
     /// Reads never consult routing -- every stored row records the KEK
     /// that wrapped it -- so rotating a key means changing it here and
-    /// running `carbide-admin-cli secrets re-wrap`.
+    /// running `nico-admin-cli secrets re-wrap`.
     ///
     /// Example:
     /// ```toml

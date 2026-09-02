@@ -140,7 +140,7 @@ pub(crate) struct Args {
     #[clap(
         long = "bmc-retain-credentials",
         value_name = "BMC_RETAIN_CREDENTIALS",
-        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in the credential store as-is"
     )]
     bmc_retain_credentials: Option<bool>,
 }
