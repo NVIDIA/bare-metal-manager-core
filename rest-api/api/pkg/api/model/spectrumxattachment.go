@@ -27,14 +27,15 @@ const (
 type APISpectrumXAttachmentCreateOrUpdateRequest struct {
 	// SpectrumXPartitionID is the ID of the SpectrumX Partition
 	SpectrumXPartitionID string `json:"spectrumXPartitionId"`
-	// Device is the name of the SpectrumX device to use
+	// Device is the SpectrumX device to attach over, matching the device description reported
+	// for the Machine's SpectrumX interfaces
 	Device string `json:"device"`
 	// DeviceInstance is the index of the device to use. This is a pointer so that an omitted
 	// property is rejected rather than decoding to 0 and attaching to the first device.
 	DeviceInstance *int `json:"deviceInstance"`
 	// AttachmentType is the type of SpectrumX attachment: Physical, Virtual, or OVN
 	AttachmentType SpectrumXAttachmentType `json:"attachmentType"`
-	// VirtualFunctionID must be specified if attachmentType is Virtual
+	// VirtualFunctionID must be omitted, as virtual functions are not currently supported
 	VirtualFunctionID *int `json:"virtualFunctionId"`
 }
 
@@ -49,8 +50,6 @@ func (sacr APISpectrumXAttachmentCreateOrUpdateRequest) Validate() error {
 		validation.Field(&sacr.DeviceInstance,
 			validation.NotNil.Error(validationErrorValueRequired),
 			validation.Min(0).Error("value must be equal or greater than 0")),
-		validation.Field(&sacr.VirtualFunctionID,
-			validation.Min(0).Error("value must be equal or greater than 0")),
 		validation.Field(&sacr.AttachmentType,
 			validation.Required.Error(validationErrorValueRequired),
 			validation.In(SpectrumXAttachmentTypePhysical, SpectrumXAttachmentTypeVirtual, SpectrumXAttachmentTypeOVN).Error("must be one of 'Physical', 'Virtual', or 'OVN'")),
@@ -59,9 +58,17 @@ func (sacr APISpectrumXAttachmentCreateOrUpdateRequest) Validate() error {
 		return err
 	}
 
-	if sacr.AttachmentType != SpectrumXAttachmentTypeVirtual && sacr.VirtualFunctionID != nil {
+	// Core's allocate_spx_port_mac rejects a Virtual attachment, so reject it here and give the
+	// caller a 400 rather than a Site failure. Enabling it later only widens what is accepted.
+	if sacr.AttachmentType == SpectrumXAttachmentTypeVirtual {
 		return validation.Errors{
-			"virtualFunctionId": errors.New("must only be specified if attachmentType is 'Virtual'"),
+			"attachmentType": errors.New("virtual functions are currently not supported for SpectrumX attachments"),
+		}
+	}
+
+	if sacr.VirtualFunctionID != nil {
+		return validation.Errors{
+			"virtualFunctionId": errors.New("virtual functions are currently not supported for SpectrumX attachments"),
 		}
 	}
 

@@ -34,38 +34,29 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			name: "test validation success, Physical attachment",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 			},
 			wantErr: false,
 		},
 		{
-			name: "test validation success, Virtual attachment with virtualFunctionId",
+			// Core rejects a Virtual attachment, so the REST layer rejects it up front even
+			// though `Virtual` is a syntactically accepted attachmentType.
+			name: "test validation failure, Virtual attachment type is not supported",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       cutil.GetPtr(3),
-				attachmentType:       SpectrumXAttachmentTypeVirtual,
-				virtualFunctionID:    cutil.GetPtr(2),
-			},
-			wantErr: false,
-		},
-		{
-			name: "test validation success, Virtual attachment without virtualFunctionId",
-			fields: fields{
-				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				deviceInstance:       cutil.GetPtr(3),
 				attachmentType:       SpectrumXAttachmentTypeVirtual,
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "test validation success, OVN attachment",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypeOVN,
 			},
@@ -75,7 +66,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			name: "test validation failure, invalid SpectrumX Partition ID",
 			fields: fields{
 				spectrumXPartitionID: "badid",
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 			},
@@ -94,7 +85,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			name: "test validation failure, omitted deviceInstance",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 			},
 			wantErr: true,
@@ -103,17 +94,17 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			name: "test validation failure, invalid attachmentType",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       "Bogus",
 			},
 			wantErr: true,
 		},
 		{
-			name: "test validation failure, virtualFunctionId set for Physical attachment",
+			name: "test validation failure, virtualFunctionId is not supported",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
+				device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				deviceInstance:       cutil.GetPtr(0),
 				attachmentType:       SpectrumXAttachmentTypePhysical,
 				virtualFunctionID:    cutil.GetPtr(2),
@@ -121,29 +112,18 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "test validation failure, negative virtualFunctionId",
-			fields: fields{
-				spectrumXPartitionID: uuid.New().String(),
-				device:               "MT2910 Family [ConnectX-7]",
-				deviceInstance:       cutil.GetPtr(3),
-				attachmentType:       SpectrumXAttachmentTypeVirtual,
-				virtualFunctionID:    cutil.GetPtr(-1),
-			},
-			wantErr: true,
-		},
-		{
 			name:    "test validation failure, deviceInstance omitted from the JSON body",
-			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"MT2910 Family [ConnectX-7]","attachmentType":"Physical"}`,
+			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC","attachmentType":"Physical"}`,
 			wantErr: true,
 		},
 		{
 			name:    "test validation failure, deviceInstance null in the JSON body",
-			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"MT2910 Family [ConnectX-7]","deviceInstance":null,"attachmentType":"Physical"}`,
+			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC","deviceInstance":null,"attachmentType":"Physical"}`,
 			wantErr: true,
 		},
 		{
 			name:    "test validation success, explicit zero deviceInstance in the JSON body",
-			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"MT2910 Family [ConnectX-7]","deviceInstance":0,"attachmentType":"Physical"}`,
+			body:    `{"spectrumXPartitionId":"8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3","device":"NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC","deviceInstance":0,"attachmentType":"Physical"}`,
 			wantErr: false,
 		},
 	}
@@ -182,7 +162,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			name: "Physical attachment leaves virtualFunctionId unset",
 			request: APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: partitionID,
-				Device:               "MT2910 Family [ConnectX-7]",
+				Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				DeviceInstance:       cutil.GetPtr(0),
 				AttachmentType:       SpectrumXAttachmentTypePhysical,
 			},
@@ -192,7 +172,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			name: "Virtual attachment carries virtualFunctionId",
 			request: APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: partitionID,
-				Device:               "MT2910 Family [ConnectX-7]",
+				Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				DeviceInstance:       cutil.GetPtr(3),
 				AttachmentType:       SpectrumXAttachmentTypeVirtual,
 				VirtualFunctionID:    cutil.GetPtr(2),
@@ -204,7 +184,7 @@ func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
 			name: "OVN attachment maps to the Ovn enum",
 			request: APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: partitionID,
-				Device:               "MT2910 Family [ConnectX-7]",
+				Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 				DeviceInstance:       cutil.GetPtr(1),
 				AttachmentType:       SpectrumXAttachmentTypeOVN,
 			},

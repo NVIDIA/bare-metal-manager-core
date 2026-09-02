@@ -21739,7 +21739,7 @@ components:
               virtualFunctionId: null
           spectrumXAttachments:
             - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
-              device: 'MT2910 Family [ConnectX-7]'
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
               deviceInstance: 0
               attachmentType: Physical
               virtualFunctionId: null
@@ -21975,7 +21975,7 @@ components:
               isPhysical: true
           spectrumXAttachments:
             - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
-              device: 'MT2910 Family [ConnectX-7]'
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
               deviceInstance: 0
               attachmentType: Physical
               virtualFunctionId: null
@@ -22180,7 +22180,7 @@ components:
               virtualFunctionId: null
           spectrumXAttachments:
             - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
-              device: 'MT2910 Family [ConnectX-7]'
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
               deviceInstance: 0
               attachmentType: Physical
               virtualFunctionId: null
@@ -22731,15 +22731,15 @@ components:
       type: object
       examples:
         - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
-          device: 'MT2910 Family [ConnectX-7]'
+          device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
           deviceInstance: 0
           attachmentType: Physical
           virtualFunctionId: null
         - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
-          device: 'MT2910 Family [ConnectX-7]'
+          device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
           deviceInstance: 3
-          attachmentType: Virtual
-          virtualFunctionId: 2
+          attachmentType: OVN
+          virtualFunctionId: null
       description: Request data to attach a SpectrumX Partition to an Instance
       properties:
         spectrumXPartitionId:
@@ -22748,7 +22748,7 @@ components:
           description: ID of the SpectrumX Partition the attachment should associate with
         device:
           type: string
-          description: Name of the SpectrumX device to use
+          description: 'SpectrumX device to attach over, matching the device description reported for the Machine''s SpectrumX interfaces'
         deviceInstance:
           type: integer
           minimum: 0
@@ -22759,12 +22759,12 @@ components:
             - Physical
             - Virtual
             - OVN
-          description: Type of SpectrumX attachment
+          description: 'Type of SpectrumX attachment. `Virtual` is not currently supported and is rejected.'
         virtualFunctionId:
           type:
             - integer
             - 'null'
-          description: Must be specified if attachmentType is Virtual
+          description: Must be omitted, as virtual functions are not currently supported
       required:
         - spectrumXPartitionId
         - device

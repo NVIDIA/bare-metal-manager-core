@@ -4938,7 +4938,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					SpectrumXAttachments: []model.APISpectrumXAttachmentCreateOrUpdateRequest{
 						{
 							SpectrumXPartitionID: uuid.NewString(),
-							Device:               "MT2910 Family [ConnectX-7]",
+							Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 							DeviceInstance:       cutil.GetPtr(0),
 							AttachmentType:       model.SpectrumXAttachmentTypePhysical,
 						},

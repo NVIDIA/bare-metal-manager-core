@@ -1131,7 +1131,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
-						Device:               "MT2910 Family [ConnectX-7]",
+						Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
@@ -1155,7 +1155,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
-						Device:               "MT2910 Family [ConnectX-7]",
+						Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       "Bogus",
 					},
@@ -1307,7 +1307,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
-						Device:               "MT2910 Family [ConnectX-7]",
+						Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
@@ -1330,7 +1330,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
-						Device:               "MT2910 Family [ConnectX-7]",
+						Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 						DeviceInstance:       cutil.GetPtr(0),
 						AttachmentType:       "Bogus",
 					},
@@ -2361,10 +2361,9 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
-						Device:               "MT2910 Family [ConnectX-7]",
+						Device:               "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC",
 						DeviceInstance:       cutil.GetPtr(0),
-						AttachmentType:       SpectrumXAttachmentTypeVirtual,
-						VirtualFunctionID:    cutil.GetPtr(1),
+						AttachmentType:       SpectrumXAttachmentTypeOVN,
 					},
 				},
 			},
@@ -3559,7 +3558,7 @@ func TestValidateInfiniBandRequestForMachineCapability(t *testing.T) {
 }
 
 func TestValidateSpectrumXAttachments(t *testing.T) {
-	device := "MT2910 Family [ConnectX-7]"
+	device := "NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC"
 	attachment := func(deviceInstance int, attachmentType SpectrumXAttachmentType, virtualFunctionID *int) APISpectrumXAttachmentCreateOrUpdateRequest {
 		return APISpectrumXAttachmentCreateOrUpdateRequest{
 			SpectrumXPartitionID: uuid.NewString(),
@@ -3599,14 +3598,11 @@ func TestValidateSpectrumXAttachments(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// Core's allocate_spx_port_mac keys duplicates on device and device instance only,
-			// so distinct virtual functions on one device instance do not make these unique.
-			name: "duplicate device instance with distinct virtual functions is rejected",
+			name: "same device at distinct device instances is valid",
 			attachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
-				attachment(0, SpectrumXAttachmentTypeVirtual, cutil.GetPtr(1)),
-				attachment(0, SpectrumXAttachmentTypeVirtual, cutil.GetPtr(2)),
+				attachment(0, SpectrumXAttachmentTypePhysical, nil),
+				attachment(1, SpectrumXAttachmentTypeOVN, nil),
 			},
-			wantErr: true,
 		},
 		{
 			name:        "attachment count above the cap is rejected",
