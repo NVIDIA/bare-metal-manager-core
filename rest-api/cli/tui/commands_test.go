@@ -1086,6 +1086,206 @@ func TestVPCFilteringDoesNotMutateCachedSlice(t *testing.T) {
 	assert.Equal(t, "m3", cached[2].Name)
 }
 
+func TestValidateIPv4SubnetPrefixLength(t *testing.T) {
+	// Keep these client-side bounds aligned with SubnetCreateRequest in
+	// openapi/spec.yaml.
+	tests := []struct {
+		name         string
+		prefixLength int
+		wantError    bool
+	}{
+		{name: "below minimum", prefixLength: 7, wantError: true},
+		{name: "minimum", prefixLength: 8},
+		{name: "maximum", prefixLength: 30},
+		{name: "above maximum", prefixLength: 31, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateIPv4SubnetPrefixLength(test.prefixLength)
+			if test.wantError {
+				require.EqualError(t, err, "prefix length must be between 8 and 30")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestFilterSubnetVPCs(t *testing.T) {
+	tests := []struct {
+		name         string
+		vpc          NamedItem
+		wantIncluded bool
+	}{
+		{
+			name: "Ready ETHERNET_VIRTUALIZER included",
+			vpc: NamedItem{
+				Name:   "Ethernet virtualizer VPC",
+				ID:     "vpc-etv",
+				Status: "Ready",
+				Extra:  map[string]string{"networkVirtualizationType": "ETHERNET_VIRTUALIZER"},
+			},
+			wantIncluded: true,
+		},
+		{
+			name: "Ready FNN excluded",
+			vpc: NamedItem{
+				Name:   "FNN VPC",
+				ID:     "vpc-fnn",
+				Status: "Ready",
+				Extra:  map[string]string{"networkVirtualizationType": "FNN"},
+			},
+		},
+		{
+			name: "pending ETHERNET_VIRTUALIZER excluded",
+			vpc: NamedItem{
+				Name:   "Pending Ethernet virtualizer VPC",
+				ID:     "vpc-pending",
+				Status: "Pending",
+				Extra:  map[string]string{"networkVirtualizationType": "ETHERNET_VIRTUALIZER"},
+			},
+		},
+		{
+			name: "Ready legacy VPC without type included",
+			vpc: NamedItem{
+				Name:   "Legacy VPC",
+				ID:     "vpc-legacy",
+				Status: "Ready",
+				Extra:  map[string]string{},
+			},
+			wantIncluded: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := filterSubnetVPCs([]NamedItem{test.vpc})
+			if !test.wantIncluded {
+				assert.Empty(t, got)
+				return
+			}
+			require.Equal(t, []NamedItem{test.vpc}, got)
+		})
+	}
+}
+
+func TestBuildSubnetIPBlockSelectItems(t *testing.T) {
+	tests := []struct {
+		name         string
+		block        NamedItem
+		siteID       string
+		wantIncluded bool
+	}{
+		{
+			name: "same-site current-tenant IPv4 included",
+			block: NamedItem{
+				Name:   "IPv4 block",
+				ID:     "ipv4-same-site",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID:       "site-1",
+			wantIncluded: true,
+		},
+		{
+			name: "same-site current-tenant IPv6 excluded",
+			block: NamedItem{
+				Name:   "IPv6 block",
+				ID:     "ipv6-same-site",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv6"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "other-site current-tenant IPv4 excluded",
+			block: NamedItem{
+				Name:   "Other site IPv4 block",
+				ID:     "ipv4-other-site",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-2", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "provider-owned IPv4 excluded",
+			block: NamedItem{
+				Name:   "Provider IPv4 block",
+				ID:     "ipv4-provider",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "other-tenant IPv4 excluded",
+			block: NamedItem{
+				Name:   "Other tenant IPv4 block",
+				ID:     "ipv4-other-tenant",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-2", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "pending current-tenant IPv4 excluded",
+			block: NamedItem{
+				Name:   "Pending IPv4 block",
+				ID:     "ipv4-pending",
+				Status: "Pending",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+		{
+			name: "empty site scope accepts current-tenant IPv4",
+			block: NamedItem{
+				Name:   "IPv4 block",
+				ID:     "ipv4-without-site-scope",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			wantIncluded: true,
+		},
+		{
+			name: "missing name uses ID as label",
+			block: NamedItem{
+				ID:     "ipv4-unnamed",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID:       "site-1",
+			wantIncluded: true,
+		},
+		{
+			name: "missing ID excluded",
+			block: NamedItem{
+				Name:   "ID-less IPv4 block",
+				Status: "Ready",
+				Extra:  map[string]string{"siteId": "site-1", "tenantId": "tenant-1", "protocolVersion": "IPv4"},
+			},
+			siteID: "site-1",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			items := buildSubnetIPBlockSelectItems([]NamedItem{test.block}, test.siteID, "tenant-1")
+			if !test.wantIncluded {
+				assert.Empty(t, items)
+				return
+			}
+			require.Len(t, items, 1)
+			label := test.block.Name
+			if label == "" {
+				label = test.block.ID
+			}
+			assert.Equal(t, SelectItem{Label: label, ID: test.block.ID}, items[0])
+		})
+	}
+}
+
 func TestBuildIPBlockCreateBody_UsesAPIFieldNames(t *testing.T) {
 	body := buildIPBlockCreateBody(
 		"ip-block-0",

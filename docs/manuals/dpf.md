@@ -836,6 +836,35 @@ Per-deployment field reference:
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
 | `extra_services` | no | none | Optional deployment-local field overrides for extra services. Only extras supported by this deployment type are used. |
 
+##### Service VPC and additional SF capacity
+
+Two global `[dpu_config]` fields reserve SFs for BF3 and generic BF4:
+
+- `service_vpc_slot_count` generates stable HBN interface names from
+  `iface_svc_0` through `iface_svc_{N-1}`. These interfaces are added to HBN's
+  `DPUServiceConfiguration`, startup configuration, and `nvidia.com/bf_sf`
+  request. The generated and topology-derived HBN interfaces must total no more
+  than 32.
+- `additional_managed_sf` reserves SF capacity without generating an HBN
+  interface.
+
+NICo adds both values to the managed SF count. With intercept bridging, they
+increase `PF_TOTAL_SF`, change the `DPUFlavor`, and require controlled DPU
+reprovisioning. Without intercept bridging, they consume the unchanged legacy
+`pf_total_sf_reserved` pool; carbide-api rejects an overcommit at startup. BF4
+Astra ignores both fields.
+
+NICo does not create a bridge for now, or a `DPUServiceInterface`, service
+chain, IPAM, or application-service CR for these slots. An external controller
+must coordinate which service uses each deterministic interface. The values are
+read when carbide-api starts, so restart the API after changing them.
+
+```toml
+[dpu_config]
+service_vpc_slot_count = 5
+additional_managed_sf = 2
+```
+
 **Per-deployment services override.** By default every deployment inherits the
 top-level `[dpf.services]` mandatory services. A deployment can pin its own
 versions by adding a `[dpf.deployments.<name>.services]` block with the same six

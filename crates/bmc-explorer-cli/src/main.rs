@@ -87,7 +87,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proxy_address = Arc::new(ArcSwap::new(None.into()));
     let credential_provider = Arc::new(TestCredentialManager::new(fallback_credentials.clone()));
 
-    let redfish_client_pool = carbide_redfish::libredfish::new_pool(
+    // The explorer performs credential-lifecycle work, so it takes the
+    // credential-operations handle of the direct pool.
+    let (_, redfish_client_pool) = carbide_redfish::libredfish::new_pool_with_credential_ops(
         credential_provider.clone(),
         rf_pool,
         proxy_address.clone(),
