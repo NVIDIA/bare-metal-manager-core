@@ -210,6 +210,10 @@ Published container artifacts must pin external base images by immutable
 digest. When architecture-specific targets share a base image, define one
 overridable variable so their versions cannot drift independently.
 
+Before review, verify every Dockerfile-specific allowlist contains each source
+consumed by `COPY`, build scripts, and compile-time macros. Run one clean-context
+container build when persistent cache mounts could hide a missing input.
+
 ## Coding Conventions
 
 Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)
