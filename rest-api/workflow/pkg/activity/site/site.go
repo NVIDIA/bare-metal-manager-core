@@ -113,12 +113,14 @@ func (mst ManageSite) UpdateSiteInDB(ctx context.Context, siteID uuid.UUID, core
 		}
 	}
 
-	// Site Agent inventory owns the Flow enabled flag and reconciles it in either direction.
-	if siteAgentBuildInfo != nil && (site.Config == nil || site.Config.Flow != siteAgentBuildInfo.GetFlowEnabled()) {
+	// Site Agent inventory owns the Flow enabled flag once it reports the field. An omitted field
+	// preserves the stored value when an inventory queued before an upgrade is processed later.
+	if siteAgentBuildInfo != nil && siteAgentBuildInfo.FlowEnabled != nil &&
+		(site.Config == nil || site.Config.Flow != siteAgentBuildInfo.GetFlowEnabled()) {
 		if updateInput.Config == nil {
 			updateInput.Config = &cdbm.SiteConfigUpdateInput{}
 		}
-		updateInput.Config.Flow = ccu.GetPtr(siteAgentBuildInfo.GetFlowEnabled())
+		updateInput.Config.Flow = siteAgentBuildInfo.FlowEnabled
 	}
 
 	// Update build version for Site when Core reports a changed, non-empty value.

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -185,7 +186,7 @@ func TestUpdateSiteConfigInventoryV2(t *testing.T) {
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
 				InventoryInterval: durationpb.New(time.Minute),
-				FlowEnabled:       true,
+				FlowEnabled:       proto.Bool(true),
 			},
 			expectUpdateSiteInDB: true,
 			expectUpdateIPBlocks: true,

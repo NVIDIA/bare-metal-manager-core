@@ -45,6 +45,7 @@ import (
 	tosv1mock "go.temporal.io/api/operatorservicemock/v1"
 	twsv1mock "go.temporal.io/api/workflowservicemock/v1"
 	tmocks "go.temporal.io/sdk/mocks"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -1426,7 +1427,7 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: true},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: proto.Bool(true)},
 			wantVersion:        cutil.GetPtr("1.0.0"),
 			wantFlow:           true,
 			wantDBUpdate:       true,
@@ -1436,16 +1437,25 @@ func TestManageSite_UpdateSiteInDB(t *testing.T) {
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{Flow: true},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: proto.Bool(false)},
 			wantVersion:        cutil.GetPtr("1.0.0"),
 			wantDBUpdate:       true,
+		},
+		{
+			name:               "preserves Flow when queued Site inventory omits configuration",
+			existingVersion:    cutil.GetPtr("1.0.0"),
+			existingConfig:     &cdbm.SiteConfig{Flow: true},
+			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion},
+			wantVersion:        cutil.GetPtr("1.0.0"),
+			wantFlow:           true,
 		},
 		{
 			name:               "skips update when reported Flow configuration matches",
 			existingVersion:    cutil.GetPtr("1.0.0"),
 			existingConfig:     &cdbm.SiteConfig{Flow: true},
 			buildInfo:          &corev1.BuildInfo{BuildVersion: "1.0.0"},
-			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: true},
+			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{Version: existingAgentVersion, FlowEnabled: proto.Bool(true)},
 			wantVersion:        cutil.GetPtr("1.0.0"),
 			wantFlow:           true,
 		},

@@ -37,7 +37,7 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 			siteAgentBuildInfo: &corev1.SiteAgentBuildInfo{
 				Version:           "2.0.0",
 				InventoryInterval: durationpb.New(3 * time.Minute),
-				FlowEnabled:       true,
+				FlowEnabled:       proto.Bool(true),
 			},
 		},
 		{

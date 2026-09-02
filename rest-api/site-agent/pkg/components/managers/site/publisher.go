@@ -5,6 +5,7 @@ package site
 
 import (
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
@@ -30,7 +31,7 @@ func (api *API) RegisterPublisher() error {
 
 	siteAgentBuildInfo := &corev1.SiteAgentBuildInfo{
 		Version:     metadata.Version,
-		FlowEnabled: ManagerAccess.Conf.EB.FlowGrpc.Enabled,
+		FlowEnabled: proto.Bool(ManagerAccess.Conf.EB.FlowGrpc.Enabled),
 	}
 
 	// Cloud decides when reported data is stale from this interval, so an unparseable schedule
