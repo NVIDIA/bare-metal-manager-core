@@ -685,8 +685,9 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if routingProfile != "" {
-		fmt.Printf("%s VPC created: %s (%s), routing profile: %s\n", Green("OK"), str(created, "name"), str(created, "id"), routingProfile)
+	resolvedRoutingProfile := str(created, "routingProfile")
+	if resolvedRoutingProfile != "" {
+		fmt.Printf("%s VPC created: %s (%s), routing profile: %s\n", Green("OK"), str(created, "name"), str(created, "id"), resolvedRoutingProfile)
 	} else {
 		fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	}

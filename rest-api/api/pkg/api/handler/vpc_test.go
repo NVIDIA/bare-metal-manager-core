@@ -342,6 +342,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		expectedStatus             string
 		expectedVni                *int
 		expectedVirtualizationType string
+		expectedRoutingProfile     *string
 		expectedStatusDetails      []expectedStatusDetail
 	}
 
@@ -476,6 +477,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	vpcWithAllocatedVniName := "Test VPC with allocated VNI"
 	vpcWithRoutingProfileName := "Test VPC routing profile"
 	vpcWithRoutingProfileOverridesName := "Test VPC routing profile overrides"
+	vpcWithResolvedRoutingProfileName := "Test VPC resolved routing profile"
 	allocatedVni := uint32(7301)
 	expectedAllocatedVni := int(allocatedVni)
 
@@ -511,6 +513,17 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		}
 	}).Return(nil)
 
+	wrunWithResolvedRoutingProfile := &tmocks.WorkflowRun{}
+	wrunWithResolvedRoutingProfile.On("GetID").Return(wid)
+	wrunWithResolvedRoutingProfile.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		controllerVpc, ok := args.Get(1).(*corev1.Vpc)
+		if ok {
+			controllerVpc.Config = &corev1.VpcConfig{
+				RoutingProfileType: cutil.GetPtr("EXTERNAL"),
+			}
+		}
+	}).Return(nil)
+
 	tc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
 		mock.AnythingOfType("func(internal.Context, uuid.UUID, uuid.UUID) error"), mock.AnythingOfType("uuid.UUID"),
 		mock.AnythingOfType("uuid.UUID")).Return(wrun, nil)
@@ -540,7 +553,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
 		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
-			return req == nil || (req.Name != unavailableVpcName && req.Name != vpcWithAllocatedVniName && req.Name != vpcWithRoutingProfileName && req.Name != vpcWithRoutingProfileOverridesName)
+			return req != nil && req.Name == vpcWithResolvedRoutingProfileName
+		})).Return(wrunWithResolvedRoutingProfile, nil)
+
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
+		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
+			return req == nil || (req.Name != unavailableVpcName && req.Name != vpcWithAllocatedVniName && req.Name != vpcWithRoutingProfileName && req.Name != vpcWithRoutingProfileOverridesName && req.Name != vpcWithResolvedRoutingProfileName)
 		})).Return(wrun, nil)
 
 	// Mock timeout error
@@ -646,6 +664,34 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 				respCode:                   http.StatusCreated,
 				expectedStatus:             cdbm.VpcStatusProvisioning,
 				expectedVirtualizationType: cdbm.VpcFNN,
+				expectedStatusDetails: []expectedStatusDetail{
+					{
+						status:  cdbm.VpcStatusProvisioning,
+						message: "VPC provisioning has been initiated on Site",
+					},
+				},
+			},
+			wantErr:            false,
+			verifyChildSpanner: true,
+		},
+		{
+			name: "test VPC create API endpoint returns Core-resolved routing profile",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIVpcCreateRequest{
+					Name:                      vpcWithResolvedRoutingProfileName,
+					SiteID:                    st1.ID.String(),
+					NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
+				},
+				reqOrg:                 tnOrg,
+				reqUser:                tnu,
+				respCode:               http.StatusCreated,
+				expectedStatus:         cdbm.VpcStatusProvisioning,
+				expectedRoutingProfile: cutil.GetPtr(model.APIVpcRoutingProfileExternal),
 				expectedStatusDetails: []expectedStatusDetail{
 					{
 						status:  cdbm.VpcStatusProvisioning,
@@ -1488,7 +1534,11 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			} else {
 				assert.Nil(t, rst.Description)
 			}
-			assert.Equal(t, tt.args.reqData.RoutingProfile, rst.RoutingProfile)
+			expectedRoutingProfile := tt.args.reqData.RoutingProfile
+			if tt.args.expectedRoutingProfile != nil {
+				expectedRoutingProfile = tt.args.expectedRoutingProfile
+			}
+			assert.Equal(t, expectedRoutingProfile, rst.RoutingProfile)
 			assert.Equal(t, tt.args.reqData.RoutingProfileOverrides, rst.RoutingProfileOverrides)
 			expectedSlaacEnabled := tt.args.reqData.SlaacEnabled != nil && *tt.args.reqData.SlaacEnabled
 			assert.Equal(t, expectedSlaacEnabled, rst.SlaacEnabled)
@@ -1533,6 +1583,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 			assert.Equal(t, expectedSlaacEnabled, persistedVpc.SlaacEnabled)
 			require.NotNil(t, persistedVpc.NetworkVirtualizationType)
 			assert.Equal(t, expectedVirtualizationType, *persistedVpc.NetworkVirtualizationType)
+			if expectedRoutingProfile != nil {
+				require.NotNil(t, persistedVpc.RoutingProfile)
+				assert.Equal(t, model.NormalizeAPIVpcRoutingProfileForSite(*expectedRoutingProfile), *persistedVpc.RoutingProfile)
+			} else {
+				assert.Nil(t, persistedVpc.RoutingProfile)
+			}
 			assert.Equal(t, tt.args.reqData.RoutingProfileOverrides.ToDB(), persistedVpc.RoutingProfileOverrides)
 			if tt.args.reqData.RoutingProfileOverrides != nil {
 				// Effective state returned without a VNI is cached and exposed to this privileged tenant.

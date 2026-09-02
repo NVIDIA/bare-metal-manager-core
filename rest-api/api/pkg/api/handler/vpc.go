@@ -510,15 +510,17 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	statusDetails := []cdbm.StatusDetail{*ssd}
 
 	// Make a best-effort attempt to cache the controller-reported VNI and
-	// effective routing profile for the response.
+	// routing profile state for the response.
 	controllerVpcModel := &cdbm.Vpc{}
 	controllerVpcModel.FromProto(controllerVpc)
 	activeVni := controllerVpcModel.ActiveVni
+	resolvedRoutingProfile := controllerVpcModel.RoutingProfile
 	effectiveRoutingProfile := controllerVpcModel.EffectiveRoutingProfile
-	if activeVni != nil || effectiveRoutingProfile != nil {
+	if activeVni != nil || resolvedRoutingProfile != nil || effectiveRoutingProfile != nil {
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:                   vpc.ID,
 			ActiveVni:               activeVni,
+			RoutingProfile:          resolvedRoutingProfile,
 			EffectiveRoutingProfile: effectiveRoutingProfile,
 		}
 		if activeVni != nil {

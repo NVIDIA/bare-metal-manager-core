@@ -32710,7 +32710,10 @@ type FindTenantResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Tenant *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
 	// Named VPC routing profiles whose access tier is permitted for this Tenant.
-	// Empty when FNN or the Tenant routing profile is not configured.
+	// Omitted and empty are equivalent. The list is empty when the Tenant, FNN,
+	// or the Tenant's configured routing profile is unavailable. Otherwise it
+	// includes that profile and every profile with an equal or higher access
+	// tier, sorted by profile name.
 	PermittedRoutingProfileTypes []string `protobuf:"bytes,2,rep,name=permitted_routing_profile_types,json=permittedRoutingProfileTypes,proto3" json:"permitted_routing_profile_types,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache

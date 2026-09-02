@@ -283,7 +283,9 @@ verification expectations.
   backslashes, control characters, non-ASCII text, and shell metacharacters.
 - When a mutation success message reads fields from a response object, reject
   malformed JSON, `null`, empty objects, and missing display fields before
-  printing success.
+  printing success. Use the returned resource values rather than echoing
+  request or discovery values that the server may default or normalize, and
+  test a response whose value differs from the pre-request value.
 
 ### REST endpoints through the Core gRPC proxy
 

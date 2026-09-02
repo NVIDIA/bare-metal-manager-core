@@ -355,6 +355,8 @@ check before requesting review.
     - global versus subcommand position and required order
     - omission or fallback behavior
     - observable output, side effects, errors, and unsupported paths
+    - for repeated or list fields, membership, ordering, and whether omitted and
+      empty values have the same meaning
   - Exercise each changed CLI example at the PR revision on an authorized local
     or test target and compare it with real `--help` output. Verify changed API,
     configuration, environment-variable, and state contracts through schemas,

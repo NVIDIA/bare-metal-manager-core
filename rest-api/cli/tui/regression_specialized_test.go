@@ -502,6 +502,7 @@ func TestCmdVPCCreate(t *testing.T) {
 	tests := []struct {
 		name                   string
 		routingProfileResponse string
+		createResponse         string
 		input                  string
 		expectedBody           string
 		expectedLog            string
@@ -511,18 +512,20 @@ func TestCmdVPCCreate(t *testing.T) {
 		{
 			name:                   "sends a selected alternative profile",
 			routingProfileResponse: `{"defaultRoutingProfile":"external","permittedRoutingProfiles":["external","internal"]}`,
+			createResponse:         `{"id":"vpc-1","name":"profile-vpc","routingProfile":"internal"}`,
 			input:                  "profile-vpc\n\ninternal\n",
 			expectedBody:           `{"name":"profile-vpc","routingProfile":"internal","siteId":"site-1"}`,
 			expectedLog:            "--routing-profile internal",
 			expectedConfirmation:   "routing profile: internal",
 		},
 		{
-			name:                   "inherits the tenant default without an explicit override",
+			name:                   "reports the Core-resolved profile when the inherited default changes",
 			routingProfileResponse: `{"defaultRoutingProfile":"external","permittedRoutingProfiles":["external"]}`,
+			createResponse:         `{"id":"vpc-1","name":"profile-vpc","routingProfile":"internal"}`,
 			input:                  "profile-vpc\n\n\n",
 			expectedBody:           `{"name":"profile-vpc","siteId":"site-1"}`,
 			unexpectedLog:          "--routing-profile",
-			expectedConfirmation:   "routing profile: external",
+			expectedConfirmation:   "routing profile: internal",
 		},
 	}
 
@@ -548,7 +551,7 @@ func TestCmdVPCCreate(t *testing.T) {
 					_, _ = io.WriteString(w, test.routingProfileResponse)
 				case "/v2/org/acme/nico/vpc":
 					w.WriteHeader(http.StatusCreated)
-					_, _ = io.WriteString(w, `{"id":"vpc-1","name":"profile-vpc"}`)
+					_, _ = io.WriteString(w, test.createResponse)
 				default:
 					http.NotFound(w, r)
 				}

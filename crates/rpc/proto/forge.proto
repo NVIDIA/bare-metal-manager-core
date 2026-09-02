@@ -6068,7 +6068,10 @@ message FindTenantRequest {
 message FindTenantResponse {
   Tenant tenant = 1;
   // Named VPC routing profiles whose access tier is permitted for this Tenant.
-  // Empty when FNN or the Tenant routing profile is not configured.
+  // Omitted and empty are equivalent. The list is empty when the Tenant, FNN,
+  // or the Tenant's configured routing profile is unavailable. Otherwise it
+  // includes that profile and every profile with an equal or higher access
+  // tier, sorted by profile name.
   repeated string permitted_routing_profile_types = 2;
 }
 
