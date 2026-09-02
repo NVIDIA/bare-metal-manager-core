@@ -830,6 +830,41 @@ pub async fn find_by_mac_address(
         .map_err(|e| DatabaseError::new("explored_endpoints find_freetext_in_report", e))
 }
 
+/// Persist the backend firmware-object job ID for a pre-ingestion compute tray,
+/// keyed by BMC IP. Mirrors [`machine::save_backend_firmware_object_job_id`] for
+/// trays that have no `machines` row yet, so `get_firmware_status` can recover
+/// the job after a nico-api restart loses the in-memory job map.
+pub async fn save_backend_firmware_object_job_id_by_ip(
+    db: &sqlx::PgPool,
+    address: IpAddr,
+    job_id: &str,
+) -> Result<(), DatabaseError> {
+    let sql =
+        "UPDATE explored_endpoints SET backend_firmware_object_job_id = $1 WHERE address = $2";
+    sqlx::query(sql)
+        .bind(job_id)
+        .bind(address)
+        .execute(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(())
+}
+
+/// Fetch the persisted backend firmware-object job ID for a pre-ingestion
+/// compute tray by BMC IP, if any.
+pub async fn get_backend_firmware_object_job_id_by_ip(
+    db: &sqlx::PgPool,
+    address: IpAddr,
+) -> Result<Option<String>, DatabaseError> {
+    let sql = "SELECT backend_firmware_object_job_id FROM explored_endpoints WHERE address = $1";
+    let row: Option<(Option<String>,)> = sqlx::query_as(sql)
+        .bind(address)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(row.and_then(|(job_id,)| job_id))
+}
+
 pub async fn set_last_redfish_bmc_reset(
     address: IpAddr,
     txn: &mut PgConnection,

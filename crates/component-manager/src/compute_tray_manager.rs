@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::net::IpAddr;
 
 use carbide_secrets::credentials::Credentials;
+use mac_address::MacAddress;
 use model::component_manager::{ComputeTrayComponent, FirmwareState, PowerAction};
 
 use crate::error::ComponentManagerError;
@@ -16,6 +17,7 @@ use crate::types::FirmwareUpdateOptions;
 pub struct ComputeTrayEndpoint {
     pub vendor: ComputeTrayVendor,
     pub bmc_ip: IpAddr,
+    pub bmc_mac: MacAddress,
     pub bmc_credentials: Credentials,
 }
 
@@ -104,6 +106,11 @@ pub trait ComputeTrayManager: Send + Sync + Debug + 'static {
         action: PowerAction,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError>;
 
+    /// Update firmware on compute trays.
+    ///
+    /// Endpoints that resolve to an ingested machine row are handled through
+    /// that row; rack-scale trays with no row yet (pre-ingestion) are resolved
+    /// from the expected inventory by BMC MAC where the backend supports it.
     async fn update_firmware(
         &self,
         endpoints: &[ComputeTrayEndpoint],

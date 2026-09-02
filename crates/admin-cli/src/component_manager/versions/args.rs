@@ -17,7 +17,7 @@
 
 use clap::Parser;
 
-use crate::component_manager::common::DeviceTargetArgs;
+use crate::component_manager::common::{ComputeTraySelection, DeviceTargetArgs};
 
 #[derive(Parser, Debug)]
 #[command(after_long_help = "\
@@ -59,11 +59,18 @@ impl From<Args> for rpc::forge::ListComponentFirmwareVersionsRequest {
                 ),
             },
             DeviceTargetArgs::ComputeTray(target) => Self {
-                target: Some(
-                    rpc::forge::list_component_firmware_versions_request::Target::MachineIds(
-                        target.into(),
-                    ),
-                ),
+                target: Some(match target.into_selection() {
+                    ComputeTraySelection::MachineIds(list) => {
+                        rpc::forge::list_component_firmware_versions_request::Target::MachineIds(
+                            list,
+                        )
+                    }
+                    ComputeTraySelection::Macs(macs) => {
+                        rpc::forge::list_component_firmware_versions_request::Target::ComputeBmcMacs(
+                            macs,
+                        )
+                    }
+                }),
             },
             DeviceTargetArgs::Rack(target) => Self {
                 target: Some(

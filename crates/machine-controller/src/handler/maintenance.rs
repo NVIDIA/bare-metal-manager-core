@@ -231,6 +231,7 @@ pub(super) async fn build_compute_tray_endpoint(
     Ok(ComputeTrayEndpoint {
         vendor: machine.bmc_vendor().into(),
         bmc_ip,
+        bmc_mac,
         bmc_credentials: credentials,
     })
 }

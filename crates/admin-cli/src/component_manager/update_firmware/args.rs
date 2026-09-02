@@ -20,8 +20,8 @@ use std::path::PathBuf;
 use clap::{Args as ClapArgs, Parser, Subcommand};
 
 use crate::component_manager::common::{
-    ComputeTrayComponentArg, MachineTargetArgs, NvSwitchComponentArg, PowerShelfComponentArg,
-    PowerShelfTargetArgs, RackTargetArgs, SwitchTargetArgs,
+    ComputeTrayComponentArg, ComputeTraySelection, ComputeTrayTargetArgs, NvSwitchComponentArg,
+    PowerShelfComponentArg, PowerShelfTargetArgs, RackTargetArgs, SwitchTargetArgs,
 };
 use crate::errors::{CarbideCliError, CarbideCliResult};
 
@@ -127,7 +127,7 @@ struct PowerShelfArgs {
 #[derive(ClapArgs, Debug)]
 struct ComputeTrayArgs {
     #[clap(flatten)]
-    ids: MachineTargetArgs,
+    ids: ComputeTrayTargetArgs,
 
     #[clap(flatten)]
     firmware_source: FirmwareSourceArgs,
@@ -282,7 +282,14 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                     target: Some(
                         rpc::forge::update_component_firmware_request::Target::ComputeTrays(
                             rpc::forge::UpdateComputeTrayFirmwareTarget {
-                                machine_ids: Some(target.ids.into()),
+                                selector: Some(match target.ids.into_selection() {
+                                    ComputeTraySelection::MachineIds(list) => {
+                                        rpc::forge::update_compute_tray_firmware_target::Selector::MachineIds(list)
+                                    }
+                                    ComputeTraySelection::Macs(macs) => {
+                                        rpc::forge::update_compute_tray_firmware_target::Selector::BmcMacs(macs)
+                                    }
+                                }),
                                 components: target
                                     .components
                                     .into_iter()
@@ -523,7 +530,12 @@ mod tests {
             panic!("compute-tray command should build a compute-tray target");
         };
 
-        let machine_ids = target.machine_ids.expect("machine IDs");
+        let Some(rpc::forge::update_compute_tray_firmware_target::Selector::MachineIds(
+            machine_ids,
+        )) = target.selector
+        else {
+            panic!("compute-tray command should build a machine-id selector");
+        };
 
         assert_eq!(machine_ids.machine_ids.len(), 1);
         assert_eq!(machine_ids.machine_ids[0].to_string(), MACHINE_ID);

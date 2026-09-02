@@ -17,7 +17,9 @@
 
 use clap::Parser;
 
-use crate::component_manager::common::{PowerActionArg, PowerControlTargetArgs};
+use crate::component_manager::common::{
+    ComputeTraySelection, PowerActionArg, PowerControlTargetArgs,
+};
 
 #[derive(Parser, Debug)]
 #[command(after_long_help = "\
@@ -75,13 +77,21 @@ impl From<Args> for rpc::forge::ComponentPowerControlRequest {
                 action,
                 bypass_state_controller,
             },
-            PowerControlTargetArgs::ComputeTray(target) => Self {
-                target: Some(
-                    rpc::forge::component_power_control_request::Target::MachineIds(target.into()),
-                ),
-                action,
-                bypass_state_controller,
-            },
+            PowerControlTargetArgs::ComputeTray(target) => {
+                let target = match target.into_selection() {
+                    ComputeTraySelection::MachineIds(list) => {
+                        rpc::forge::component_power_control_request::Target::MachineIds(list)
+                    }
+                    ComputeTraySelection::Macs(macs) => {
+                        rpc::forge::component_power_control_request::Target::ComputeBmcMacs(macs)
+                    }
+                };
+                Self {
+                    target: Some(target),
+                    action,
+                    bypass_state_controller,
+                }
+            }
         }
     }
 }

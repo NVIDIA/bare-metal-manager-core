@@ -129,9 +129,13 @@ async fn compute_tray_direct_dispatch_forwards_force_update(
                 target: Some(
                     rpc::update_component_firmware_request::Target::ComputeTrays(
                         rpc::UpdateComputeTrayFirmwareTarget {
-                            machine_ids: Some(::rpc::common::MachineIdList {
-                                machine_ids: vec![managed_host.id.into()],
-                            }),
+                            selector: Some(
+                                rpc::update_compute_tray_firmware_target::Selector::MachineIds(
+                                    ::rpc::common::MachineIdList {
+                                        machine_ids: vec![managed_host.id],
+                                    },
+                                ),
+                            ),
                             components: vec![],
                         },
                     ),
