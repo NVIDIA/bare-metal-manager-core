@@ -20444,7 +20444,7 @@ components:
             pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
           examples:
             - smallest
-            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW56VFCV0055601UT
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Whole-disk target that will be overwritten with the image. Accepts
             `smallest`, `/dev/nvme<controller>n<namespace>`, `/dev/sd<letters>`, or

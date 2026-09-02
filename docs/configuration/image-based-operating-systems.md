@@ -76,6 +76,15 @@ the image is written:
 - `bootfs_id` (`--bootfs-id`): optional `/boot` UUID.
 - `efifs_id` (`--efifs-id`): optional EFI filesystem UUID.
 
+When an OS image is created through Core—for example, with
+`nico-admin-cli os-image create`—`--rootfs-id` and `--rootfs-label` are
+optional. If both are omitted, disk imaging uses the default root filesystem
+label `cloudimg-rootfs`.
+
+A REST request that creates an image-based Operating System must instead
+provide exactly one of `rootFsId` or `rootFsLabel`. REST rejects requests that
+provide both fields or neither field.
+
 Before overwriting the target, NICo checks these UUIDs and labels against the
 other physical disks. It aborts if a configured identifier already resolves to
 a filesystem on another disk. This prevents an old or duplicate filesystem
@@ -120,7 +129,7 @@ Common causes include:
 | Explicit target is rejected | Confirm the path resolves to an existing whole-disk block device rather than a partition. |
 | `smallest` selects an unexpected disk | Compare whole-disk sizes and check which equal-sized candidates contain an EFI System Partition. |
 | Filesystem identity is ambiguous | Look for duplicate root, boot, or EFI UUIDs and labels on other physical disks. |
-| Root filesystem cannot be found | Confirm the image contains the configured UUID or label; if neither was configured, check for `cloudimg-rootfs`. |
+| Root filesystem cannot be found | For Core/admin entries, verify the supplied root filesystem UUID or label; if both root filesystem flags were omitted, verify that the image uses the label `cloudimg-rootfs`. For REST entries, verify that the image contains the `rootFsId` UUID or `rootFsLabel` supplied during creation. |
 | EFI entry creation fails | Confirm the image contains the architecture-appropriate shim and a valid matching CSV label, and inspect firmware-variable access. |
 
 Because the selected disk is overwritten, resolve selection or identifier
