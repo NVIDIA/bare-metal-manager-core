@@ -41,7 +41,6 @@ Print help (see a summary with -h)
 
 | Subcommand | Description |
 |---|---|
-| [`create`](./domain-create.md) | Create Domain |
 | [`show`](./domain-show.md) | Display Domain information |
 
 ---

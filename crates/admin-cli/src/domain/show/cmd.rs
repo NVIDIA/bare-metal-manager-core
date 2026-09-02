@@ -42,9 +42,7 @@ fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
     ts.as_ref().unwrap_or(default).to_string()
 }
 
-pub(in crate::domain) fn convert_domain_to_nice_format(
-    domain: &::rpc::protos::dns::Domain,
-) -> CarbideCliResult<String> {
+fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
@@ -69,9 +67,7 @@ pub(in crate::domain) fn convert_domain_to_nice_format(
     Ok(lines)
 }
 
-pub(in crate::domain) fn convert_domain_to_nice_table(
-    domains: ::rpc::protos::dns::DomainList,
-) -> Box<Table> {
+fn convert_domain_to_nice_table(domains: ::rpc::protos::dns::DomainList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Name", "Created",]);

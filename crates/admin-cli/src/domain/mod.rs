@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-mod create;
 mod show;
 
 // Cross-module re-exports for jump module
@@ -27,8 +26,6 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
 pub(crate) enum Cmd {
-    #[clap(about = "Create Domain")]
-    Create(create::Args),
     #[clap(about = "Display Domain information")]
     Show(show::Args),
 }
