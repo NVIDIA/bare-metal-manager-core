@@ -21922,7 +21922,7 @@ components:
           type: array
           description: Associate one or more SpectrumX Partitions with this Instance
           items:
-            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateRequest'
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to the DPUs of this Instance
@@ -22097,7 +22097,7 @@ components:
           type: array
           description: SpectrumX Partition attachments shared across all Instances in the batch
           items:
-            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateRequest'
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to all instances in the batch
@@ -22297,7 +22297,7 @@ components:
           type: array
           description: 'Update SpectrumX Partition attachments of the Instance. Omitting this field leaves the Instance''s SpectrumX attachments unchanged; an explicit (possibly empty) list replaces them entirely.'
           items:
-            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateRequest'
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         nvLinkInterfaces:
           type: array
           description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
@@ -22723,8 +22723,8 @@ components:
             - integer
             - 'null'
           description: Must be specified if isPhysical is false
-    InstanceSpectrumXAttachmentCreateRequest:
-      title: InstanceSpectrumXAttachmentCreateRequest
+    InstanceSpectrumXAttachmentCreateOrUpdateRequest:
+      title: InstanceSpectrumXAttachmentCreateOrUpdateRequest
       type: object
       examples:
         - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
@@ -22755,7 +22755,7 @@ components:
           enum:
             - Physical
             - Virtual
-            - Ovn
+            - OVN
           description: Type of SpectrumX attachment
         virtualFunctionId:
           type:

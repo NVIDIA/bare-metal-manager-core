@@ -81,30 +81,6 @@ func buildInstanceNetworkConfig(auto bool, interfaceConfigs []*corev1.InstanceIn
 	return nc
 }
 
-var spectrumXAttachmentTypeFromAPI = map[string]corev1.SpxAttachmentType{
-	model.SpectrumXAttachmentTypePhysical: corev1.SpxAttachmentType_Physical,
-	model.SpectrumXAttachmentTypeVirtual:  corev1.SpxAttachmentType_Virtual,
-	model.SpectrumXAttachmentTypeOvn:      corev1.SpxAttachmentType_Ovn,
-}
-
-func buildInstanceSpectrumXConfig(spectrumXAttachments []model.APISpectrumXAttachmentCreateRequest) *corev1.InstanceSpxConfig {
-	spectrumXAttachmentConfigs := make([]*corev1.InstanceSpxAttachment, 0, len(spectrumXAttachments))
-	for _, sac := range spectrumXAttachments {
-		spectrumXAttachmentConfig := &corev1.InstanceSpxAttachment{
-			Device:         sac.Device,
-			DeviceInstance: uint32(sac.DeviceInstance),
-			SpxPartitionId: &corev1.SpxPartitionId{Value: sac.SpectrumXPartitionID},
-			AttachmentType: spectrumXAttachmentTypeFromAPI[sac.AttachmentType],
-		}
-		if sac.VirtualFunctionID != nil {
-			vfID := uint32(*sac.VirtualFunctionID)
-			spectrumXAttachmentConfig.VirtualFunctionId = &vfID
-		}
-		spectrumXAttachmentConfigs = append(spectrumXAttachmentConfigs, spectrumXAttachmentConfig)
-	}
-	return &corev1.InstanceSpxConfig{SpxAttachments: spectrumXAttachmentConfigs}
-}
-
 // loadInstanceInterfaceVpcs validates VPC-selection intent and returns each
 // requested REST VPC keyed by its REST ID.
 func loadInstanceInterfaceVpcs(ctx context.Context, logger *zerolog.Logger, dbSession *cdb.Session, interfaces []model.APIInterfaceCreateOrUpdateRequest, tenantID, siteID uuid.UUID) (map[uuid.UUID]*cdbm.Vpc, *cutil.APIError) {
@@ -1952,6 +1928,11 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			description = *instance.Description
 		}
 
+		spectrumXAttachmentConfigs := make([]*corev1.InstanceSpxAttachment, 0, len(apiRequest.SpectrumXAttachments))
+		for _, sac := range apiRequest.SpectrumXAttachments {
+			spectrumXAttachmentConfigs = append(spectrumXAttachmentConfigs, sac.ToProto())
+		}
+
 		// Prepare the create request workflow object
 		createInstanceRequest := &corev1.InstanceAllocationRequest{
 			InstanceId: &corev1.InstanceId{Value: instance.GetSiteID().String()},
@@ -1979,7 +1960,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				Nvlink: &corev1.InstanceNVLinkConfig{
 					GpuConfigs: nvlInterfaceConfigs,
 				},
-				Spxconfig: buildInstanceSpectrumXConfig(apiRequest.SpectrumXAttachments),
+				Spxconfig: &corev1.InstanceSpxConfig{SpxAttachments: spectrumXAttachmentConfigs},
 			},
 			AllowUnhealthyMachine: allowUnhealthyMachine,
 		}
@@ -4244,7 +4225,11 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		if apiRequest.SpectrumXAttachments != nil {
-			updateInstanceRequest.Config.Spxconfig = buildInstanceSpectrumXConfig(apiRequest.SpectrumXAttachments)
+			spectrumXAttachmentConfigs := make([]*corev1.InstanceSpxAttachment, 0, len(apiRequest.SpectrumXAttachments))
+			for _, sac := range apiRequest.SpectrumXAttachments {
+				spectrumXAttachmentConfigs = append(spectrumXAttachmentConfigs, sac.ToProto())
+			}
+			updateInstanceRequest.Config.Spxconfig = &corev1.InstanceSpxConfig{SpxAttachments: spectrumXAttachmentConfigs}
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

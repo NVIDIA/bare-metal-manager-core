@@ -59,7 +59,7 @@ type InstanceUpdateRequest struct {
 	// Update InfiniBand Interfaces of the Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
 	// Update SpectrumX Partition attachments of the Instance. Omitting this field leaves the Instance's SpectrumX attachments unchanged; an explicit (possibly empty) list replaces them entirely.
-	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateRequest `json:"spectrumXAttachments,omitempty"`
+	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateOrUpdateRequest `json:"spectrumXAttachments,omitempty"`
 	// Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
 	NvLinkInterfaces []NVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces,omitempty"`
 	// Updated set of DPU Extension Services to deploy to the DPUs of this Instance
@@ -803,9 +803,9 @@ func (o *InstanceUpdateRequest) SetInfinibandInterfaces(v []InfiniBandInterfaceC
 }
 
 // GetSpectrumXAttachments returns the SpectrumXAttachments field value if set, zero value otherwise.
-func (o *InstanceUpdateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateRequest {
+func (o *InstanceUpdateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateOrUpdateRequest {
 	if o == nil || IsNil(o.SpectrumXAttachments) {
-		var ret []InstanceSpectrumXAttachmentCreateRequest
+		var ret []InstanceSpectrumXAttachmentCreateOrUpdateRequest
 		return ret
 	}
 	return o.SpectrumXAttachments
@@ -813,7 +813,7 @@ func (o *InstanceUpdateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAtt
 
 // GetSpectrumXAttachmentsOk returns a tuple with the SpectrumXAttachments field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceUpdateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateRequest, bool) {
+func (o *InstanceUpdateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateOrUpdateRequest, bool) {
 	if o == nil || IsNil(o.SpectrumXAttachments) {
 		return nil, false
 	}
@@ -829,8 +829,8 @@ func (o *InstanceUpdateRequest) HasSpectrumXAttachments() bool {
 	return false
 }
 
-// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateRequest and assigns it to the SpectrumXAttachments field.
-func (o *InstanceUpdateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateRequest) {
+// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateOrUpdateRequest and assigns it to the SpectrumXAttachments field.
+func (o *InstanceUpdateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateOrUpdateRequest) {
 	o.SpectrumXAttachments = v
 }
 

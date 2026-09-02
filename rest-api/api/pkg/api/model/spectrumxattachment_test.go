@@ -7,16 +7,18 @@ import (
 	"testing"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestAPISpectrumXAttachmentCreateRequest_Validate(t *testing.T) {
+func TestAPISpectrumXAttachmentCreateOrUpdateRequest_Validate(t *testing.T) {
 	type fields struct {
 		spectrumXPartitionID string
 		device               string
 		deviceInstance       int
-		attachmentType       string
+		attachmentType       SpectrumXAttachmentType
 		virtualFunctionID    *int
 	}
 	tests := []struct {
@@ -56,12 +58,12 @@ func TestAPISpectrumXAttachmentCreateRequest_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "test validation success, Ovn attachment",
+			name: "test validation success, OVN attachment",
 			fields: fields{
 				spectrumXPartitionID: uuid.New().String(),
 				device:               "MT2910 Family [ConnectX-7]",
 				deviceInstance:       0,
-				attachmentType:       SpectrumXAttachmentTypeOvn,
+				attachmentType:       SpectrumXAttachmentTypeOVN,
 			},
 			wantErr: false,
 		},
@@ -119,7 +121,7 @@ func TestAPISpectrumXAttachmentCreateRequest_Validate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sacr := APISpectrumXAttachmentCreateRequest{
+			sacr := APISpectrumXAttachmentCreateOrUpdateRequest{
 				SpectrumXPartitionID: tt.fields.spectrumXPartitionID,
 				Device:               tt.fields.device,
 				DeviceInstance:       tt.fields.deviceInstance,
@@ -132,6 +134,62 @@ func TestAPISpectrumXAttachmentCreateRequest_Validate(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestAPISpectrumXAttachmentCreateOrUpdateRequest_ToProto(t *testing.T) {
+	partitionID := uuid.New().String()
+	tests := []struct {
+		name                  string
+		request               APISpectrumXAttachmentCreateOrUpdateRequest
+		wantAttachmentType    corev1.SpxAttachmentType
+		wantVirtualFunctionID *uint32
+	}{
+		{
+			name: "Physical attachment leaves virtualFunctionId unset",
+			request: APISpectrumXAttachmentCreateOrUpdateRequest{
+				SpectrumXPartitionID: partitionID,
+				Device:               "MT2910 Family [ConnectX-7]",
+				DeviceInstance:       0,
+				AttachmentType:       SpectrumXAttachmentTypePhysical,
+			},
+			wantAttachmentType: corev1.SpxAttachmentType_Physical,
+		},
+		{
+			name: "Virtual attachment carries virtualFunctionId",
+			request: APISpectrumXAttachmentCreateOrUpdateRequest{
+				SpectrumXPartitionID: partitionID,
+				Device:               "MT2910 Family [ConnectX-7]",
+				DeviceInstance:       3,
+				AttachmentType:       SpectrumXAttachmentTypeVirtual,
+				VirtualFunctionID:    cutil.GetPtr(2),
+			},
+			wantAttachmentType:    corev1.SpxAttachmentType_Virtual,
+			wantVirtualFunctionID: cutil.GetPtr(uint32(2)),
+		},
+		{
+			name: "OVN attachment maps to the Ovn enum",
+			request: APISpectrumXAttachmentCreateOrUpdateRequest{
+				SpectrumXPartitionID: partitionID,
+				Device:               "MT2910 Family [ConnectX-7]",
+				DeviceInstance:       1,
+				AttachmentType:       SpectrumXAttachmentTypeOVN,
+			},
+			wantAttachmentType: corev1.SpxAttachmentType_Ovn,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.request.ToProto()
+
+			require.NotNil(t, got)
+			require.NotNil(t, got.SpxPartitionId)
+			assert.Equal(t, tt.request.SpectrumXPartitionID, got.SpxPartitionId.Value)
+			assert.Equal(t, tt.request.Device, got.Device)
+			assert.Equal(t, uint32(tt.request.DeviceInstance), got.DeviceInstance)
+			assert.Equal(t, tt.wantAttachmentType, got.AttachmentType)
+			assert.Equal(t, tt.wantVirtualFunctionID, got.VirtualFunctionId)
 		})
 	}
 }

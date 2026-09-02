@@ -512,7 +512,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 		UserData                       *string
 		Interfaces                     []APIInterfaceCreateOrUpdateRequest
 		InfiniBandInterfaces           []APIInfiniBandInterfaceCreateOrUpdateRequest
-		SpectrumXAttachments           []APISpectrumXAttachmentCreateRequest
+		SpectrumXAttachments           []APISpectrumXAttachmentCreateOrUpdateRequest
 		DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest
 		NVLinkInterfaces               []APINVLinkInterfaceCreateOrUpdateRequest
 		Labels                         map[string]string
@@ -1128,7 +1128,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
-				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
@@ -1152,7 +1152,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
-				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
@@ -1304,7 +1304,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{SubnetID: cutil.GetPtr(uuid.NewString())},
 				},
-				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
@@ -1327,7 +1327,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{SubnetID: cutil.GetPtr(uuid.NewString())},
 				},
-				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
@@ -2168,7 +2168,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 		SecondaryVpcIDs          []string
 		Interfaces               []APIInterfaceCreateOrUpdateRequest
 		InfiniBandInterfaces     []APIInfiniBandInterfaceCreateOrUpdateRequest
-		SpectrumXAttachments     []APISpectrumXAttachmentCreateRequest
+		SpectrumXAttachments     []APISpectrumXAttachmentCreateOrUpdateRequest
 		NVLinkInterfaces         []APINVLinkInterfaceCreateOrUpdateRequest
 		SSHKeyGroupIDs           []string
 		NetworkSecurityGroupID   *string
@@ -2358,7 +2358,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "test valid Instance update request, SpectrumX attachments",
 			fields: fields{
-				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						Device:               "MT2910 Family [ConnectX-7]",
@@ -2374,7 +2374,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "test invalid Instance update request, SpectrumX attachment missing device",
 			fields: fields{
-				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateOrUpdateRequest{
 					{
 						SpectrumXPartitionID: uuid.NewString(),
 						DeviceInstance:       0,

@@ -476,7 +476,7 @@ type APIInstanceCreateRequest struct {
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
 	// SpectrumXAttachments is the list of SpectrumX Partition attachments to create for the Instance
-	SpectrumXAttachments []APISpectrumXAttachmentCreateRequest `json:"spectrumXAttachments"`
+	SpectrumXAttachments []APISpectrumXAttachmentCreateOrUpdateRequest `json:"spectrumXAttachments"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for the Instance
@@ -548,7 +548,7 @@ type APIBatchInstanceCreateRequest struct {
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for each instance (shared across all instances)
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
 	// SpectrumXAttachments is the list of SpectrumX Partition attachments to create for each instance (shared across all instances)
-	SpectrumXAttachments []APISpectrumXAttachmentCreateRequest `json:"spectrumXAttachments"`
+	SpectrumXAttachments []APISpectrumXAttachmentCreateOrUpdateRequest `json:"spectrumXAttachments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for each instance (shared across all instances)
 	NVLinkInterfaces []APINVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for each Instance (shared across all instances)
@@ -1345,7 +1345,7 @@ type APIInstanceUpdateRequest struct {
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
 	// SpectrumXAttachments is the list of SpectrumX Partition attachments to update for the Instance. `nil` leaves
 	// the Instance's SpectrumX attachments unchanged; a non-nil (possibly empty) list replaces them entirely.
-	SpectrumXAttachments []APISpectrumXAttachmentCreateRequest `json:"spectrumXAttachments"`
+	SpectrumXAttachments []APISpectrumXAttachmentCreateOrUpdateRequest `json:"spectrumXAttachments"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to update for the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to update for the Instance

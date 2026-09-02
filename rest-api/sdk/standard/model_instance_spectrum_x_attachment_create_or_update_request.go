@@ -19,11 +19,11 @@ import (
 	"fmt"
 )
 
-// checks if the InstanceSpectrumXAttachmentCreateRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &InstanceSpectrumXAttachmentCreateRequest{}
+// checks if the InstanceSpectrumXAttachmentCreateOrUpdateRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &InstanceSpectrumXAttachmentCreateOrUpdateRequest{}
 
-// InstanceSpectrumXAttachmentCreateRequest Request data to attach a SpectrumX Partition to an Instance
-type InstanceSpectrumXAttachmentCreateRequest struct {
+// InstanceSpectrumXAttachmentCreateOrUpdateRequest Request data to attach a SpectrumX Partition to an Instance
+type InstanceSpectrumXAttachmentCreateOrUpdateRequest struct {
 	// ID of the SpectrumX Partition the attachment should associate with
 	SpectrumXPartitionId string `json:"spectrumXPartitionId"`
 	// Name of the SpectrumX device to use
@@ -36,14 +36,14 @@ type InstanceSpectrumXAttachmentCreateRequest struct {
 	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
 }
 
-type _InstanceSpectrumXAttachmentCreateRequest InstanceSpectrumXAttachmentCreateRequest
+type _InstanceSpectrumXAttachmentCreateOrUpdateRequest InstanceSpectrumXAttachmentCreateOrUpdateRequest
 
-// NewInstanceSpectrumXAttachmentCreateRequest instantiates a new InstanceSpectrumXAttachmentCreateRequest object
+// NewInstanceSpectrumXAttachmentCreateOrUpdateRequest instantiates a new InstanceSpectrumXAttachmentCreateOrUpdateRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewInstanceSpectrumXAttachmentCreateRequest(spectrumXPartitionId string, device string, deviceInstance int32, attachmentType string) *InstanceSpectrumXAttachmentCreateRequest {
-	this := InstanceSpectrumXAttachmentCreateRequest{}
+func NewInstanceSpectrumXAttachmentCreateOrUpdateRequest(spectrumXPartitionId string, device string, deviceInstance int32, attachmentType string) *InstanceSpectrumXAttachmentCreateOrUpdateRequest {
+	this := InstanceSpectrumXAttachmentCreateOrUpdateRequest{}
 	this.SpectrumXPartitionId = spectrumXPartitionId
 	this.Device = device
 	this.DeviceInstance = deviceInstance
@@ -51,16 +51,16 @@ func NewInstanceSpectrumXAttachmentCreateRequest(spectrumXPartitionId string, de
 	return &this
 }
 
-// NewInstanceSpectrumXAttachmentCreateRequestWithDefaults instantiates a new InstanceSpectrumXAttachmentCreateRequest object
+// NewInstanceSpectrumXAttachmentCreateOrUpdateRequestWithDefaults instantiates a new InstanceSpectrumXAttachmentCreateOrUpdateRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewInstanceSpectrumXAttachmentCreateRequestWithDefaults() *InstanceSpectrumXAttachmentCreateRequest {
-	this := InstanceSpectrumXAttachmentCreateRequest{}
+func NewInstanceSpectrumXAttachmentCreateOrUpdateRequestWithDefaults() *InstanceSpectrumXAttachmentCreateOrUpdateRequest {
+	this := InstanceSpectrumXAttachmentCreateOrUpdateRequest{}
 	return &this
 }
 
 // GetSpectrumXPartitionId returns the SpectrumXPartitionId field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetSpectrumXPartitionId() string {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetSpectrumXPartitionId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -71,7 +71,7 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetSpectrumXPartitionId() str
 
 // GetSpectrumXPartitionIdOk returns a tuple with the SpectrumXPartitionId field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetSpectrumXPartitionIdOk() (*string, bool) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetSpectrumXPartitionIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -79,12 +79,12 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetSpectrumXPartitionIdOk() (
 }
 
 // SetSpectrumXPartitionId sets field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) SetSpectrumXPartitionId(v string) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) SetSpectrumXPartitionId(v string) {
 	o.SpectrumXPartitionId = v
 }
 
 // GetDevice returns the Device field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetDevice() string {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetDevice() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -95,7 +95,7 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetDevice() string {
 
 // GetDeviceOk returns a tuple with the Device field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceOk() (*string, bool) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetDeviceOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -103,12 +103,12 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceOk() (*string, bool)
 }
 
 // SetDevice sets field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) SetDevice(v string) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) SetDevice(v string) {
 	o.Device = v
 }
 
 // GetDeviceInstance returns the DeviceInstance field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceInstance() int32 {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetDeviceInstance() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -119,7 +119,7 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceInstance() int32 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceInstanceOk() (*int32, bool) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetDeviceInstanceOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -127,12 +127,12 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceInstanceOk() (*int32
 }
 
 // SetDeviceInstance sets field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) SetDeviceInstance(v int32) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) SetDeviceInstance(v int32) {
 	o.DeviceInstance = v
 }
 
 // GetAttachmentType returns the AttachmentType field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetAttachmentType() string {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetAttachmentType() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -143,7 +143,7 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetAttachmentType() string {
 
 // GetAttachmentTypeOk returns a tuple with the AttachmentType field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetAttachmentTypeOk() (*string, bool) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetAttachmentTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -151,12 +151,12 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetAttachmentTypeOk() (*strin
 }
 
 // SetAttachmentType sets field value
-func (o *InstanceSpectrumXAttachmentCreateRequest) SetAttachmentType(v string) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) SetAttachmentType(v string) {
 	o.AttachmentType = v
 }
 
 // GetVirtualFunctionId returns the VirtualFunctionId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetVirtualFunctionId() int32 {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetVirtualFunctionId() int32 {
 	if o == nil || IsNil(o.VirtualFunctionId.Get()) {
 		var ret int32
 		return ret
@@ -167,7 +167,7 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetVirtualFunctionId() int32 
 // GetVirtualFunctionIdOk returns a tuple with the VirtualFunctionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *InstanceSpectrumXAttachmentCreateRequest) GetVirtualFunctionIdOk() (*int32, bool) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) GetVirtualFunctionIdOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -175,7 +175,7 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) GetVirtualFunctionIdOk() (*in
 }
 
 // HasVirtualFunctionId returns a boolean if a field has been set.
-func (o *InstanceSpectrumXAttachmentCreateRequest) HasVirtualFunctionId() bool {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) HasVirtualFunctionId() bool {
 	if o != nil && o.VirtualFunctionId.IsSet() {
 		return true
 	}
@@ -184,21 +184,21 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) HasVirtualFunctionId() bool {
 }
 
 // SetVirtualFunctionId gets a reference to the given NullableInt32 and assigns it to the VirtualFunctionId field.
-func (o *InstanceSpectrumXAttachmentCreateRequest) SetVirtualFunctionId(v int32) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) SetVirtualFunctionId(v int32) {
 	o.VirtualFunctionId.Set(&v)
 }
 
 // SetVirtualFunctionIdNil sets the value for VirtualFunctionId to be an explicit nil
-func (o *InstanceSpectrumXAttachmentCreateRequest) SetVirtualFunctionIdNil() {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) SetVirtualFunctionIdNil() {
 	o.VirtualFunctionId.Set(nil)
 }
 
 // UnsetVirtualFunctionId ensures that no value is present for VirtualFunctionId, not even an explicit nil
-func (o *InstanceSpectrumXAttachmentCreateRequest) UnsetVirtualFunctionId() {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) UnsetVirtualFunctionId() {
 	o.VirtualFunctionId.Unset()
 }
 
-func (o InstanceSpectrumXAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
+func (o InstanceSpectrumXAttachmentCreateOrUpdateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -206,7 +206,7 @@ func (o InstanceSpectrumXAttachmentCreateRequest) MarshalJSON() ([]byte, error) 
 	return json.Marshal(toSerialize)
 }
 
-func (o InstanceSpectrumXAttachmentCreateRequest) ToMap() (map[string]interface{}, error) {
+func (o InstanceSpectrumXAttachmentCreateOrUpdateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["spectrumXPartitionId"] = o.SpectrumXPartitionId
 	toSerialize["device"] = o.Device
@@ -218,7 +218,7 @@ func (o InstanceSpectrumXAttachmentCreateRequest) ToMap() (map[string]interface{
 	return toSerialize, nil
 }
 
-func (o *InstanceSpectrumXAttachmentCreateRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *InstanceSpectrumXAttachmentCreateOrUpdateRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -243,52 +243,52 @@ func (o *InstanceSpectrumXAttachmentCreateRequest) UnmarshalJSON(data []byte) (e
 		}
 	}
 
-	varInstanceSpectrumXAttachmentCreateRequest := _InstanceSpectrumXAttachmentCreateRequest{}
+	varInstanceSpectrumXAttachmentCreateOrUpdateRequest := _InstanceSpectrumXAttachmentCreateOrUpdateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	err = decoder.Decode(&varInstanceSpectrumXAttachmentCreateRequest)
+	err = decoder.Decode(&varInstanceSpectrumXAttachmentCreateOrUpdateRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = InstanceSpectrumXAttachmentCreateRequest(varInstanceSpectrumXAttachmentCreateRequest)
+	*o = InstanceSpectrumXAttachmentCreateOrUpdateRequest(varInstanceSpectrumXAttachmentCreateOrUpdateRequest)
 
 	return err
 }
 
-type NullableInstanceSpectrumXAttachmentCreateRequest struct {
-	value *InstanceSpectrumXAttachmentCreateRequest
+type NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest struct {
+	value *InstanceSpectrumXAttachmentCreateOrUpdateRequest
 	isSet bool
 }
 
-func (v NullableInstanceSpectrumXAttachmentCreateRequest) Get() *InstanceSpectrumXAttachmentCreateRequest {
+func (v NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest) Get() *InstanceSpectrumXAttachmentCreateOrUpdateRequest {
 	return v.value
 }
 
-func (v *NullableInstanceSpectrumXAttachmentCreateRequest) Set(val *InstanceSpectrumXAttachmentCreateRequest) {
+func (v *NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest) Set(val *InstanceSpectrumXAttachmentCreateOrUpdateRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableInstanceSpectrumXAttachmentCreateRequest) IsSet() bool {
+func (v NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableInstanceSpectrumXAttachmentCreateRequest) Unset() {
+func (v *NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableInstanceSpectrumXAttachmentCreateRequest(val *InstanceSpectrumXAttachmentCreateRequest) *NullableInstanceSpectrumXAttachmentCreateRequest {
-	return &NullableInstanceSpectrumXAttachmentCreateRequest{value: val, isSet: true}
+func NewNullableInstanceSpectrumXAttachmentCreateOrUpdateRequest(val *InstanceSpectrumXAttachmentCreateOrUpdateRequest) *NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest {
+	return &NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest{value: val, isSet: true}
 }
 
-func (v NullableInstanceSpectrumXAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
+func (v NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableInstanceSpectrumXAttachmentCreateRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableInstanceSpectrumXAttachmentCreateOrUpdateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

@@ -63,7 +63,7 @@ type InstanceCreateRequest struct {
 	// Associate one or more Partitions with this Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
 	// Associate one or more SpectrumX Partitions with this Instance
-	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateRequest `json:"spectrumXAttachments,omitempty"`
+	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateOrUpdateRequest `json:"spectrumXAttachments,omitempty"`
 	// DPU Extension Services to deploy to the DPUs of this Instance
 	DpuExtensionServiceDeployments []DpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments,omitempty"`
 	// Define Interfaces to associate Instance GPUs with NVLink Logical Partitions. A subset of GPUs may be specified (it is not required to include all GPUs). Each item references one GPU index (`deviceInstance`) and one NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions.
@@ -769,9 +769,9 @@ func (o *InstanceCreateRequest) SetInfinibandInterfaces(v []InfiniBandInterfaceC
 }
 
 // GetSpectrumXAttachments returns the SpectrumXAttachments field value if set, zero value otherwise.
-func (o *InstanceCreateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateRequest {
+func (o *InstanceCreateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateOrUpdateRequest {
 	if o == nil || IsNil(o.SpectrumXAttachments) {
-		var ret []InstanceSpectrumXAttachmentCreateRequest
+		var ret []InstanceSpectrumXAttachmentCreateOrUpdateRequest
 		return ret
 	}
 	return o.SpectrumXAttachments
@@ -779,7 +779,7 @@ func (o *InstanceCreateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAtt
 
 // GetSpectrumXAttachmentsOk returns a tuple with the SpectrumXAttachments field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceCreateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateRequest, bool) {
+func (o *InstanceCreateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateOrUpdateRequest, bool) {
 	if o == nil || IsNil(o.SpectrumXAttachments) {
 		return nil, false
 	}
@@ -795,8 +795,8 @@ func (o *InstanceCreateRequest) HasSpectrumXAttachments() bool {
 	return false
 }
 
-// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateRequest and assigns it to the SpectrumXAttachments field.
-func (o *InstanceCreateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateRequest) {
+// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateOrUpdateRequest and assigns it to the SpectrumXAttachments field.
+func (o *InstanceCreateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateOrUpdateRequest) {
 	o.SpectrumXAttachments = v
 }
 
