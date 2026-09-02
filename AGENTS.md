@@ -214,6 +214,9 @@ Before review, verify every Dockerfile-specific allowlist contains each source
 consumed by `COPY`, build scripts, and compile-time macros. Run one clean-context
 container build when persistent cache mounts could hide a missing input.
 
+When a Helm component value falls back to a global value, leave the component
+default unset and test both the fallback and explicit override paths.
+
 ## Coding Conventions
 
 Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)
