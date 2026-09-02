@@ -512,7 +512,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 		UserData                       *string
 		Interfaces                     []APIInterfaceCreateOrUpdateRequest
 		InfiniBandInterfaces           []APIInfiniBandInterfaceCreateOrUpdateRequest
-		SpxAttachments                 []APISpxAttachmentCreateRequest
+		SpectrumXAttachments           []APISpectrumXAttachmentCreateRequest
 		DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest
 		NVLinkInterfaces               []APINVLinkInterfaceCreateOrUpdateRequest
 		Labels                         map[string]string
@@ -1116,7 +1116,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			wantErrorMessage: "deviceInstance: deviceInstance must be between 0 and 3",
 		},
 		{
-			name: "test valid Instance with SPX attachment create request",
+			name: "test valid Instance with SpectrumX attachment create request",
 			fields: fields{
 				Name:              "test-name",
 				TenantID:          uuid.NewString(),
@@ -1128,19 +1128,19 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
-				SpxAttachments: []APISpxAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
 					{
-						SpxPartitionID: uuid.NewString(),
-						Device:         "MT2910 Family [ConnectX-7]",
-						DeviceInstance: 0,
-						AttachmentType: SpxAttachmentTypePhysical,
+						SpectrumXPartitionID: uuid.NewString(),
+						Device:               "MT2910 Family [ConnectX-7]",
+						DeviceInstance:       0,
+						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "test Instance create request failed, invalid SPX attachment type",
+			name: "test Instance create request failed, invalid SpectrumX attachment type",
 			fields: fields{
 				Name:              "test-name",
 				TenantID:          uuid.NewString(),
@@ -1152,12 +1152,12 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
-				SpxAttachments: []APISpxAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
 					{
-						SpxPartitionID: uuid.NewString(),
-						Device:         "MT2910 Family [ConnectX-7]",
-						DeviceInstance: 0,
-						AttachmentType: "Bogus",
+						SpectrumXPartitionID: uuid.NewString(),
+						Device:               "MT2910 Family [ConnectX-7]",
+						DeviceInstance:       0,
+						AttachmentType:       "Bogus",
 					},
 				},
 			},
@@ -1178,7 +1178,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				UserData:                       tt.fields.UserData,
 				Interfaces:                     tt.fields.Interfaces,
 				InfiniBandInterfaces:           tt.fields.InfiniBandInterfaces,
-				SpxAttachments:                 tt.fields.SpxAttachments,
+				SpectrumXAttachments:           tt.fields.SpectrumXAttachments,
 				DpuExtensionServiceDeployments: tt.fields.DpuExtensionServiceDeployments,
 				NVLinkInterfaces:               tt.fields.NVLinkInterfaces,
 				Labels:                         tt.fields.Labels,
@@ -1293,7 +1293,7 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 			wantErrorMessage: "batch instance create does not support `ipAddress` on interfaces",
 		},
 		{
-			name: "succeeds with SPX attachment create request",
+			name: "succeeds with SpectrumX attachment create request",
 			req: APIBatchInstanceCreateRequest{
 				NamePrefix:     "test-batch",
 				Count:          2,
@@ -1304,19 +1304,19 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{SubnetID: cutil.GetPtr(uuid.NewString())},
 				},
-				SpxAttachments: []APISpxAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
 					{
-						SpxPartitionID: uuid.NewString(),
-						Device:         "MT2910 Family [ConnectX-7]",
-						DeviceInstance: 0,
-						AttachmentType: SpxAttachmentTypePhysical,
+						SpectrumXPartitionID: uuid.NewString(),
+						Device:               "MT2910 Family [ConnectX-7]",
+						DeviceInstance:       0,
+						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "fails with invalid SPX attachment type",
+			name: "fails with invalid SpectrumX attachment type",
 			req: APIBatchInstanceCreateRequest{
 				NamePrefix:     "test-batch",
 				Count:          2,
@@ -1327,12 +1327,12 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{SubnetID: cutil.GetPtr(uuid.NewString())},
 				},
-				SpxAttachments: []APISpxAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
 					{
-						SpxPartitionID: uuid.NewString(),
-						Device:         "MT2910 Family [ConnectX-7]",
-						DeviceInstance: 0,
-						AttachmentType: "Bogus",
+						SpectrumXPartitionID: uuid.NewString(),
+						Device:               "MT2910 Family [ConnectX-7]",
+						DeviceInstance:       0,
+						AttachmentType:       "Bogus",
 					},
 				},
 			},
@@ -2168,7 +2168,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 		SecondaryVpcIDs          []string
 		Interfaces               []APIInterfaceCreateOrUpdateRequest
 		InfiniBandInterfaces     []APIInfiniBandInterfaceCreateOrUpdateRequest
-		SpxAttachments           []APISpxAttachmentCreateRequest
+		SpectrumXAttachments     []APISpectrumXAttachmentCreateRequest
 		NVLinkInterfaces         []APINVLinkInterfaceCreateOrUpdateRequest
 		SSHKeyGroupIDs           []string
 		NetworkSecurityGroupID   *string
@@ -2356,15 +2356,15 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
-			name: "test valid Instance update request, SPX attachments",
+			name: "test valid Instance update request, SpectrumX attachments",
 			fields: fields{
-				SpxAttachments: []APISpxAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
 					{
-						SpxPartitionID:    uuid.NewString(),
-						Device:            "MT2910 Family [ConnectX-7]",
-						DeviceInstance:    0,
-						AttachmentType:    SpxAttachmentTypeVirtual,
-						VirtualFunctionID: cutil.GetPtr(1),
+						SpectrumXPartitionID: uuid.NewString(),
+						Device:               "MT2910 Family [ConnectX-7]",
+						DeviceInstance:       0,
+						AttachmentType:       SpectrumXAttachmentTypeVirtual,
+						VirtualFunctionID:    cutil.GetPtr(1),
 					},
 				},
 			},
@@ -2372,13 +2372,13 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
-			name: "test invalid Instance update request, SPX attachment missing device",
+			name: "test invalid Instance update request, SpectrumX attachment missing device",
 			fields: fields{
-				SpxAttachments: []APISpxAttachmentCreateRequest{
+				SpectrumXAttachments: []APISpectrumXAttachmentCreateRequest{
 					{
-						SpxPartitionID: uuid.NewString(),
-						DeviceInstance: 0,
-						AttachmentType: SpxAttachmentTypePhysical,
+						SpectrumXPartitionID: uuid.NewString(),
+						DeviceInstance:       0,
+						AttachmentType:       SpectrumXAttachmentTypePhysical,
 					},
 				},
 			},
@@ -2403,7 +2403,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				SecondaryVpcIDs:          tt.fields.SecondaryVpcIDs,
 				Interfaces:               tt.fields.Interfaces,
 				InfiniBandInterfaces:     tt.fields.InfiniBandInterfaces,
-				SpxAttachments:           tt.fields.SpxAttachments,
+				SpectrumXAttachments:     tt.fields.SpectrumXAttachments,
 				NVLinkInterfaces:         tt.fields.NVLinkInterfaces,
 				SSHKeyGroupIDs:           tt.fields.SSHKeyGroupIDs,
 				NetworkSecurityGroupID:   tt.fields.NetworkSecurityGroupID,

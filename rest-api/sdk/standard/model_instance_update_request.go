@@ -58,8 +58,8 @@ type InstanceUpdateRequest struct {
 	AutoNetwork NullableBool `json:"autoNetwork,omitempty"`
 	// Update InfiniBand Interfaces of the Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
-	// Update SPX Partition attachments of the Instance. Omitting this field leaves the Instance's SPX attachments unchanged; an explicit (possibly empty) list replaces them entirely.
-	SpxAttachments []InstanceSpxAttachmentCreateRequest `json:"spxAttachments,omitempty"`
+	// Update SpectrumX Partition attachments of the Instance. Omitting this field leaves the Instance's SpectrumX attachments unchanged; an explicit (possibly empty) list replaces them entirely.
+	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateRequest `json:"spectrumXAttachments,omitempty"`
 	// Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
 	NvLinkInterfaces []NVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces,omitempty"`
 	// Updated set of DPU Extension Services to deploy to the DPUs of this Instance
@@ -802,36 +802,36 @@ func (o *InstanceUpdateRequest) SetInfinibandInterfaces(v []InfiniBandInterfaceC
 	o.InfinibandInterfaces = v
 }
 
-// GetSpxAttachments returns the SpxAttachments field value if set, zero value otherwise.
-func (o *InstanceUpdateRequest) GetSpxAttachments() []InstanceSpxAttachmentCreateRequest {
-	if o == nil || IsNil(o.SpxAttachments) {
-		var ret []InstanceSpxAttachmentCreateRequest
+// GetSpectrumXAttachments returns the SpectrumXAttachments field value if set, zero value otherwise.
+func (o *InstanceUpdateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateRequest {
+	if o == nil || IsNil(o.SpectrumXAttachments) {
+		var ret []InstanceSpectrumXAttachmentCreateRequest
 		return ret
 	}
-	return o.SpxAttachments
+	return o.SpectrumXAttachments
 }
 
-// GetSpxAttachmentsOk returns a tuple with the SpxAttachments field value if set, nil otherwise
+// GetSpectrumXAttachmentsOk returns a tuple with the SpectrumXAttachments field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceUpdateRequest) GetSpxAttachmentsOk() ([]InstanceSpxAttachmentCreateRequest, bool) {
-	if o == nil || IsNil(o.SpxAttachments) {
+func (o *InstanceUpdateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateRequest, bool) {
+	if o == nil || IsNil(o.SpectrumXAttachments) {
 		return nil, false
 	}
-	return o.SpxAttachments, true
+	return o.SpectrumXAttachments, true
 }
 
-// HasSpxAttachments returns a boolean if a field has been set.
-func (o *InstanceUpdateRequest) HasSpxAttachments() bool {
-	if o != nil && !IsNil(o.SpxAttachments) {
+// HasSpectrumXAttachments returns a boolean if a field has been set.
+func (o *InstanceUpdateRequest) HasSpectrumXAttachments() bool {
+	if o != nil && !IsNil(o.SpectrumXAttachments) {
 		return true
 	}
 
 	return false
 }
 
-// SetSpxAttachments gets a reference to the given []InstanceSpxAttachmentCreateRequest and assigns it to the SpxAttachments field.
-func (o *InstanceUpdateRequest) SetSpxAttachments(v []InstanceSpxAttachmentCreateRequest) {
-	o.SpxAttachments = v
+// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateRequest and assigns it to the SpectrumXAttachments field.
+func (o *InstanceUpdateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateRequest) {
+	o.SpectrumXAttachments = v
 }
 
 // GetNvLinkInterfaces returns the NvLinkInterfaces field value if set, zero value otherwise.
@@ -962,8 +962,8 @@ func (o InstanceUpdateRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.InfinibandInterfaces) {
 		toSerialize["infinibandInterfaces"] = o.InfinibandInterfaces
 	}
-	if !IsNil(o.SpxAttachments) {
-		toSerialize["spxAttachments"] = o.SpxAttachments
+	if !IsNil(o.SpectrumXAttachments) {
+		toSerialize["spectrumXAttachments"] = o.SpectrumXAttachments
 	}
 	if !IsNil(o.NvLinkInterfaces) {
 		toSerialize["nvLinkInterfaces"] = o.NvLinkInterfaces

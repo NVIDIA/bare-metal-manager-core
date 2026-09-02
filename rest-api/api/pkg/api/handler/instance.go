@@ -81,28 +81,28 @@ func buildInstanceNetworkConfig(auto bool, interfaceConfigs []*corev1.InstanceIn
 	return nc
 }
 
-var spxAttachmentTypeFromAPI = map[string]corev1.SpxAttachmentType{
-	model.SpxAttachmentTypePhysical: corev1.SpxAttachmentType_Physical,
-	model.SpxAttachmentTypeVirtual:  corev1.SpxAttachmentType_Virtual,
-	model.SpxAttachmentTypeOvn:      corev1.SpxAttachmentType_Ovn,
+var spectrumXAttachmentTypeFromAPI = map[string]corev1.SpxAttachmentType{
+	model.SpectrumXAttachmentTypePhysical: corev1.SpxAttachmentType_Physical,
+	model.SpectrumXAttachmentTypeVirtual:  corev1.SpxAttachmentType_Virtual,
+	model.SpectrumXAttachmentTypeOvn:      corev1.SpxAttachmentType_Ovn,
 }
 
-func buildInstanceSpxConfig(spxAttachments []model.APISpxAttachmentCreateRequest) *corev1.InstanceSpxConfig {
-	spxAttachmentConfigs := make([]*corev1.InstanceSpxAttachment, 0, len(spxAttachments))
-	for _, sac := range spxAttachments {
-		spxAttachmentConfig := &corev1.InstanceSpxAttachment{
+func buildInstanceSpectrumXConfig(spectrumXAttachments []model.APISpectrumXAttachmentCreateRequest) *corev1.InstanceSpxConfig {
+	spectrumXAttachmentConfigs := make([]*corev1.InstanceSpxAttachment, 0, len(spectrumXAttachments))
+	for _, sac := range spectrumXAttachments {
+		spectrumXAttachmentConfig := &corev1.InstanceSpxAttachment{
 			Device:         sac.Device,
 			DeviceInstance: uint32(sac.DeviceInstance),
-			SpxPartitionId: &corev1.SpxPartitionId{Value: sac.SpxPartitionID},
-			AttachmentType: spxAttachmentTypeFromAPI[sac.AttachmentType],
+			SpxPartitionId: &corev1.SpxPartitionId{Value: sac.SpectrumXPartitionID},
+			AttachmentType: spectrumXAttachmentTypeFromAPI[sac.AttachmentType],
 		}
 		if sac.VirtualFunctionID != nil {
 			vfID := uint32(*sac.VirtualFunctionID)
-			spxAttachmentConfig.VirtualFunctionId = &vfID
+			spectrumXAttachmentConfig.VirtualFunctionId = &vfID
 		}
-		spxAttachmentConfigs = append(spxAttachmentConfigs, spxAttachmentConfig)
+		spectrumXAttachmentConfigs = append(spectrumXAttachmentConfigs, spectrumXAttachmentConfig)
 	}
-	return &corev1.InstanceSpxConfig{SpxAttachments: spxAttachmentConfigs}
+	return &corev1.InstanceSpxConfig{SpxAttachments: spectrumXAttachmentConfigs}
 }
 
 // loadInstanceInterfaceVpcs validates VPC-selection intent and returns each
@@ -1979,7 +1979,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 				Nvlink: &corev1.InstanceNVLinkConfig{
 					GpuConfigs: nvlInterfaceConfigs,
 				},
-				Spxconfig: buildInstanceSpxConfig(apiRequest.SpxAttachments),
+				Spxconfig: buildInstanceSpectrumXConfig(apiRequest.SpectrumXAttachments),
 			},
 			AllowUnhealthyMachine: allowUnhealthyMachine,
 		}
@@ -4243,8 +4243,8 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			},
 		}
 
-		if apiRequest.SpxAttachments != nil {
-			updateInstanceRequest.Config.Spxconfig = buildInstanceSpxConfig(apiRequest.SpxAttachments)
+		if apiRequest.SpectrumXAttachments != nil {
+			updateInstanceRequest.Config.Spxconfig = buildInstanceSpectrumXConfig(apiRequest.SpectrumXAttachments)
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

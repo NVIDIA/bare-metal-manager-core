@@ -19,72 +19,72 @@ import (
 	"fmt"
 )
 
-// checks if the InstanceSpxAttachmentCreateRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &InstanceSpxAttachmentCreateRequest{}
+// checks if the InstanceSpectrumXAttachmentCreateRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &InstanceSpectrumXAttachmentCreateRequest{}
 
-// InstanceSpxAttachmentCreateRequest Request data to attach an SPX Partition to an Instance
-type InstanceSpxAttachmentCreateRequest struct {
-	// ID of the SPX Partition the attachment should associate with
-	SpxPartitionId string `json:"spxPartitionId"`
-	// Name of the SPX device to use
+// InstanceSpectrumXAttachmentCreateRequest Request data to attach a SpectrumX Partition to an Instance
+type InstanceSpectrumXAttachmentCreateRequest struct {
+	// ID of the SpectrumX Partition the attachment should associate with
+	SpectrumXPartitionId string `json:"spectrumXPartitionId"`
+	// Name of the SpectrumX device to use
 	Device string `json:"device"`
 	// Index of the device, used to identify which interface card to attach the Partition to
 	DeviceInstance int32 `json:"deviceInstance"`
-	// Type of SPX attachment
+	// Type of SpectrumX attachment
 	AttachmentType string `json:"attachmentType"`
 	// Must be specified if attachmentType is Virtual
 	VirtualFunctionId NullableInt32 `json:"virtualFunctionId,omitempty"`
 }
 
-type _InstanceSpxAttachmentCreateRequest InstanceSpxAttachmentCreateRequest
+type _InstanceSpectrumXAttachmentCreateRequest InstanceSpectrumXAttachmentCreateRequest
 
-// NewInstanceSpxAttachmentCreateRequest instantiates a new InstanceSpxAttachmentCreateRequest object
+// NewInstanceSpectrumXAttachmentCreateRequest instantiates a new InstanceSpectrumXAttachmentCreateRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewInstanceSpxAttachmentCreateRequest(spxPartitionId string, device string, deviceInstance int32, attachmentType string) *InstanceSpxAttachmentCreateRequest {
-	this := InstanceSpxAttachmentCreateRequest{}
-	this.SpxPartitionId = spxPartitionId
+func NewInstanceSpectrumXAttachmentCreateRequest(spectrumXPartitionId string, device string, deviceInstance int32, attachmentType string) *InstanceSpectrumXAttachmentCreateRequest {
+	this := InstanceSpectrumXAttachmentCreateRequest{}
+	this.SpectrumXPartitionId = spectrumXPartitionId
 	this.Device = device
 	this.DeviceInstance = deviceInstance
 	this.AttachmentType = attachmentType
 	return &this
 }
 
-// NewInstanceSpxAttachmentCreateRequestWithDefaults instantiates a new InstanceSpxAttachmentCreateRequest object
+// NewInstanceSpectrumXAttachmentCreateRequestWithDefaults instantiates a new InstanceSpectrumXAttachmentCreateRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewInstanceSpxAttachmentCreateRequestWithDefaults() *InstanceSpxAttachmentCreateRequest {
-	this := InstanceSpxAttachmentCreateRequest{}
+func NewInstanceSpectrumXAttachmentCreateRequestWithDefaults() *InstanceSpectrumXAttachmentCreateRequest {
+	this := InstanceSpectrumXAttachmentCreateRequest{}
 	return &this
 }
 
-// GetSpxPartitionId returns the SpxPartitionId field value
-func (o *InstanceSpxAttachmentCreateRequest) GetSpxPartitionId() string {
+// GetSpectrumXPartitionId returns the SpectrumXPartitionId field value
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetSpectrumXPartitionId() string {
 	if o == nil {
 		var ret string
 		return ret
 	}
 
-	return o.SpxPartitionId
+	return o.SpectrumXPartitionId
 }
 
-// GetSpxPartitionIdOk returns a tuple with the SpxPartitionId field value
+// GetSpectrumXPartitionIdOk returns a tuple with the SpectrumXPartitionId field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpxAttachmentCreateRequest) GetSpxPartitionIdOk() (*string, bool) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetSpectrumXPartitionIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.SpxPartitionId, true
+	return &o.SpectrumXPartitionId, true
 }
 
-// SetSpxPartitionId sets field value
-func (o *InstanceSpxAttachmentCreateRequest) SetSpxPartitionId(v string) {
-	o.SpxPartitionId = v
+// SetSpectrumXPartitionId sets field value
+func (o *InstanceSpectrumXAttachmentCreateRequest) SetSpectrumXPartitionId(v string) {
+	o.SpectrumXPartitionId = v
 }
 
 // GetDevice returns the Device field value
-func (o *InstanceSpxAttachmentCreateRequest) GetDevice() string {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetDevice() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -95,7 +95,7 @@ func (o *InstanceSpxAttachmentCreateRequest) GetDevice() string {
 
 // GetDeviceOk returns a tuple with the Device field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpxAttachmentCreateRequest) GetDeviceOk() (*string, bool) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -103,12 +103,12 @@ func (o *InstanceSpxAttachmentCreateRequest) GetDeviceOk() (*string, bool) {
 }
 
 // SetDevice sets field value
-func (o *InstanceSpxAttachmentCreateRequest) SetDevice(v string) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) SetDevice(v string) {
 	o.Device = v
 }
 
 // GetDeviceInstance returns the DeviceInstance field value
-func (o *InstanceSpxAttachmentCreateRequest) GetDeviceInstance() int32 {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceInstance() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -119,7 +119,7 @@ func (o *InstanceSpxAttachmentCreateRequest) GetDeviceInstance() int32 {
 
 // GetDeviceInstanceOk returns a tuple with the DeviceInstance field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpxAttachmentCreateRequest) GetDeviceInstanceOk() (*int32, bool) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetDeviceInstanceOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -127,12 +127,12 @@ func (o *InstanceSpxAttachmentCreateRequest) GetDeviceInstanceOk() (*int32, bool
 }
 
 // SetDeviceInstance sets field value
-func (o *InstanceSpxAttachmentCreateRequest) SetDeviceInstance(v int32) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) SetDeviceInstance(v int32) {
 	o.DeviceInstance = v
 }
 
 // GetAttachmentType returns the AttachmentType field value
-func (o *InstanceSpxAttachmentCreateRequest) GetAttachmentType() string {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetAttachmentType() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -143,7 +143,7 @@ func (o *InstanceSpxAttachmentCreateRequest) GetAttachmentType() string {
 
 // GetAttachmentTypeOk returns a tuple with the AttachmentType field value
 // and a boolean to check if the value has been set.
-func (o *InstanceSpxAttachmentCreateRequest) GetAttachmentTypeOk() (*string, bool) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetAttachmentTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -151,12 +151,12 @@ func (o *InstanceSpxAttachmentCreateRequest) GetAttachmentTypeOk() (*string, boo
 }
 
 // SetAttachmentType sets field value
-func (o *InstanceSpxAttachmentCreateRequest) SetAttachmentType(v string) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) SetAttachmentType(v string) {
 	o.AttachmentType = v
 }
 
 // GetVirtualFunctionId returns the VirtualFunctionId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *InstanceSpxAttachmentCreateRequest) GetVirtualFunctionId() int32 {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetVirtualFunctionId() int32 {
 	if o == nil || IsNil(o.VirtualFunctionId.Get()) {
 		var ret int32
 		return ret
@@ -167,7 +167,7 @@ func (o *InstanceSpxAttachmentCreateRequest) GetVirtualFunctionId() int32 {
 // GetVirtualFunctionIdOk returns a tuple with the VirtualFunctionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *InstanceSpxAttachmentCreateRequest) GetVirtualFunctionIdOk() (*int32, bool) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) GetVirtualFunctionIdOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -175,7 +175,7 @@ func (o *InstanceSpxAttachmentCreateRequest) GetVirtualFunctionIdOk() (*int32, b
 }
 
 // HasVirtualFunctionId returns a boolean if a field has been set.
-func (o *InstanceSpxAttachmentCreateRequest) HasVirtualFunctionId() bool {
+func (o *InstanceSpectrumXAttachmentCreateRequest) HasVirtualFunctionId() bool {
 	if o != nil && o.VirtualFunctionId.IsSet() {
 		return true
 	}
@@ -184,21 +184,21 @@ func (o *InstanceSpxAttachmentCreateRequest) HasVirtualFunctionId() bool {
 }
 
 // SetVirtualFunctionId gets a reference to the given NullableInt32 and assigns it to the VirtualFunctionId field.
-func (o *InstanceSpxAttachmentCreateRequest) SetVirtualFunctionId(v int32) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) SetVirtualFunctionId(v int32) {
 	o.VirtualFunctionId.Set(&v)
 }
 
 // SetVirtualFunctionIdNil sets the value for VirtualFunctionId to be an explicit nil
-func (o *InstanceSpxAttachmentCreateRequest) SetVirtualFunctionIdNil() {
+func (o *InstanceSpectrumXAttachmentCreateRequest) SetVirtualFunctionIdNil() {
 	o.VirtualFunctionId.Set(nil)
 }
 
 // UnsetVirtualFunctionId ensures that no value is present for VirtualFunctionId, not even an explicit nil
-func (o *InstanceSpxAttachmentCreateRequest) UnsetVirtualFunctionId() {
+func (o *InstanceSpectrumXAttachmentCreateRequest) UnsetVirtualFunctionId() {
 	o.VirtualFunctionId.Unset()
 }
 
-func (o InstanceSpxAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
+func (o InstanceSpectrumXAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -206,9 +206,9 @@ func (o InstanceSpxAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o InstanceSpxAttachmentCreateRequest) ToMap() (map[string]interface{}, error) {
+func (o InstanceSpectrumXAttachmentCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["spxPartitionId"] = o.SpxPartitionId
+	toSerialize["spectrumXPartitionId"] = o.SpectrumXPartitionId
 	toSerialize["device"] = o.Device
 	toSerialize["deviceInstance"] = o.DeviceInstance
 	toSerialize["attachmentType"] = o.AttachmentType
@@ -218,12 +218,12 @@ func (o InstanceSpxAttachmentCreateRequest) ToMap() (map[string]interface{}, err
 	return toSerialize, nil
 }
 
-func (o *InstanceSpxAttachmentCreateRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *InstanceSpectrumXAttachmentCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"spxPartitionId",
+		"spectrumXPartitionId",
 		"device",
 		"deviceInstance",
 		"attachmentType",
@@ -243,52 +243,52 @@ func (o *InstanceSpxAttachmentCreateRequest) UnmarshalJSON(data []byte) (err err
 		}
 	}
 
-	varInstanceSpxAttachmentCreateRequest := _InstanceSpxAttachmentCreateRequest{}
+	varInstanceSpectrumXAttachmentCreateRequest := _InstanceSpectrumXAttachmentCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	err = decoder.Decode(&varInstanceSpxAttachmentCreateRequest)
+	err = decoder.Decode(&varInstanceSpectrumXAttachmentCreateRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = InstanceSpxAttachmentCreateRequest(varInstanceSpxAttachmentCreateRequest)
+	*o = InstanceSpectrumXAttachmentCreateRequest(varInstanceSpectrumXAttachmentCreateRequest)
 
 	return err
 }
 
-type NullableInstanceSpxAttachmentCreateRequest struct {
-	value *InstanceSpxAttachmentCreateRequest
+type NullableInstanceSpectrumXAttachmentCreateRequest struct {
+	value *InstanceSpectrumXAttachmentCreateRequest
 	isSet bool
 }
 
-func (v NullableInstanceSpxAttachmentCreateRequest) Get() *InstanceSpxAttachmentCreateRequest {
+func (v NullableInstanceSpectrumXAttachmentCreateRequest) Get() *InstanceSpectrumXAttachmentCreateRequest {
 	return v.value
 }
 
-func (v *NullableInstanceSpxAttachmentCreateRequest) Set(val *InstanceSpxAttachmentCreateRequest) {
+func (v *NullableInstanceSpectrumXAttachmentCreateRequest) Set(val *InstanceSpectrumXAttachmentCreateRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableInstanceSpxAttachmentCreateRequest) IsSet() bool {
+func (v NullableInstanceSpectrumXAttachmentCreateRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableInstanceSpxAttachmentCreateRequest) Unset() {
+func (v *NullableInstanceSpectrumXAttachmentCreateRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableInstanceSpxAttachmentCreateRequest(val *InstanceSpxAttachmentCreateRequest) *NullableInstanceSpxAttachmentCreateRequest {
-	return &NullableInstanceSpxAttachmentCreateRequest{value: val, isSet: true}
+func NewNullableInstanceSpectrumXAttachmentCreateRequest(val *InstanceSpectrumXAttachmentCreateRequest) *NullableInstanceSpectrumXAttachmentCreateRequest {
+	return &NullableInstanceSpectrumXAttachmentCreateRequest{value: val, isSet: true}
 }
 
-func (v NullableInstanceSpxAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
+func (v NullableInstanceSpectrumXAttachmentCreateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableInstanceSpxAttachmentCreateRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableInstanceSpectrumXAttachmentCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

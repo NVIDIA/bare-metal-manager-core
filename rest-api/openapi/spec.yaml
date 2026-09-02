@@ -21737,8 +21737,8 @@ components:
               deviceInstance: 0
               isPhysical: true
               virtualFunctionId: null
-          spxAttachments:
-            - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 0
               attachmentType: Physical
@@ -21918,11 +21918,11 @@ components:
           description: Associate one or more Partitions with this Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
-        spxAttachments:
+        spectrumXAttachments:
           type: array
-          description: Associate one or more SPX Partitions with this Instance
+          description: Associate one or more SpectrumX Partitions with this Instance
           items:
-            $ref: '#/components/schemas/InstanceSpxAttachmentCreateRequest'
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to the DPUs of this Instance
@@ -21972,8 +21972,8 @@ components:
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 0
               isPhysical: true
-          spxAttachments:
-            - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 0
               attachmentType: Physical
@@ -22093,11 +22093,11 @@ components:
           description: InfiniBand interface configuration shared across all instances
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
-        spxAttachments:
+        spectrumXAttachments:
           type: array
-          description: SPX Partition attachments shared across all instances in the batch
+          description: SpectrumX Partition attachments shared across all Instances in the batch
           items:
-            $ref: '#/components/schemas/InstanceSpxAttachmentCreateRequest'
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to all instances in the batch
@@ -22176,8 +22176,8 @@ components:
               deviceInstance: 2
               isPhysical: false
               virtualFunctionId: null
-          spxAttachments:
-            - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 0
               attachmentType: Physical
@@ -22293,11 +22293,11 @@ components:
           description: Update InfiniBand Interfaces of the Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
-        spxAttachments:
+        spectrumXAttachments:
           type: array
-          description: 'Update SPX Partition attachments of the Instance. Omitting this field leaves the Instance''s SPX attachments unchanged; an explicit (possibly empty) list replaces them entirely.'
+          description: 'Update SpectrumX Partition attachments of the Instance. Omitting this field leaves the Instance''s SpectrumX attachments unchanged; an explicit (possibly empty) list replaces them entirely.'
           items:
-            $ref: '#/components/schemas/InstanceSpxAttachmentCreateRequest'
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateRequest'
         nvLinkInterfaces:
           type: array
           description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
@@ -22723,29 +22723,29 @@ components:
             - integer
             - 'null'
           description: Must be specified if isPhysical is false
-    InstanceSpxAttachmentCreateRequest:
-      title: InstanceSpxAttachmentCreateRequest
+    InstanceSpectrumXAttachmentCreateRequest:
+      title: InstanceSpectrumXAttachmentCreateRequest
       type: object
       examples:
-        - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+        - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
           device: 'MT2910 Family [ConnectX-7]'
           deviceInstance: 0
           attachmentType: Physical
           virtualFunctionId: null
-        - spxPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+        - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
           device: 'MT2910 Family [ConnectX-7]'
           deviceInstance: 3
           attachmentType: Virtual
           virtualFunctionId: 2
-      description: Request data to attach an SPX Partition to an Instance
+      description: Request data to attach a SpectrumX Partition to an Instance
       properties:
-        spxPartitionId:
+        spectrumXPartitionId:
           type: string
           format: uuid
-          description: ID of the SPX Partition the attachment should associate with
+          description: ID of the SpectrumX Partition the attachment should associate with
         device:
           type: string
-          description: Name of the SPX device to use
+          description: Name of the SpectrumX device to use
         deviceInstance:
           type: integer
           minimum: 0
@@ -22756,14 +22756,14 @@ components:
             - Physical
             - Virtual
             - Ovn
-          description: Type of SPX attachment
+          description: Type of SpectrumX attachment
         virtualFunctionId:
           type:
             - integer
             - 'null'
           description: Must be specified if attachmentType is Virtual
       required:
-        - spxPartitionId
+        - spectrumXPartitionId
         - device
         - deviceInstance
         - attachmentType

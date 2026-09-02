@@ -62,8 +62,8 @@ type InstanceCreateRequest struct {
 	AutoNetwork *bool `json:"autoNetwork,omitempty"`
 	// Associate one or more Partitions with this Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
-	// Associate one or more SPX Partitions with this Instance
-	SpxAttachments []InstanceSpxAttachmentCreateRequest `json:"spxAttachments,omitempty"`
+	// Associate one or more SpectrumX Partitions with this Instance
+	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateRequest `json:"spectrumXAttachments,omitempty"`
 	// DPU Extension Services to deploy to the DPUs of this Instance
 	DpuExtensionServiceDeployments []DpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments,omitempty"`
 	// Define Interfaces to associate Instance GPUs with NVLink Logical Partitions. A subset of GPUs may be specified (it is not required to include all GPUs). Each item references one GPU index (`deviceInstance`) and one NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions.
@@ -768,36 +768,36 @@ func (o *InstanceCreateRequest) SetInfinibandInterfaces(v []InfiniBandInterfaceC
 	o.InfinibandInterfaces = v
 }
 
-// GetSpxAttachments returns the SpxAttachments field value if set, zero value otherwise.
-func (o *InstanceCreateRequest) GetSpxAttachments() []InstanceSpxAttachmentCreateRequest {
-	if o == nil || IsNil(o.SpxAttachments) {
-		var ret []InstanceSpxAttachmentCreateRequest
+// GetSpectrumXAttachments returns the SpectrumXAttachments field value if set, zero value otherwise.
+func (o *InstanceCreateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateRequest {
+	if o == nil || IsNil(o.SpectrumXAttachments) {
+		var ret []InstanceSpectrumXAttachmentCreateRequest
 		return ret
 	}
-	return o.SpxAttachments
+	return o.SpectrumXAttachments
 }
 
-// GetSpxAttachmentsOk returns a tuple with the SpxAttachments field value if set, nil otherwise
+// GetSpectrumXAttachmentsOk returns a tuple with the SpectrumXAttachments field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *InstanceCreateRequest) GetSpxAttachmentsOk() ([]InstanceSpxAttachmentCreateRequest, bool) {
-	if o == nil || IsNil(o.SpxAttachments) {
+func (o *InstanceCreateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateRequest, bool) {
+	if o == nil || IsNil(o.SpectrumXAttachments) {
 		return nil, false
 	}
-	return o.SpxAttachments, true
+	return o.SpectrumXAttachments, true
 }
 
-// HasSpxAttachments returns a boolean if a field has been set.
-func (o *InstanceCreateRequest) HasSpxAttachments() bool {
-	if o != nil && !IsNil(o.SpxAttachments) {
+// HasSpectrumXAttachments returns a boolean if a field has been set.
+func (o *InstanceCreateRequest) HasSpectrumXAttachments() bool {
+	if o != nil && !IsNil(o.SpectrumXAttachments) {
 		return true
 	}
 
 	return false
 }
 
-// SetSpxAttachments gets a reference to the given []InstanceSpxAttachmentCreateRequest and assigns it to the SpxAttachments field.
-func (o *InstanceCreateRequest) SetSpxAttachments(v []InstanceSpxAttachmentCreateRequest) {
-	o.SpxAttachments = v
+// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateRequest and assigns it to the SpectrumXAttachments field.
+func (o *InstanceCreateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateRequest) {
+	o.SpectrumXAttachments = v
 }
 
 // GetDpuExtensionServiceDeployments returns the DpuExtensionServiceDeployments field value if set, zero value otherwise.
@@ -989,8 +989,8 @@ func (o InstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.InfinibandInterfaces) {
 		toSerialize["infinibandInterfaces"] = o.InfinibandInterfaces
 	}
-	if !IsNil(o.SpxAttachments) {
-		toSerialize["spxAttachments"] = o.SpxAttachments
+	if !IsNil(o.SpectrumXAttachments) {
+		toSerialize["spectrumXAttachments"] = o.SpectrumXAttachments
 	}
 	if !IsNil(o.DpuExtensionServiceDeployments) {
 		toSerialize["dpuExtensionServiceDeployments"] = o.DpuExtensionServiceDeployments

@@ -1821,7 +1821,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 					Nvlink: &corev1.InstanceNVLinkConfig{
 						GpuConfigs: data.nvlInterfaceConfigs,
 					},
-					Spxconfig: buildInstanceSpxConfig(apiRequest.SpxAttachments),
+					Spxconfig: buildInstanceSpectrumXConfig(apiRequest.SpectrumXAttachments),
 				},
 				AllowUnhealthyMachine: false,
 			}

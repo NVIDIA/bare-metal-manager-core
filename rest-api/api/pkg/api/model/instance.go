@@ -475,8 +475,8 @@ type APIInstanceCreateRequest struct {
 	AutoNetwork bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
-	// SpxAttachments is the list of SPX Partition attachments to create for the Instance
-	SpxAttachments []APISpxAttachmentCreateRequest `json:"spxAttachments"`
+	// SpectrumXAttachments is the list of SpectrumX Partition attachments to create for the Instance
+	SpectrumXAttachments []APISpectrumXAttachmentCreateRequest `json:"spectrumXAttachments"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for the Instance
@@ -547,8 +547,8 @@ type APIBatchInstanceCreateRequest struct {
 	AutoNetwork bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for each instance (shared across all instances)
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
-	// SpxAttachments is the list of SPX Partition attachments to create for each instance (shared across all instances)
-	SpxAttachments []APISpxAttachmentCreateRequest `json:"spxAttachments"`
+	// SpectrumXAttachments is the list of SpectrumX Partition attachments to create for each instance (shared across all instances)
+	SpectrumXAttachments []APISpectrumXAttachmentCreateRequest `json:"spectrumXAttachments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for each instance (shared across all instances)
 	NVLinkInterfaces []APINVLinkInterfaceCreateOrUpdateRequest `json:"nvLinkInterfaces"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for each Instance (shared across all instances)
@@ -651,8 +651,8 @@ func (icr APIInstanceCreateRequest) Validate() error {
 		}
 	}
 
-	// Validate SPX Attachments
-	for _, sac := range icr.SpxAttachments {
+	// Validate SpectrumX Attachments
+	for _, sac := range icr.SpectrumXAttachments {
 		err = sac.Validate()
 		if err != nil {
 			return err
@@ -1037,8 +1037,8 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 		}
 	}
 
-	// Validate SPX Attachments
-	for _, sac := range bicr.SpxAttachments {
+	// Validate SpectrumX Attachments
+	for _, sac := range bicr.SpectrumXAttachments {
 		err = sac.Validate()
 		if err != nil {
 			return err
@@ -1343,9 +1343,9 @@ type APIInstanceUpdateRequest struct {
 	AutoNetwork *bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to update for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
-	// SpxAttachments is the list of SPX Partition attachments to update for the Instance. `nil` leaves
-	// the Instance's SPX attachments unchanged; a non-nil (possibly empty) list replaces them entirely.
-	SpxAttachments []APISpxAttachmentCreateRequest `json:"spxAttachments"`
+	// SpectrumXAttachments is the list of SpectrumX Partition attachments to update for the Instance. `nil` leaves
+	// the Instance's SpectrumX attachments unchanged; a non-nil (possibly empty) list replaces them entirely.
+	SpectrumXAttachments []APISpectrumXAttachmentCreateRequest `json:"spectrumXAttachments"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to update for the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces is the list of NVLinkInterface to update for the Instance
@@ -1659,7 +1659,7 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 		iur.Interfaces != nil ||
 		iur.AutoNetwork != nil ||
 		iur.InfiniBandInterfaces != nil ||
-		iur.SpxAttachments != nil ||
+		iur.SpectrumXAttachments != nil ||
 		iur.NVLinkInterfaces != nil ||
 		iur.SSHKeyGroupIDs != nil ||
 		iur.NetworkSecurityGroupID != nil ||
@@ -1764,8 +1764,8 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 		}
 	}
 
-	// Validate SPX Attachments
-	for _, sac := range iur.SpxAttachments {
+	// Validate SpectrumX Attachments
+	for _, sac := range iur.SpectrumXAttachments {
 		err = sac.Validate()
 		if err != nil {
 			return err
