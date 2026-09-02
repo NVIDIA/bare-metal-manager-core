@@ -60,7 +60,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"instance-type":             5,
 		"machine":                   18,
 		"allocation":                6,
-		"subnet":                    5,
+		"subnet":                    6,
 		"machine-instance-type":     3,
 		"user":                      1,
 		"operating-system":          5,
@@ -136,6 +136,8 @@ func TestNewAPIRoutes(t *testing.T) {
 			taskPath := "/org/:orgName/" + cfg.GetAPIName() + "/task"
 			assertRouteExists(t, got, http.MethodGet, taskPath)
 			assertRouteBefore(t, got, http.MethodGet, taskPath, http.MethodGet, taskPath+"/:id")
+			subnetPath := "/org/:orgName/" + cfg.GetAPIName() + "/subnet"
+			assertRouteExists(t, got, http.MethodPost, subnetPath+"/:id/attach-vpc")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			dpuPath := "/org/:orgName/" + cfg.GetAPIName() + "/dpu"
