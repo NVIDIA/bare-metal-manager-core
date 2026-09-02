@@ -1170,6 +1170,52 @@ func TestFilterSubnetVPCs(t *testing.T) {
 	}
 }
 
+func TestFilterSubnetAttachVPCs(t *testing.T) {
+	eligible := NamedItem{
+		Name:   "Target VPC",
+		ID:     "vpc-1",
+		Status: "Ready",
+		Extra: map[string]string{
+			"networkVirtualizationType": "ETHERNET_VIRTUALIZER",
+			"siteId":                    "site-1",
+			"tenantId":                  "tenant-1",
+		},
+	}
+	tests := []struct {
+		name         string
+		mutate       func(*NamedItem)
+		wantIncluded bool
+	}{
+		{name: "matching Ready tenant Ethernet virtualizer included", wantIncluded: true},
+		{name: "pending excluded", mutate: func(vpc *NamedItem) { vpc.Status = "Pending" }},
+		{name: "legacy untyped excluded", mutate: func(vpc *NamedItem) { delete(vpc.Extra, "networkVirtualizationType") }},
+		{name: "FNN excluded", mutate: func(vpc *NamedItem) { vpc.Extra["networkVirtualizationType"] = "FNN" }},
+		{name: "other Site excluded", mutate: func(vpc *NamedItem) { vpc.Extra["siteId"] = "site-2" }},
+		{name: "other Tenant excluded", mutate: func(vpc *NamedItem) { vpc.Extra["tenantId"] = "tenant-2" }},
+		{name: "missing Tenant excluded", mutate: func(vpc *NamedItem) { delete(vpc.Extra, "tenantId") }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			vpc := eligible
+			vpc.Extra = map[string]string{
+				"networkVirtualizationType": eligible.Extra["networkVirtualizationType"],
+				"siteId":                    eligible.Extra["siteId"],
+				"tenantId":                  eligible.Extra["tenantId"],
+			}
+			if test.mutate != nil {
+				test.mutate(&vpc)
+			}
+			got := filterSubnetAttachVPCs([]NamedItem{vpc}, "site-1", "tenant-1")
+			if !test.wantIncluded {
+				assert.Empty(t, got)
+				return
+			}
+			require.Equal(t, []NamedItem{vpc}, got)
+		})
+	}
+}
+
 func TestBuildSubnetIPBlockSelectItems(t *testing.T) {
 	tests := []struct {
 		name         string

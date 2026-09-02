@@ -80,6 +80,7 @@ func NewSession(client *cli.Client, org, configPath string) *Session {
 
 func (s *Session) registerFetchers() {
 	s.Resolver.RegisterFetcher("site", s.fetchSites)
+	s.Resolver.RegisterFetcher("domain", s.fetchDomains)
 	s.Resolver.RegisterFetcher("vpc", s.fetchVPCs)
 	s.Resolver.RegisterFetcher("subnet", s.fetchSubnets)
 	s.Resolver.RegisterFetcher("instance", s.fetchInstances)
@@ -400,6 +401,41 @@ func (s *Session) fetchSites(_ context.Context) ([]NamedItem, error) {
 	return result, nil
 }
 
+func (s *Session) fetchDomains(ctx context.Context) ([]NamedItem, error) {
+	tenantID, err := s.getTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := map[string]string{"tenantId": tenantID}
+	if s.Scope.SiteID != "" {
+		query["siteId"] = s.Scope.SiteID
+	}
+	body, _, err := s.Client.Do("GET", apiPath(s, "domain"), nil, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var domains []map[string]interface{}
+	if err = json.Unmarshal(body, &domains); err != nil {
+		return nil, fmt.Errorf("parsing Domains: %w", err)
+	}
+	result := make([]NamedItem, len(domains))
+	for i, domain := range domains {
+		if str(domain, "tenantId") != tenantID {
+			return nil, fmt.Errorf("domain %q is not owned by the current tenant", str(domain, "id"))
+		}
+		result[i] = NamedItem{
+			Name: str(domain, "name"),
+			ID:   str(domain, "id"),
+			Extra: map[string]string{
+				"siteId":   str(domain, "siteId"),
+				"tenantId": str(domain, "tenantId"),
+			},
+			Raw: domain,
+		}
+	}
+	return result, nil
+}
+
 func (s *Session) fetchVPCs(_ context.Context) ([]NamedItem, error) {
 	q := map[string]string{}
 	if s.Scope.SiteID != "" {
@@ -419,6 +455,7 @@ func (s *Session) fetchVPCs(_ context.Context) ([]NamedItem, error) {
 			Extra: map[string]string{
 				"networkVirtualizationType": str(m, "networkVirtualizationType"),
 				"siteId":                    str(m, "siteId"),
+				"tenantId":                  str(m, "tenantId"),
 			},
 			Raw: m,
 		}
@@ -442,7 +479,11 @@ func (s *Session) fetchSubnets(_ context.Context) ([]NamedItem, error) {
 	for i, m := range items {
 		result[i] = NamedItem{
 			Name: str(m, "name"), ID: str(m, "id"), Status: str(m, "status"),
-			Extra: map[string]string{"vpcId": str(m, "vpcId")}, Raw: m,
+			Extra: map[string]string{
+				"vpcId":       str(m, "vpcId"),
+				"siteId":      str(m, "siteId"),
+				"subdomainId": str(m, "subdomainId"),
+			}, Raw: m,
 		}
 	}
 	return result, nil

@@ -54,7 +54,7 @@ func (c *Cache) InvalidateAll() {
 }
 
 func (c *Cache) InvalidateFiltered() {
-	for _, rt := range []string{"vpc", "subnet", "instance", "instance-type",
+	for _, rt := range []string{"vpc", "domain", "subnet", "instance", "instance-type",
 		"allocation", "machine", "ip-block", "operating-system",
 		"ssh-key-group", "network-security-group",
 		"vpc-prefix", "rack", "expected-machine",
