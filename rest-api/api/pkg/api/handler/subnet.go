@@ -1039,8 +1039,14 @@ func (asvh AttachSubnetVpcHandler) Handle(c echo.Context) error {
 	if subnet.ControllerNetworkSegmentID == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Subnet must have a Controller Network Segment ID to attach to a VPC", nil)
 	}
+	if subnet.Status != cdbm.SubnetStatusReady || subnet.IsMissingOnSite {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Subnet must be in Ready state at its Site to attach to a VPC", nil)
+	}
 	if subnet.Vpc == nil || subnet.Vpc.TenantID != tenant.ID || subnet.Vpc.SiteID != subnet.SiteID {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Subnet must belong to a valid VPC at its Site", nil)
+	}
+	if subnet.Vpc.Status != cdbm.VpcStatusReady || subnet.Vpc.ControllerVpcID == nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Subnet source VPC must be in Ready state at the Site", nil)
 	}
 	// A nil type is the legacy representation of an Ethernet virtualizer VPC.
 	if subnet.Vpc.NetworkVirtualizationType != nil &&
@@ -1066,6 +1072,9 @@ func (asvh AttachSubnetVpcHandler) Handle(c echo.Context) error {
 	}
 	if targetVpc.ControllerVpcID == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Target VPC must have a Controller VPC ID", nil)
+	}
+	if targetVpc.Status != cdbm.VpcStatusReady {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Target VPC must be in Ready state", nil)
 	}
 
 	_, interfaceCount, err := cdbm.NewInterfaceDAO(asvh.dbSession).GetAll(

@@ -131,22 +131,20 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 		expectedStatus     int
 		expectedVpc        string
 		expectProxyRequest bool
-		expectedAllow      bool
 	}{
 		{
-			name: "reassigns an unallocated ETV Subnet after explicit acknowledgement",
+			name: "reassigns an unallocated ETV Subnet",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
 			expectedStatus:     http.StatusOK,
 			expectedVpc:        "target",
 			expectProxyRequest: true,
-			expectedAllow:      true,
 		},
 		{
-			name: "keeps same-target retry idempotent without replacement acknowledgement",
+			name: "keeps same-target retry idempotent",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				fixture.setCoreResponse(subnetAttachVpcCoreResponse(*fixture.subnet.ControllerNetworkSegmentID, *fixture.sourceVpc.ControllerVpcID))
 				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.sourceVpc.ID.String()})
@@ -158,37 +156,53 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			expectProxyRequest: true,
 		},
 		{
-			name: "delegates stale REST lifecycle state to Core",
+			name: "rejects a Subnet that is not Ready at the Site",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				_, err := cdbm.NewSubnetDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.SubnetUpdateInput{
 					SubnetId: fixture.subnet.ID, Status: cutil.GetPtr(cdbm.SubnetStatusError), IsMissingOnSite: cutil.GetPtr(true),
 				})
 				require.NoError(t, err)
-				for _, vpc := range []*cdbm.Vpc{fixture.sourceVpc, fixture.targetVpc} {
-					_, err = cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
-						VpcID: vpc.ID, NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcEthernetVirtualizerWithNVUE), Status: cutil.GetPtr(cdbm.VpcStatusError),
-					})
-					require.NoError(t, err)
-				}
-				_, err = cdbm.NewSiteDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.SiteUpdateInput{
-					SiteID: fixture.site.ID, Status: cutil.GetPtr(cdbm.SiteStatusError),
-				})
-				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
-			expectedStatus:     http.StatusOK,
-			expectedVpc:        "target",
-			expectProxyRequest: true,
-			expectedAllow:      true,
+			expectedStatus: http.StatusBadRequest,
+			expectedVpc:    "source",
+		},
+		{
+			name: "rejects a source VPC that is not Ready",
+			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
+				_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
+					VpcID: fixture.sourceVpc.ID, Status: cutil.GetPtr(cdbm.VpcStatusError),
+				})
+				require.NoError(t, err)
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				require.NoError(t, err)
+				return fixture.subnet.ID.String(), string(body), fixture.user
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedVpc:    "source",
+		},
+		{
+			name: "rejects a target VPC that is not Ready",
+			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
+				_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
+					VpcID: fixture.targetVpc.ID, Status: cutil.GetPtr(cdbm.VpcStatusError),
+				})
+				require.NoError(t, err)
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				require.NoError(t, err)
+				return fixture.subnet.ID.String(), string(body), fixture.user
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedVpc:    "source",
 		},
 		{
 			name: "rejects an FNN target before calling Core",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				controllerVpcID := uuid.New()
 				fnnVpc := common.TestBuildVPC(t, fixture.dbSession, "fnn-vpc", fixture.provider, fixture.tenant, fixture.site, &controllerVpcID, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, fixture.user)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fnnVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fnnVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -202,7 +216,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 					VpcID: fixture.sourceVpc.ID, NetworkVirtualizationType: cutil.GetPtr(cdbm.VpcFNN),
 				})
 				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -215,7 +229,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 				otherTenant := common.TestBuildTenant(t, fixture.dbSession, "other-tenant", "other-org", fixture.user)
 				controllerVpcID := uuid.New()
 				otherVpc := common.TestBuildVPC(t, fixture.dbSession, "other-tenant-vpc", fixture.provider, otherTenant, fixture.site, &controllerVpcID, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, fixture.user)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: otherVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: otherVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -228,7 +242,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 				otherSite := common.TestBuildSite(t, fixture.dbSession, fixture.provider, "other-site", fixture.user)
 				controllerVpcID := uuid.New()
 				otherVpc := common.TestBuildVPC(t, fixture.dbSession, "other-site-vpc", fixture.provider, fixture.tenant, otherSite, &controllerVpcID, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, fixture.user)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: otherVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: otherVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -250,7 +264,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 					Status: cdbm.InterfaceStatusReady, CreatedBy: fixture.user.ID,
 				}).Exec(context.Background())
 				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -261,27 +275,25 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			name:        "leaves REST VPC unchanged when the Core proxy times out",
 			workflowErr: timeoutErr,
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
 			expectedStatus:     http.StatusGatewayTimeout,
 			expectedVpc:        "source",
 			expectProxyRequest: true,
-			expectedAllow:      true,
 		},
 		{
 			name: "leaves REST VPC unchanged for an inconsistent Core response",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				fixture.setCoreResponse(subnetAttachVpcCoreResponse(*fixture.subnet.ControllerNetworkSegmentID, *fixture.sourceVpc.ControllerVpcID))
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
 			expectedStatus:     http.StatusInternalServerError,
 			expectedVpc:        "source",
 			expectProxyRequest: true,
-			expectedAllow:      true,
 		},
 		{
 			name: "leaves REST VPC unchanged when Core returns a non-tenant segment",
@@ -289,14 +301,13 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 				response := subnetAttachVpcCoreResponse(*fixture.subnet.ControllerNetworkSegmentID, *fixture.targetVpc.ControllerVpcID)
 				response.Config.SegmentType = corev1.NetworkSegmentType_HOST_INBAND
 				fixture.setCoreResponse(response)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
 			expectedStatus:     http.StatusInternalServerError,
 			expectedVpc:        "source",
 			expectProxyRequest: true,
-			expectedAllow:      true,
 		},
 		{
 			name: "rejects an invalid Subnet path ID",
@@ -346,7 +357,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 				}
 				require.NotNil(t, expectedControllerVpcID)
 				assert.Equal(t, expectedControllerVpcID.String(), coreRequest.GetVpcId().GetValue())
-				assert.Equal(t, test.expectedAllow, coreRequest.GetAllowReplace())
+				assert.True(t, coreRequest.GetAllowReplace())
 			} else {
 				assert.Empty(t, fixture.proxiedRequest.FullMethod)
 			}
