@@ -5277,7 +5277,6 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                 periodic: Some(PeriodicLogConfig::default()),
                 auto: Some(AutoModeConfig::default()),
                 sse: Some(SseLogConfig::default()),
-                ..LogsCollectorConfig::default()
             }
             .validate()
             .unwrap();
