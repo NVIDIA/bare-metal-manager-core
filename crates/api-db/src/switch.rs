@@ -520,6 +520,24 @@ pub async fn update_firmware_upgrade_status(
     Ok(())
 }
 
+/// Clears firmware_upgrade_status for every switch in `switch_ids` in one statement. Used when a
+/// direct dispatch supersedes whatever the state controller last recorded.
+pub async fn clear_firmware_upgrade_status_for_switches(
+    txn: &mut PgConnection,
+    switch_ids: &[SwitchId],
+) -> DatabaseResult<()> {
+    if switch_ids.is_empty() {
+        return Ok(());
+    }
+    let query = "UPDATE switches SET firmware_upgrade_status = NULL WHERE id = ANY($1)";
+    sqlx::query(query)
+        .bind(switch_ids)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_firmware_upgrade_status_for_switches", e))?;
+    Ok(())
+}
+
 pub async fn update_nvos_update_status(
     txn: &mut PgConnection,
     switch_id: SwitchId,

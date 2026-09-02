@@ -284,12 +284,14 @@ fn rack_firmware_failure_summary(rack: &model::rack::Rack, job: &FirmwareUpgrade
         .map(str::trim)
         .filter(|reason| !reason.is_empty())
         .collect();
+    let reported = reasons.len();
     reasons.sort_unstable();
     reasons.dedup();
 
     match reasons.as_slice() {
         [] => summary,
-        [reason] => format!("{summary}: {reason}"),
+        [reason] if reported == failed.len() => format!("{summary}: {reason}"),
+        [_] => format!("{summary}; some devices reported no reason; see backend service logs"),
         reasons => format!(
             "{summary}: {} distinct errors; see backend service logs",
             reasons.len()
@@ -378,20 +380,25 @@ fn persisted_firmware_status(
 
 fn queued_firmware_status(
     switch_id: SwitchId,
-    requested_at: chrono::DateTime<chrono::Utc>,
+    requested_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> rpc::FirmwareUpdateStatus {
     rpc::FirmwareUpdateStatus {
         result: Some(success_result(&switch_id.to_string())),
         state: rpc::FirmwareUpdateState::FwStateQueued as i32,
         target_version: String::new(),
-        updated_at: Some(requested_at.into()),
+        updated_at: requested_at.map(Into::into),
     }
 }
 
 /// The firmware upgrade request currently in flight for a switch, whether it was
 /// accepted at the rack or already dispatched to the device.
 struct SwitchFirmwareRequest {
-    requested_at: chrono::DateTime<chrono::Utc>,
+    /// When the request was accepted, used as the cycle boundary. `None` for a
+    /// scope persisted before acceptance timestamps existed: the request is
+    /// active but its boundary is unknown. It is never derived from a mutable
+    /// column such as `racks.updated`, which firmware polling advances on every
+    /// write and which would keep moving the boundary past a running update.
+    requested_at: Option<chrono::DateTime<chrono::Utc>>,
     target_version: Option<String>,
 }
 
@@ -416,7 +423,7 @@ fn switch_firmware_request(
         })
         .map(|request| {
             (
-                request.requested_at,
+                Some(request.requested_at),
                 requested_firmware_version(&request.activities),
             )
         });
@@ -430,16 +437,23 @@ fn switch_firmware_request(
             })
             .map(|scope| {
                 (
-                    scope.requested_at.unwrap_or(rack.updated),
+                    scope.requested_at,
                     requested_firmware_version(&scope.activities),
                 )
             })
     });
 
+    if switch_request.is_none() && rack_request.is_none() {
+        return None;
+    }
     let requested_at = switch_request
         .as_ref()
-        .map(|(requested_at, _)| *requested_at)
-        .max(rack_request.as_ref().map(|(requested_at, _)| *requested_at))?;
+        .and_then(|(requested_at, _)| *requested_at)
+        .max(
+            rack_request
+                .as_ref()
+                .and_then(|(requested_at, _)| *requested_at),
+        );
     // The device request is the dispatched form of the rack request and does not
     // have to repeat the version the operator asked for.
     let target_version = switch_request
@@ -463,7 +477,13 @@ fn select_persisted_switch_firmware_status(
     match request {
         Some(request) => {
             let status = persisted_status
-                .filter(|status| status.is_current_for(request.requested_at))
+                // An unknown boundary cannot prove the status belongs to an
+                // earlier cycle, so keep it rather than reporting Queued forever.
+                .filter(|status| {
+                    request
+                        .requested_at
+                        .is_none_or(|requested_at| status.is_current_for(requested_at))
+                })
                 .map_or_else(
                     || queued_firmware_status(switch_id, request.requested_at),
                     |status| persisted_firmware_status(switch_id, status),
@@ -475,6 +495,40 @@ fn select_persisted_switch_firmware_status(
             })
         }
         None => persisted_status.map(|status| persisted_firmware_status(switch_id, status)),
+    }
+}
+
+/// Drops the state-controller's persisted per-device result for switches whose firmware
+/// update was just queued directly, so status polling stops serving the superseded result
+/// and falls through to the backend running the new update.
+///
+/// Best effort on purpose: the backend has already accepted the update, so a bookkeeping
+/// failure must not be reported as a failed dispatch. A switch that fails to clear keeps
+/// serving its previous status until the next write.
+///
+/// This deliberately leaves `switch_reprovisioning_requested` alone. A switch still under an
+/// active state-controller firmware request keeps reporting that request's view; reconciling
+/// a direct dispatch against a pending controller request is a separate concern and is not
+/// resolved here.
+async fn clear_switch_firmware_upgrade_status(api: &Api, switch_ids: &[SwitchId]) {
+    if switch_ids.is_empty() {
+        return;
+    }
+    let mut conn = match api.database_connection.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "failed to acquire a connection to clear superseded switch firmware status"
+            );
+            return;
+        }
+    };
+
+    if let Err(error) =
+        db::switch::clear_firmware_upgrade_status_for_switches(conn.as_mut(), switch_ids).await
+    {
+        tracing::warn!(%error, "failed to clear superseded switch firmware status");
     }
 }
 
@@ -550,17 +604,7 @@ async fn switch_firmware_statuses(
 
     let cm = require_component_manager(api)?;
     let endpoints = resolve_switch_endpoints(api, &backend_switch_ids).await?;
-    statuses.extend(
-        endpoints
-            .unresolved
-            .iter()
-            .map(|u| rpc::FirmwareUpdateStatus {
-                result: Some(error_result(&u.id.to_string(), u.reason.clone())),
-                state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
-                target_version: String::new(),
-                updated_at: None,
-            }),
-    );
+    statuses.extend(unresolved_firmware_statuses(&endpoints.unresolved));
 
     if !endpoints.resolved.endpoints.is_empty() {
         let backend_statuses = cm
@@ -1350,6 +1394,20 @@ fn switch_firmware_maintenance_activities(
 struct UnresolvedDevice<Id> {
     id: Id,
     reason: String,
+}
+
+/// Reports each device that couldn't be resolved to a backend endpoint as an errored
+/// `FwStateUnknown` firmware status, so it still surfaces in the response rather than being
+/// silently dropped from the batch.
+fn unresolved_firmware_statuses<Id: std::fmt::Display>(
+    unresolved: &[UnresolvedDevice<Id>],
+) -> impl Iterator<Item = rpc::FirmwareUpdateStatus> + '_ {
+    unresolved.iter().map(|u| rpc::FirmwareUpdateStatus {
+        result: Some(error_result(&u.id.to_string(), u.reason.clone())),
+        state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+        target_version: String::new(),
+        updated_at: None,
+    })
 }
 
 impl<Id: std::fmt::Display> std::fmt::Display for UnresolvedDevice<Id> {
@@ -2215,16 +2273,7 @@ async fn compute_tray_firmware_statuses(
     )
     .await;
 
-    let mut statuses: Vec<_> = resolved
-        .unresolved
-        .iter()
-        .map(|u| rpc::FirmwareUpdateStatus {
-            result: Some(error_result(&u.id.to_string(), u.reason.clone())),
-            state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
-            target_version: String::new(),
-            updated_at: None,
-        })
-        .collect();
+    let mut statuses: Vec<_> = unresolved_firmware_statuses(&resolved.unresolved).collect();
 
     if !resolved.resolved.endpoints.is_empty() {
         let backend_statuses = cm
@@ -3152,6 +3201,19 @@ pub(crate) async fn update_component_firmware(
                     )
                     .await
                     .map_err(component_manager_error_to_status)?;
+
+                // A direct update supersedes whatever the rack state controller
+                // last recorded. Leaving that terminal result in place would make
+                // status polling keep reporting the previous cycle and never ask
+                // the backend about the update just queued; clearing it routes the
+                // switch to backend polling instead.
+                let superseded: Vec<SwitchId> = backend_results
+                    .iter()
+                    .filter(|r| r.success)
+                    .filter_map(|r| endpoints.resolved.mac_to_id.get(&r.bmc_mac).copied())
+                    .collect();
+                clear_switch_firmware_upgrade_status(api, &superseded).await;
+
                 results.extend(backend_results.into_iter().map(|r| {
                     let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
                     if r.success {
@@ -3715,6 +3777,151 @@ fn select_firmware_status_routing(
     }
 }
 
+/// Power shelves are not part of the rack firmware job, so their status always
+/// comes from the backend.
+async fn power_shelf_firmware_statuses(
+    api: &Api,
+    ids: &[PowerShelfId],
+) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
+    // The rack controller currently writes power-shelf Completed only as an
+    // internal reprovisioning-unblock sentinel; the backend does not include
+    // shelves in the rack firmware job. It is therefore not an API firmware result.
+    let cm = require_component_manager(api)?;
+    let endpoints = resolve_power_shelf_endpoints(api, ids).await?;
+
+    let mut statuses: Vec<_> = unresolved_firmware_statuses(&endpoints.unresolved).collect();
+
+    let backend_statuses = cm
+        .power_shelf
+        .get_firmware_status(&endpoints.resolved.endpoints)
+        .await
+        .map_err(component_manager_error_to_status)?;
+    statuses.extend(backend_statuses.into_iter().map(|s| {
+        let id = ps_mac_to_id_str(&s.pmc_mac, &endpoints.resolved.mac_to_id);
+        rpc::FirmwareUpdateStatus {
+            result: Some(if s.error.is_none() {
+                success_result(&id)
+            } else {
+                error_result(&id, s.error.unwrap_or_default())
+            }),
+            state: map_fw_state(s.state),
+            target_version: s.target_version,
+            updated_at: None,
+        }
+    }));
+    Ok(statuses)
+}
+
+/// Routes each machine to the backend or to the database, depending on whether a
+/// firmware update was dispatched around the state controller.
+async fn routed_machine_firmware_statuses(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
+    if machine_ids.is_empty() {
+        return Err(Status::invalid_argument("machine_ids must not be empty"));
+    }
+
+    // In direct-dispatch mode all IDs go to the compute-tray backend. In
+    // state-controller mode, IDs with a persisted direct-dispatch job poll the
+    // live backend; the rest use the database-only status path.
+    let Some(cm) = api.component_manager.as_ref() else {
+        return machine_firmware_statuses(api, machine_ids).await;
+    };
+    let machines_by_id = load_machines_by_id(api, machine_ids).await?;
+    let bmc_macs_with_direct_fw_updates = if cm.compute_tray_use_state_controller {
+        let bmc_macs: Vec<MacAddress> = machine_ids
+            .iter()
+            .filter_map(|id| machines_by_id.get(id).and_then(|m| m.status.bmc_info.mac))
+            .collect();
+
+        db::direct_dispatch_firmware_job::find_macs_with_job(api.pg_pool(), &bmc_macs)
+            .await
+            .map_err(|e| Status::internal(format!("db error: {e}")))?
+    } else {
+        HashSet::new()
+    };
+
+    match select_firmware_status_routing(
+        cm.compute_tray_use_state_controller,
+        machine_ids,
+        &machines_by_id,
+        &bmc_macs_with_direct_fw_updates,
+    ) {
+        FirmwareStatusRouting::DirectDispatch => {
+            compute_tray_firmware_statuses(cm, api, &machines_by_id, machine_ids).await
+        }
+        FirmwareStatusRouting::Partitioned {
+            persisted,
+            fallback,
+        } => {
+            // Disjoint ID sets on independent backends (a component-manager RPC vs. a DB
+            // query): run them concurrently instead of paying the sum of their latencies.
+            let persisted_statuses = async {
+                if persisted.is_empty() {
+                    Ok(Vec::new())
+                } else {
+                    compute_tray_firmware_statuses(cm, api, &machines_by_id, &persisted).await
+                }
+            };
+            let fallback_statuses = async {
+                if fallback.is_empty() {
+                    Ok(Vec::new())
+                } else {
+                    machine_firmware_statuses(api, &fallback).await
+                }
+            };
+            let (persisted_statuses, fallback_statuses) =
+                tokio::try_join!(persisted_statuses, fallback_statuses)?;
+
+            let mut statuses = Vec::with_capacity(machine_ids.len());
+            statuses.extend(persisted_statuses);
+            statuses.extend(fallback_statuses);
+            Ok(statuses)
+        }
+    }
+}
+
+/// Rack status is entirely database-derived; a missing rack is reported per ID
+/// rather than failing the batch.
+async fn rack_firmware_statuses(
+    api: &Api,
+    rack_ids: &[RackId],
+) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
+    if rack_ids.is_empty() {
+        return Err(Status::invalid_argument("rack_ids must not be empty"));
+    }
+
+    let racks = db::rack::find_by(
+        api.db_reader().as_mut(),
+        db::ObjectColumnFilter::List(db::rack::IdColumn, rack_ids),
+    )
+    .await
+    .map_err(|e| Status::internal(format!("failed to look up racks: {e}")))?;
+    let rack_by_id: HashMap<_, _> = racks
+        .into_iter()
+        .map(|rack| (rack.id.clone(), rack))
+        .collect();
+
+    Ok(rack_ids
+        .iter()
+        .map(|rack_id| {
+            rack_by_id
+                .get(rack_id)
+                .map(rack_firmware_status)
+                .unwrap_or(rpc::FirmwareUpdateStatus {
+                    result: Some(not_found_component_result(
+                        rack_id.as_ref(),
+                        format!("rack {rack_id} not found"),
+                    )),
+                    state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                    target_version: String::new(),
+                    updated_at: None,
+                })
+        })
+        .collect())
+}
+
 pub(crate) async fn get_component_firmware_status(
     api: &Api,
     request: Request<rpc::GetComponentFirmwareStatusRequest>,
@@ -3731,140 +3938,13 @@ pub(crate) async fn get_component_firmware_status(
             switch_firmware_statuses(api, &list.ids).await?
         }
         rpc::get_component_firmware_status_request::Target::PowerShelfIds(list) => {
-            // The rack controller currently writes power-shelf Completed only as an
-            // internal reprovisioning-unblock sentinel; the backend does not include
-            // shelves in the rack firmware job. It is therefore not an API firmware result.
-            let cm = require_component_manager(api)?;
-            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
-
-            let mut statuses: Vec<_> = endpoints
-                .unresolved
-                .iter()
-                .map(|u| rpc::FirmwareUpdateStatus {
-                    result: Some(error_result(&u.id.to_string(), u.reason.clone())),
-                    state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
-                    target_version: String::new(),
-                    updated_at: None,
-                })
-                .collect();
-
-            let backend_statuses = cm
-                .power_shelf
-                .get_firmware_status(&endpoints.resolved.endpoints)
-                .await
-                .map_err(component_manager_error_to_status)?;
-            statuses.extend(backend_statuses.into_iter().map(|s| {
-                let id = ps_mac_to_id_str(&s.pmc_mac, &endpoints.resolved.mac_to_id);
-                rpc::FirmwareUpdateStatus {
-                    result: Some(if s.error.is_none() {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, s.error.unwrap_or_default())
-                    }),
-                    state: map_fw_state(s.state),
-                    target_version: s.target_version,
-                    updated_at: None,
-                }
-            }));
-            statuses
+            power_shelf_firmware_statuses(api, &list.ids).await?
         }
         rpc::get_component_firmware_status_request::Target::MachineIds(list) => {
-            if list.machine_ids.is_empty() {
-                return Err(Status::invalid_argument("machine_ids must not be empty"));
-            }
-
-            // In direct-dispatch mode all IDs go to the compute-tray backend.
-            // In state-controller mode the batch is partitioned by whether each
-            // tray's BMC MAC has an in-flight direct-dispatch firmware-object job
-            // in compute_firmware_object_jobs (set when a firmware update was
-            // dispatched via --bypass-state-controller, before or after
-            // ingestion): those are polled from the live backend; the rest use
-            // the DB-only machine_firmware_statuses() path.
-            if let Some(cm) = api.component_manager.as_ref() {
-                let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
-
-                let bmc_macs_with_direct_fw_updates = if cm.compute_tray_use_state_controller {
-                    let bmc_macs: Vec<MacAddress> = list
-                        .machine_ids
-                        .iter()
-                        .filter_map(|id| machines_by_id.get(id).and_then(|m| m.status.bmc_info.mac))
-                        .collect();
-                    db::direct_dispatch_firmware_job::find_macs_with_job(api.pg_pool(), &bmc_macs)
-                        .await
-                        .map_err(|e| Status::internal(format!("db error: {e}")))?
-                } else {
-                    HashSet::new()
-                };
-
-                match select_firmware_status_routing(
-                    cm.compute_tray_use_state_controller,
-                    &list.machine_ids,
-                    &machines_by_id,
-                    &bmc_macs_with_direct_fw_updates,
-                ) {
-                    FirmwareStatusRouting::DirectDispatch => {
-                        compute_tray_firmware_statuses(cm, api, &machines_by_id, &list.machine_ids)
-                            .await?
-                    }
-                    FirmwareStatusRouting::Partitioned {
-                        persisted,
-                        fallback,
-                    } => {
-                        let mut statuses = Vec::with_capacity(list.machine_ids.len());
-                        if !persisted.is_empty() {
-                            statuses.extend(
-                                compute_tray_firmware_statuses(
-                                    cm,
-                                    api,
-                                    &machines_by_id,
-                                    &persisted,
-                                )
-                                .await?,
-                            );
-                        }
-                        if !fallback.is_empty() {
-                            statuses.extend(machine_firmware_statuses(api, &fallback).await?);
-                        }
-                        statuses
-                    }
-                }
-            } else {
-                machine_firmware_statuses(api, &list.machine_ids).await?
-            }
+            routed_machine_firmware_statuses(api, &list.machine_ids).await?
         }
         rpc::get_component_firmware_status_request::Target::RackIds(list) => {
-            if list.rack_ids.is_empty() {
-                return Err(Status::invalid_argument("rack_ids must not be empty"));
-            }
-
-            let requested_rack_ids = list.rack_ids;
-            let racks = db::rack::find_by(
-                api.db_reader().as_mut(),
-                db::ObjectColumnFilter::List(db::rack::IdColumn, &requested_rack_ids),
-            )
-            .await
-            .map_err(|e| Status::internal(format!("failed to look up racks: {e}")))?;
-            let rack_by_id: HashMap<_, _> = racks
-                .into_iter()
-                .map(|rack| (rack.id.clone(), rack))
-                .collect();
-
-            requested_rack_ids
-                .iter()
-                .map(|rack_id| {
-                    rack_by_id.get(rack_id).map(rack_firmware_status).unwrap_or(
-                        rpc::FirmwareUpdateStatus {
-                            result: Some(not_found_component_result(
-                                rack_id.as_ref(),
-                                format!("rack {rack_id} not found"),
-                            )),
-                            state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
-                            target_version: String::new(),
-                            updated_at: None,
-                        },
-                    )
-                })
-                .collect()
+            rack_firmware_statuses(api, &list.rack_ids).await?
         }
         rpc::get_component_firmware_status_request::Target::ComputeBmcMacs(list) => {
             let resolution = resolve_compute_macs(api, &list.mac_addresses).await?;
@@ -4818,6 +4898,28 @@ mod tests {
                 } => "firmware upgrade failed: 1/1 devices failed".to_string(),
             }
 
+            "one known reason is not attributed to a device that reported none" {
+                FirmwareUpgradeJob {
+                    machines: vec![
+                        failed_firmware_device("download failed"),
+                        firmware_device(FirmwareProgressState::Failed),
+                    ],
+                    ..Default::default()
+                } => "firmware upgrade failed: 2/2 devices failed; some devices \
+                      reported no reason; see backend service logs".to_string(),
+            }
+
+            "one known reason is not attributed to a device that reported a blank one" {
+                FirmwareUpgradeJob {
+                    machines: vec![
+                        failed_firmware_device("download failed"),
+                        failed_firmware_device("   "),
+                    ],
+                    ..Default::default()
+                } => "firmware upgrade failed: 2/2 devices failed; some devices \
+                      reported no reason; see backend service logs".to_string(),
+            }
+
             "blank reasons are treated as absent" {
                 FirmwareUpgradeJob {
                     machines: vec![failed_firmware_device("   ")],
@@ -5107,7 +5209,7 @@ mod tests {
         };
 
         let request = SwitchFirmwareRequest {
-            requested_at,
+            requested_at: Some(requested_at),
             target_version: Some("fw-42".into()),
         };
 
@@ -5174,12 +5276,13 @@ mod tests {
                 components: vec![],
                 force_update: false,
             }],
+            requested_at: Some(rack_requested_at),
             ..Default::default()
         });
 
         let request = switch_firmware_request(&switch, Some(&rack))
             .expect("the accepted rack request gates status before device dispatch");
-        assert_eq!(request.requested_at, rack_requested_at);
+        assert_eq!(request.requested_at, Some(rack_requested_at));
         assert_eq!(
             request.target_version.as_deref(),
             Some("firmware-object-json")
@@ -5198,7 +5301,8 @@ mod tests {
         let request = switch_firmware_request(&switch, Some(&rack))
             .expect("a dispatched device request is still an active request");
         assert_eq!(
-            request.requested_at, switch_requested_at,
+            request.requested_at,
+            Some(switch_requested_at),
             "the dispatched device request is the more precise cycle boundary"
         );
         assert_eq!(
@@ -5221,6 +5325,53 @@ mod tests {
             switch_firmware_request(&switch, Some(&rack)).is_none(),
             "a rack scope that excludes the switch is not its request"
         );
+    }
+
+    #[test]
+    fn switch_firmware_request_has_no_boundary_for_a_legacy_rack_scope() {
+        let mut rack = test_rack_with_job(None);
+        let mut switch = test_switch();
+        switch.rack_id = Some(rack.id.clone());
+        // A scope persisted before acceptance timestamps existed.
+        rack.config.maintenance_requested = Some(model::rack::MaintenanceScope {
+            switch_ids: vec![switch.id],
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some("firmware-object-json".into()),
+                components: vec![],
+                force_update: false,
+            }],
+            requested_at: None,
+            ..Default::default()
+        });
+
+        let started_at = chrono::Utc::now();
+        let status = model::rack::RackFirmwareUpgradeStatus {
+            task_id: "backend-task-id".into(),
+            status: model::rack::RackFirmwareUpgradeState::InProgress,
+            started_at: Some(started_at),
+            ended_at: None,
+        };
+
+        // Firmware polling rewrites the rack row, so `updated` keeps advancing
+        // past the running update. It must not become the cycle boundary.
+        for offset in [0, 5, 60] {
+            rack.updated = started_at + chrono::Duration::minutes(offset);
+            let request = switch_firmware_request(&switch, Some(&rack))
+                .expect("a legacy scope is still an active request");
+            assert_eq!(
+                request.requested_at, None,
+                "a legacy scope has no boundary; rack.updated must not supply one"
+            );
+
+            let selected =
+                select_persisted_switch_firmware_status(switch.id, Some(&status), Some(&request))
+                    .expect("an active request always yields a status");
+            assert_eq!(
+                selected.state,
+                rpc::FirmwareUpdateState::FwStateInProgress as i32,
+                "a later rack write must not send a running update back to queued"
+            );
+        }
     }
 
     #[test]
@@ -5251,7 +5402,7 @@ mod tests {
 
         let request = switch_firmware_request(&switch, Some(&rack))
             .expect("the dispatched device request is active on its own");
-        assert_eq!(request.requested_at, requested_at);
+        assert_eq!(request.requested_at, Some(requested_at));
         assert_eq!(
             request.target_version, None,
             "a scope that does not cover this switch must not supply its target version"
@@ -5280,7 +5431,8 @@ mod tests {
         let request = switch_firmware_request(&switch, Some(&rack))
             .expect("a pending rack request is an active request");
         assert_eq!(
-            request.requested_at, requested_at,
+            request.requested_at,
+            Some(requested_at),
             "the cycle boundary is when the request was accepted"
         );
 
