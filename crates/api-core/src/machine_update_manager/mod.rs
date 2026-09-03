@@ -29,7 +29,7 @@ use std::time::Duration;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use db::Transaction;
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use host_firmware::HostFirmwareUpdate;

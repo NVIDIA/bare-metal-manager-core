@@ -54,7 +54,8 @@ type FlowServerImpl struct {
 	taskScheduleStore          taskschedule.Store          // Persistence layer for task schedules
 	taskScheduleDispatcher     *taskschedule.Dispatcher    // Background poller that fires due task schedules
 	operationRunManager        operationrunmanager.Manager // Operation-run manager for run planning and persistence
-	conflictResolver           *conflict.Resolver          // Reused for inter-schedule conflict detection
+	eventRuleManager           eventRuleManager
+	conflictResolver           *conflict.Resolver // Reused for inter-schedule conflict detection
 	dataCipher                 *secret.Cipher
 	pb.UnimplementedFlowServer // Embedded protobuf server interface for forward compatibility
 }
@@ -78,6 +79,7 @@ func newServerImplementation(
 	taskScheduleStore taskschedule.Store,
 	taskScheduleDispatcher *taskschedule.Dispatcher,
 	operationRunManager operationrunmanager.Manager,
+	eventRuleManager eventRuleManager,
 	dataCipher *secret.Cipher,
 ) (*FlowServerImpl, error) {
 	return &FlowServerImpl{
@@ -87,6 +89,7 @@ func newServerImplementation(
 		taskScheduleStore:      taskScheduleStore,
 		taskScheduleDispatcher: taskScheduleDispatcher,
 		operationRunManager:    operationRunManager,
+		eventRuleManager:       eventRuleManager,
 		dataCipher:             dataCipher,
 		conflictResolver:       conflict.NewResolver(taskStore),
 	}, nil

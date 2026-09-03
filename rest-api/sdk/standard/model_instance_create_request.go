@@ -62,6 +62,8 @@ type InstanceCreateRequest struct {
 	AutoNetwork *bool `json:"autoNetwork,omitempty"`
 	// Associate one or more Partitions with this Instance
 	InfinibandInterfaces []InfiniBandInterfaceCreateRequest `json:"infinibandInterfaces,omitempty"`
+	// Associate one or more SpectrumX Partitions with this Instance. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.
+	SpectrumXAttachments []InstanceSpectrumXAttachmentCreateOrUpdateRequest `json:"spectrumXAttachments,omitempty"`
 	// DPU Extension Services to deploy to the DPUs of this Instance
 	DpuExtensionServiceDeployments []DpuExtensionServiceDeploymentRequest `json:"dpuExtensionServiceDeployments,omitempty"`
 	// Define Interfaces to associate Instance GPUs with NVLink Logical Partitions. A subset of GPUs may be specified (it is not required to include all GPUs). Each item references one GPU index (`deviceInstance`) and one NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions.
@@ -766,6 +768,38 @@ func (o *InstanceCreateRequest) SetInfinibandInterfaces(v []InfiniBandInterfaceC
 	o.InfinibandInterfaces = v
 }
 
+// GetSpectrumXAttachments returns the SpectrumXAttachments field value if set, zero value otherwise.
+func (o *InstanceCreateRequest) GetSpectrumXAttachments() []InstanceSpectrumXAttachmentCreateOrUpdateRequest {
+	if o == nil || IsNil(o.SpectrumXAttachments) {
+		var ret []InstanceSpectrumXAttachmentCreateOrUpdateRequest
+		return ret
+	}
+	return o.SpectrumXAttachments
+}
+
+// GetSpectrumXAttachmentsOk returns a tuple with the SpectrumXAttachments field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InstanceCreateRequest) GetSpectrumXAttachmentsOk() ([]InstanceSpectrumXAttachmentCreateOrUpdateRequest, bool) {
+	if o == nil || IsNil(o.SpectrumXAttachments) {
+		return nil, false
+	}
+	return o.SpectrumXAttachments, true
+}
+
+// HasSpectrumXAttachments returns a boolean if a field has been set.
+func (o *InstanceCreateRequest) HasSpectrumXAttachments() bool {
+	if o != nil && !IsNil(o.SpectrumXAttachments) {
+		return true
+	}
+
+	return false
+}
+
+// SetSpectrumXAttachments gets a reference to the given []InstanceSpectrumXAttachmentCreateOrUpdateRequest and assigns it to the SpectrumXAttachments field.
+func (o *InstanceCreateRequest) SetSpectrumXAttachments(v []InstanceSpectrumXAttachmentCreateOrUpdateRequest) {
+	o.SpectrumXAttachments = v
+}
+
 // GetDpuExtensionServiceDeployments returns the DpuExtensionServiceDeployments field value if set, zero value otherwise.
 func (o *InstanceCreateRequest) GetDpuExtensionServiceDeployments() []DpuExtensionServiceDeploymentRequest {
 	if o == nil || IsNil(o.DpuExtensionServiceDeployments) {
@@ -954,6 +988,9 @@ func (o InstanceCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.InfinibandInterfaces) {
 		toSerialize["infinibandInterfaces"] = o.InfinibandInterfaces
+	}
+	if !IsNil(o.SpectrumXAttachments) {
+		toSerialize["spectrumXAttachments"] = o.SpectrumXAttachments
 	}
 	if !IsNil(o.DpuExtensionServiceDeployments) {
 		toSerialize["dpuExtensionServiceDeployments"] = o.DpuExtensionServiceDeployments

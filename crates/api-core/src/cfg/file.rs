@@ -231,11 +231,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_fabric_prefixes: Vec<IpNetwork>,
 
-    /// Opts this site into tenant prefix overlap admission.
+    /// Opts this site into exact tenant VpcPrefix reuse checks.
     ///
-    /// Defaults to `false`. Participating FNN base profiles must separately
-    /// set `tenant_prefix_overlap_eligible`, and configuration alone does not permit
-    /// duplicate prefix persistence while database exclusions remain active.
+    /// Defaults to `false`. The complete eligibility, rejection, and database
+    /// fallback contract is documented under "Tenant prefix overlap checks"
+    /// in `crates/api-core/src/cfg/README.md`.
     #[serde(default)]
     pub tenant_prefix_overlap_enabled: bool,
 
@@ -2855,12 +2855,12 @@ pub struct FnnRoutingProfileConfig {
     #[serde(default)]
     pub internal: Option<bool>,
 
-    /// Opts VPCs based on this profile into future tenant prefix overlap admission.
+    /// Opts VPCs based on this profile into exact tenant VpcPrefix reuse checks.
     ///
     /// This base-profile setting defaults to `false` and cannot be overridden
-    /// by a VPC. Admission support is tracked by
-    /// <https://github.com/NVIDIA/infra-controller/issues/3890>; this value
-    /// alone changes neither routing nor prefix persistence.
+    /// by a VPC. The complete eligibility, rejection, and database fallback
+    /// contract is documented under "Tenant prefix overlap checks" in
+    /// `crates/api-core/src/cfg/README.md`.
     #[serde(default)]
     pub tenant_prefix_overlap_eligible: bool,
 
@@ -2907,22 +2907,27 @@ pub struct FnnRoutingProfileConfig {
 }
 
 impl FnnRoutingProfileConfig {
-    /// Returns whether this resolved profile satisfies the profile-local overlap policy.
+    /// `is_eligible_for_tenant_prefix_overlap` returns whether the resolved
+    /// profile meets every profile condition for exact prefix reuse.
     ///
     /// Evaluate the profile returned by [`FnnConfig::resolve_vpc_routing_profile`],
     /// not the raw base profile, so VPC overrides participate in the decision.
-    /// This check cannot see site-wide route targets, additional FNN imports,
-    /// VPC peering, or retained routing state. Callers must reject those paths
-    /// between overlapping VPCs and separately require the site gate and
-    /// site-wide `vpc_isolation_behavior = "mutual_isolation"`.
-    #[allow(dead_code)] // Staged for https://github.com/NVIDIA/infra-controller/issues/3890.
+    /// The caller adds the site-wide conditions for these prefix writers.
+    /// Peering and VPC policy changes are tracked in
+    /// <https://github.com/NVIDIA/infra-controller/issues/5114>, and retained
+    /// Instance paths are tracked in
+    /// <https://github.com/NVIDIA/infra-controller/issues/5115>. Startup and
+    /// complete writer coverage are tracked in
+    /// <https://github.com/NVIDIA/infra-controller/issues/5116>. All three must
+    /// land before the database cutover in
+    /// <https://github.com/NVIDIA/infra-controller/issues/3892>.
     pub(crate) fn is_eligible_for_tenant_prefix_overlap(&self) -> bool {
         // Keep this exhaustive so new profile fields require an explicit eligibility decision.
         let Self {
             tenant_prefix_overlap_eligible,
             route_target_imports,
             route_targets_on_exports,
-            // External profiles are outside the initial overlap-admission scope.
+            // External profiles cannot participate in exact prefix reuse.
             internal,
             leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay,
