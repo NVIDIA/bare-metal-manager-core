@@ -264,6 +264,21 @@ pub fn parse_carbide_config(
         );
     }
 
+    if config.deprecated_rack_management_enabled.is_some() {
+        let path = "rack_management_enabled";
+        let source = config
+            .config_ctx
+            .as_ref()
+            .and_then(|figment| figment.find_metadata(path))
+            .map(super::provenance::source_label)
+            .unwrap_or_else(|| "configuration".to_string());
+        tracing::warn!(
+            config_key = path,
+            config_source = %source,
+            "Ignoring deprecated configuration key"
+        );
+    }
+
     for (label, _) in config
         .host_models
         .iter()
