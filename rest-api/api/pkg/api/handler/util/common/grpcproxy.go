@@ -82,14 +82,6 @@ func ExecuteFlowGRPC(
 	return executeGRPCProxy(ctx, stc, grpcproxy.Flow, fullMethod, req, resp, workflowID, conflictPolicy, secretKey, secretFields...)
 }
 
-// FlowWorkflowID namespaces a derived workflow ID under the Flow gRPC proxy.
-// The namespace originally kept proxy executions from attaching to bespoke
-// predecessors during migration. It remains part of the ID contract so rolling
-// upgrades do not split identical requests across old and new ID namespaces.
-func FlowWorkflowID(derived string) string {
-	return "flow-grpc-" + derived
-}
-
 // ProxyFlowGRPC dispatches one already-validated request to Flow through the
 // generic proxy workflow, decoding the reply into resp, which may be nil for
 // methods with an empty response.

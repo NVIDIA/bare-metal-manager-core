@@ -64,7 +64,7 @@ func resolveTrayIDsBySlot(
 		ctx, stc,
 		flowv1.Flow_GetComponents_FullMethodName,
 		flowReq, &resp,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		"",
 	)
 	if apiErr != nil {
@@ -234,7 +234,7 @@ func (gth GetTrayHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_GetComponentInfoByID_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(fmt.Sprintf("tray-get-%s", trayStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+		fmt.Sprintf("tray-get-%s", trayStrID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -428,7 +428,7 @@ func (gath GetAllTrayHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_GetComponents_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -621,7 +621,7 @@ func (vth ValidateTrayHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ValidateComponents_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(fmt.Sprintf("tray-validate-%s", trayStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		fmt.Sprintf("tray-validate-%s", trayStrID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -786,7 +786,7 @@ func (vtsh ValidateTraysHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ValidateComponents_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
