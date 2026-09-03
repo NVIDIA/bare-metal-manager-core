@@ -518,6 +518,7 @@ profiles:
               - dev/docker/Dockerfile.build-container-aarch64
               - dev/deployment/devspace/Dockerfile.pxe
               - dev/deployment/devspace/Dockerfile.pxe.dockerignore
+              - pxe/ipxe/local/embed.ipxe
               - pxe/scout-firmware-scripts
               - pxe/templates
       - op: add
