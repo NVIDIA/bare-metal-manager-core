@@ -23,7 +23,7 @@ use ::rpc::forge as rpc;
 use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{CertDescriptionMiddleware, ConnectionAttributes};
 use hyper::server::conn::{http1, http2};
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
 use model::ConfigValidationError;
 use opentelemetry::metrics::Meter;
@@ -335,7 +335,12 @@ pub(crate) async fn start(
     let listener = TcpListener::bind(listen_port).await?;
     let listen_address = listener.local_addr()?;
     tracing::info!(effective_listen_address = %listen_address, "API listener started");
-    let http = http2::Builder::new(TokioExecutor::new());
+    let mut http = http2::Builder::new(TokioExecutor::new());
+    // Ping idle connections so peers that vanish without a clean close get reaped instead of leaking fds.
+    // The timer is required: keep-alive drives its interval through it, and hyper panics without one.
+    http.timer(TokioTimer::new())
+        .keep_alive_interval(Some(Duration::from_secs(30)))
+        .keep_alive_timeout(Duration::from_secs(20));
 
     let extra_cli_certs = if let Some(auth_config) = auth_config {
         auth_config.cli_certs.clone()
