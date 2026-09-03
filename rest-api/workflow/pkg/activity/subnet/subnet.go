@@ -196,7 +196,9 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		// Update Subnet in DB
 		status, statusMessage := getControllerSubnetStatus(controllerSegment.GetStatus())
 
-		if subnet.Status == cdbm.SubnetStatusDeleting && status != cdbm.SubnetStatusDeleting && status != cdbm.SubnetStatusDeleted {
+		// Preserve Deleting until the Subnet disappears from inventory and the
+		// cleanup path releases IPAM and soft-deletes the DB row.
+		if subnet.Status == cdbm.SubnetStatusDeleting {
 			continue
 		}
 
@@ -446,6 +448,14 @@ func (ms ManageSubnet) createOrUpdateSubnetFromSite(
 			existingPrefix, parseErr := netip.ParsePrefix(existingPrefixCIDR)
 			if parseErr != nil || existingPrefix.Masked().String() != maskedPrefixCIDR {
 				logger.Warn().Msgf("unable to create Subnet found on Site: Prefix differs in REST cache and Site record for Subnet %s", controllerSegmentID)
+				return nil, nil
+			}
+			// Deleted records when the delete happened, so a delete newer than the interval can
+			// postdate this inventory. Undeleting then would revive a Subnet the snapshot
+			// never saw removed. Skip before the IPAM work below rather than after, so there is
+			// no allocation to unwind. A later inventory undeletes it if the Site still reports it.
+			if site.IsTimeWithinStaleInventoryThreshold(*existingSubnet.Deleted) {
+				logger.Info().Msgf("not undeleting Subnet %s yet because it was deleted more recently than the inventory interval", controllerSegmentID)
 				return nil, nil
 			}
 		}

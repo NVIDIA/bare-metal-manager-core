@@ -392,6 +392,9 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	// Subnet 5 is reported as Ready in Controller inventory but is being deleted, so does not get updated
 	subnet5 := testSubnetBuildSubnet(t, dbSession, "test-subnet-5", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusDeleting, tnu)
 
+	// Subnet 10 is reported as Terminated in Controller inventory but remains Deleting until it disappears from inventory
+	subnet10 := testSubnetBuildSubnet(t, dbSession, "test-subnet-10", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusDeleting, tnu)
+
 	// Subnet 6 was previously missing but is reported as Ready in Controller inventory
 	subnet6 := testSubnetBuildSubnet(t, dbSession, "test-subnet-6", tn, vpc, nil, cutil.GetPtr(uuid.New()), &ipb.RoutingType, &ipv4Prefix, &ipv4Gateway, &ipb.ID, 26, cdbm.SubnetStatusError, tnu)
 
@@ -466,7 +469,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 		args            args
 		updatedSubnet   *cdbm.Subnet
 		deletedSubnets  []*cdbm.Subnet
-		deletingSubnet  *cdbm.Subnet
+		deletingSubnets []*cdbm.Subnet
 		missingSubnets  []*cdbm.Subnet
 		restoredSubnet  *cdbm.Subnet
 		unpairedSubnets []*cdbm.Subnet
@@ -506,6 +509,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 					Segments: []*corev1.NetworkSegment{
 						testBuildNetworkSegment(subnet1.ControllerNetworkSegmentID.String(), subnet1.Name, &mtu, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
 						testBuildNetworkSegment(subnet5.ControllerNetworkSegmentID.String(), subnet5.Name, nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
+						testBuildNetworkSegment(subnet10.ControllerNetworkSegmentID.String(), subnet10.Name, nil, corev1.TenantState_TERMINATED, corev1.NetworkSegmentType_TENANT),
 						testBuildNetworkSegment(subnet6.ControllerNetworkSegmentID.String(), subnet6.Name, nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
 						testBuildNetworkSegment(uuid.NewString(), subnet8.ID.String(), nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
 						testBuildNetworkSegment(uuid.NewString(), subnet9.ID.String(), nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
@@ -514,7 +518,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 			},
 			updatedSubnet:   subnet1,
 			deletedSubnets:  []*cdbm.Subnet{subnet2, subnetFG, subnet7},
-			deletingSubnet:  subnet5,
+			deletingSubnets: []*cdbm.Subnet{subnet5, subnet10},
 			missingSubnets:  []*cdbm.Subnet{subnet3, subnet4},
 			restoredSubnet:  subnet6,
 			unpairedSubnets: []*cdbm.Subnet{subnet8, subnet9},
@@ -652,9 +656,9 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 				assert.Equal(t, cdbm.SubnetStatusReady, us.Status)
 			}
 
-			// Check that Subnet 5, which was in Deleting state, did not get its state changed to Ready if Site inventory reports it as Ready
-			if tt.deletingSubnet != nil {
-				us, err := subnetDAO.GetByID(ctx, nil, tt.deletingSubnet.ID, nil)
+			// Check that Subnets in Deleting state remain Deleting while they are still present in Site inventory
+			for _, subnet := range tt.deletingSubnets {
+				us, err := subnetDAO.GetByID(ctx, nil, subnet.ID, nil)
 				assert.Nil(t, err)
 				assert.Equal(t, cdbm.SubnetStatusDeleting, us.Status)
 			}
@@ -912,6 +916,83 @@ func testManageSubnetUpdateSubnetsInDBAutoCreatesAndRestores(t *testing.T) {
 		assert.Nil(t, ipamer.PrefixFrom(ctx, controllerSegment.Config.Prefixes[0].Prefix))
 	})
 
+	t.Run("inventory defers restore when delete is newer than the inventory interval", func(t *testing.T) {
+		recentlyDeletedSubnetID := uuid.New()
+		recentlyDeletedPrefix := "10.20.31.0"
+		recentlyDeletedCIDR := "10.20.31.0/24"
+		recentlyDeletedGateway := "10.20.31.1"
+		_, err := subnetDAO.Create(ctx, nil, cdbm.SubnetCreateInput{
+			SubnetID:                   &recentlyDeletedSubnetID,
+			Name:                       "recently-deleted-subnet",
+			Org:                        tenant.Org,
+			SiteID:                     site.ID,
+			VpcID:                      parentVpc.ID,
+			TenantID:                   tenant.ID,
+			ControllerNetworkSegmentID: &recentlyDeletedSubnetID,
+			RoutingType:                &ipBlock.RoutingType,
+			IPv4Prefix:                 &recentlyDeletedPrefix,
+			IPv4Gateway:                &recentlyDeletedGateway,
+			IPv4BlockID:                &ipBlock.ID,
+			PrefixLength:               24,
+			Status:                     cdbm.SubnetStatusDeleting,
+			CreatedBy:                  tenantUser.ID,
+		})
+		require.NoError(t, err)
+		require.NoError(t, subnetDAO.Delete(ctx, nil, recentlyDeletedSubnetID))
+
+		deleted, _, err := subnetDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.SubnetFilterInput{SubnetIDs: []uuid.UUID{recentlyDeletedSubnetID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deleted, 1)
+		require.NotNil(t, deleted[0].Deleted)
+		deletedAt := *deleted[0].Deleted
+
+		recentInventory := &corev1.SubnetInventory{
+			Segments: []*corev1.NetworkSegment{
+				{
+					Id: &corev1.NetworkSegmentId{Value: recentlyDeletedSubnetID.String()},
+					Config: &corev1.NetworkSegmentConfig{
+						VpcId:       &corev1.VpcId{Value: controllerVpcID.String()},
+						SegmentType: corev1.NetworkSegmentType_TENANT,
+						Prefixes: []*corev1.NetworkPrefix{
+							{Prefix: recentlyDeletedCIDR, Gateway: &recentlyDeletedGateway},
+						},
+					},
+					Metadata: &corev1.Metadata{Name: "recently-deleted-subnet"},
+					Status:   &corev1.NetworkSegmentStatus{TenantState: corev1.TenantState_READY},
+				},
+			},
+		}
+		_, err = manager.UpdateSubnetsInDB(ctx, site.ID, recentInventory)
+		require.NoError(t, err)
+
+		stillDeleted, _, err := subnetDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.SubnetFilterInput{SubnetIDs: []uuid.UUID{recentlyDeletedSubnetID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, stillDeleted, 1)
+		require.NotNil(t, stillDeleted[0].Deleted)
+		assert.Equal(t, deletedAt, *stillDeleted[0].Deleted)
+
+		_, err = subnetDAO.GetByID(ctx, nil, recentlyDeletedSubnetID, nil)
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+
+		ipamer := cipam.NewWithStorage(ipamStorage)
+		ipamer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+			ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+		))
+		assert.Nil(t, ipamer.PrefixFrom(ctx, recentlyDeletedCIDR))
+	})
+
 	t.Run("inventory restores soft-deleted Subnet", func(t *testing.T) {
 		var logOutput bytes.Buffer
 		originalLogger := log.Logger
@@ -920,6 +1001,8 @@ func testManageSubnetUpdateSubnetsInDBAutoCreatesAndRestores(t *testing.T) {
 			log.Logger = originalLogger
 		}()
 
+		// Establish the soft-delete precondition here so this subtest can be
+		// selected with -run without executing the preceding lifecycle subtests.
 		existing, _, err := subnetDAO.GetAll(
 			ctx,
 			nil,
@@ -981,6 +1064,9 @@ func testManageSubnetUpdateSubnetsInDBAutoCreatesAndRestores(t *testing.T) {
 		require.Len(t, deleted, 1)
 		require.NotNil(t, deleted[0].Deleted)
 		require.Equal(t, cdbm.SubnetStatusDeleting, deleted[0].Status)
+		// The undelete is deferred while the delete is newer than the staleness threshold, so
+		// backdate it past that.
+		util.TestInventoryAgeDeletedTimestamp(ctx, t, dbSession, (*cdbm.Subnet)(nil), controllerSegmentID)
 
 		_, err = manager.UpdateSubnetsInDB(ctx, site.ID, inventory)
 		require.NoError(t, err)
@@ -1386,6 +1472,9 @@ func TestManageSubnet_CreateOrUpdateSubnetFromSite(t *testing.T) {
 			require.NoError(t, err)
 			err = testSubnetDAO.Delete(testCtx, nil, controllerSegmentID)
 			require.NoError(t, err)
+			// The undelete is deferred while the delete is newer than the staleness threshold,
+			// so backdate it past that.
+			util.TestInventoryAgeDeletedTimestamp(testCtx, t, testDBSession, (*cdbm.Subnet)(nil), controllerSegmentID)
 
 			if test.storedIPBlockStatus != cdbm.IPBlockStatusReady {
 				_, err = cdbm.NewIPBlockDAO(testDBSession).Update(testCtx, nil, cdbm.IPBlockUpdateInput{
