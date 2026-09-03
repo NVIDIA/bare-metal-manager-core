@@ -814,7 +814,7 @@ mod keep_alive_tests {
     async fn idle_peer_that_answers_pings_stays_connected() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local_addr");
-        let server = tokio::spawn(serve_one(listener));
+        let mut server = tokio::spawn(serve_one(listener));
 
         let sock = TcpStream::connect(addr).await.expect("connect");
         let (_sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
@@ -824,15 +824,22 @@ mod keep_alive_tests {
             .expect("client handshake");
         // Driving the connection answers the server's pings without sending any
         // requests, which is exactly a healthy but idle peer.
-        let client = tokio::spawn(conn);
+        let mut client = tokio::spawn(conn);
 
-        // Well past several ping intervals and timeouts.
-        let still_open = tokio::time::timeout(INTERVAL * 10, server).await;
+        // Well past several ping intervals and timeouts. Borrowed, so the task
+        // stays owned here and can be joined rather than detached on timeout.
+        let still_open = tokio::time::timeout(INTERVAL * 10, &mut server).await;
         assert!(
             still_open.is_err(),
             "a responsive idle peer was disconnected: {still_open:?}"
         );
+
+        // Both are still running, which is the point of the assertion above.
+        // Cancel and join them so neither outlives the test.
         client.abort();
+        server.abort();
+        let _ = (&mut client).await;
+        let _ = (&mut server).await;
     }
 
     /// Keep-alive armed without a timer panics inside hyper on the first
