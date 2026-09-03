@@ -199,6 +199,27 @@ impl NvueClient {
         Ok(nvue_config)
     }
 
+    /// Get the config diff between two NVUE revisions. The order of the
+    /// arguments is significant; NVUE will return the set of changes necessary
+    /// to turn `base_revision` into `target_revision`.
+    pub async fn get_revision_config_diff(
+        &self,
+        base_revision: &str,
+        target_revision: &str,
+    ) -> Result<RevisionConfigDiff, NvueClientError> {
+        let mut request = self.request(Method::GET, "/nvue_v1/")?.build()?;
+        request
+            .url_mut()
+            .query_pairs_mut()
+            .append_pair("diff", base_revision)
+            .append_pair("rev", target_revision)
+            .append_pair("filled", "false");
+
+        let response = self.execute("get_revision_config_diff", request).await?;
+        let diff = response.json().await?;
+        Ok(diff)
+    }
+
     /// Return BGP data for a VRF.
     ///
     /// This calls `GET /nvue_v1/vrf/{vrf-id}/router/bgp` without field filters.
