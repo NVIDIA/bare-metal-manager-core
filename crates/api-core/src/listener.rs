@@ -335,12 +335,7 @@ pub(crate) async fn start(
     let listener = TcpListener::bind(listen_port).await?;
     let listen_address = listener.local_addr()?;
     tracing::info!(effective_listen_address = %listen_address, "API listener started");
-    let mut http = http2::Builder::new(TokioExecutor::new());
-    // Ping idle connections so peers that vanish without a clean close get reaped instead of leaking fds.
-    // The timer is required: keep-alive drives its interval through it, and hyper panics without one.
-    http.timer(TokioTimer::new())
-        .keep_alive_interval(Some(Duration::from_secs(30)))
-        .keep_alive_timeout(Duration::from_secs(20));
+    let http = http2_builder(H2_KEEP_ALIVE_INTERVAL, H2_KEEP_ALIVE_TIMEOUT);
 
     let extra_cli_certs = if let Some(auth_config) = auth_config {
         auth_config.cli_certs.clone()
@@ -718,6 +713,31 @@ pub(crate) async fn start(
     Ok(listen_address)
 }
 
+/// How often an idle HTTP/2 connection is pinged, and how long the peer has to
+/// answer before the connection is dropped.
+///
+/// Without this, a peer that disappears without a clean close leaves its
+/// connection -- and its fd -- parked forever, because hyper only ends
+/// `serve_connection` on a transport-level close or error.
+const H2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
+const H2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Builds the HTTP/2 configuration shared by every accepted connection.
+///
+/// The timer is not optional: keep-alive schedules its interval through it, and
+/// hyper panics on the first connection when keep-alive is armed without one.
+/// Idle pings are always on for servers, so no separate opt-in is needed here.
+fn http2_builder(
+    keep_alive_interval: Duration,
+    keep_alive_timeout: Duration,
+) -> http2::Builder<TokioExecutor> {
+    let mut http = http2::Builder::new(TokioExecutor::new());
+    http.timer(TokioTimer::new())
+        .keep_alive_interval(Some(keep_alive_interval))
+        .keep_alive_timeout(keep_alive_timeout);
+    http
+}
+
 /// Handle the root URL. Health check services often expect a 200 here.
 async fn root_url() -> &'static str {
     const ROOT_CONTENTS: &str = if carbide_version::literal!(build_version).is_empty() {
@@ -726,6 +746,131 @@ async fn root_url() -> &'static str {
         concat!("Forge ", carbide_version::literal!(build_version), "\n")
     };
     ROOT_CONTENTS
+}
+
+#[cfg(test)]
+mod keep_alive_tests {
+    use std::time::Duration;
+
+    use hyper::server::conn::http2;
+    use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::{TcpListener, TcpStream};
+
+    use super::http2_builder;
+
+    /// The client connection preface, followed by an empty SETTINGS frame:
+    /// length 0, type 0x4, no flags, stream 0. Enough for the server to finish
+    /// the handshake and start treating the connection as live.
+    const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    const EMPTY_SETTINGS: &[u8] = &[0, 0, 0, 4, 0, 0, 0, 0, 0];
+
+    const INTERVAL: Duration = Duration::from_millis(100);
+    const TIMEOUT: Duration = Duration::from_millis(100);
+
+    /// Serves one connection with keep-alive on, returning when it ends.
+    async fn serve_one(listener: TcpListener) -> Result<(), hyper::Error> {
+        let (stream, _) = listener.accept().await.expect("accept");
+        // These tests never send a request; the service only satisfies the signature.
+        let service =
+            hyper::service::service_fn(|_req: hyper::Request<hyper::body::Incoming>| async {
+                Ok::<_, std::convert::Infallible>(hyper::Response::new(axum::body::Body::empty()))
+            });
+        http2_builder(INTERVAL, TIMEOUT)
+            .serve_connection(TokioIo::new(stream), service)
+            .await
+    }
+
+    /// The leak this change exists to prevent: a peer that stops answering while
+    /// the connection is idle must be dropped, not parked forever.
+    #[tokio::test]
+    async fn idle_peer_that_stops_answering_is_dropped() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        let server = tokio::spawn(serve_one(listener));
+
+        // Complete the handshake, then go silent while holding the socket open.
+        // No FIN is ever sent, so only an active ping can reveal the peer is gone.
+        let mut sock = TcpStream::connect(addr).await.expect("connect");
+        sock.write_all(H2_PREFACE).await.expect("preface");
+        sock.write_all(EMPTY_SETTINGS).await.expect("settings");
+        sock.flush().await.expect("flush");
+
+        let outcome = tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .expect("connection was still parked; the idle peer was never reaped")
+            .expect("server task panicked");
+
+        assert!(
+            outcome.is_err(),
+            "expected the connection to end with a keep-alive error, got {outcome:?}"
+        );
+        drop(sock);
+    }
+
+    /// The other half of the contract: pings are answered by the transport, so an
+    /// idle peer that is merely quiet must not be disconnected.
+    #[tokio::test]
+    async fn idle_peer_that_answers_pings_stays_connected() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        let server = tokio::spawn(serve_one(listener));
+
+        let sock = TcpStream::connect(addr).await.expect("connect");
+        let (_sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+            .timer(TokioTimer::new())
+            .handshake::<_, axum::body::Body>(TokioIo::new(sock))
+            .await
+            .expect("client handshake");
+        // Driving the connection answers the server's pings without sending any
+        // requests, which is exactly a healthy but idle peer.
+        let client = tokio::spawn(conn);
+
+        // Well past several ping intervals and timeouts.
+        let still_open = tokio::time::timeout(INTERVAL * 10, server).await;
+        assert!(
+            still_open.is_err(),
+            "a responsive idle peer was disconnected: {still_open:?}"
+        );
+        client.abort();
+    }
+
+    /// Keep-alive armed without a timer panics inside hyper on the first
+    /// connection, which would take down every request rather than leak an fd.
+    #[tokio::test]
+    async fn builder_supplies_a_timer_for_keep_alive() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            // Same settings as production, minus the timer.
+            let mut http = http2::Builder::new(TokioExecutor::new());
+            http.keep_alive_interval(Some(INTERVAL))
+                .keep_alive_timeout(TIMEOUT);
+            let service =
+                hyper::service::service_fn(|_req: hyper::Request<hyper::body::Incoming>| async {
+                    Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                        axum::body::Body::empty(),
+                    ))
+                });
+            http.serve_connection(TokioIo::new(stream), service).await
+        });
+
+        let mut sock = TcpStream::connect(addr).await.expect("connect");
+        sock.write_all(H2_PREFACE).await.expect("preface");
+        sock.write_all(EMPTY_SETTINGS).await.expect("settings");
+        sock.flush().await.expect("flush");
+
+        let outcome = tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .expect("timed out");
+        assert!(
+            outcome.is_err_and(|e| e.is_panic()),
+            "expected hyper to panic without a timer; if this stops panicking, \
+             the timer in http2_builder may no longer be load-bearing"
+        );
+        drop(sock);
+    }
 }
 
 #[cfg(test)]
