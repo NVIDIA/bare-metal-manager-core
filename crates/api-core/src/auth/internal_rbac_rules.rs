@@ -542,6 +542,7 @@ impl InternalRBACRules {
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("AdminGpuReset", vec![ForgeAdminCLI, Flow]);
+        x.perm("AdminChassisReset", vec![SiteAgent]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
@@ -1211,7 +1212,11 @@ mod rbac_rule_tests {
         ));
 
         // REST admin operations proxy to Core as the site agent (issue #4597).
-        for method in ["AdminPowerControl", "TriggerDpuReprovisioning"] {
+        for method in [
+            "AdminPowerControl",
+            "TriggerDpuReprovisioning",
+            "AdminChassisReset",
+        ] {
             assert!(
                 InternalRBACRules::allowed_from_static(
                     method,

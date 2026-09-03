@@ -521,6 +521,10 @@ impl ManagedHostStateSnapshot {
             return Err(NotAllocatableReason::PendingBootConfiguration);
         }
 
+        if self.host_snapshot.machine_maintenance_requested.is_some() {
+            return Err(NotAllocatableReason::MaintenanceMode);
+        }
+
         if self.dpu_snapshots.is_empty()
             && !self.host_snapshot.associated_dpu_machine_ids().is_empty()
         {
@@ -2580,7 +2584,7 @@ pub struct ReprovisionRequest {
     pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "lowercase")]
 #[allow(clippy::enum_variant_names)]
 pub enum MachineMaintenanceOperation {
@@ -2590,6 +2594,11 @@ pub enum MachineMaintenanceOperation {
     PowerOff,
     /// Reset the host (restart / AC power cycle).
     Reset,
+    /// Reset a Redfish chassis.
+    ChassisReset {
+        /// Redfish chassis identifier.
+        chassis_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3914,6 +3923,21 @@ mod tests {
         assert_eq!(
             snapshot.is_usable_as_instance(false),
             Err(NotAllocatableReason::PendingBootConfiguration)
+        );
+    }
+
+    #[test]
+    fn ready_host_with_pending_maintenance_is_not_allocatable() {
+        let mut snapshot = managed_host_state_snapshot();
+        snapshot.host_snapshot.machine_maintenance_requested = Some(MachineMaintenanceRequest {
+            requested_at: DateTime::<Utc>::UNIX_EPOCH,
+            initiator: "rest-api".to_string(),
+            operation: MachineMaintenanceOperation::PowerOn,
+        });
+
+        assert_eq!(
+            snapshot.is_usable_as_instance(false),
+            Err(NotAllocatableReason::MaintenanceMode)
         );
     }
 

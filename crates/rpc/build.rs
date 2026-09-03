@@ -30,6 +30,7 @@ const PROTO_FILES: &[&str] = &[
     "proto/site_explorer.proto",
     "proto/dns.proto",
     "proto/fmds.proto",
+    "proto/chassis_reset.proto",
 ];
 const INCLUDE_PATHS: &[&str] = &["proto"];
 

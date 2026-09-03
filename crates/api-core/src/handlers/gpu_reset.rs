@@ -28,6 +28,7 @@ use crate::api::{Api, log_request_data};
 use crate::handlers::bmc_endpoint_explorer::{
     resolve_bmc_interface, validate_and_complete_bmc_endpoint_request,
 };
+use crate::handlers::chassis_reset::validate_chassis_id;
 use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Maps the requested reset action to a Redfish chassis power control.
@@ -62,6 +63,7 @@ pub(crate) async fn admin_gpu_reset(
         .none_if_empty()
         // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
         .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
+    validate_chassis_id(&chassis_id)?;
 
     // Reject tenant-assigned hosts and require maintenance mode before a reset.
     let (host_machine, txn) = api

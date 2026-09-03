@@ -17,6 +17,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
 use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_test_harness::prelude::*;
@@ -135,7 +136,7 @@ enum EntryState {
     Failed,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct ReconciliationCase {
     operation: MachineMaintenanceOperation,
     entry_state: EntryState,
@@ -155,11 +156,14 @@ struct Observation {
     actions: Vec<PowerAction>,
 }
 
-fn expected_action(operation: MachineMaintenanceOperation) -> PowerAction {
+fn expected_action(operation: &MachineMaintenanceOperation) -> PowerAction {
     match operation {
         MachineMaintenanceOperation::PowerOn => PowerAction::On,
         MachineMaintenanceOperation::PowerOff => PowerAction::ForceOff,
         MachineMaintenanceOperation::Reset => PowerAction::ForceRestart,
+        MachineMaintenanceOperation::ChassisReset { .. } => {
+            unreachable!("chassis reset does not use the component manager")
+        }
     }
 }
 
@@ -257,14 +261,14 @@ async fn reconcile(
     case: ReconciliationCase,
 ) -> Result<Observation, String> {
     backend.set_outcome(case.backend_outcome);
-    enter_requested_state(env, host, case.operation, case.entry_state).await;
+    enter_requested_state(env, host, case.operation.clone(), case.entry_state).await;
 
     // First iteration accepts the request from Ready or Failed.
     env.run_single_iteration().await;
     let entered = host.host.machine().await;
     if !matches!(
         entered.state.value,
-        ManagedHostState::Maintenance { operation } if operation == case.operation
+        ManagedHostState::Maintenance { ref operation } if operation == &case.operation
     ) {
         return Err(format!(
             "request did not enter Maintenance from {:?}: {:?}",
@@ -309,7 +313,7 @@ fn backend_cases() -> Vec<Case<ReconciliationCase, Observation, String>> {
                             .into_boxed_str(),
                     ),
                     input: ReconciliationCase {
-                        operation,
+                        operation: operation.clone(),
                         entry_state,
                         backend_outcome,
                     },
@@ -320,13 +324,49 @@ fn backend_cases() -> Vec<Case<ReconciliationCase, Observation, String>> {
                         } else {
                             ResultingState::Failed
                         },
-                        actions: vec![expected_action(operation)],
+                        actions: vec![expected_action(&operation)],
                     }),
                 });
             }
         }
     }
     cases
+}
+
+#[sqlx_test]
+async fn reconciles_chassis_reset_through_redfish(pool: PgPool) {
+    let mut env = Env::builder(pool).build().await;
+    let domain = env.test_harness.test_domain().await;
+    let network_controller = env.test_harness.network_controller();
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
+    let host = create_ready_host(&env, &underlay_segment).await;
+    let timepoint = env.redfish_sim.timepoint();
+
+    enter_requested_state(
+        &env,
+        &host,
+        MachineMaintenanceOperation::ChassisReset {
+            chassis_id: "Chassis_0".to_string(),
+        },
+        EntryState::Ready,
+    )
+    .await;
+    env.run_single_iteration().await;
+    env.run_single_iteration().await;
+
+    let machine = host.host.machine().await;
+    assert!(matches!(machine.state.value, ManagedHostState::Ready));
+    assert!(machine.machine_maintenance_requested.is_none());
+    assert!(
+        env.redfish_sim
+            .actions_since(&timepoint)
+            .all_hosts()
+            .contains(&RedfishSimAction::ChassisReset {
+                chassis_id: "Chassis_0".to_string(),
+                reset_type: libredfish::SystemPowerControl::ForceRestart,
+            })
+    );
 }
 
 #[sqlx_test]
@@ -392,7 +432,7 @@ fn precondition_cases() -> Vec<Case<(MachineMaintenanceOperation, EntryState), O
         for entry_state in [EntryState::Ready, EntryState::Failed] {
             cases.push(Case {
                 scenario: Box::leak(format!("{operation:?} / {entry_state:?}").into_boxed_str()),
-                input: (operation, entry_state),
+                input: (operation.clone(), entry_state),
                 expect: Outcome::Yields(Observation {
                     request_cleared: true,
                     resulting_state: ResultingState::Failed,

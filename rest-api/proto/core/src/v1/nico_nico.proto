@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package forge;
 
+import "chassis_reset_nico.proto";
 import "common_nico.proto";
 import "dns_nico.proto";
 import "google/protobuf/duration.proto";
@@ -1081,6 +1082,9 @@ service Forge {
 
   // Secrets management
   rpc ReWrapSecrets(ReWrapSecretsRequest) returns (ReWrapSecretsResponse);
+
+  // Queue a Redfish ForceRestart through Machine Maintenance.
+  rpc AdminChassisReset(AdminChassisResetRequest) returns (google.protobuf.Empty);
 }
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller

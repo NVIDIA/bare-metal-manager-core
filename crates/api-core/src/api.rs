@@ -1540,6 +1540,13 @@ impl Forge for Api {
         crate::handlers::gpu_reset::admin_gpu_reset(self, request).await
     }
 
+    async fn admin_chassis_reset(
+        &self,
+        request: Request<rpc::AdminChassisResetRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::chassis_reset::admin_chassis_reset(self, request).await
+    }
+
     async fn disable_secure_boot(
         &self,
         request: Request<rpc::BmcEndpointRequest>,

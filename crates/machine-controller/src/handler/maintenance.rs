@@ -36,15 +36,14 @@ use state_controller::state_handler::{
 
 use crate::context::MachineStateHandlerContextObjects;
 
-/// Handles the Maintenance state for a host, dispatching on the requested
-/// operation (`PowerOn` / `PowerOff` / `Reset`).
+/// Handles a host Maintenance operation.
 pub(super) async fn handle_maintenance(
     host_machine_id: &MachineId,
     mh_snapshot: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let operation = match &mh_snapshot.managed_state {
-        ManagedHostState::Maintenance { operation } => *operation,
+        ManagedHostState::Maintenance { operation } => operation.clone(),
         _ => unreachable!("handle_maintenance called with non-Maintenance state"),
     };
 
@@ -56,6 +55,9 @@ pub(super) async fn handle_maintenance(
             handle_power_off(host_machine_id, mh_snapshot, ctx).await
         }
         MachineMaintenanceOperation::Reset => handle_reset(host_machine_id, mh_snapshot, ctx).await,
+        MachineMaintenanceOperation::ChassisReset { chassis_id } => {
+            handle_chassis_reset(host_machine_id, mh_snapshot, ctx, &chassis_id).await
+        }
     }
 }
 
@@ -105,6 +107,60 @@ async fn handle_reset(
         "Reset",
     )
     .await
+}
+
+async fn handle_chassis_reset(
+    host_machine_id: &MachineId,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    chassis_id: &str,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    tracing::info!(
+        machine_id = %host_machine_id,
+        chassis_id,
+        "Machine maintenance: ChassisReset",
+    );
+    let client = match ctx
+        .services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return finish_maintenance_with_error(
+                host_machine_id,
+                ctx,
+                format!(
+                    "Machine {host_machine_id} maintenance (ChassisReset): failed to create Redfish client: {error}"
+                ),
+            )
+            .await;
+        }
+    };
+
+    match client
+        .chassis_reset(chassis_id, libredfish::SystemPowerControl::ForceRestart)
+        .await
+    {
+        Ok(()) => {
+            tracing::info!(
+                machine_id = %host_machine_id,
+                chassis_id,
+                "Chassis reset succeeded; returning host to Ready",
+            );
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db_machine::clear_machine_maintenance_requested(&mut txn, *host_machine_id).await?;
+            Ok(StateHandlerOutcome::transition(ManagedHostState::Ready).with_txn(txn))
+        }
+        Err(error) => finish_maintenance_with_error(
+            host_machine_id,
+            ctx,
+            format!(
+                "Machine {host_machine_id} maintenance (ChassisReset): chassis reset failed: {error}"
+            ),
+        )
+        .await,
+    }
 }
 
 /// Common driver for component-manager-backed power maintenance operations.
@@ -294,6 +350,6 @@ pub(super) fn maintenance_transition_if_requested(
         "Machine maintenance requested; transitioning to Maintenance"
     );
     Some(StateHandlerOutcome::transition(
-        ManagedHostState::maintenance_for_operation(req.operation),
+        ManagedHostState::maintenance_for_operation(req.operation.clone()),
     ))
 }
