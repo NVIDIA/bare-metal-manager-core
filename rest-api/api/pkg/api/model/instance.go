@@ -2053,6 +2053,8 @@ type APIInstance struct {
 	Interfaces []APIInterface `json:"interfaces"`
 	// InfiniBandInterfaces are list of the InfiniBandInterface associated with the Instance
 	InfiniBandInterfaces []APIInfiniBandInterface `json:"infinibandInterfaces"`
+	// SpectrumXAttachments are list of the SpectrumXAttachment associated with the Instance
+	SpectrumXAttachments []APISpectrumXAttachment `json:"spectrumXAttachments"`
 	// DpuExtensionServiceDeployments are list of the DpuExtensionServiceDeployments associated with the Instance
 	DpuExtensionServiceDeployments []APIDpuExtensionServiceDeployment `json:"dpuExtensionServiceDeployments"`
 	// NVLinkInterfaces are list of the NVLinkInterface associated with the Instance
@@ -2100,7 +2102,7 @@ func InstanceListQueryParamDeprecations() []APIDeprecation {
 // NewAPIInstance accepts a DB layer Instance object returns an API layer object.
 // SecondaryVpcIDs are derived from Interface.VpcID or the explicit prefix relation, so
 // callers must preload Interface.VpcPrefix when explicit-prefix IDs should be populated.
-func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Interface, dbibis []cdbm.InfiniBandInterface, dbdesds []cdbm.DpuExtensionServiceDeployment, dbnvlis []cdbm.NVLinkInterface, dbskgs []cdbm.SSHKeyGroup, dbsds []cdbm.StatusDetail) *APIInstance {
+func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Interface, dbibis []cdbm.InfiniBandInterface, dbsxas []cdbm.SpectrumXAttachment, dbdesds []cdbm.DpuExtensionServiceDeployment, dbnvlis []cdbm.NVLinkInterface, dbskgs []cdbm.SSHKeyGroup, dbsds []cdbm.StatusDetail) *APIInstance {
 	var instanceTypeID *string
 	if dbinst.InstanceTypeID != nil {
 		instanceTypeID = cutil.GetPtr(dbinst.InstanceTypeID.String())
@@ -2204,6 +2206,12 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 	for _, dbibi := range dbibis {
 		curibi := dbibi
 		apiInstance.InfiniBandInterfaces = append(apiInstance.InfiniBandInterfaces, *NewAPIInfiniBandInterface(&curibi))
+	}
+
+	apiInstance.SpectrumXAttachments = []APISpectrumXAttachment{}
+	for _, dbsxa := range dbsxas {
+		cursxa := dbsxa
+		apiInstance.SpectrumXAttachments = append(apiInstance.SpectrumXAttachments, *NewAPISpectrumXAttachment(&cursxa))
 	}
 
 	apiInstance.NVLinkInterfaces = []APINVLinkInterface{}
