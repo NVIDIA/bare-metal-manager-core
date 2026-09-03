@@ -199,25 +199,20 @@ flow:
   namespace: flow
 
 ## ---------------------------------------------------------------------------
-## temporalDb / keycloakDb — opt-in Temporal/Keycloak database consolidation
-## onto nico-pg-cluster, instead of each staying on the legacy standalone
-## postgres.postgres StatefulSet. Disabled by default; both targets are
-## supported side by side, and existing sites need no changes.
-##
-## Named *Db*, not `temporal.enabled`/`keycloak.enabled`, on purpose: this
-## only moves the database, not whether Temporal/Keycloak are deployed —
-## `keycloak.enabled` already means something else in values/nico-rest.yaml
-## (whether Keycloak is deployed at all), so reusing that name here would
-## collide in meaning.
+## temporal / keycloak — opt-in Temporal/Keycloak database consolidation onto
+## nico-pg-cluster (the shared, HA Zalando-managed cluster), instead of each
+## staying on the legacy standalone postgres.postgres StatefulSet. Disabled
+## by default; both targets are supported side by side, and existing sites
+## need no changes.
 ##
 ## Full story (what gets provisioned, migration steps, namespace caveats):
 ## see "Consolidating Temporal/Keycloak onto nico-pg-cluster" in README.md.
 ## ---------------------------------------------------------------------------
-temporalDb:
-  enabled: false
+temporal:
+  useHaPostgres: false
 
-keycloakDb:
-  enabled: false
+keycloak:
+  useHaPostgres: false
   ## Namespace Keycloak deploys into — must stay in sync with
   ## values/nico-rest.yaml's nico-rest-api.config.keycloak.baseURL host.
   ## See README.md.

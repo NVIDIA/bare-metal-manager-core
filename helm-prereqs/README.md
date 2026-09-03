@@ -158,8 +158,8 @@ The tables below summarize the keys that must be set per site.
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
 | `postgresql.storageClass` | `"local-path-persistent"` | No | StorageClass for the nico-prereqs PostgreSQL PVCs. Override through Helm values when using a non-local StorageClass. |
-| `temporalDb.enabled` | `false` | No | Move Temporal's default/visibility stores onto `nico-pg-cluster` instead of `postgres.postgres`. Named `temporalDb`, not `temporal`, because it only moves the database — it doesn't gate whether Temporal is deployed. See [Consolidating Temporal/Keycloak onto nico-pg-cluster](#consolidating-temporalkeycloak-onto-nico-pg-cluster). |
-| `keycloakDb.enabled` | `false` | No | Move Keycloak's database onto `nico-pg-cluster` instead of `postgres.postgres`. Distinct from `nico-rest-api.config.keycloak.enabled` in `values/nico-rest.yaml`, which controls whether Keycloak is deployed at all — this toggle provisions the database regardless, so it just goes unused if Keycloak itself isn't deployed. |
+| `temporal.useHaPostgres` | `false` | No | Move Temporal's default/visibility stores onto `nico-pg-cluster` instead of `postgres.postgres`. Named `useHaPostgres`, not `enabled`, because it only moves the database — it doesn't gate whether Temporal is deployed. See [Consolidating Temporal/Keycloak onto nico-pg-cluster](#consolidating-temporalkeycloak-onto-nico-pg-cluster). |
+| `keycloak.useHaPostgres` | `false` | No | Move Keycloak's database onto `nico-pg-cluster` instead of `postgres.postgres`. Distinct from `nico-rest-api.config.keycloak.enabled` in `values/nico-rest.yaml`, which controls whether Keycloak is deployed at all — this toggle provisions the database regardless, so it just goes unused if Keycloak itself isn't deployed. |
 
 ### `values/nico-core.yaml`
 
@@ -342,7 +342,7 @@ NICo Core                  (../helm - nico-core.yaml values)
   └── unbound               (Deployment - .forge zone DNS, opt-in)
 NICo REST                  (../helm/rest/nico-rest)
   ├── nico-rest-ca-issuer   (ClusterIssuer - cert-manager.io)
-  ├── postgres StatefulSet  (legacy standalone DB; default target for Temporal when temporalDb.enabled is false and for Keycloak when keycloakDb.enabled is false — the two are independent)
+  ├── postgres StatefulSet  (legacy standalone DB; default target for Temporal when temporal.useHaPostgres is false and for Keycloak when keycloak.useHaPostgres is false — the two are independent)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
   └── nico-rest             (API, cert-manager, workflow, site-manager - DB on nico-pg-cluster)
@@ -366,10 +366,10 @@ on their next `setup.sh` run.
 
 Two toggles in `helm-prereqs/values.yaml` opt a site in:
 
-- `temporalDb.enabled`
-- `keycloakDb.enabled` (also has a `namespace` field — see the caveat below)
+- `temporal.useHaPostgres`
+- `keycloak.useHaPostgres` (also has a `namespace` field — see the caveat below)
 
-Named `temporalDb`/`keycloakDb`, not `temporal`/`keycloak`: these only move
+The leaf field is `useHaPostgres`, not `enabled`: these toggles only move
 where the *database* lives, not whether Temporal/Keycloak are deployed at
 all. `keycloak.enabled` already means something else, in
 `values/nico-rest.yaml` (whether Keycloak is deployed) — reusing that name
@@ -381,7 +381,7 @@ exactly as before.
 
 ### Migrating an existing site's data
 
-1. Set `temporalDb.enabled: true` and/or `keycloakDb.enabled: true`, then run
+1. Set `temporal.useHaPostgres: true` and/or `keycloak.useHaPostgres: true`, then run
    `helmfile sync -l name=nico-prereqs` (or `setup.sh` through Phase 6). This
    provisions the `temporal.nico`/`keycloak.nico` users and empty
    `temporal`/`temporal_visibility`/`keycloak` databases on `nico-pg-cluster`,
@@ -426,8 +426,8 @@ immediately, since nothing was cut over.
 - **Temporal's namespace is not configurable.** It's hardcoded `temporal`
   throughout `setup.sh` (TLS bootstrap, rollout waits, admintools execs) and
   in the vendored `temporal-helm/namespace.yaml` manifest, so there's no
-  `temporalDb.namespace` value to set.
-- **Keycloak's namespace is `keycloakDb.namespace`** (default `nico-rest`),
+  `temporal.namespace` value to set.
+- **Keycloak's namespace is `keycloak.namespace`** (default `nico-rest`),
   consumed consistently by `setup.sh`, the ESO sync, and the migration
   script. It is **not** propagated automatically to
   `values/nico-rest.yaml`'s `nico-rest-api.config.keycloak.baseURL` /

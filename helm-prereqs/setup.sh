@@ -1813,14 +1813,14 @@ _KC_ENABLED="$(grep -A5 'keycloak:' "${SCRIPT_DIR}/values/nico-rest.yaml" \
 if [[ "${_KC_ENABLED}" == "true" ]]; then
     echo "=== [7d/7] Keycloak ==="
 
-    # helm-prereqs/values.yaml::keycloakDb.enabled — DB consolidation opt-in,
+    # helm-prereqs/values.yaml::keycloak.useHaPostgres — DB consolidation opt-in,
     # distinct from nico-rest.yaml's keycloak.enabled (deployed at all) above.
-    _KC_DB_CONSOLIDATED="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" keycloakDb enabled)"
+    _KC_DB_CONSOLIDATED="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" keycloak useHaPostgres)"
     [[ "${_KC_DB_CONSOLIDATED}" == "true" ]] || _KC_DB_CONSOLIDATED="false"
-    # keycloakDb.namespace — must match what eso-external-secrets.yaml's
+    # keycloak.namespace — must match what eso-external-secrets.yaml's
     # nico-keycloak-db-eso targets, so KEYCLOAK_NS (read by keycloak/setup.sh)
     # agrees with it.
-    export KEYCLOAK_NS="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" keycloakDb namespace)"
+    export KEYCLOAK_NS="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" keycloak namespace)"
     export KEYCLOAK_NS="${KEYCLOAK_NS:-nico-rest}"
 
     if [[ "${_KC_DB_CONSOLIDATED}" == "true" ]]; then
@@ -1832,7 +1832,7 @@ if [[ "${_KC_ENABLED}" == "true" ]]; then
             if [[ "${_kc_i}" -eq 24 ]]; then
                 echo "ERROR: nico-keycloak-pg-creds not synced after 120s." >&2
                 echo "  Check: kubectl describe clusterexternalsecret nico-keycloak-db-eso" >&2
-                echo "  Ensure keycloakDb.enabled=true in helm-prereqs/values.yaml." >&2
+                echo "  Ensure keycloak.useHaPostgres=true in helm-prereqs/values.yaml." >&2
                 exit 1
             fi
             echo "  nico-keycloak-pg-creds not yet synced (${_kc_i}/24) — retrying in 5s..."
@@ -1877,14 +1877,14 @@ kubectl wait --for=condition=Ready certificate/server-site-cert \
 echo "Temporal TLS certs ready"
 
 # --- 7f. Temporal ------------------------------------------------------------
-# helm-prereqs/values.yaml::temporalDb.enabled — see README's "Consolidating
+# helm-prereqs/values.yaml::temporal.useHaPostgres — see README's "Consolidating
 # Temporal/Keycloak onto nico-pg-cluster" for the transition story and
 # helm-prereqs/scripts/migrate-temporal-keycloak-db.sh for moving existing
 # workflow history over.
 _SETUP_PHASE="[7f/7] Temporal"
 echo "=== [7f/7] Temporal ==="
 
-_TEMPORAL_DB_CONSOLIDATED="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" temporalDb enabled)"
+_TEMPORAL_DB_CONSOLIDATED="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" temporal useHaPostgres)"
 [[ "${_TEMPORAL_DB_CONSOLIDATED}" == "true" ]] || _TEMPORAL_DB_CONSOLIDATED="false"
 
 TEMPORAL_CMD=(
@@ -1903,7 +1903,7 @@ if [[ "${_TEMPORAL_DB_CONSOLIDATED}" == "true" ]]; then
         if [[ "${_tp_i}" -eq 24 ]]; then
             echo "ERROR: nico-temporal-pg-creds not synced after 120s." >&2
             echo "  Check: kubectl describe clusterexternalsecret nico-temporal-db-eso" >&2
-            echo "  Ensure temporalDb.enabled=true in helm-prereqs/values.yaml." >&2
+            echo "  Ensure temporal.useHaPostgres=true in helm-prereqs/values.yaml." >&2
             exit 1
         fi
         echo "  nico-temporal-pg-creds not yet synced (${_tp_i}/24) — retrying in 5s..."

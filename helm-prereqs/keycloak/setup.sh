@@ -21,7 +21,7 @@ NS="${KEYCLOAK_NS:-nico-rest}"
 
 # KEYCLOAK_DB_* — target database for Keycloak. Defaults to the legacy
 # standalone postgres.postgres StatefulSet. setup.sh exports these pointing
-# at nico-pg-cluster instead when helm-prereqs/values.yaml::keycloakDb.enabled
+# at nico-pg-cluster instead when helm-prereqs/values.yaml::keycloak.useHaPostgres
 # is true (see phase 7d), along with KEYCLOAK_DB_PASSWORD_SECRET_NAME/KEY
 # pointing at the ESO-synced nico-keycloak-pg-creds Secret.
 : "${KEYCLOAK_DB_HOST:=postgres.postgres}"
@@ -73,7 +73,7 @@ if [[ "${KEYCLOAK_DB_HOST}" == "postgres.postgres" ]]; then
 else
     # nico-pg-cluster path: the Zalando operator already created the
     # keycloak.nico user and keycloak database (helm-prereqs/templates/postgresql.yaml,
-    # gated on keycloakDb.enabled) — nothing to provision here. setup.sh phase
+    # gated on keycloak.useHaPostgres) — nothing to provision here. setup.sh phase
     # 7d already exported KEYCLOAK_DB_PASSWORD_SECRET_NAME/KEY pointing at
     # the ESO-synced nico-keycloak-pg-creds Secret in this namespace.
     echo "  Using nico-pg-cluster (${KEYCLOAK_DB_HOST}/${KEYCLOAK_DB_NAME}) — database already provisioned by the postgres operator"

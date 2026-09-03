@@ -19,7 +19,7 @@
 # Keycloak from the legacy standalone postgres.postgres StatefulSet onto the
 # shared nico-pg-cluster. See "Consolidating Temporal/Keycloak onto
 # nico-pg-cluster" in README.md for the full transition story and
-# prerequisites (temporalDb.enabled/keycloakDb.enabled, helmfile sync).
+# prerequisites (temporal.useHaPostgres/keycloak.useHaPostgres, helmfile sync).
 #
 # This is a stop-the-world dump/restore: Temporal/Keycloak are scaled to zero
 # for the duration and STAY at zero on success, until the follow-up setup.sh
@@ -262,10 +262,10 @@ if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
 fi
 
 if [[ "${DB_TARGET}" == "keycloak" || "${DB_TARGET}" == "both" ]]; then
-    # values.yaml::keycloakDb.namespace is the canonical source (matches what
+    # values.yaml::keycloak.namespace is the canonical source (matches what
     # setup.sh and the ESO ClusterExternalSecret target); KEYCLOAK_NS lets an
     # operator override it explicitly, same as keycloak/setup.sh honors.
-    _KEYCLOAK_NS="${KEYCLOAK_NS:-$(_yaml_toplevel_value "${PREREQS_DIR}/values.yaml" keycloakDb namespace)}"
+    _KEYCLOAK_NS="${KEYCLOAK_NS:-$(_yaml_toplevel_value "${PREREQS_DIR}/values.yaml" keycloak namespace)}"
     _KEYCLOAK_NS="${_KEYCLOAK_NS:-nico-rest}"
     _scale_down "${_KEYCLOAK_NS}" keycloak
     _dump_restore_db "keycloak" "keycloak.nico"
@@ -290,10 +290,10 @@ echo "setup.sh repoints them at nico-pg-cluster, so nothing writes to the"
 echo "already-migrated legacy database in the meantime."
 echo "Next steps:"
 if [[ "${DB_TARGET}" == "temporal" || "${DB_TARGET}" == "both" ]]; then
-    echo "  - Confirm temporalDb.enabled: true in ${PREREQS_DIR}/values.yaml"
+    echo "  - Confirm temporal.useHaPostgres: true in ${PREREQS_DIR}/values.yaml"
 fi
 if [[ "${DB_TARGET}" == "keycloak" || "${DB_TARGET}" == "both" ]]; then
-    echo "  - Confirm keycloakDb.enabled: true in ${PREREQS_DIR}/values.yaml"
+    echo "  - Confirm keycloak.useHaPostgres: true in ${PREREQS_DIR}/values.yaml"
 fi
 echo "  - Re-run setup.sh so phases 7d/7f point Temporal/Keycloak at nico-pg-cluster and scale workloads back up"
 echo "  - Once verified, the legacy temporal/temporal_visibility/keycloak databases on postgres.postgres can be dropped"

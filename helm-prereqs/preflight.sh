@@ -645,7 +645,7 @@ done
 _strip_comments() { sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "$1"; }
 
 # Reads a scalar field nested directly under a top-level YAML key (e.g. the
-# `enabled` under `temporalDb:`). Unlike `grep -A<n> key: | grep field:`, this
+# `enabled` under `temporal:`). Unlike `grep -A<n> key: | grep field:`, this
 # isn't a fixed-line-count window — it scans until the next top-level key, so
 # it doesn't silently break (falling through to a caller's default) when a
 # comment block above the field grows. Shared with setup.sh, which sources
@@ -1046,13 +1046,13 @@ EOF
     # -----------------------------------------------------------------------
     # 8. Temporal/Keycloak DB consolidation — opt-in transition safety.
     # See "Consolidating Temporal/Keycloak onto nico-pg-cluster" in README.md
-    # for the full story. Short version: temporalDb.enabled/keycloakDb.enabled
+    # for the full story. Short version: temporal.useHaPostgres/keycloak.useHaPostgres
     # point Temporal/Keycloak at nico-pg-cluster instead of postgres.postgres;
     # this fails closed rather than let setup.sh silently redirect a site with
     # un-migrated legacy data onto an empty/incomplete target database.
     # -----------------------------------------------------------------------
-    _TEMPORAL_TOGGLE="$(_yaml_toplevel_value "${_SITE_VALUES_CFG}" temporalDb enabled)"
-    _KEYCLOAK_TOGGLE="$(_yaml_toplevel_value "${_SITE_VALUES_CFG}" keycloakDb enabled)"
+    _TEMPORAL_TOGGLE="$(_yaml_toplevel_value "${_SITE_VALUES_CFG}" temporal useHaPostgres)"
+    _KEYCLOAK_TOGGLE="$(_yaml_toplevel_value "${_SITE_VALUES_CFG}" keycloak useHaPostgres)"
 
     if [[ "${_TEMPORAL_TOGGLE}" == "true" || "${_KEYCLOAK_TOGGLE}" == "true" ]]; then
         _LEGACY_PG_POD="$(kubectl get pods -n postgres -l app=postgres \
@@ -1119,20 +1119,20 @@ EOF
 
         if [[ "${_TEMPORAL_TOGGLE}" == "true" ]]; then
             _check_db_migration_needed \
-                "temporalDb.enabled" "temporal" "SELECT count(*) FROM namespaces" \
+                "temporal.useHaPostgres" "temporal" "SELECT count(*) FROM namespaces" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
             # temporal_visibility has its own tables (no namespaces table) —
             # use schema presence (any tables at all) as the migrated-or-not
             # signal, so a partial migration (temporal restored,
             # temporal_visibility not) is caught too.
             _check_db_migration_needed \
-                "temporalDb.enabled" "temporal_visibility" \
+                "temporal.useHaPostgres" "temporal_visibility" \
                 "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db temporal"
         fi
         if [[ "${_KEYCLOAK_TOGGLE}" == "true" ]]; then
             _check_db_migration_needed \
-                "keycloakDb.enabled" "keycloak" "SELECT count(*) FROM realm" \
+                "keycloak.useHaPostgres" "keycloak" "SELECT count(*) FROM realm" \
                 "helm-prereqs/scripts/migrate-temporal-keycloak-db.sh --db keycloak"
         fi
     fi
