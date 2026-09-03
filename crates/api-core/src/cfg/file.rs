@@ -718,14 +718,6 @@ pub struct CarbideConfig {
     )]
     pub mlxconfig_profiles: Option<HashMap<String, MlxConfigProfile>>,
 
-    /// Deprecated compatibility key. This setting no longer affects runtime
-    /// behavior now that expected-machine DHCP lookup is unconditional; keep
-    /// accepting it temporarily so existing site files can be migrated without
-    /// weakening unknown-field validation.
-    #[doc(hidden)]
-    #[serde(default, rename = "rack_management_enabled", skip_serializing)]
-    pub deprecated_rack_management_enabled: Option<bool>,
-
     /// Rack Manager Service configuration for rack-level firmware upgrades,
     /// power sequencing, and mTLS connectivity.
     #[serde(default)]
@@ -6286,22 +6278,6 @@ path = "credentials.yaml"
             config.site_explorer.deprecated_force_dpu_nic_mode,
             Some(true)
         );
-    }
-
-    /// Existing site TOMLs may still carry the now-removed
-    /// `rack_management_enabled` setting. Keep that compatibility exception
-    /// explicit so strict unknown-field validation does not block upgrades.
-    #[test]
-    fn legacy_rack_management_enabled_in_toml_still_parses() {
-        let config: CarbideConfig = Figment::new()
-            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
-            .merge(Toml::string(
-                "deny_unknown_fields = true\nrack_management_enabled = true\n",
-            ))
-            .extract()
-            .expect("legacy rack_management_enabled in TOML must still parse");
-
-        assert_eq!(config.deprecated_rack_management_enabled, Some(true));
     }
 
     #[test]
