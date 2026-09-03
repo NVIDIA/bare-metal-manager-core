@@ -227,9 +227,7 @@ mod tests {
                     log_count: logs.len(),
                     log,
                     histogram_count_delta: metrics.histogram_count_delta(EXPOSED_METRIC, &[]),
-                    histogram_sum_delta: ApproxHistogramSum(
-                        metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
-                    ),
+                    histogram_sum_delta: metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
                 }
             };
             "successful iteration stays silent" {

@@ -1746,9 +1746,7 @@ mod tests {
                 log_count: logs.len(),
                 log,
                 histogram_count_delta: metrics.histogram_count_delta(METRIC_NAME, &labels),
-                histogram_sum_delta: ApproxHistogramSum(
-                    metrics.histogram_sum_delta(METRIC_NAME, &labels),
-                ),
+                histogram_sum_delta: metrics.histogram_sum_delta(METRIC_NAME, &labels),
             }
         }
 

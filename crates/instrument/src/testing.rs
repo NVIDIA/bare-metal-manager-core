@@ -226,7 +226,10 @@ impl tracing::field::Visit for CaptureVisitor {
 /// snapshots. A fractional observation recorded before the capture can make
 /// that subtraction differ from the expected delta by a few low-order bits.
 #[derive(Clone, Copy, Debug)]
-pub struct ApproxHistogramSum(pub f64);
+pub struct ApproxHistogramSum(
+    /// The raw histogram sum delta.
+    pub f64,
+);
 
 impl PartialEq for ApproxHistogramSum {
     fn eq(&self, other: &Self) -> bool {
@@ -272,8 +275,8 @@ impl MetricsCapture {
     }
 
     /// The sum the named histogram accumulated since [`MetricsCapture::start`].
-    pub fn histogram_sum_delta(&self, name: &str, labels: &[(&str, &str)]) -> f64 {
-        self.counter_delta(&format!("{name}#sum"), labels)
+    pub fn histogram_sum_delta(&self, name: &str, labels: &[(&str, &str)]) -> ApproxHistogramSum {
+        ApproxHistogramSum(self.counter_delta(&format!("{name}#sum"), labels))
     }
 
     /// The named gauge's current value (with exactly these label pairs). A

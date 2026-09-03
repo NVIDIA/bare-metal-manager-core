@@ -425,10 +425,7 @@ fn histogram_records_the_observation_in_declared_units() {
         "carbide_test_matrix_copy_duration_seconds",
         &[("outcome", "ok")],
     );
-    assert!(
-        (sum - 1.5).abs() < 1e-9,
-        "1500ms records as 1.5s, got {sum}"
-    );
+    assert_eq!(sum, ApproxHistogramSum(1.5), "1500ms records as 1.5s");
 }
 
 /// A unit struct works (zero labels), and the declared knob constants are
@@ -581,10 +578,7 @@ fn histogram_units_round_trip() {
     ] {
         assert_eq!(metrics.histogram_count_delta(name, &[]), 1, "{name}");
         let sum = metrics.histogram_sum_delta(name, &[]);
-        assert!(
-            (sum - expected_sum).abs() < 1e-9,
-            "{name}: expected sum {expected_sum}, got {sum}"
-        );
+        assert_eq!(sum, ApproxHistogramSum(expected_sum), "{name}");
     }
 }
 

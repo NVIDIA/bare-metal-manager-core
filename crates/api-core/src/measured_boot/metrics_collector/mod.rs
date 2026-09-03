@@ -347,9 +347,8 @@ mod tests {
                     log,
                     histogram_count_delta: metrics
                         .histogram_count_delta(METRIC_NAME, &[("outcome", outcome_label)]),
-                    histogram_sum_delta: ApproxHistogramSum(
-                        metrics.histogram_sum_delta(METRIC_NAME, &[("outcome", outcome_label)]),
-                    ),
+                    histogram_sum_delta: metrics
+                        .histogram_sum_delta(METRIC_NAME, &[("outcome", outcome_label)]),
                 }
             },
         );

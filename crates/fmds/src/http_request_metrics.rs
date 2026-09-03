@@ -208,7 +208,7 @@ mod tests {
         EventObservation {
             request_delta: metrics.counter_delta(REQUEST_METRIC, &[]),
             latency_count_delta: metrics.histogram_count_delta(LATENCY_METRIC, &[]),
-            latency_sum_delta: ApproxHistogramSum(metrics.histogram_sum_delta(LATENCY_METRIC, &[])),
+            latency_sum_delta: metrics.histogram_sum_delta(LATENCY_METRIC, &[]),
             logs,
         }
     }

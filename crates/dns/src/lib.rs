@@ -1159,10 +1159,10 @@ mod tests {
                         "carbide_dns_request_duration_milliseconds",
                         &[("qtype", qtype_label), ("rcode", rcode_label)],
                     ),
-                    histogram_sum: ApproxHistogramSum(metrics.histogram_sum_delta(
+                    histogram_sum: metrics.histogram_sum_delta(
                         "carbide_dns_request_duration_milliseconds",
                         &[("qtype", qtype_label), ("rcode", rcode_label)],
-                    )),
+                    ),
                 }
             },
         );
