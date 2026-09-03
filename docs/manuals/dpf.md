@@ -772,7 +772,7 @@ checking the sidecar logs and the host `lldpd` service.
 The OpenTelemetry configuration collects this container's pod logs with
 `systemd.unit=nico-lldp-sidecar`. Keep its image aligned with
 `nico-dpu-agent`, because the snapshot is an internal interface between those
-two containers. See
+two containers. Refer to
 [DPU LLDP Collection](../dpu-management/dpu_configuration.md#dpu-lldp-collection)
 for the native-agent comparison and freshness behavior.
 

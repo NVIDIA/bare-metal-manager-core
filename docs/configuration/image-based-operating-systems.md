@@ -4,12 +4,14 @@ NICo can install a disk image directly onto a host's local boot disk. The
 operating-system definition controls how NICo selects that disk and how it
 identifies the root, boot, and EFI filesystems after imaging.
 
-> **Warning:** Image installation overwrites the complete selected disk.
+<Warning>
+Image installation overwrites the complete selected disk.
+</Warning>
 
 ## Configuring the Target Disk
 
 The Core API and `nico-admin-cli` call this field `boot_disk`; the REST API
-calls it `imageDisk`.
+calls it `imageDisk`. Set the value according to the following table:
 
 | Value | Behavior |
 |---|---|
@@ -63,30 +65,32 @@ Or create a REST operating-system definition with a stable disk identifier:
 }
 ```
 
+<Note>
 `boot_disk` is not applicable when `create_volume` is enabled for a block
 storage source volume. Do not combine `--boot-disk` with `--create-volume`.
+</Note>
 
 ## Filesystem Identity Checks
 
 NICo uses the configured filesystem identifiers to locate filesystems after
 the image is written:
 
-- `rootfs_id` or `rootFsId`: root filesystem UUID.
-- `rootfs_label` or `rootFsLabel`: root filesystem label.
-- `bootfs_id` (`--bootfs-id`): optional `/boot` UUID.
-- `efifs_id` (`--efifs-id`): optional EFI filesystem UUID.
+- `rootfs_id` or `rootFsId`: root filesystem UUID
+- `rootfs_label` or `rootFsLabel`: root filesystem label
+- `bootfs_id` (`--bootfs-id`): optional `/boot` UUID
+- `efifs_id` (`--efifs-id`): optional EFI filesystem UUID
 
 When an OS image is created through Core—for example, with
 `nico-admin-cli os-image create`—`--rootfs-id` and `--rootfs-label` are
 optional. If both are omitted, disk imaging uses the default root filesystem
 label `cloudimg-rootfs`.
 
-A REST request that creates an image-based Operating System must instead
-provide exactly one of `rootFsId` or `rootFsLabel`. REST rejects requests that
+A REST API request that creates an image-based Operating System must
+provide exactly one of `rootFsId` or `rootFsLabel`. The API rejects requests that
 provide both fields or neither field.
 
 Before overwriting the target, NICo checks these UUIDs and labels against the
-other physical disks. It aborts if a configured identifier already resolves to
+other physical disks. It cancels the operation if a configured identifier already resolves to
 a filesystem on another disk. This prevents an old or duplicate filesystem
 identity from silently redirecting the installation away from the selected
 target.
@@ -99,19 +103,18 @@ duplicate, or cross-disk matches fail the installation.
 
 For UEFI systems, NICo selects the architecture-specific shim:
 
-- `shimx64.efi` on x86-64.
-- `shimaa64.efi` on Arm64.
+- `shimx64.efi` on x86-64
+- `shimaa64.efi` on Arm64
 
 When a distribution name is known, NICo prefers a matching distribution
 directory. It then looks for the architecture-specific `BOOTX64.CSV` or
-`BOOTAA64.CSV`, followed by `BOOT.CSV`, and accepts a CSV entry only when its
+`BOOTAA64.CSV`, followed by `BOOT.CSV`. NICo accepts a CSV entry only when its
 first field names the selected shim and its label is nonempty. Without a
 distribution match, NICo uses the first valid shim/CSV pair and then a
 deterministically sorted shim as the final fallback.
 
 NICo removes existing firmware entries with the selected label before creating
-the new entry. A failure to inspect, remove, or create the entry fails disk
-imaging rather than being ignored.
+the new entry. If NICo cannot inspect, remove, or create the entry, disk imaging fails.
 
 ## Troubleshooting
 

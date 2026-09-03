@@ -393,8 +393,7 @@ too old. Centralized DPF logs identify the sidecar with
 `systemd.unit=nico-lldp-sidecar`. A systemd-managed DPU does not use the
 snapshot; its agent queries the local `lldpd` service directly.
 
-See [DPU LLDP Collection](../dpu-management/dpu_configuration.md#dpu-lldp-collection)
-for the deployment and freshness contract.
+The deployment and freshness contract is documented in [DPU LLDP Collection](../dpu-management/dpu_configuration.md#dpu-lldp-collection).
 
 ### Common DPU Alerts
 
