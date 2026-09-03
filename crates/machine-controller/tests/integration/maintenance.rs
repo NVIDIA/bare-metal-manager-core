@@ -90,12 +90,14 @@ impl ComputeTrayManager for ReconciliationComputeTrayManager {
         match *self.outcome.lock().unwrap() {
             BackendOutcome::Success => Ok(vec![ComputeTrayResult {
                 bmc_ip: endpoints[0].bmc_ip,
+                bmc_mac: endpoints[0].bmc_mac,
                 success: true,
                 error: None,
             }]),
             BackendOutcome::Empty => Ok(Vec::new()),
             BackendOutcome::NonSuccess => Ok(vec![ComputeTrayResult {
                 bmc_ip: endpoints[0].bmc_ip,
+                bmc_mac: endpoints[0].bmc_mac,
                 success: false,
                 error: Some("test backend rejection".into()),
             }]),

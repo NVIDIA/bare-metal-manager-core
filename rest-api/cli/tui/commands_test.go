@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/vpcprefix"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -2030,53 +2031,137 @@ func TestAllocationConstraintValueHint(t *testing.T) {
 
 // --- VPC prefix create IP block picker tests (NVBug 6105076) ---
 
-func TestBuildIPBlockSelectItems_MapsBlocksAndAppendsManualSentinel(t *testing.T) {
-	blocks := []NamedItem{
-		{Name: "block-a", ID: "id-a", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
-		{Name: "block-b", ID: "id-b", Status: "ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+// TestValidateVPCPrefixLength rejects values outside the shared minimum and
+// the maximum resolved by the caller.
+func TestValidateVPCPrefixLength(t *testing.T) {
+	tests := []struct {
+		name          string
+		maximumLength int
+		prefixLength  int
+		wantError     string
+	}{
+		{name: "IPv4 maximum", maximumLength: vpcprefix.IPv4PrefixLengthMaximum, prefixLength: 31},
+		{name: "IPv4 above maximum", maximumLength: vpcprefix.IPv4PrefixLengthMaximum, prefixLength: 32, wantError: "prefix length must be between 8 and 31"},
+		{name: "manual block uses request maximum", maximumLength: vpcprefix.PrefixLengthMaximum, prefixLength: 126},
+		{name: "below shared minimum", maximumLength: vpcprefix.PrefixLengthMaximum, prefixLength: 7, wantError: "prefix length must be between 8 and 126"},
 	}
 
-	items := buildIPBlockSelectItems(blocks, "tenant-a")
-
-	require.Len(t, items, 3, "two IP blocks plus the manual-entry sentinel")
-	assert.Equal(t, "id-a", items[0].ID, "select ID must be the IP block UUID")
-	assert.Contains(t, items[0].Label, "block-a")
-	assert.Contains(t, items[0].Label, "Ready", "status should be surfaced in the label")
-	assert.Equal(t, "id-b", items[1].ID)
-	assert.Equal(t, ipBlockManualEntrySentinel, items[2].ID)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateVPCPrefixLength(test.maximumLength, test.prefixLength)
+			if test.wantError != "" {
+				require.EqualError(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
-func TestBuildIPBlockSelectItems_ExcludesProviderAndNonReadyBlocks(t *testing.T) {
-	blocks := []NamedItem{
-		{Name: "provider-block", ID: "provider-id", Status: "Ready"},
-		{Name: "pending-tenant-block", ID: "pending-id", Status: "Pending", Extra: map[string]string{"tenantId": "tenant-a"}},
-		{Name: "ready-tenant-block", ID: "ready-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
-		{Name: "other-tenant-block", ID: "other-tenant-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-b"}},
+// TestVPCPrefixSlaacEnabled verifies the TUI requires the selected VPC's
+// address mode only when it affects a known IPv6 block.
+func TestVPCPrefixSlaacEnabled(t *testing.T) {
+	tests := []struct {
+		name      string
+		family    vpcprefix.IPFamily
+		vpc       *NamedItem
+		want      bool
+		wantError string
+	}{
+		{name: "IPv6 SLAAC enabled", family: vpcprefix.IPFamilyIPv6, vpc: &NamedItem{Raw: map[string]interface{}{"slaacEnabled": true}}, want: true},
+		{name: "IPv6 SLAAC disabled", family: vpcprefix.IPFamilyIPv6, vpc: &NamedItem{Raw: map[string]interface{}{"slaacEnabled": false}}},
+		{name: "IPv6 mode absent", family: vpcprefix.IPFamilyIPv6, vpc: &NamedItem{Name: "vpc-one", Raw: map[string]interface{}{}}, wantError: "could not determine whether VPC \"vpc-one\" uses SLAAC"},
+		{name: "IPv4 does not need SLAAC mode", family: vpcprefix.IPFamilyIPv4},
+		{name: "manual block does not need SLAAC mode"},
 	}
 
-	items := buildIPBlockSelectItems(blocks, "tenant-a")
-
-	require.Len(t, items, 2, "one Ready tenant block plus the manual-entry sentinel")
-	assert.Equal(t, "ready-id", items[0].ID)
-	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := vpcPrefixSlaacEnabled(test.family, test.vpc)
+			if test.wantError != "" {
+				require.EqualError(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.want, got)
+		})
+	}
 }
 
-func TestBuildIPBlockSelectItems_EmptyListReturnsOnlySentinel(t *testing.T) {
-	items := buildIPBlockSelectItems(nil, "tenant-a")
-	require.Len(t, items, 1, "an empty list still offers manual entry")
-	assert.Equal(t, ipBlockManualEntrySentinel, items[0].ID)
-}
-
-func TestBuildIPBlockSelectItems_SkipsBlocksWithoutIDAndFallsBackLabelToID(t *testing.T) {
-	blocks := []NamedItem{
-		{Name: "no-id", ID: "  "},
-		{Name: "  ", ID: "id-x", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-x"}},
+// TestBuildIPBlockSelectItems verifies only eligible tenant IP Blocks are
+// presented while manual ID entry remains available.
+func TestBuildIPBlockSelectItems(t *testing.T) {
+	// expectedItem captures the observable selector fields for one row.
+	type expectedItem struct {
+		id         string
+		labelParts []string
+		protocol   string
+	}
+	tests := []struct {
+		name     string
+		blocks   []NamedItem
+		tenantID string
+		want     []expectedItem
+	}{
+		{
+			name: "maps blocks and appends the manual sentinel",
+			blocks: []NamedItem{
+				{Name: "block-a", ID: "id-a", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a", "protocolVersion": "IPv4"}},
+				{Name: "block-b", ID: "id-b", Status: "ready", Extra: map[string]string{"tenantId": "tenant-a", "protocolVersion": "IPv6"}},
+			},
+			tenantID: "tenant-a",
+			want: []expectedItem{
+				{id: "id-a", labelParts: []string{"block-a", "IPv4", "Ready"}, protocol: "IPv4"},
+				{id: "id-b", labelParts: []string{"block-b", "IPv6", "ready"}, protocol: "IPv6"},
+				{id: ipBlockManualEntrySentinel, labelParts: []string{"Enter IP block ID manually"}},
+			},
+		},
+		{
+			name: "excludes provider, blocks that are not Ready, and other tenant blocks",
+			blocks: []NamedItem{
+				{Name: "provider-block", ID: "provider-id", Status: "Ready"},
+				{Name: "pending-tenant-block", ID: "pending-id", Status: "Pending", Extra: map[string]string{"tenantId": "tenant-a"}},
+				{Name: "ready-tenant-block", ID: "ready-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-a"}},
+				{Name: "other-tenant-block", ID: "other-tenant-id", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-b"}},
+			},
+			tenantID: "tenant-a",
+			want: []expectedItem{
+				{id: "ready-id", labelParts: []string{"ready-tenant-block", "Ready"}},
+				{id: ipBlockManualEntrySentinel, labelParts: []string{"Enter IP block ID manually"}},
+			},
+		},
+		{
+			name:     "empty input returns only the manual sentinel",
+			tenantID: "tenant-a",
+			want: []expectedItem{
+				{id: ipBlockManualEntrySentinel, labelParts: []string{"Enter IP block ID manually"}},
+			},
+		},
+		{
+			name: "skips blocks without IDs and uses the ID for a blank name",
+			blocks: []NamedItem{
+				{Name: "no-id", ID: "  "},
+				{Name: "  ", ID: "id-x", Status: "Ready", Extra: map[string]string{"tenantId": "tenant-x"}},
+			},
+			tenantID: "tenant-x",
+			want: []expectedItem{
+				{id: "id-x", labelParts: []string{"id-x", "Ready"}},
+				{id: ipBlockManualEntrySentinel, labelParts: []string{"Enter IP block ID manually"}},
+			},
+		},
 	}
 
-	items := buildIPBlockSelectItems(blocks, "tenant-x")
-
-	require.Len(t, items, 2, "one usable block (id-x) plus the manual-entry sentinel")
-	assert.Equal(t, "id-x", items[0].ID)
-	assert.Contains(t, items[0].Label, "id-x", "blank name must fall back to the ID")
-	assert.Equal(t, ipBlockManualEntrySentinel, items[1].ID)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			items := buildIPBlockSelectItems(test.blocks, test.tenantID)
+			require.Len(t, items, len(test.want))
+			for index := range items {
+				assert.Equal(t, test.want[index].id, items[index].ID)
+				for _, labelPart := range test.want[index].labelParts {
+					assert.Contains(t, items[index].Label, labelPart)
+				}
+				assert.Equal(t, test.want[index].protocol, items[index].Extra["protocolVersion"])
+			}
+		})
+	}
 }

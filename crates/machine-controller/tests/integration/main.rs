@@ -20,6 +20,7 @@ mod bmc_rotation;
 mod dpu_uefi_rotation;
 mod env;
 mod firmware_upgrade_completion;
+mod gb200_host_interface;
 mod host_uefi_rotation;
 mod host_uefi_setup;
 mod maintenance;

@@ -697,7 +697,7 @@ client-certificate authentication is not used.
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `max_network_security_group_size` | `u32` | `200` | Max expanded rules per NSG. |
-| `stateful_acls_enabled` | `bool` | `true` | Enable stateful ACLs (toggled on DPU via nvue). |
+| `stateful_acls_enabled` | `bool` | `true` | Allow stateful NSG creation and stateless-to-stateful updates, and enable supporting NVUE configuration on DPUs. When disabled, existing stateful NSGs remain editable but behave statelessly. |
 | `policy_overrides` | `Vec<NetworkSecurityGroupRule>` | `[]` | NSG rules injected before user-defined rules. |
 
 ### `FnnConfig`

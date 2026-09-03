@@ -526,10 +526,12 @@ exit ||
                         .run_provisioning_instructions_on_every_boot
                         || instance.use_custom_pxe_on_boot
                     {
-                        // For non-always-PXE instances, clear the use_custom_pxe_on_boot flag
-                        // now that we're serving the script. Always-PXE instances don't use
-                        // this flag (they rely on run_provisioning_instructions_on_every_boot).
-                        if instance.use_custom_pxe_on_boot {
+                        let retry_on_failure = instance.use_custom_pxe_on_boot;
+
+                        // Clear the flag now that we're serving this one-time request. Instances
+                        // configured for every boot continue through
+                        // `run_provisioning_instructions_on_every_boot`.
+                        if retry_on_failure {
                             db::instance::use_custom_ipxe_on_next_boot(
                                 &instance.machine_id,
                                 false,
@@ -538,7 +540,7 @@ exit ||
                             .await?;
                         }
 
-                        match instance.config.os.variant {
+                        let provisioning_script = match instance.config.os.variant {
                             model::os::OperatingSystemVariant::Ipxe(ipxe) => {
                                 let mut tenant_ipxe = ipxe.ipxe_script;
                                 let vendor_serial_console = format!(" console={console}");
@@ -614,6 +616,14 @@ exit ||
                                     qcow_imaging_ipxe
                                 }
                             }
+                        };
+
+                        if retry_on_failure {
+                            // Tell the embedded iPXE menu to retry this one-time script from
+                            // memory if it returns an error; the database flag is now consumed.
+                            format!("set nico-retry-provisioning 1\n{provisioning_script}")
+                        } else {
+                            provisioning_script
                         }
                     } else {
                         exit_instructions(machine_id, target.interface_id, machine.current_state())

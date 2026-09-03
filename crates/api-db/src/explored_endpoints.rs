@@ -830,6 +830,74 @@ pub async fn find_by_mac_address(
         .map_err(|e| DatabaseError::new("explored_endpoints find_freetext_in_report", e))
 }
 
+/// Persist the backend firmware-object job ID for a pre-ingestion compute tray,
+/// keyed by BMC IP. Mirrors [`machine::save_backend_firmware_object_job_id`] for
+/// trays that have no `machines` row yet, so `get_firmware_status` can recover
+/// the job after a nico-api restart loses the in-memory job map.
+pub async fn save_backend_firmware_object_job_id_by_ip(
+    db: &sqlx::PgPool,
+    address: IpAddr,
+    job_id: &str,
+) -> Result<(), DatabaseError> {
+    let sql =
+        "UPDATE explored_endpoints SET backend_firmware_object_job_id = $1 WHERE address = $2";
+    let result = sqlx::query(sql)
+        .bind(job_id)
+        .bind(address)
+        .execute(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    // No explored_endpoints row for this BMC IP means the job id was not
+    // persisted; report it rather than silently succeeding, or the job becomes
+    // untrackable after a nico-api restart drops the in-memory job map.
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "ExploredEndpoint",
+            id: address.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Fetch the persisted backend firmware-object job ID for a pre-ingestion
+/// compute tray by BMC IP, if any.
+pub async fn get_backend_firmware_object_job_id_by_ip(
+    db: &sqlx::PgPool,
+    address: IpAddr,
+) -> Result<Option<String>, DatabaseError> {
+    let sql = "SELECT backend_firmware_object_job_id FROM explored_endpoints WHERE address = $1";
+    let row: Option<(Option<String>,)> = sqlx::query_as(sql)
+        .bind(address)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(row.and_then(|(job_id,)| job_id))
+}
+
+/// Return the subset of `addresses` whose `explored_endpoints` row has a
+/// persisted backend firmware-object job ID.
+///
+/// Firmware-status routing uses this to detect a job dispatched before ingestion
+/// (persisted here, keyed by BMC IP) even after a `machines` row exists, so the
+/// request still polls the live backend instead of the DB-only fallback. Runs as
+/// a single query over the whole candidate set.
+pub async fn find_ips_with_backend_firmware_object_job_id(
+    db: &sqlx::PgPool,
+    addresses: &[IpAddr],
+) -> Result<std::collections::HashSet<IpAddr>, DatabaseError> {
+    if addresses.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let sql = "SELECT address FROM explored_endpoints \
+               WHERE address = ANY($1) AND backend_firmware_object_job_id IS NOT NULL";
+    let rows: Vec<(IpAddr,)> = sqlx::query_as(sql)
+        .bind(addresses)
+        .fetch_all(db)
+        .await
+        .map_err(|e| DatabaseError::new(sql, e))?;
+    Ok(rows.into_iter().map(|(address,)| address).collect())
+}
+
 pub async fn set_last_redfish_bmc_reset(
     address: IpAddr,
     txn: &mut PgConnection,
