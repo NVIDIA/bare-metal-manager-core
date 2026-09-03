@@ -44,7 +44,7 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-carbide-admin-cli credential add-nic-lockdown-ikm --password mypassword
+nico-admin-cli credential add-nic-lockdown-ikm --password mypassword
 ```
 
 ---
