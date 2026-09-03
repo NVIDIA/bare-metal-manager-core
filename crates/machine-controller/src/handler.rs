@@ -128,6 +128,7 @@ mod dpu_uefi_rotation;
 mod extension_services;
 mod factory_reset;
 mod firmware_artifact;
+mod gb200_host_interface;
 mod helpers;
 mod host_boot_config;
 mod host_uefi_rotation;
@@ -7774,6 +7775,15 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
 
+                    // GB200 SBIOS can rebuild a stale UEFI HTTP option only when
+                    // `hostusb0` is configured before the platform setup reboot.
+                    gb200_host_interface::repair_gb200_host_interface_if_needed(
+                        ctx,
+                        redfish_client.as_ref(),
+                        mh_snapshot,
+                    )
+                    .await?;
+
                     handle_host_init_boot_config_stage(
                         ctx,
                         mh_snapshot,
@@ -7919,6 +7929,32 @@ impl StateHandler for HostMachineStateHandler {
                     }
                 }
                 MachineState::WaitingForDiscovery => {
+                    let discovery_pending = !discovered_after_state_transition(
+                        mh_snapshot.host_snapshot.state.version,
+                        mh_snapshot.host_snapshot.status.last_discovery_time,
+                    );
+                    if discovery_pending
+                        && gb200_host_interface::gb200_host_interface_address_is_missing(
+                            ctx,
+                            mh_snapshot,
+                        )
+                        .await?
+                    {
+                        // Persist the rewind first. The next iteration repairs
+                        // the BMC from the state that already owns platform setup.
+                        tracing::warn!(
+                            machine_id = %host_machine_id,
+                            "GB200 BMC hostusb0 static IPv4 address is missing; returning to platform configuration before another discovery boot"
+                        );
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForPlatformConfiguration {
+                                    retry_count: 0,
+                                },
+                            },
+                        ));
+                    }
+
                     // Storage cleanup is a destructive disk wipe (NVMe/HDD) that scout runs after a
                     // reset, so only a real, discovered host enters it. A predicted host waits for
                     // discovery to promote it; the promoted host then does the cleanup.
@@ -7932,10 +7968,7 @@ impl StateHandler for HostMachineStateHandler {
                         )));
                     }
 
-                    if !discovered_after_state_transition(
-                        mh_snapshot.host_snapshot.state.version,
-                        mh_snapshot.host_snapshot.status.last_discovery_time,
-                    ) {
+                    if discovery_pending {
                         tracing::trace!(
                             machine_id = %host_machine_id,
                             host_last_seen = ?mh_snapshot.host_snapshot.status.last_discovery_time,
