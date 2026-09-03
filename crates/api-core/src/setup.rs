@@ -58,7 +58,7 @@ use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::{BmcCredentialOps, RedfishClientPool};
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
-use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
+use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer, SiteExplorer};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -411,9 +411,11 @@ pub(crate) async fn start_runtime(
         carbide_config.site_explorer.explore_mode,
         db_pool.clone(),
     );
+    let bmc_client = bmc_explorer.authenticated_bmc_client();
     let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
         db_pool.clone(),
         bmc_explorer.clone(),
+        bmc_client.clone(),
         Arc::new(carbide_config.get_firmware_config()),
     ));
 
@@ -522,6 +524,7 @@ pub(crate) async fn start_runtime(
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
         endpoint_explorer: bmc_explorer,
+        bmc_client,
         endpoint_exploration_service: endpoint_exploration_service.clone(),
         eth_data,
         ib_fabric_manager,

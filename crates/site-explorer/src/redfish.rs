@@ -49,6 +49,7 @@ const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
 // Eventually, this file should only have code related to generating the site exploration report.
+#[derive(Clone)]
 pub(super) struct RedfishClient {
     redfish_client_pool: Arc<dyn BmcCredentialOps>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,

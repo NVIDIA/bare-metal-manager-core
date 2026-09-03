@@ -38,11 +38,11 @@ use model::site_explorer::{
 };
 use sqlx::PgPool;
 
-use super::EndpointExplorer;
 use super::config::SiteExplorerExploreMode;
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
+use super::{AuthenticatedBmc, EndpointExplorer};
 
 const BMC_AUTH_RETRY_DURATION: Duration = Duration::from_secs(3);
 
@@ -76,11 +76,19 @@ struct BmcPasswordRotationFinished {
     error: String,
 }
 
-/// An `EndpointExplorer` which uses redfish APIs to query the endpoint
-pub struct BmcEndpointExplorer {
+/// Credential resolution plus authenticated Redfish/IPMI access. Owns the
+/// [`AuthenticatedBmc`] implementation, so BMC admin ops live here rather than
+/// on the explorer.
+#[derive(Clone)]
+pub struct AuthenticatedBmcClient {
     redfish_client: RedfishClient,
     ipmi_tool: Arc<dyn IPMITool>,
     credential_client: CredentialClient,
+}
+
+/// An `EndpointExplorer` which uses redfish APIs to query the endpoint
+pub struct BmcEndpointExplorer {
+    bmc_client: AuthenticatedBmcClient,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
     /// Used to record per-device BMC rotation convergence at the moment the
@@ -89,6 +97,16 @@ pub struct BmcEndpointExplorer {
     /// `bmc-explorer-cli` debug tool, which runs against an in-memory credential
     /// store and no database; in that case the rotation bookkeeping is skipped.
     database_connection: Option<PgPool>,
+}
+
+// Deref lets exploration methods keep using `self.redfish_client` etc. after
+// ownership of those clients moved onto the extracted type.
+impl std::ops::Deref for BmcEndpointExplorer {
+    type Target = AuthenticatedBmcClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bmc_client
+    }
 }
 
 impl BmcEndpointExplorer {
@@ -105,13 +123,21 @@ impl BmcEndpointExplorer {
         database_connection: Option<PgPool>,
     ) -> Self {
         Self {
-            redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
-            ipmi_tool,
-            credential_client: CredentialClient::new(credential_manager),
+            bmc_client: AuthenticatedBmcClient {
+                redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
+                ipmi_tool,
+                credential_client: CredentialClient::new(credential_manager),
+            },
             rotate_switch_nvos_credentials,
             mode,
             database_connection,
         }
+    }
+
+    /// A shared [`AuthenticatedBmc`] handle to the same client exploration runs
+    /// on. Callers needing only BMC admin ops hold this instead of the explorer.
+    pub fn authenticated_bmc_client(&self) -> Arc<dyn AuthenticatedBmc> {
+        Arc::new(self.bmc_client.clone())
     }
 
     pub async fn get_sitewide_bmc_password(&self) -> Result<String, EndpointExplorationError> {
@@ -239,15 +265,6 @@ impl BmcEndpointExplorer {
             .await
     }
 
-    pub async fn get_bmc_root_credentials(
-        &self,
-        bmc_mac_address: MacAddress,
-    ) -> Result<Credentials, EndpointExplorationError> {
-        self.credential_client
-            .get_bmc_root_credentials(bmc_mac_address)
-            .await
-    }
-
     pub async fn get_switch_nvos_admin_credentials(
         &self,
         bmc_mac_address: MacAddress,
@@ -292,32 +309,6 @@ impl BmcEndpointExplorer {
         }
 
         Ok(())
-    }
-
-    pub async fn set_bmc_root_password(
-        &self,
-        bmc_ip_address: SocketAddr,
-        vendor: RedfishVendor,
-        current_bmc_credentials: Credentials,
-        new_password: String,
-    ) -> Result<Credentials, EndpointExplorationError> {
-        self.redfish_client
-            .set_bmc_root_password(
-                bmc_ip_address,
-                vendor,
-                current_bmc_credentials.clone(),
-                new_password.clone(),
-            )
-            .await?;
-
-        let (user, _) = match current_bmc_credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        Ok(Credentials::UsernamePassword {
-            username: user,
-            password: new_password,
-        })
     }
 
     async fn rotate_dpu_service_password_from_factory_defaults(
@@ -560,6 +551,45 @@ impl BmcEndpointExplorer {
         }
         Ok(())
     }
+}
+
+// Authenticated BMC ops live on the client, not the explorer. Exploration code
+// reaches these through `BmcEndpointExplorer`'s `Deref` to this type.
+impl AuthenticatedBmcClient {
+    pub async fn get_bmc_root_credentials(
+        &self,
+        bmc_mac_address: MacAddress,
+    ) -> Result<Credentials, EndpointExplorationError> {
+        self.credential_client
+            .get_bmc_root_credentials(bmc_mac_address)
+            .await
+    }
+
+    pub async fn set_bmc_root_password(
+        &self,
+        bmc_ip_address: SocketAddr,
+        vendor: RedfishVendor,
+        current_bmc_credentials: Credentials,
+        new_password: String,
+    ) -> Result<Credentials, EndpointExplorationError> {
+        self.redfish_client
+            .set_bmc_root_password(
+                bmc_ip_address,
+                vendor,
+                current_bmc_credentials.clone(),
+                new_password.clone(),
+            )
+            .await?;
+
+        let (user, _) = match current_bmc_credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        Ok(Credentials::UsernamePassword {
+            username: user,
+            password: new_password,
+        })
+    }
 
     pub async fn redfish_reset_bmc(
         &self,
@@ -725,12 +755,6 @@ impl EndpointExplorer for BmcEndpointExplorer {
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
         self.credential_client.check_preconditions(metrics).await
-    }
-
-    async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool {
-        self.get_bmc_root_credentials(interface.mac_address)
-            .await
-            .is_ok()
     }
 
     // 1) Authenticate and set the BMC root account credentials
@@ -1049,6 +1073,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
 
         Ok(report)
+    }
+}
+
+#[async_trait::async_trait]
+impl AuthenticatedBmc for AuthenticatedBmcClient {
+    async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool {
+        self.get_bmc_root_credentials(interface.mac_address)
+            .await
+            .is_ok()
     }
 
     async fn redfish_reset_bmc(

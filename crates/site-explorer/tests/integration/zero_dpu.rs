@@ -61,6 +61,7 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
     let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
         api.database_connection.clone(),
         endpoint_explorer.clone(),
+        endpoint_explorer.clone(),
         Arc::new(api.runtime_config.get_firmware_config()),
     ));
     let create_machines = Arc::new(AtomicBool::new(true));

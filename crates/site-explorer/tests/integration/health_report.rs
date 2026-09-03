@@ -64,6 +64,7 @@ fn test_site_explorer(
     let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
         api.database_connection.clone(),
         endpoint_explorer.clone(),
+        endpoint_explorer.clone(),
         Arc::new(api.runtime_config.get_firmware_config()),
     ));
     let site_explorer = SiteExplorer::new(
