@@ -96,6 +96,16 @@ enum RmsTrackedFirmwareJob {
     SwitchSystemImage(String),
 }
 
+/// Where a dispatched compute firmware-object job id is persisted so status
+/// queries survive a nico-api restart (which clears the in-memory job map).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FirmwareJobStore {
+    /// Ingested tray: the `machines` row, keyed by machine id (`node_id`).
+    MachineRow,
+    /// Pre-ingestion tray: the `explored_endpoints` row, keyed by BMC IP.
+    ExploredEndpoint,
+}
+
 // The direct RMS path matches the rack-maintenance flow and applies production
 // firmware artifacts only.
 const RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE: &str = "prod";
@@ -231,15 +241,22 @@ impl NvosUpdateManager for RmsNvosUpdateManager {
                 nodes: Some(rms::NodeSet { nodes }),
             })
             .await
-            .map_err(|error| {
-                let cause = match error {
-                    RackManagerError::ApiInvocationError(status) => status.to_string(),
-                    error => error.to_string(),
-                };
-
-                ComponentManagerError::Internal(format!(
-                    "failed to submit NVOS update to RMS: {cause}"
-                ))
+            .map_err(|error| match error {
+                // RMS validates node descriptor support before creating a job,
+                // so InvalidArgument is terminal for the submitted request.
+                RackManagerError::ApiInvocationError(status)
+                    if status.code() == tonic::Code::InvalidArgument =>
+                {
+                    ComponentManagerError::InvalidArgument(format!(
+                        "failed to submit NVOS update to RMS: {status}"
+                    ))
+                }
+                RackManagerError::ApiInvocationError(status) => ComponentManagerError::Internal(
+                    format!("failed to submit NVOS update to RMS: {status}"),
+                ),
+                error => ComponentManagerError::Internal(format!(
+                    "failed to submit NVOS update to RMS: {error}"
+                )),
             })?;
 
         let batch_response = response.response.as_ref();
@@ -3054,6 +3071,173 @@ async fn rms_get_configure_switch_certificate_job_status(
     Ok(ConfigureSwitchCertificateJobStatus { state, error })
 }
 
+impl RmsBackend {
+    /// Resolve RMS identities for pre-ingestion (row-less) compute trays from
+    /// the expected inventory, keyed by BMC MAC.
+    ///
+    /// Only rack-scale trays (those whose expected record declares a rack_id)
+    /// resolve; the BMC MAC is used as the RMS node id because no machine id
+    /// exists yet.
+    async fn resolve_pre_ingestion_compute_identities(
+        &self,
+        bmc_macs: &[MacAddress],
+    ) -> Result<HashMap<MacAddress, ComputeTrayRmsIdentity>, ComponentManagerError> {
+        if bmc_macs.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = db::expected_machine::find_rms_identities_by_bmc_macs(&self.db, bmc_macs)
+            .await
+            .map_err(|e| {
+                ComponentManagerError::Internal(format!(
+                    "failed to resolve pre-ingestion compute tray RMS identities: {e}"
+                ))
+            })?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.bmc_mac_address,
+                    ComputeTrayRmsIdentity {
+                        identity: RmsIdentity {
+                            // A row-less tray has no machine id; the BMC MAC is a
+                            // stable per-device id and RMS treats node_id as an
+                            // opaque string (the request also carries the full
+                            // node descriptor and BMC endpoint).
+                            node_id: row.bmc_mac_address.to_string(),
+                            rack_id: row.rack_id.to_string(),
+                            rack_profile_id: row.rack_profile_id,
+                        },
+                        bmc_mac: row.bmc_mac_address,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// Apply a firmware object to one compute node and record the resulting job.
+    ///
+    /// Shared by the ingested and pre-ingestion paths of `update_firmware`.
+    /// `store` selects where the backend job id is persisted so status queries
+    /// survive a restart: the `machines` row for ingested trays, or the
+    /// `explored_endpoints` row (keyed by BMC IP) for pre-ingestion trays that
+    /// have no machine row yet.
+    async fn apply_compute_firmware_object(
+        &self,
+        ep: &ComputeTrayEndpoint,
+        identity: &ComputeTrayRmsIdentity,
+        target_version: &str,
+        options: &FirmwareUpdateOptions,
+        component_filters: &[String],
+        store: FirmwareJobStore,
+    ) -> ComputeTrayResult {
+        let resolved = match self.resolve_compute_node(identity) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                return ComputeTrayResult {
+                    bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
+                    success: false,
+                    error: Some(error),
+                };
+            }
+        };
+
+        let device = build_compute_tray_node_info(ep, &resolved, identity.bmc_mac);
+
+        let request = match apply_firmware_object_request(
+            device,
+            &resolved,
+            target_version,
+            options,
+            component_filters,
+        ) {
+            Ok(request) => request,
+            Err(e) => {
+                return ComputeTrayResult {
+                    bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
+                    success: false,
+                    error: Some(e.to_string()),
+                };
+            }
+        };
+
+        match red::instrumented(
+            "rms",
+            "apply_firmware_object",
+            self.client.apply_firmware_object(request),
+        )
+        .await
+        {
+            Ok(response) => {
+                let (success, error, job_id) =
+                    summarize_firmware_object_apply_response(response, &resolved.identity.node_id);
+
+                if success {
+                    if let Some(ref job_id) = job_id {
+                        self.firmware_jobs.lock().unwrap().insert(
+                            identity.bmc_mac,
+                            vec![RmsTrackedFirmwareJob::FirmwareObject(job_id.clone())],
+                        );
+                        // Persist to DB so status queries survive nico-api restarts.
+                        let persisted = match store {
+                            FirmwareJobStore::MachineRow => {
+                                db::machine::save_backend_firmware_object_job_id(
+                                    &self.db,
+                                    &identity.identity.node_id,
+                                    job_id,
+                                )
+                                .await
+                            }
+                            FirmwareJobStore::ExploredEndpoint => {
+                                db::explored_endpoints::save_backend_firmware_object_job_id_by_ip(
+                                    &self.db, ep.bmc_ip, job_id,
+                                )
+                                .await
+                            }
+                        };
+                        if let Err(e) = persisted {
+                            tracing::warn!(
+                                node_id = %identity.identity.node_id,
+                                bmc_ip_address = %ep.bmc_ip,
+                                job_id = %job_id,
+                                error = %e,
+                                "failed to persist backend firmware job ID to database"
+                            );
+                        }
+                    } else {
+                        self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+                    }
+                } else {
+                    self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+                }
+
+                ComputeTrayResult {
+                    bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
+                    success,
+                    error,
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    bmc_ip_address = %ep.bmc_ip,
+                    error = %e,
+                    "RMS firmware update failed for compute tray"
+                );
+                ComputeTrayResult {
+                    bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
+                    success: false,
+                    error: Some(e.to_string()),
+                }
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl ComputeTrayManager for RmsBackend {
     fn name(&self) -> &str {
@@ -3070,19 +3254,45 @@ impl ComputeTrayManager for RmsBackend {
         endpoints: &[ComputeTrayEndpoint],
         action: PowerAction,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        // Ingested trays resolve their RMS identity from the machine row by BMC
+        // IP.
         let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
-        let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+        let ingested = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+
+        // Trays with no machine row yet (pre-ingestion) fall back to the
+        // expected inventory keyed by BMC MAC. Only rack-scale (RMS-managed)
+        // trays — those with a declared rack_id — resolve here; the BMC MAC
+        // doubles as the RMS node id since no machine id exists.
+        let pre_ingestion_macs: Vec<MacAddress> = endpoints
+            .iter()
+            .filter(|ep| !ingested.contains_key(&ep.bmc_ip))
+            .map(|ep| ep.bmc_mac)
+            .collect();
+        let pre_ingestion = self
+            .resolve_pre_ingestion_compute_identities(&pre_ingestion_macs)
+            .await?;
+
         let operation = to_rms_power_operation(action);
         let mut results = Vec::with_capacity(endpoints.len());
 
         for ep in endpoints {
-            let Some(identity) = ids.get(&ep.bmc_ip) else {
-                results.push(ComputeTrayResult {
-                    bmc_ip: ep.bmc_ip,
-                    success: false,
-                    error: Some("could not resolve RMS identity from database".into()),
-                });
-                continue;
+            let identity = match ingested
+                .get(&ep.bmc_ip)
+                .or_else(|| pre_ingestion.get(&ep.bmc_mac))
+            {
+                Some(identity) => identity,
+                None => {
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
+                        success: false,
+                        error: Some(
+                            "could not resolve RMS identity from database or expected inventory"
+                                .into(),
+                        ),
+                    });
+                    continue;
+                }
             };
 
             let resolved = match self.resolve_compute_node(identity) {
@@ -3090,6 +3300,7 @@ impl ComputeTrayManager for RmsBackend {
                 Err(error) => {
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success: false,
                         error: Some(error),
                     });
@@ -3118,6 +3329,7 @@ impl ComputeTrayManager for RmsBackend {
                         summarize_power_batch(response.response.unwrap_or_default());
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success,
                         error,
                     });
@@ -3130,6 +3342,7 @@ impl ComputeTrayManager for RmsBackend {
                     );
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success: false,
                         error: Some(e.to_string()),
                     });
@@ -3148,113 +3361,61 @@ impl ComputeTrayManager for RmsBackend {
         components: &[ComputeTrayComponent],
         options: &FirmwareUpdateOptions,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        // Ingested trays resolve their RMS identity from the machine row by BMC
+        // IP.
         let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
-        let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+        let ingested = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+
+        // Trays with no machine row yet (pre-ingestion) fall back to the
+        // expected inventory keyed by BMC MAC. Only rack-scale (RMS-managed)
+        // trays — those with a declared rack_id — resolve here; the BMC MAC
+        // doubles as the RMS node id since no machine id exists.
+        let pre_ingestion_macs: Vec<MacAddress> = endpoints
+            .iter()
+            .filter(|ep| !ingested.contains_key(&ep.bmc_ip))
+            .map(|ep| ep.bmc_mac)
+            .collect();
+        let pre_ingestion = self
+            .resolve_pre_ingestion_compute_identities(&pre_ingestion_macs)
+            .await?;
+
         let component_filters = compute_tray_firmware_object_component_filters(components);
         let mut results = Vec::with_capacity(endpoints.len());
 
         for ep in endpoints {
-            let Some(identity) = ids.get(&ep.bmc_ip) else {
-                results.push(ComputeTrayResult {
-                    bmc_ip: ep.bmc_ip,
-                    success: false,
-                    error: Some("could not resolve RMS identity from database".into()),
-                });
-                continue;
-            };
-
-            let resolved = match self.resolve_compute_node(identity) {
-                Ok(resolved) => resolved,
-                Err(error) => {
-                    results.push(ComputeTrayResult {
-                        bmc_ip: ep.bmc_ip,
-                        success: false,
-                        error: Some(error),
-                    });
-                    continue;
-                }
-            };
-
-            let device = build_compute_tray_node_info(ep, &resolved, identity.bmc_mac);
-
-            let request = match apply_firmware_object_request(
-                device,
-                &resolved,
-                target_version,
-                options,
-                &component_filters,
-            ) {
-                Ok(request) => request,
-                Err(e) => {
-                    results.push(ComputeTrayResult {
-                        bmc_ip: ep.bmc_ip,
-                        success: false,
-                        error: Some(e.to_string()),
-                    });
-                    continue;
-                }
-            };
-
-            match red::instrumented(
-                "rms",
-                "apply_firmware_object",
-                self.client.apply_firmware_object(request),
-            )
-            .await
-            {
-                Ok(response) => {
-                    let (success, error, job_id) = summarize_firmware_object_apply_response(
-                        response,
-                        &resolved.identity.node_id,
-                    );
-
-                    if success {
-                        if let Some(ref job_id) = job_id {
-                            self.firmware_jobs.lock().unwrap().insert(
-                                identity.bmc_mac,
-                                vec![RmsTrackedFirmwareJob::FirmwareObject(job_id.clone())],
-                            );
-                            // Persist to DB so status queries survive nico-api restarts.
-                            if let Err(e) = db::machine::save_backend_firmware_object_job_id(
-                                &self.db,
-                                &identity.identity.node_id,
-                                job_id,
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    machine_id = %identity.identity.node_id,
-                                    job_id = %job_id,
-                                    error = %e,
-                                    "failed to persist backend firmware job ID to database"
-                                );
-                            }
-                        } else {
-                            self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
-                        }
-                    } else {
-                        self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+            // Ingested trays persist their backend job id to the machine row so
+            // status survives restarts; pre-ingestion trays have no row and
+            // persist to explored_endpoints (keyed by BMC IP) instead.
+            let (identity, store) = match ingested.get(&ep.bmc_ip) {
+                Some(identity) => (identity, FirmwareJobStore::MachineRow),
+                None => match pre_ingestion.get(&ep.bmc_mac) {
+                    Some(identity) => (identity, FirmwareJobStore::ExploredEndpoint),
+                    None => {
+                        results.push(ComputeTrayResult {
+                            bmc_ip: ep.bmc_ip,
+                            bmc_mac: ep.bmc_mac,
+                            success: false,
+                            error: Some(
+                                "could not resolve RMS identity from database or expected inventory"
+                                    .into(),
+                            ),
+                        });
+                        continue;
                     }
+                },
+            };
 
-                    results.push(ComputeTrayResult {
-                        bmc_ip: ep.bmc_ip,
-                        success,
-                        error,
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        bmc_ip_address = %ep.bmc_ip,
-                        error = %e,
-                        "RMS firmware update failed for compute tray"
-                    );
-                    results.push(ComputeTrayResult {
-                        bmc_ip: ep.bmc_ip,
-                        success: false,
-                        error: Some(e.to_string()),
-                    });
-                }
-            }
+            results.push(
+                self.apply_compute_firmware_object(
+                    ep,
+                    identity,
+                    target_version,
+                    options,
+                    &component_filters,
+                    store,
+                )
+                .await,
+            );
         }
 
         Ok(results)
@@ -3266,36 +3427,50 @@ impl ComputeTrayManager for RmsBackend {
         endpoints: &[ComputeTrayEndpoint],
     ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError> {
         let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
-        let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
+        let ingested = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
 
-        let endpoint_jobs: Vec<(IpAddr, Option<String>)> = {
+        // Trays with no machines row may be pre-ingestion rack-scale nodes whose
+        // RMS identity is derivable from expected inventory, keyed by BMC MAC.
+        let pre_ingestion_macs: Vec<MacAddress> = endpoints
+            .iter()
+            .filter(|ep| !ingested.contains_key(&ep.bmc_ip))
+            .map(|ep| ep.bmc_mac)
+            .collect();
+        let pre_ingestion = self
+            .resolve_pre_ingestion_compute_identities(&pre_ingestion_macs)
+            .await?;
+
+        // Snapshot the in-memory job id per endpoint (keyed by BMC MAC via the
+        // resolved identity) before any awaits, so the lock is not held across
+        // the RMS calls below.
+        let in_memory_jobs: Vec<Option<String>> = {
             let jobs = self.firmware_jobs.lock().unwrap();
             endpoints
                 .iter()
                 .map(|ep| {
-                    let job_id = ids.get(&ep.bmc_ip).and_then(|identity| {
-                        jobs.get(&identity.bmc_mac).and_then(|jobs| {
-                            jobs.iter().find_map(|job| match job {
-                                RmsTrackedFirmwareJob::FirmwareObject(job_id) => {
-                                    Some(job_id.clone())
-                                }
-                                RmsTrackedFirmwareJob::SwitchSystemImage(_) => None,
-                            })
+                    let identity = ingested
+                        .get(&ep.bmc_ip)
+                        .or_else(|| pre_ingestion.get(&ep.bmc_mac))?;
+                    jobs.get(&identity.bmc_mac).and_then(|jobs| {
+                        jobs.iter().find_map(|job| match job {
+                            RmsTrackedFirmwareJob::FirmwareObject(job_id) => Some(job_id.clone()),
+                            RmsTrackedFirmwareJob::SwitchSystemImage(_) => None,
                         })
-                    });
-                    (ep.bmc_ip, job_id)
+                    })
                 })
                 .collect()
         };
 
         let mut statuses = Vec::with_capacity(endpoints.len());
 
-        for (bmc_ip, job_id) in &endpoint_jobs {
-            // When the in-memory map has no job (e.g. after a pod restart), fall back
-            // to the DB-persisted job ID written by update_firmware.
-            let resolved_job_id: Option<String> = if job_id.is_some() {
-                job_id.clone()
-            } else if let Some(identity) = ids.get(bmc_ip) {
+        for (ep, in_memory_job) in endpoints.iter().zip(in_memory_jobs) {
+            // When the in-memory map has no job (e.g. after a pod restart), fall
+            // back to the DB-persisted job id written by update_firmware: the
+            // machines row for ingested trays, or the explored_endpoints row
+            // (keyed by BMC IP) for pre-ingestion trays.
+            let resolved_job_id: Option<String> = if in_memory_job.is_some() {
+                in_memory_job
+            } else if let Some(identity) = ingested.get(&ep.bmc_ip) {
                 match db::machine::get_backend_firmware_object_job_id(
                     &self.db,
                     &identity.identity.node_id,
@@ -3305,9 +3480,25 @@ impl ComputeTrayManager for RmsBackend {
                     Ok(db_job_id) => db_job_id,
                     Err(e) => {
                         tracing::warn!(
-                            bmc_ip = %bmc_ip,
+                            bmc_ip_address = %ep.bmc_ip,
                             error = %e,
                             "failed to fetch persisted backend firmware job ID from database"
+                        );
+                        None
+                    }
+                }
+            } else if pre_ingestion.contains_key(&ep.bmc_mac) {
+                match db::explored_endpoints::get_backend_firmware_object_job_id_by_ip(
+                    &self.db, ep.bmc_ip,
+                )
+                .await
+                {
+                    Ok(db_job_id) => db_job_id,
+                    Err(e) => {
+                        tracing::warn!(
+                            bmc_ip_address = %ep.bmc_ip,
+                            error = %e,
+                            "failed to fetch persisted pre-ingestion firmware job ID from database"
                         );
                         None
                     }
@@ -3317,7 +3508,8 @@ impl ComputeTrayManager for RmsBackend {
             };
             let Some(job_id) = resolved_job_id else {
                 statuses.push(ComputeTrayFirmwareUpdateStatus {
-                    bmc_ip: *bmc_ip,
+                    bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
                     state: FirmwareState::Unknown,
                     target_version: String::new(),
                     error: Some("no firmware job tracked for this compute tray".into()),
@@ -3353,7 +3545,8 @@ impl ComputeTrayManager for RmsBackend {
                     };
 
                     statuses.push(ComputeTrayFirmwareUpdateStatus {
-                        bmc_ip: *bmc_ip,
+                        bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         state,
                         target_version: String::new(),
                         error,
@@ -3361,13 +3554,14 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip_address = %bmc_ip,
+                        bmc_ip_address = %ep.bmc_ip,
                         job_id = %job_id,
                         error = %e,
                         "RMS firmware job status query failed"
                     );
                     statuses.push(ComputeTrayFirmwareUpdateStatus {
-                        bmc_ip: *bmc_ip,
+                        bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         state: FirmwareState::Unknown,
                         target_version: String::new(),
                         error: Some(e.to_string()),
@@ -3582,6 +3776,71 @@ mod tests {
                 if credentials.username == "nvos-admin"
                     && credentials.password == "nvos-password"
         ));
+    }
+
+    #[tokio::test]
+    async fn rack_nvos_submission_preserves_rms_rpc_error_classification() {
+        let mock = Arc::new(MockRmsApi::new());
+        let rack_id = RackId::new("rack-1");
+
+        let switch = FirmwareUpgradeDeviceInfo {
+            node_id: "switch-1".to_string(),
+            mac: SW_MAC_1.to_string(),
+            bmc_ip: "192.0.2.10".to_string(),
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            os_mac: Some("11:22:33:44:55:66".to_string()),
+            os_ip: Some("192.0.2.20".to_string()),
+            os_username: Some("nvos-admin".to_string()),
+            os_password: Some("nvos-password".to_string()),
+            os_hostname: None,
+        };
+
+        mock.enqueue_apply_switch_system_image(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::invalid_argument("unsupported node descriptor"),
+        )))
+        .await;
+
+        let manager = RmsNvosUpdateManager {
+            client: mock.clone(),
+        };
+
+        let result = manager
+            .start_nvos_update(NvosUpdateRequest {
+                rack_id: &rack_id,
+                profile: &test_rms_profile(),
+                config_json: r#"{"Id":"fw-nvos-default"}"#,
+                access_token: "token",
+                switches: vec![switch.clone()],
+            })
+            .await;
+
+        let Err(ComponentManagerError::InvalidArgument(cause)) = result else {
+            panic!("expected RMS InvalidArgument to remain InvalidArgument");
+        };
+
+        assert!(cause.contains("unsupported node descriptor"));
+
+        mock.enqueue_apply_switch_system_image(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::unavailable("RMS unavailable"),
+        )))
+        .await;
+
+        let result = manager
+            .start_nvos_update(NvosUpdateRequest {
+                rack_id: &rack_id,
+                profile: &test_rms_profile(),
+                config_json: r#"{"Id":"fw-nvos-default"}"#,
+                access_token: "token",
+                switches: vec![switch],
+            })
+            .await;
+
+        let Err(ComponentManagerError::Internal(cause)) = result else {
+            panic!("expected RMS Unavailable to remain Internal");
+        };
+
+        assert!(cause.contains("RMS unavailable"));
     }
 
     #[test]
@@ -4497,11 +4756,62 @@ mod tests {
         (mock, backend, rack_id, ct1, ct2)
     }
 
-    fn make_ct_endpoint(bmc_ip: &str) -> ComputeTrayEndpoint {
+    /// Seed a rack-scale compute tray that has an expected record and rack but
+    /// no machine row, mirroring a device present before ingestion completes.
+    /// When `create_rack_row` is false the rack profile is only discoverable
+    /// through `expected_racks`, exercising that fallback.
+    async fn seed_pre_ingestion_compute_tray(
+        txn: &mut sqlx::PgConnection,
+        mac: &str,
+        rack_id: &RackId,
+        create_rack_row: bool,
+    ) {
+        let rack_profile_id = RackProfileId::new(TEST_RACK_PROFILE_ID);
+        db::expected_rack::create(
+            &mut *txn,
+            &model::expected_rack::ExpectedRack {
+                rack_id: rack_id.clone(),
+                rack_profile_id: rack_profile_id.clone(),
+                metadata: model::metadata::Metadata::default(),
+            },
+        )
+        .await
+        .expect("failed to create expected rack");
+
+        if create_rack_row {
+            db::rack::create(
+                &mut *txn,
+                rack_id,
+                Some(&rack_profile_id),
+                &model::rack::RackConfig::default(),
+                None,
+            )
+            .await
+            .expect("failed to create rack");
+        }
+
+        db::expected_machine::create(
+            &mut *txn,
+            model::expected_machine::ExpectedMachine {
+                id: None,
+                bmc_mac_address: mac.parse().unwrap(),
+                data: model::expected_machine::ExpectedMachineData {
+                    serial_number: "PRE-CT-001".to_owned(),
+                    rack_id: Some(rack_id.clone()),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        .expect("failed to create expected machine");
+    }
+
+    fn make_ct_endpoint(bmc_ip: &str, bmc_mac: &str) -> ComputeTrayEndpoint {
         use carbide_secrets::credentials::Credentials;
         ComputeTrayEndpoint {
             vendor: ComputeTrayVendor::Nvidia,
             bmc_ip: bmc_ip.parse().unwrap(),
+            bmc_mac: bmc_mac.parse().unwrap(),
             bmc_credentials: Credentials::UsernamePassword {
                 username: "admin".into(),
                 password: "pass".into(),
@@ -6236,7 +6546,10 @@ mod tests {
         )))
         .await;
 
-        let eps = vec![make_ct_endpoint(CT_IP_1), make_ct_endpoint(CT_IP_2)];
+        let eps = vec![
+            make_ct_endpoint(CT_IP_1, CT_MAC_1),
+            make_ct_endpoint(CT_IP_2, CT_MAC_2),
+        ];
         let results = ComputeTrayManager::power_control(&backend, &eps, PowerAction::On)
             .await
             .unwrap();
@@ -6265,7 +6578,7 @@ mod tests {
         )))
         .await;
 
-        let eps = vec![make_ct_endpoint(CT_IP_1)];
+        let eps = vec![make_ct_endpoint(CT_IP_1, CT_MAC_1)];
         let results = ComputeTrayManager::update_firmware(
             &backend,
             &eps,
@@ -6296,6 +6609,102 @@ mod tests {
     }
 
     #[carbide_macros::sqlx_test]
+    async fn ct_update_firmware_pre_ingestion_dispatches_via_expected_rack(pool: sqlx::PgPool) {
+        // No machine row and no live racks row: the RMS identity must resolve
+        // entirely from the expected inventory, with the node id synthesized
+        // from the BMC MAC.
+        let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+        let mut txn = pool.begin().await.unwrap();
+        seed_pre_ingestion_compute_tray(&mut txn, CT_MAC_1, &rack_id, false).await;
+        txn.commit().await.unwrap();
+
+        let mock = Arc::new(MockRmsApi::new());
+        let backend = RmsBackend::new(
+            mock.clone(),
+            Some(mock.clone()),
+            pool.clone(),
+            Arc::new(rack_profile_config()),
+            true,
+        );
+
+        let bmc_mac: MacAddress = CT_MAC_1.parse().unwrap();
+        // Row-less trays use the BMC MAC directly as the RMS node id.
+        let node_id = bmc_mac.to_string();
+        mock.enqueue_apply_firmware_object(Ok(MockRmsApi::firmware_object_apply_ok(
+            &node_id,
+            "ct-pre-job-1",
+        )))
+        .await;
+
+        // No machine row exists for CT_IP_1, so update_firmware falls back to the
+        // expected inventory keyed by BMC MAC.
+        let eps = vec![make_ct_endpoint(CT_IP_1, CT_MAC_1)];
+        let results = ComputeTrayManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[ComputeTrayComponent::Bmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
+
+        assert!(results[0].success);
+
+        let calls = mock.apply_firmware_object_calls().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].rack_id, rack_id.to_string());
+        assert_eq!(calls[0].config_json, r#"{"Id":"fw-json"}"#);
+        let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
+        assert_eq!(dev0.node_id, node_id);
+        assert_descriptor_node(dev0, ROLE_COMPUTE);
+        assert!(dev0.bmc_endpoint.is_some());
+
+        // In-memory tracking is keyed by MAC even without a machine row.
+        let jobs = backend.firmware_jobs.lock().unwrap();
+        assert_eq!(
+            jobs.get(&bmc_mac),
+            Some(&vec![RmsTrackedFirmwareJob::FirmwareObject(
+                "ct-pre-job-1".to_string()
+            )])
+        );
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn ct_update_firmware_pre_ingestion_without_expected_rack_errors(pool: sqlx::PgPool) {
+        // A MAC with no rack-scale expected record has no descriptor to build,
+        // so the backend reports an error rather than dispatching to RMS.
+        let mock = Arc::new(MockRmsApi::new());
+        let backend = RmsBackend::new(
+            mock.clone(),
+            Some(mock.clone()),
+            pool.clone(),
+            Arc::new(rack_profile_config()),
+            true,
+        );
+
+        let eps = vec![make_ct_endpoint(CT_IP_1, CT_MAC_1)];
+        let results = ComputeTrayManager::update_firmware(
+            &backend,
+            &eps,
+            r#"{"Id":"fw-json"}"#,
+            &[ComputeTrayComponent::Bmc],
+            &firmware_update_options(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!results[0].success);
+        assert!(
+            results[0]
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("expected inventory"))
+        );
+        assert!(mock.apply_firmware_object_calls().await.is_empty());
+    }
+
+    #[carbide_macros::sqlx_test]
     async fn ct_firmware_status_tracks_job(pool: sqlx::PgPool) {
         let (mock, backend, _, ct1, _) = make_compute_tray_backend(&pool).await;
         mock.enqueue_apply_firmware_object(Ok(MockRmsApi::firmware_object_apply_ok(
@@ -6304,7 +6713,7 @@ mod tests {
         )))
         .await;
 
-        let eps = vec![make_ct_endpoint(CT_IP_1)];
+        let eps = vec![make_ct_endpoint(CT_IP_1, CT_MAC_1)];
         ComputeTrayManager::update_firmware(
             &backend,
             &eps,

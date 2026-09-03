@@ -65,7 +65,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use version_compare::Cmp;
 mod endpoint_explorer;
-pub use endpoint_explorer::EndpointExplorer;
+pub use endpoint_explorer::{AuthenticatedBmc, EndpointExplorer};
 mod endpoint_exploration_service;
 pub use endpoint_exploration_service::{
     EndpointExplorationService, EndpointExplorationServiceError,
@@ -78,7 +78,7 @@ pub mod test_support;
 pub use metrics::{SiteExplorationMetrics, site_explorer_latency_histogram_view};
 mod bmc_endpoint_explorer;
 mod redfish;
-pub use bmc_endpoint_explorer::BmcEndpointExplorer;
+pub use bmc_endpoint_explorer::{AuthenticatedBmcClient, BmcEndpointExplorer};
 mod boot_order_tracker;
 use boot_order_tracker::BootOrderTracker;
 mod machine_creator;
@@ -100,9 +100,6 @@ pub mod config;
 pub mod errors;
 use std::sync::atomic::AtomicBool;
 
-use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::BmcCredentialOps;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{
@@ -145,23 +142,16 @@ fn should_scan_host_inband_interface_for_redfish(
             && expected_host_bmc_macs.contains(&interface.mac_address))
 }
 
-/// `redfish_client_pool` is the direct pool's credential-operations handle
-/// ([`BmcCredentialOps`]): exploration sets BMC root passwords and probes
-/// vendors on the endpoint itself.
+/// Build an endpoint explorer over the authenticated BMC client supplied by
+/// the application composition root.
 pub fn new_bmc_explorer(
-    redfish_client_pool: Arc<dyn BmcCredentialOps>,
-    nv_redfish_client_pool: Arc<NvRedfishClientPool>,
-    ipmi_tool: Arc<dyn IPMITool>,
-    credential_manager: Arc<dyn CredentialManager>,
+    bmc_client: Arc<AuthenticatedBmcClient>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
     database_connection: PgPool,
 ) -> Arc<BmcEndpointExplorer> {
     BmcEndpointExplorer::new(
-        redfish_client_pool,
-        nv_redfish_client_pool,
-        ipmi_tool,
-        credential_manager,
+        bmc_client,
         rotate_switch_nvos_credentials,
         mode,
         Some(database_connection),
@@ -478,6 +468,9 @@ pub struct SiteExplorer {
     config: SiteExplorerConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
+    /// Authenticated BMC client for remediation (reset, power, NIC mode, etc.),
+    /// supplied independently so BMC operations don't route through the explorer.
+    bmc_client: Arc<dyn AuthenticatedBmc>,
     endpoint_exploration_service: Arc<EndpointExplorationService>,
     work_lock_manager_handle: WorkLockManagerHandle,
     machine_creator: MachineCreator,
@@ -504,6 +497,7 @@ impl SiteExplorer {
         explorer_config: SiteExplorerConfig,
         meter: opentelemetry::metrics::Meter,
         endpoint_exploration_service: Arc<EndpointExplorationService>,
+        bmc_client: Arc<dyn AuthenticatedBmc>,
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
         rack_profiles: RackProfileConfig,
@@ -542,6 +536,7 @@ impl SiteExplorer {
             config: explorer_config,
             metric_holder,
             endpoint_explorer,
+            bmc_client,
             endpoint_exploration_service,
             work_lock_manager_handle,
             boot_order_tracker: BootOrderTracker::default(),
@@ -3151,11 +3146,7 @@ impl SiteExplorer {
         }
 
         // If site explorer can't log in, there's nothing we can do.
-        if !self
-            .endpoint_explorer
-            .have_credentials(endpoint.iface)
-            .await
-        {
+        if !self.bmc_client.have_credentials(endpoint.iface).await {
             return;
         }
 
@@ -3359,7 +3350,7 @@ impl SiteExplorer {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
-            .endpoint_explorer
+            .bmc_client
             .ipmitool_reset_bmc(bmc_target_addr, endpoint.iface)
             .await
         {
@@ -3408,7 +3399,7 @@ impl SiteExplorer {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
-            .endpoint_explorer
+            .bmc_client
             .redfish_reset_bmc(bmc_target_addr, endpoint.iface, None)
             .await
         {
@@ -3445,7 +3436,7 @@ impl SiteExplorer {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
 
-        self.endpoint_explorer
+        self.bmc_client
             .redfish_get_power_state(bmc_target_addr, endpoint.iface)
             .await
             .map(IntoModel::into_model)
@@ -3464,7 +3455,7 @@ impl SiteExplorer {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
 
-        self.endpoint_explorer
+        self.bmc_client
             .redfish_power_control(bmc_target_addr, endpoint.iface, action)
             .await
             .map_err(|err| SiteExplorerError::EndpointExplorationError {
@@ -3485,7 +3476,7 @@ impl SiteExplorer {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
         match self
-            .endpoint_explorer
+            .bmc_client
             .is_viking(bmc_target_addr, endpoint.iface)
             .await
         {
@@ -3508,7 +3499,7 @@ impl SiteExplorer {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
 
-        self.endpoint_explorer
+        self.bmc_client
             .clear_nvram(bmc_target_addr, endpoint.iface)
             .await
             .map_err(|err| {
@@ -3622,7 +3613,7 @@ impl SiteExplorer {
             .find_machine_interface_for_ip(dpu_endpoint.address)
             .await?;
 
-        self.endpoint_explorer
+        self.bmc_client
             .set_nic_mode(bmc_target_addr, &interface, mode)
             .await
             .map_err(|err| SiteExplorerError::EndpointExplorationError {
@@ -3641,7 +3632,7 @@ impl SiteExplorer {
 
         let interface = self.find_machine_interface_for_ip(bmc_ip_address).await?;
 
-        self.endpoint_explorer
+        self.bmc_client
             .redfish_power_control(bmc_target_addr, &interface, action)
             .await
             .map_err(|err| SiteExplorerError::EndpointExplorationError {
@@ -3784,7 +3775,7 @@ impl SiteExplorer {
                 Some(err) if err.is_unauthorized() || err.is_unreachable() => None,
                 _ => match interface.as_ref() {
                     Some(interface) => self
-                        .endpoint_explorer
+                        .bmc_client
                         .redfish_get_power_state(bmc_target_addr, interface)
                         .await
                         .ok()
@@ -3815,7 +3806,7 @@ impl SiteExplorer {
                 );
 
                 if let Some(interface) = interface.as_ref() {
-                    self.endpoint_explorer
+                    self.bmc_client
                         .redfish_power_control(
                             bmc_target_addr,
                             interface,
@@ -3916,7 +3907,7 @@ impl SiteExplorer {
                 .find_machine_interface_for_ip(bmc_target_addr.ip())
                 .await?;
 
-            self.endpoint_explorer
+            self.bmc_client
                 .machine_setup(bmc_target_addr, &interface, None)
                 .await
                 .inspect_err(|err| {
@@ -3928,7 +3919,7 @@ impl SiteExplorer {
                 })
                 .ok();
 
-            self.endpoint_explorer
+            self.bmc_client
                 .redfish_power_control(
                     bmc_target_addr,
                     &interface,

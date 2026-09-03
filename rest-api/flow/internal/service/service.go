@@ -333,6 +333,7 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 		s.taskScheduleStore,
 		dispatcher,
 		s.operationRunManager,
+		s.eventRuleManager,
 		s.conf.DataCipher,
 	)
 	if err != nil {

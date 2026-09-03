@@ -37,6 +37,11 @@ rustflags = [
 #[target.x86_64-unknown-linux-gnu]
 #rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=lld"]
 
+# mold is significantly faster and more memory-efficient than ld on aarch64.
+# The build environment selects a native or cross compiler driver.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
 [env]
 RUST_TEST_THREADS = "40"
 

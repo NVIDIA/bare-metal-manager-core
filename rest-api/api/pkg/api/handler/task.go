@@ -151,7 +151,7 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_GetTasksByIDs_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(fmt.Sprintf("task-get-%s", taskID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		fmt.Sprintf("task-get-%s", taskID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -309,7 +309,7 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_CancelTask_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -456,7 +456,7 @@ func (h GetAllTaskHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ListTasks_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -625,7 +625,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ListTasks_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -794,7 +794,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ListTasks_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr

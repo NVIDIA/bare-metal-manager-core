@@ -46,17 +46,88 @@ const MAX_ADMISSION_BACKOFF: Duration = Duration::from_secs(30);
 /// 4,500-instance batch against a persistently saturated backend could grind
 /// for days (observed live: ~20 min of continuous per-instance retries).
 const MAX_CONSECUTIVE_ADMISSION_EXHAUSTIONS: usize = 3;
+/// Attempt cap for the one-off preflight lookup that resolves `--label-key`/
+/// `--machine` into a concrete instance list, mirroring [`MAX_RELEASE_ATTEMPTS`].
+const MAX_PREFLIGHT_LOOKUP_ATTEMPTS: usize = 8;
+
+/// Outcome of parsing the server-advertised `grpc-retry-pushback-ms` header.
+enum PushbackAdvice {
+    /// No header present -- the caller should fall back to its own default.
+    Absent,
+    /// A valid non-negative delay was advertised.
+    Delay(Duration),
+    /// The header was present but negative or otherwise unparseable. Per the
+    /// gRPC retry-pushback spec, this is an explicit "do not retry" signal
+    /// from the server, distinct from simply omitting the header -- treating
+    /// it the same as `Absent` (and retrying anyway with a default delay)
+    /// would ignore the server's request to stop.
+    StopRetrying,
+}
 
 /// Parses the server-advertised retry delay from a rejection's metadata.
-fn admission_retry_delay(status: &tonic::Status) -> Option<Duration> {
-    let millis = status
-        .metadata()
-        .get(ADMISSION_RETRY_PUSHBACK_HEADER)?
-        .to_str()
-        .ok()?
-        .parse::<u64>()
-        .ok()?;
-    Some(Duration::from_millis(millis))
+fn admission_retry_delay(status: &tonic::Status) -> PushbackAdvice {
+    let Some(raw) = status.metadata().get(ADMISSION_RETRY_PUSHBACK_HEADER) else {
+        return PushbackAdvice::Absent;
+    };
+    let Ok(raw) = raw.to_str() else {
+        return PushbackAdvice::StopRetrying;
+    };
+    match raw.parse::<i64>() {
+        Ok(millis) if millis >= 0 => PushbackAdvice::Delay(Duration::from_millis(millis as u64)),
+        // Negative (explicit stop signal) or unparseable -- both mean "stop".
+        _ => PushbackAdvice::StopRetrying,
+    }
+}
+
+/// Retries a fallible preflight lookup call on `RESOURCE_EXHAUSTED` admission
+/// rejections, honoring the server's advertised `grpc-retry-pushback-ms`
+/// backoff exactly like [`release_with_retry`] does for the per-instance
+/// release loop. Any other error surfaces immediately so real failures are not
+/// masked.
+///
+/// Motivation: resolving `--label-key`/`--machine` into a concrete instance
+/// list (`get_all_instances` / `find_instance_by_machine_id`) happens *before*
+/// `release_batch` and its own retry-safe loop ever runs. Without this, a
+/// `RESOURCE_EXHAUSTED` rejection on that single preflight call aborted the
+/// whole release command with zero instances attempted, even though the batch
+/// loop itself was already retry-safe -- observed live at ~4,500-instance
+/// scale, where under sustained admission pressure some release invocations
+/// failed instantly with no progress purely because this one lookup call
+/// happened to land in a saturated window.
+async fn retry_lookup_on_admission_exhaustion<T, F, Fut>(mut attempt: F) -> CarbideCliResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = CarbideCliResult<T>>,
+{
+    let mut total_backoff = Duration::ZERO;
+    for attempt_number in 1..=MAX_PREFLIGHT_LOOKUP_ATTEMPTS {
+        match attempt().await {
+            Ok(value) => return Ok(value),
+            Err(CarbideCliError::ApiInvocationError(status))
+                if status.code() == tonic::Code::ResourceExhausted =>
+            {
+                if attempt_number == MAX_PREFLIGHT_LOOKUP_ATTEMPTS {
+                    return Err(CarbideCliError::ApiInvocationError(status));
+                }
+                let delay = match admission_retry_delay(&status) {
+                    PushbackAdvice::Absent => DEFAULT_ADMISSION_BACKOFF,
+                    PushbackAdvice::Delay(delay) => {
+                        delay.clamp(MIN_ADMISSION_BACKOFF, MAX_ADMISSION_BACKOFF)
+                    }
+                    PushbackAdvice::StopRetrying => {
+                        return Err(CarbideCliError::ApiInvocationError(status));
+                    }
+                };
+                if total_backoff.saturating_add(delay) > MAX_TOTAL_BACKOFF {
+                    return Err(CarbideCliError::ApiInvocationError(status));
+                }
+                total_backoff = total_backoff.saturating_add(delay);
+                tokio::time::sleep(delay).await;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+    unreachable!("loop returns on the final attempt")
 }
 
 /// Runs a single-instance release, retrying only `RESOURCE_EXHAUSTED` admission
@@ -80,9 +151,13 @@ where
                 if attempt_number == MAX_RELEASE_ATTEMPTS {
                     return Err(status);
                 }
-                let delay = admission_retry_delay(&status)
-                    .unwrap_or(DEFAULT_ADMISSION_BACKOFF)
-                    .clamp(MIN_ADMISSION_BACKOFF, MAX_ADMISSION_BACKOFF);
+                let delay = match admission_retry_delay(&status) {
+                    PushbackAdvice::Absent => DEFAULT_ADMISSION_BACKOFF,
+                    PushbackAdvice::Delay(delay) => {
+                        delay.clamp(MIN_ADMISSION_BACKOFF, MAX_ADMISSION_BACKOFF)
+                    }
+                    PushbackAdvice::StopRetrying => return Err(status),
+                };
                 if total_backoff.saturating_add(delay) > MAX_TOTAL_BACKOFF {
                     return Err(status);
                 }
@@ -182,11 +257,15 @@ pub(super) async fn release(
                 .into(),
         ),
         (_, Some(machine_id), _) => {
-            let instances = api_client
-                .0
-                .find_instance_by_machine_id(machine_id)
-                .await?
-                .instances;
+            let instances = retry_lookup_on_admission_exhaustion(|| async {
+                api_client
+                    .0
+                    .find_instance_by_machine_id(machine_id)
+                    .await
+                    .map_err(CarbideCliError::from)
+            })
+            .await?
+            .instances;
             let Some(instance_id) = instances.into_iter().next().and_then(|i| i.id) else {
                 return Err(CarbideCliError::GenericError(
                     "No instances assigned to that machine".to_string(),
@@ -195,16 +274,17 @@ pub(super) async fn release(
             instance_ids.push(instance_id);
         }
         (_, _, Some(key)) => {
-            let instances = api_client
-                .get_all_instances(
+            let instances = retry_lookup_on_admission_exhaustion(|| {
+                api_client.get_all_instances(
                     None,
                     None,
-                    Some(key),
-                    release_request.label_value,
+                    Some(key.clone()),
+                    release_request.label_value.clone(),
                     None,
                     ctx.config.page_size,
                 )
-                .await?;
+            })
+            .await?;
             if instances.instances.is_empty() {
                 return Err(CarbideCliError::GenericError(
                     "No instances with the passed label.key exist".to_string(),
@@ -289,16 +369,155 @@ mod tests {
         status
     }
 
+    fn pushback_status(raw: &str) -> tonic::Status {
+        let mut status = tonic::Status::resource_exhausted("API admission capacity exhausted");
+        status.metadata_mut().insert(
+            ADMISSION_RETRY_PUSHBACK_HEADER,
+            MetadataValue::try_from(raw).unwrap(),
+        );
+        status
+    }
+
     #[test]
     fn parses_advertised_pushback_delay() {
-        assert_eq!(
+        assert!(matches!(
             admission_retry_delay(&exhausted(7_000)),
-            Some(Duration::from_secs(7))
-        );
-        assert_eq!(
+            PushbackAdvice::Delay(d) if d == Duration::from_secs(7)
+        ));
+        assert!(matches!(
             admission_retry_delay(&tonic::Status::resource_exhausted("no header")),
-            None
-        );
+            PushbackAdvice::Absent
+        ));
+    }
+
+    #[test]
+    fn negative_pushback_is_a_stop_retrying_signal() {
+        // Per the gRPC retry-pushback spec, a negative value means "do not
+        // retry", not "no info given" -- must not be conflated with Absent.
+        assert!(matches!(
+            admission_retry_delay(&pushback_status("-1")),
+            PushbackAdvice::StopRetrying
+        ));
+    }
+
+    #[test]
+    fn malformed_pushback_is_a_stop_retrying_signal() {
+        assert!(matches!(
+            admission_retry_delay(&pushback_status("not-a-number")),
+            PushbackAdvice::StopRetrying
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn preflight_lookup_stops_immediately_on_negative_pushback() {
+        let attempts = Cell::new(0);
+
+        let result = retry_lookup_on_admission_exhaustion(|| {
+            attempts.set(attempts.get() + 1);
+            async move { Err::<(), _>(CarbideCliError::ApiInvocationError(pushback_status("-1"))) }
+        })
+        .await;
+
+        assert!(matches!(
+            result.unwrap_err(),
+            CarbideCliError::ApiInvocationError(status) if status.code() == tonic::Code::ResourceExhausted
+        ));
+        // Must not retry at all -- the server explicitly asked us to stop.
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn preflight_lookup_stops_immediately_on_malformed_pushback() {
+        let attempts = Cell::new(0);
+
+        let result = retry_lookup_on_admission_exhaustion(|| {
+            attempts.set(attempts.get() + 1);
+            async move {
+                Err::<(), _>(CarbideCliError::ApiInvocationError(pushback_status(
+                    "not-a-number",
+                )))
+            }
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn release_stops_immediately_on_negative_pushback() {
+        let attempts = Cell::new(0);
+
+        let result = release_with_retry(|| {
+            attempts.set(attempts.get() + 1);
+            async move { Err::<(), _>(pushback_status("-1")) }
+        })
+        .await;
+
+        assert_eq!(result.unwrap_err().code(), tonic::Code::ResourceExhausted);
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn preflight_lookup_retries_after_advertised_delay_then_succeeds() {
+        let attempts = Cell::new(0);
+        let start = tokio::time::Instant::now();
+
+        let result = retry_lookup_on_admission_exhaustion(|| {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            async move {
+                if attempt < 3 {
+                    Err(CarbideCliError::ApiInvocationError(exhausted(7_000)))
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 3);
+        // Two rejections, each honoring the advertised 7s pushback.
+        assert_eq!(start.elapsed(), Duration::from_secs(14));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn preflight_lookup_retries_are_bounded_by_attempt_cap() {
+        let attempts = Cell::new(0);
+
+        let result = retry_lookup_on_admission_exhaustion(|| {
+            attempts.set(attempts.get() + 1);
+            async move { Err::<(), _>(CarbideCliError::ApiInvocationError(exhausted(1_000))) }
+        })
+        .await;
+
+        assert!(matches!(
+            result.unwrap_err(),
+            CarbideCliError::ApiInvocationError(status) if status.code() == tonic::Code::ResourceExhausted
+        ));
+        assert_eq!(attempts.get(), MAX_PREFLIGHT_LOOKUP_ATTEMPTS);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn preflight_lookup_non_admission_errors_surface_without_retry() {
+        let attempts = Cell::new(0);
+
+        let result = retry_lookup_on_admission_exhaustion(|| {
+            attempts.set(attempts.get() + 1);
+            async move {
+                Err::<(), _>(CarbideCliError::ApiInvocationError(
+                    tonic::Status::not_found("gone"),
+                ))
+            }
+        })
+        .await;
+
+        assert!(matches!(
+            result.unwrap_err(),
+            CarbideCliError::ApiInvocationError(status) if status.code() == tonic::Code::NotFound
+        ));
+        assert_eq!(attempts.get(), 1);
     }
 
     #[tokio::test(start_paused = true)]

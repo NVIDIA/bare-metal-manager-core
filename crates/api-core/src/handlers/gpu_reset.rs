@@ -93,7 +93,7 @@ pub(crate) async fn admin_gpu_reset(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
-    api.endpoint_explorer
+    api.bmc_client
         .redfish_chassis_reset(bmc_addr, &machine_interface, &chassis_id, action)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;

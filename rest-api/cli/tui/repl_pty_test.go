@@ -125,18 +125,21 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.waitFor(t, "Scope set: site =")
 		terminal.send(t, "vpc-prefix create\r")
 		terminal.waitFor(t, "VPC:")
-		terminal.send(t, "\r")
+		terminal.send(t, "vpc-two\r")
 		terminal.waitFor(t, "VPC prefix name")
-		terminal.send(t, "tenant-prefix\r")
-		terminal.waitFor(t, "Prefix length (8-31)")
-		terminal.send(t, "24\r")
+		terminal.send(t, "tenant-ipv6-prefix\r")
 		terminal.waitFor(t, "IP block:")
 		prefixPickerTranscript := terminal.transcript()
-		assert.Contains(t, prefixPickerTranscript, "tenant-ready")
+		// The two spaces after the IPv4 block name keep this check distinct
+		// from the similarly named tenant-ready-v6 row.
+		assert.Contains(t, prefixPickerTranscript, "tenant-ready  ")
+		assert.Contains(t, prefixPickerTranscript, "tenant-ready-v6")
 		assert.NotContains(t, prefixPickerTranscript, "provider-ready")
 		assert.NotContains(t, prefixPickerTranscript, "tenant-pending")
-		terminal.send(t, "\r")
-		terminal.waitFor(t, "VPC prefix created: tenant-prefix")
+		terminal.send(t, "tenant-ready-v6\r")
+		terminal.waitFor(t, "IPv6 prefix length (8-63)")
+		terminal.send(t, "63\r")
+		terminal.waitFor(t, "VPC prefix created: tenant-ipv6-prefix")
 
 		// Subnet creation must carry the selected Ethernet virtualizer VPC,
 		// tenant IPv4 block, and prefix length through the real terminal flow.
@@ -480,7 +483,7 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		require.Len(t, prefixRequests, 1)
 		assert.JSONEq(
 			t,
-			`{"name":"tenant-prefix","vpcId":"vpc-1","ipBlockId":"tenant-ready-id","prefixLength":24}`,
+			`{"name":"tenant-ipv6-prefix","vpcId":"vpc-2","ipBlockId":"tenant-ready-v6-id","prefixLength":63}`,
 			prefixRequests[0].Body,
 		)
 
@@ -747,7 +750,7 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 			request.URL.Path == "/v2/org/acme/nico/vpc":
 			_, _ = io.WriteString(w, `[
 				{"id":"vpc-1","name":"vpc-one","siteId":"site-1","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"},
-				{"id":"vpc-2","name":"vpc-two","siteId":"site-1","status":"Ready","networkVirtualizationType":"FNN"},
+				{"id":"vpc-2","name":"vpc-two","siteId":"site-1","status":"Ready","networkVirtualizationType":"FNN","slaacEnabled":true},
 				{"id":"vpc-flat","name":"flat-vpc","siteId":"site-1","status":"Ready","networkVirtualizationType":"FLAT"},
 				{"id":"vpc-allocated","name":"allocated-vpc","siteId":"site-2","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"}
 			]`)
@@ -805,7 +808,8 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 			_, _ = io.WriteString(w, `[
 				{"id":"provider-ready-id","name":"provider-ready","siteId":"site-1","status":"Ready","tenantId":null,"protocolVersion":"IPv4"},
 				{"id":"tenant-pending-id","name":"tenant-pending","siteId":"site-1","status":"Pending","tenantId":"tenant-1","protocolVersion":"IPv4"},
-				{"id":"tenant-ready-id","name":"tenant-ready","siteId":"site-1","status":"Ready","tenantId":"tenant-1","protocolVersion":"IPv4"}
+				{"id":"tenant-ready-id","name":"tenant-ready","siteId":"site-1","status":"Ready","tenantId":"tenant-1","protocolVersion":"IPv4"},
+				{"id":"tenant-ready-v6-id","name":"tenant-ready-v6","siteId":"site-1","status":"Ready","tenantId":"tenant-1","protocolVersion":"IPv6"}
 			]`)
 		case request.Method == http.MethodPost &&
 			request.URL.Path == "/v2/org/acme/nico/subnet":
@@ -814,7 +818,7 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 		case request.Method == http.MethodPost &&
 			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
 			w.WriteHeader(http.StatusCreated)
-			_, _ = io.WriteString(w, `{"id":"prefix-1","name":"tenant-prefix","status":"Pending"}`)
+			_, _ = io.WriteString(w, `{"id":"prefix-1","name":"tenant-ipv6-prefix","status":"Pending"}`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/vpc-prefix":
 			if request.URL.Query().Get("status") == "Ready" {
