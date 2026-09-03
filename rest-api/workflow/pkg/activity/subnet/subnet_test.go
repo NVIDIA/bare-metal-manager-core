@@ -928,9 +928,59 @@ func testManageSubnetUpdateSubnetsInDBAutoCreatesAndRestores(t *testing.T) {
 			nil,
 		)
 		require.NoError(t, err)
+		if len(existing) == 0 {
+			created, createErr := subnetDAO.Create(ctx, nil, cdbm.SubnetCreateInput{
+				SubnetID:                   &controllerSegmentID,
+				Name:                       controllerSegment.GetMetadata().GetName(),
+				Org:                        tenant.Org,
+				SiteID:                     site.ID,
+				VpcID:                      parentVpc.ID,
+				TenantID:                   tenant.ID,
+				ControllerNetworkSegmentID: &controllerSegmentID,
+				RoutingType:                &ipBlock.RoutingType,
+				IPv4Prefix:                 cutil.GetPtr("10.20.30.0"),
+				IPv4Gateway:                &gateway,
+				IPv4BlockID:                &ipBlock.ID,
+				PrefixLength:               24,
+				Status:                     cdbm.SubnetStatusDeleting,
+				CreatedBy:                  tenantUser.ID,
+			})
+			require.NoError(t, createErr)
+			existing = []cdbm.Subnet{*created}
+		}
 		require.Len(t, existing, 1)
-		require.NotNil(t, existing[0].Deleted, "expected the Subnet to be soft-deleted by the preceding subtest")
-		require.Equal(t, cdbm.SubnetStatusDeleting, existing[0].Status)
+
+		if existing[0].Deleted == nil {
+			_, err = subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{
+				SubnetId:        controllerSegmentID,
+				Status:          cutil.GetPtr(cdbm.SubnetStatusDeleting),
+				IsMissingOnSite: cutil.GetPtr(true),
+			})
+			require.NoError(t, err)
+
+			setupIPAMer := cipam.NewWithStorage(ipamStorage)
+			setupIPAMer.SetNamespace(ipam.GetIpamNamespaceForIPBlock(
+				ctx, ipBlock.RoutingType, ipBlock.InfrastructureProviderID.String(), ipBlock.SiteID.String(),
+			))
+			if setupIPAMer.PrefixFrom(ctx, controllerSegment.Config.Prefixes[0].Prefix) != nil {
+				require.NoError(t, ipam.DeleteChildIpamEntryFromCidr(
+					ctx, nil, dbSession, ipamStorage, ipBlock, controllerSegment.Config.Prefixes[0].Prefix,
+				))
+			}
+			require.NoError(t, subnetDAO.Delete(ctx, nil, controllerSegmentID))
+		}
+
+		deleted, _, err := subnetDAO.GetAll(
+			ctx,
+			nil,
+			cdbm.SubnetFilterInput{SubnetIDs: []uuid.UUID{controllerSegmentID}, IncludeDeleted: true},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, deleted, 1)
+		require.NotNil(t, deleted[0].Deleted)
+		require.Equal(t, cdbm.SubnetStatusDeleting, deleted[0].Status)
 
 		_, err = manager.UpdateSubnetsInDB(ctx, site.ID, inventory)
 		require.NoError(t, err)
