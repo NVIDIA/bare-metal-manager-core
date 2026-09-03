@@ -97,6 +97,7 @@ A database dump is unreadable without every KEK its rows reference, and losing t
 
 ```bash
 umask 077   # keep the backup readable only by you
+rm -f nico-secrets-kek-backup.json   # umask does not change an existing file's mode
 kubectl -n nico-system get secret nico-secrets-kek -o json > nico-secrets-kek-backup.json
 ```
 

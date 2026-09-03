@@ -76,6 +76,7 @@ If the site keeps credentials in Postgres (see [Secrets Storage](../configuratio
 
 ```bash
 umask 077   # keep the backup readable only by you
+rm -f nico-secrets-kek-backup.json   # umask does not change an existing file's mode
 kubectl get secret nico-secrets-kek -n nico-system -o json > nico-secrets-kek-backup.json
 ```
 
@@ -292,7 +293,7 @@ cd helm-prereqs/
 
 ## Moving credentials to Postgres
 
-Migrating an existing site's credentials from Vault to Postgres is a configuration walk described in [Secrets Storage](../configuration/secrets-storage.md), and it can be folded into an upgrade window. Two points matter when you do. Every step changes the `nico-api` config and needs `kubectl -n nico-system rollout restart deployment/nico-api`, because the chart does not restart pods on ConfigMap changes and the reference installation has no Reloader. The default rolling update also keeps the old pod running until the new one is ready, so finish each step's rollout before starting the next. Keep `bmc_rotation_enabled` and `uefi_rotation_enabled` at their default `false` until the whole fleet runs one config. Once the writer is Postgres, the KEK backup above belongs in every pre-upgrade checklist.
+Migrating an existing site's credentials from Vault to Postgres is a configuration walk described in [Secrets Storage](../configuration/secrets-storage.md), and it can be folded into an upgrade window. Two points matter when you do. Every step changes the `nico-api` config and, in the reference installation, needs `kubectl -n nico-system rollout restart deployment/nico-api`: the chart carries the Stakater Reloader annotation, so installations that run Reloader restart automatically, but the reference installation does not install it. The default rolling update also keeps the old pod running until the new one is ready, so finish each step's rollout before starting the next. Keep `bmc_rotation_enabled` and `uefi_rotation_enabled` at their default `false` until the whole fleet runs one config. Once the writer is Postgres, the KEK backup above belongs in every pre-upgrade checklist.
 
 ## Version-specific upgrade notes
 

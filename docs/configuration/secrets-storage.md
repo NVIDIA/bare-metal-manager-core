@@ -80,7 +80,7 @@ These are the `[secrets]` fields:
 | `backends` | The backend read order, highest priority first. An empty list, or a backend named twice, fails the boot. | `["vault"]` |
 | `writer` | Where new credential writes go: `"vault"` or `"postgres"`. | `"vault"` |
 | `import_from` | A source backend to import from, once, at startup. Only `"vault"` is supported. Unset means nothing to import. | unset |
-| `import_approach` | How the import treats paths that already exist in Postgres: `"missing_only"` skips them; `"all"` appends fresh journal entries. Only the first import is affected; see the migration walk. | `"missing_only"` |
+| `import_approach` | How the import treats paths that already exist in Postgres: `"missing_only"` skips them; `"all"` appends a fresh entry holding the Vault value, which then becomes the current value for that path. Use `"all"` only when replacing existing Postgres values is intended. Only the first import is affected; see the migration walk. | `"missing_only"` |
 
 The following development/test example reads Postgres first with Vault as the fallback, using a local Integrated KEK. It is not a production custody recommendation:
 

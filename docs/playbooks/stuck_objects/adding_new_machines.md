@@ -14,7 +14,7 @@ Some of the configuration items that should be considered which could potentiall
 
 **Note**: New servers should be using the default username for the server type e.g. USERID for Lenovo, admin for NVIDIA/Vikings, root for Dell
 
-You should check both the expected machines DB and the credential store (the site vault pod data store by default, or the Postgres `secrets` journal when configured) for any existing data. If entries exist in both expected machines and the credential store, you should consider the password in the credential store as the password that should be used.
+You should check both the expected machines DB and the credential store (the site vault pod data store by default, or the Postgres `secrets` journal when configured) for any existing data. If entries exist in both expected machines and the credential store, you should consider the password in the credential store as the password that should be used. With the Postgres store, list the BMC entries in the `nico_system_nico` database with `SELECT path, seq, kek_id, created_at FROM secrets WHERE path LIKE 'machines/bmc/%' ORDER BY seq DESC;`; the values are encrypted, so the query shows which BMC paths have an entry, not the passwords.
 
 ### Check Host BMC exists in Expected Machines DB
 
