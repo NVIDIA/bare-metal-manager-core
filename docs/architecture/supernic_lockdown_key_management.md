@@ -23,7 +23,7 @@ NICo uses HKDF-SHA256 ([RFC 5869](https://datatracker.ietf.org/doc/html/rfc5869)
 
 Because the per-device key can be re-derived from the site-wide root and information that is permanently readable from the card itself, *NICo can recover from total database loss* without bricking any cards, provided the site-wide root itself survives: it does with the default Vault store, and with the Postgres store only if the database backup and its KEK do. As long as the site-wide root is preserved, any card can be unlocked.
 
-The site-wide root is the single piece of data that must survive at all costs. It is held in the NICo credential store, Vault by default, and should be backed up according to that store's disaster-recovery procedures; with the Postgres store that means the database and its KEK (see [Secrets Storage](../configuration/secrets-storage.md)).
+The site-wide root is the single piece of data that must survive at all costs. It is held in the NICo credential store, Vault by default, and should be backed up according to that store's disaster-recovery procedures; with the Postgres store, that means the database and its KEK (refer to [Secrets Storage](../configuration/secrets-storage.md) for details).
 
 ### SuperNIC Key Derivation
 

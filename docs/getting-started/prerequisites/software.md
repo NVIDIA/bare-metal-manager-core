@@ -110,7 +110,7 @@ psql "postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:<POSTGRES_P
 | Vault server | v1.14.0 (HA Raft) |
 | Vault injector (vault-k8s) | v1.2.1 |
 
-Vault provides a PKI engine for certificate issuance and a KV secrets engine for credential storage. NICo can keep the credentials it manages in Postgres instead; see [Day 0 Credential Store](../installation-options/day0-credential-store.md). Certificate issuance stays in Vault.
+Vault provides a PKI engine for certificate issuance and a KV secrets engine for credential storage. NICo can keep the credentials it manages in Postgres instead; refer to [Day 0 Credential Store](../installation-options/day0-credential-store.md). Certificate issuance stays in Vault.
 
 **Configuration required:**
 

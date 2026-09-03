@@ -291,8 +291,8 @@ openssl x509 -in server.crt -text -noout | grep DNS
                 DNS:default.ufm.nico, DNS:default.ufm.nico.example.org
 ```
 
-* direct IP address is not supported.
-* for UFM version less than 6.18.0-5 following patch should be applied as
+* Direct IP address is not supported
+* For UFM version less than 6.18.0-5, apply the following patch:
 
 ```text
 --- /opt/ufm/scripts/ufm_conf_creator.py   2024-07-31 16:18:58.360497118 +0000
@@ -584,7 +584,9 @@ Ports          :
 
 ### How to check the auth token and UFM IP in NICo?
 
-After configuring UFM credentials in NICo, using the following commands to check whether the token was updated in the credential store. The commands below apply to the default Vault backend. With the Postgres store, confirm the journal row instead: in the `nico_system_nico` database, `SELECT path, seq, kek_id, created_at FROM secrets WHERE path LIKE 'ufm/%' ORDER BY seq DESC;` lists the entries without revealing the encrypted token. If a local environment or file source supplies the fabric's credential, NICo reads that source first regardless of what the backend holds; see [Credential Sources](../configuration/credential-sources.md).
+After configuring UFM credentials in NICo, using the following commands to check whether the token was updated in the credential store. The commands below apply to the default Vault backend. With the Postgres store, confirm the journal row instead: in the `nico_system_nico` database, `SELECT path, seq, kek_id, created_at FROM secrets WHERE path LIKE 'ufm/%' ORDER BY seq DESC;` lists the entries without revealing the encrypted token.
+
+If a local environment or file source supplies the fabric's credential, NICo reads that source first regardless of what the backend holds; refer to [Credential Sources](../configuration/credential-sources.md) for details.
 
 ```bash
 kubectl exec -it vault-0 -n vault -- /bin/sh

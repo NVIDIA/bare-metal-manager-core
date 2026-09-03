@@ -40,7 +40,11 @@ With `ufm_source = "local"` and InfiniBand management enabled, startup requires 
 
 ## Environment Source
 
-Set `CARBIDE_CREDENTIALS_ENV_ENABLED=true` on the `nico-api` process to enable it; the only accepted values are `true` and `false`. Variables are read once at startup, so changing them requires a restart. Use the file source for rotation without a restart.
+Set `CARBIDE_CREDENTIALS_ENV_ENABLED=true` on the `nico-api` process to enable the environment source; the only accepted values are `true` and `false`.
+
+<Tip>
+Variables are read once at startup, so changing them requires a restart. Use the [file source](#file-source) for rotation without a restart.
+</Tip>
 
 Variable names start with the prefix `CARBIDE_STATIC_CREDENTIAL_`, which `CARBIDE_CREDENTIALS_ENV_PREFIX` overrides. Trailing underscores are removed from the configured prefix, and `__` separates each nested field of the schema below. These variables supply both fields of the `default` UFM fabric:
 
@@ -54,7 +58,7 @@ A variable with a missing `username` or `password`, or one that does not parse, 
 
 ## File Source
 
-The file is JSON or YAML, and only the keys you need have to be present. Every credential entry is a `username` and `password` pair; the exception is `machine_identity.encryption_keys`, whose values are base64-encoded 32-byte keys. Map entries are keyed by fabric name, NMX-M id, DPU model (for example `BlueField3`), BMC vendor (for example `Dell`), or MQTT credential type (for example `DsxExchangeConsumer`):
+The file is JSON or YAML, and only the keys you need have to be present. Every credential entry is a `username` and `password` pair; the exception is `machine_identity.encryption_keys`, whose values are base64-encoded 32-byte keys. Map entries are keyed by fabric name, NMX-M ID, DPU model (for example, `BlueField3`), BMC vendor (for example, `Dell`), or MQTT credential type (for example, `DsxExchangeConsumer`):
 
 ```yaml
 ufm_auth_by_fabric:
@@ -87,11 +91,11 @@ machine_identity:
 
 The remaining top-level keys take a single `username` and `password` pair: `host_redfish_site_default`, `dpu_redfish_site_default`, `dpu_redfish_factory_default` (the legacy catch-all used when no per-model entry exists), `host_uefi_site_default`, `dpu_uefi_site_default`, and `dpu_uefi_factory_default`. For UFM, the password is the bearer token, and an empty password selects the default SPIFFE client certificate.
 
-The watcher reloads the file on filesystem events and on every `poll_interval`, so a Kubernetes projected Secret that is replaced atomically takes effect without restarting NICo. A valid reload replaces the whole snapshot, and entries removed from the file stop resolving. A reload that is malformed or unreadable keeps the last valid snapshot and logs the watcher failure without secret material. A file that is missing, unreadable, or malformed at startup, or a zero `poll_interval`, fails startup with a redacted error.
+The watcher reloads the file on filesystem events and on every `poll_interval`, so a Kubernetes projected Secret that is replaced atomically takes effect without restarting NICo. A valid reload replaces the whole snapshot, and entries removed from the file stop resolving. A reload that is malformed or unreadable keeps the last valid snapshot and logs the failure with the secret values redacted. A file that is missing, unreadable, or malformed at startup, or a zero `poll_interval`, fails startup with an error that redacts the secret values in the same way.
 
 ### Legacy Variables
 
-Sites that enabled the file source before `[credentials.file]` existed used `CARBIDE_CREDENTIALS_FILE_ENABLED=true` and `CARBIDE_CREDENTIALS_FILE_PATH`, default `secrets.yaml`. They keep working after an upgrade with the same behavior. When both are configured, `[credentials.file]` wins. Because `ufm_source` defaults to `local_first`, an existing site's environment or file UFM entry keeps overriding the backend after an upgrade, and nothing changes silently.
+Sites that enabled the file source before `[credentials.file]` existed use `CARBIDE_CREDENTIALS_FILE_ENABLED=true` and `CARBIDE_CREDENTIALS_FILE_PATH`, default `secrets.yaml`. They keep working after an upgrade with the same behavior. When both are configured, `[credentials.file]` wins. Because `ufm_source` defaults to `local_first`, an existing site's environment or file UFM entry keeps overriding the backend after an upgrade, and nothing changes silently.
 
 ## Helm Values
 
@@ -110,5 +114,5 @@ Environment-backed entries reach the pod through `extraEnv` or Secret references
 ## Interaction with the Persistent Backends
 
 - Local sources are read-only. The `nico-admin-cli credential add-*` commands write to the `[secrets] writer`, and a local entry for the same credential shadows that write on read.
-- Machine-identity encryption keys can come from the file source, the environment, Vault, or Postgres; see [Day 0 Machine Identity](../getting-started/installation-options/day0-machine-identity.md).
+- Machine-identity encryption keys can come from the file source, the environment, Vault, or Postgres; refer to [Day 0 Machine Identity](../getting-started/installation-options/day0-machine-identity.md).
 - The Postgres store, the Vault import, and key rotation are described in [Secrets Storage](secrets-storage.md).

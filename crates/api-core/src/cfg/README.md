@@ -1064,7 +1064,7 @@ ufm_auth_by_fabric:
 Each entry in `providers` is tagged by `type`. Unknown fields are rejected.
 
 | Field | Type | Default | Description |
-| ------- | ------ | --------- | ------------- |
+| ----- | ---- | ------- | ----------- |
 | `type` | `"integrated"` or `"transit"` | **required** | `integrated` holds key material in the NICo process; `transit` wraps and unwraps DEKs in Vault/OpenBao Transit so KEK material never leaves the KMS. |
 | `keys` (`integrated`) | `HashMap<String, KeySource>` | **required, non-empty** | Maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "<base64>" }`. Each key must decode to exactly 32 bytes; a missing variable or unreadable file fails the boot, and a key file readable by group or others logs a warning. Inline `value` is development/test-only because the config is logged at startup and shown on the admin web page. |
 | `keys` (`transit`) | `Vec<String>` | **required** | Transit key names this provider answers for. |

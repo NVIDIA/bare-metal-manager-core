@@ -1,6 +1,6 @@
 # Secrets Storage <Badge intent="info">v2.0</Badge>
 
-NICo keeps the credentials it manages (BMC logins, switch and UFM accounts, factory defaults, and so on) in a credentials store. Vault is the historical and default backend. NICo can also store credentials in Postgres, encrypted per credential with envelope encryption, and can read both backends side by side; that combination is what makes a gradual, reversible migration off Vault possible, and it lets a new site keep its credentials in Postgres from the first boot.
+NICo keeps the credentials it manages (BMC logins, switch and UFM accounts, factory defaults, and so on) in a credentials store. Vault is the historical and default backend. NICo can also store credentials in Postgres, encrypted per credential with envelope encryption, and can read both backends side by side. That combination is what makes a gradual, reversible migration off Vault possible, and it lets a new site keep its credentials in Postgres from the first boot.
 
 This page covers the `[secrets]` section of the `nico-api` config, how to supply it and its key material through Helm, the setup of a new site, the Vault-to-Postgres migration walk for an existing site, and key rotation. If `[secrets]` is absent, nothing here applies: credentials flow through the classic environment, file, and Vault chain.
 
@@ -30,7 +30,7 @@ The secrets KEK is the secrets store's own key; it is unrelated to the machine-i
 
 These points apply to a new site and to a migration alike.
 
-**Database tables.** The journal lives in the `secrets` table and the import and re-wrap leases in `work_locks`. Both are created by the database migrations, which the `nico-api` chart runs in its `nico-api-migrate` Job before install and before upgrade, so a first install can include `[secrets]` from the start. An existing site must run the release's migrations before adding the section, and if you run migrations outside the chart, run them first.
+**Database tables.** The journal lives in the `secrets` table, and the import and re-wrap leases are in `work_locks`. Both are created by the database migrations, which the `nico-api` chart runs in its `nico-api-migrate` Job before install and before upgrade, so a first install can include `[secrets]` from the start. An existing site must run the release's migrations before adding the section, and if you run migrations outside the chart, run them first.
 
 **Where the section goes.** The chart has no dedicated values for `[secrets]`. Put the section in the site TOML that the chart renders from `siteConfig.nicoApiSiteConfig`; in the reference installation that value is `nico-api.siteConfig.nicoApiSiteConfig` in `helm-prereqs/values/nico-core.yaml`.
 
@@ -64,7 +64,7 @@ nico-api:
 The chart has no value for mounting a file, so use the `env` form; the `{ file = "/path" }` key source needs a chart change.
 
 <Warning>
-Back up the KEK separately from the database. A database dump without every KEK its rows reference is unreadable, and losing an Integrated KEK loses every credential wrapped by it. Add the KEK Secret to the same pre-upgrade backup as the Vault unseal keys in [Upgrading NICo](../manuals/upgrade.md). With a Transit provider, the KEK lives in the Transit engine's storage, so back up Vault's storage, not only its unseal keys.
+Back up the KEK separately from the database. A database dump without every KEK its rows reference is unreadable, and losing an Integrated KEK loses every credential wrapped by it. Add the KEK Secret to the same pre-upgrade backup as the Vault unseal keys in [Upgrading NICo](../manuals/upgrade.md). With a Transit provider, the KEK lives in the Transit engine's storage, so back up Vault's storage, as well as its unseal keys.
 </Warning>
 
 ## Configuration Reference
@@ -80,7 +80,7 @@ These are the `[secrets]` fields:
 | `backends` | The backend read order, highest priority first. An empty list, or a backend named twice, fails the boot. | `["vault"]` |
 | `writer` | Where new credential writes go: `"vault"` or `"postgres"`. | `"vault"` |
 | `import_from` | A source backend to import from, once, at startup. Only `"vault"` is supported. Unset means nothing to import. | unset |
-| `import_approach` | How the import treats paths that already exist in Postgres: `"missing_only"` skips them; `"all"` appends a fresh entry holding the Vault value, which then becomes the current value for that path. Use `"all"` only when replacing existing Postgres values is intended. Only the first import is affected; see the migration walk. | `"missing_only"` |
+| `import_approach` | How the import treats paths that already exist in Postgres: `"missing_only"` skips them; `"all"` appends a fresh entry holding the Vault value, which then becomes the current value for that path. Use `"all"` only when replacing existing Postgres values is intended. Only the first import is affected; refer to the migration walk. | `"missing_only"` |
 
 The following development/test example reads Postgres first with Vault as the fallback, using a local Integrated KEK. It is not a production custody recommendation:
 
@@ -123,7 +123,7 @@ path "transit/datakey/plaintext/site-kek-1" { capabilities = ["update"] }
 
 `nico-api` reads the token from `VAULT_TOKEN`, which the chart sets from the Secret named by `envFrom.vaultToken.secretName` (key `token`). Use a token whose policy is scoped to those paths, not the root token.
 
-NICo validates all of this at startup, before any writes or imports, and a bad section fails the boot:
+NICo validates all of the following at startup, before any writes or imports, and a bad section fails the boot:
 
 - `backends` is non-empty and names each backend once; unknown fields anywhere in `[secrets]` are rejected.
 - The `active` provider exists, and an Integrated provider lists at least one key.

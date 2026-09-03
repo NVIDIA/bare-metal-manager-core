@@ -24,7 +24,9 @@ Vault remains installed either way. It issues certificates through the `vault-ni
 
 ---
 
-## 1. Create the KEK Secret
+<Steps toc={true}>
+
+## Create the KEK Secret
 
 Generate a 256-bit key straight into a Kubernetes Secret in the namespace where `nico-api` runs, `nico-system` in the reference installation. The key never appears in your shell history or process list:
 
@@ -32,9 +34,9 @@ Generate a 256-bit key straight into a Kubernetes Secret in the namespace where 
 openssl rand -base64 32 | tr -d '\n' | kubectl -n nico-system create secret generic nico-secrets-kek --from-file=site-kek-1=/dev/stdin
 ```
 
-The Secret key, `site-kek-1` here, is the `kek_id`. It appears in `[secrets]` and on every stored row, so choose one you can keep across rotations. Step 6 backs the Secret up; you do not need to record the key anywhere else.
+The Secret key, `site-kek-1` here, is the `kek_id`. It appears in `[secrets]` and on every stored row, so choose one you can keep across rotations. The last step backs the Secret up; you do not need to record the key anywhere else.
 
-## 2. Expose the KEK to nico-api
+## Expose the KEK to nico-api
 
 Expose the Secret to `nico-api` as an environment variable through the chart's `extraEnv` value. In the reference installation the value lives under `nico-api` in `helm-prereqs/values/nico-core.yaml`:
 
@@ -50,7 +52,7 @@ nico-api:
 
 The variable name is your choice; the `env` locator in the next step must match it. The chart has no value for mounting the key as a file.
 
-## 3. Add `[secrets]` to the Site Config
+## Add [secrets] to the Site Config
 
 Append the section to `nico-api.siteConfig.nicoApiSiteConfig`:
 
@@ -72,14 +74,14 @@ keys = { "site-kek-1" = { env = "NICO_SECRETS_KEK" } }
 
 `nico-api` validates the section at startup: the active provider must exist, every routed `kek_id` must belong to it, the key must decode to 32 bytes, and the routing needs the `"/"` catch-all. A bad section fails the boot with a message that names the field.
 
-## 4. Decide What Happens to the Vault Seeds
+## Decide What Happens to the Vault Seeds
 
 `helm-prereqs` seeds credentials such as the DPU BMC factory defaults into Vault KV through its `vault.kvSeeds` value. With `backends = ["postgres"]` those seeds are never read. Choose one:
 
 - **Seed nothing.** Set `vault.kvSeeds: []` in the `helm-prereqs` values and add the credentials with `nico-admin-cli credential add-*` once the API is up, starting with the site-wide credentials in the [Quick Start Guide](../quick-start.md) and the factory defaults for your hardware.
 - **Import the seeds once.** List `vault` after `postgres` in `backends` and set `import_from = "vault"` for the first boot. When the log shows `Vault secret import completed`, remove `vault` from `backends` and drop `import_from`; later boots skip the import without contacting Vault.
 
-## 5. Deploy and Verify
+## Deploy and Verify
 
 Run the installation as usual. At startup `nico-api` logs `Postgres secrets backend configured` with the active provider, backends, and writer:
 
@@ -89,7 +91,7 @@ kubectl -n nico-system logs deployment/nico-api | grep "secrets backend configur
 
 After you add credentials, the counter `carbide_api_secrets_requests_total` rises; its `operation` label separates reads (`get`) from writes (`set`, `create`, `delete`).
 
-## 6. Back Up the KEK
+## Back Up the KEK
 
 <Warning>
 A database dump is unreadable without every KEK its rows reference, and losing the Integrated KEK loses every stored credential. Export the Secret and store it with the Vault unseal keys, as described in the pre-upgrade checklist of [Upgrading NICo](../../manuals/upgrade.md).
@@ -97,9 +99,11 @@ A database dump is unreadable without every KEK its rows reference, and losing t
 
 ```bash
 umask 077   # keep the backup readable only by you
-rm -f nico-secrets-kek-backup.json   # umask does not change an existing file's mode
-kubectl -n nico-system get secret nico-secrets-kek -o json > nico-secrets-kek-backup.json
+kubectl -n nico-system get secret nico-secrets-kek -o json > nico-secrets-kek-backup.json.new \
+  && mv nico-secrets-kek-backup.json.new nico-secrets-kek-backup.json   # keep the old backup if the export fails
 ```
+
+</Steps>
 
 ---
 
