@@ -458,6 +458,7 @@ mod tests {
     fn update_firmware_commands_build_requests_for_every_target() {
         const CONFIG_JSON: &str = r#"{"Id":"fw-object","Version":"1.2.3"}"#;
         const MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+        const MAC_ADDRESS: &str = "00:11:22:33:44:55";
         const POWER_SHELF_ID: &str = "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
         const RACK_ID: &str = "rack-test";
         const SWITCH_ID: &str = "sw100ntjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
@@ -552,6 +553,35 @@ mod tests {
                 rpc::forge::ComputeTrayComponent::Bios as i32,
             ]
         );
+
+        let compute_mac_request = rpc::forge::UpdateComponentFirmwareRequest::try_from(
+            Args::try_parse_from([
+                "update-firmware",
+                "compute-tray",
+                "--mac-address",
+                MAC_ADDRESS,
+                "--target-version",
+                "fw-1.2.3",
+            ])
+            .expect("compute-tray MAC command should parse"),
+        )
+        .expect("compute-tray MAC command should build a request");
+
+        let Some(rpc::forge::update_component_firmware_request::Target::ComputeTrays(target)) =
+            compute_mac_request.target
+        else {
+            panic!("compute-tray MAC command should build a compute-tray target");
+        };
+
+        let Some(bmc_macs) = target.bmc_macs else {
+            panic!("compute-tray MAC command should build a bmc-macs target");
+        };
+        assert!(
+            target.machine_ids.is_none(),
+            "MAC target must not also set machine_ids",
+        );
+
+        assert_eq!(bmc_macs.mac_addresses, [MAC_ADDRESS]);
 
         let power_shelf_request = rpc::forge::UpdateComponentFirmwareRequest::try_from(
             Args::try_parse_from([
