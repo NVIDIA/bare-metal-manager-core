@@ -779,9 +779,10 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 
 		// If phone-home has never been enabled, then
 		// any user-data content was always acceptable,
-		// so do nothing and return.
+		// so there is nothing to rewrite. The stored blob still reaches the
+		// Site, so its size is checked before returning.
 		if !*mergedPhoneHomeEnabled {
-			return nil
+			return util.ValidateEffectiveUserData(mergedUserData)
 		}
 	}
 
@@ -855,8 +856,9 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	} else {
 		// If we've arrived here, then phone-home is being disabled,
 		// and the user-data is NOT valid YAML,
-		// but we don't care, so don't touch user-data and just return.
-		return nil
+		// but we don't care, so don't touch user-data.
+		// Its size still applies, valid YAML or not.
+		return util.ValidateEffectiveUserData(mergedUserData)
 	}
 
 	if len(documentRoot.Content) == 0 {

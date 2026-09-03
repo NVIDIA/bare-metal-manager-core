@@ -2858,6 +2858,25 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			},
 			wantErr: true,
 		},
+		{
+			// Same request as the case above, but the Instance has a base OS,
+			// which takes the merge branch that leaves the request's user-data
+			// nil. The stored blob still reaches the Site either way.
+			name: "os nonnil, no OS change, instance user-data over max length inherited, expect failure",
+			request: &APIInstanceUpdateRequest{
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("Test description"),
+			},
+			cfg: cfg1,
+			os:  osPxe,
+			instance: &cdbm.Instance{
+				ID:               uuid.New(),
+				IpxeScript:       cutil.GetPtr("#!ipxe"),
+				PhoneHomeEnabled: false,
+				UserData:         cutil.GetPtr("a: " + strings.Repeat("b", util.MaxUserDataBytes)),
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

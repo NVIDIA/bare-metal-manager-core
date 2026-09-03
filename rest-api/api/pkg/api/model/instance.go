@@ -1670,7 +1670,17 @@ func (iur *APIInstanceUpdateRequest) ValidateAndSetOperatingSystemData(cfg *conf
 		}
 	}
 
-	return util.ValidateEffectiveUserData(iur.UserData)
+	// An update that touches none of user-data, the base OS, or phone-home
+	// leaves iur.UserData nil, so the value heading to the Site is the stored
+	// blob that mergedUserData resolved to. Checking it here rather than
+	// assigning it back keeps the field absent from the update, so an
+	// unrelated update cannot rewrite a column the caller never named.
+	effectiveUserData := iur.UserData
+	if effectiveUserData == nil {
+		effectiveUserData = mergedUserData
+	}
+
+	return util.ValidateEffectiveUserData(effectiveUserData)
 }
 
 // ValidateMultiEthernetDeviceInterfaces validates the Multi-Ethernet Device Interfaces for the Instance

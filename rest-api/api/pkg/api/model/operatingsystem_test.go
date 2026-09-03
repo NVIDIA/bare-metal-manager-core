@@ -927,6 +927,48 @@ phone_home:
 			userDataNegativeSearches: []string{"TestCommonPhoneHomeOnlyCloudInit"}, // It's looking for a comment in the TestCommonPhoneHomeOnlyCloudInit value.
 			wantErr:                  false,
 		},
+		// The two cases below reach the early returns that skip the rewrite,
+		// where the stored blob is what the Site receives. Every other
+		// oversized case here is caught after phone-home insertion instead.
+		{
+			name: "fail unrelated update when stored user-data is over max length and phone-home was never enabled",
+			fields: fields{
+				Name:        "renamed",
+				Description: cutil.GetPtr("test"),
+			},
+			phoneHomeUrl: "http://localhost/local",
+			existingOS: &cdbm.OperatingSystem{
+				ID:               uuid.New(),
+				Name:             "ab",
+				IpxeScript:       cutil.GetPtr("original ipxe"),
+				UserData:         cutil.GetPtr("a: " + strings.Repeat("b", util.MaxUserDataBytes)),
+				PhoneHomeEnabled: false,
+				Status:           cdbm.OperatingSystemStatusReady,
+				Type:             cdbm.OperatingSystemTypeIPXE,
+				CreatedBy:        uuid.New(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "fail phonehome disabled request when stored user-data is over max length and is not valid YAML",
+			fields: fields{
+				Name:             "test-name",
+				Description:      cutil.GetPtr("test"),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+			},
+			phoneHomeUrl: "http://localhost/local",
+			existingOS: &cdbm.OperatingSystem{
+				ID:               uuid.New(),
+				Name:             "ab",
+				IpxeScript:       cutil.GetPtr("original ipxe"),
+				UserData:         cutil.GetPtr(util.TestCommonXMLUserData + strings.Repeat("<!-- pad -->", util.MaxUserDataBytes/12)),
+				PhoneHomeEnabled: false,
+				Status:           cdbm.OperatingSystemStatusReady,
+				Type:             cdbm.OperatingSystemTypeIPXE,
+				CreatedBy:        uuid.New(),
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
