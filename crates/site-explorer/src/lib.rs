@@ -100,9 +100,6 @@ pub mod config;
 pub mod errors;
 use std::sync::atomic::AtomicBool;
 
-use carbide_ipmi::IPMITool;
-use carbide_redfish::libredfish::BmcCredentialOps;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{
@@ -145,23 +142,16 @@ fn should_scan_host_inband_interface_for_redfish(
             && expected_host_bmc_macs.contains(&interface.mac_address))
 }
 
-/// `redfish_client_pool` is the direct pool's credential-operations handle
-/// ([`BmcCredentialOps`]): exploration sets BMC root passwords and probes
-/// vendors on the endpoint itself.
+/// Build an endpoint explorer over the authenticated BMC client supplied by
+/// the application composition root.
 pub fn new_bmc_explorer(
-    redfish_client_pool: Arc<dyn BmcCredentialOps>,
-    nv_redfish_client_pool: Arc<NvRedfishClientPool>,
-    ipmi_tool: Arc<dyn IPMITool>,
-    credential_manager: Arc<dyn CredentialManager>,
+    bmc_client: Arc<AuthenticatedBmcClient>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
     database_connection: PgPool,
 ) -> Arc<BmcEndpointExplorer> {
     BmcEndpointExplorer::new(
-        redfish_client_pool,
-        nv_redfish_client_pool,
-        ipmi_tool,
-        credential_manager,
+        bmc_client,
         rotate_switch_nvos_credentials,
         mode,
         Some(database_connection),
@@ -478,9 +468,8 @@ pub struct SiteExplorer {
     config: SiteExplorerConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
-    /// Authenticated BMC client for remediation (reset, power, NIC mode, etc.);
-    /// same object as `endpoint_explorer`, typed narrowly so BMC ops don't route
-    /// through the explorer.
+    /// Authenticated BMC client for remediation (reset, power, NIC mode, etc.),
+    /// supplied independently so BMC operations don't route through the explorer.
     bmc_client: Arc<dyn AuthenticatedBmc>,
     endpoint_exploration_service: Arc<EndpointExplorationService>,
     work_lock_manager_handle: WorkLockManagerHandle,
@@ -508,6 +497,7 @@ impl SiteExplorer {
         explorer_config: SiteExplorerConfig,
         meter: opentelemetry::metrics::Meter,
         endpoint_exploration_service: Arc<EndpointExplorationService>,
+        bmc_client: Arc<dyn AuthenticatedBmc>,
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
         rack_profiles: RackProfileConfig,
@@ -528,7 +518,6 @@ impl SiteExplorer {
         ));
         let rack_profiles = Arc::new(rack_profiles);
         let endpoint_explorer = endpoint_exploration_service.endpoint_explorer();
-        let bmc_client = endpoint_exploration_service.authenticated_bmc_client();
 
         SiteExplorer {
             machine_creator: MachineCreator::new(

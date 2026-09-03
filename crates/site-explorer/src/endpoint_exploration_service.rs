@@ -29,7 +29,7 @@ use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, 
 use sqlx::PgPool;
 
 use crate::endpoint_lock::{EndpointExplorationGuard, EndpointExplorationLocks};
-use crate::{AuthenticatedBmc, EndpointExplorer, enrich_endpoint_exploration_report};
+use crate::{EndpointExplorer, enrich_endpoint_exploration_report};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EndpointExplorationServiceError {
@@ -72,9 +72,6 @@ pub(crate) struct EndpointProbeResult {
 pub struct EndpointExplorationService {
     database_connection: PgPool,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
-    /// The authenticated BMC client for the same endpoint object exploration
-    /// runs on, typed narrowly so BMC ops don't route through the explorer.
-    bmc_client: Arc<dyn AuthenticatedBmc>,
     firmware_config: Arc<FirmwareConfig>,
     locks: EndpointExplorationLocks,
 }
@@ -83,13 +80,11 @@ impl EndpointExplorationService {
     pub fn new(
         database_connection: PgPool,
         endpoint_explorer: Arc<dyn EndpointExplorer>,
-        bmc_client: Arc<dyn AuthenticatedBmc>,
         firmware_config: Arc<FirmwareConfig>,
     ) -> Self {
         Self {
             database_connection,
             endpoint_explorer,
-            bmc_client,
             firmware_config,
             locks: EndpointExplorationLocks::default(),
         }
@@ -97,10 +92,6 @@ impl EndpointExplorationService {
 
     pub(crate) fn endpoint_explorer(&self) -> Arc<dyn EndpointExplorer> {
         self.endpoint_explorer.clone()
-    }
-
-    pub(crate) fn authenticated_bmc_client(&self) -> Arc<dyn AuthenticatedBmc> {
-        self.bmc_client.clone()
     }
 
     pub(crate) async fn firmware_config_snapshot(

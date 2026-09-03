@@ -83,7 +83,8 @@ pub struct Api {
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
-    /// Authenticated BMC client for admin ops; same object as `endpoint_explorer`.
+    /// Authenticated BMC client for admin operations, supplied independently of
+    /// endpoint exploration.
     pub(crate) bmc_client: Arc<dyn AuthenticatedBmc>,
     pub(crate) endpoint_exploration_service: Arc<EndpointExplorationService>,
     pub(crate) scout_stream_registry: ConnectionRegistry,

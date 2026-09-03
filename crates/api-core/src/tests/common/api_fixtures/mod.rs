@@ -1698,6 +1698,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         },
         test_meter.meter(),
         api.endpoint_exploration_service.clone(),
+        api.bmc_client.clone(),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
         site_explorer_rack_profiles,

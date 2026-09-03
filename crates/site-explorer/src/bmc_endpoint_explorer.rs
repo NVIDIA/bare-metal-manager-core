@@ -86,9 +86,26 @@ pub struct AuthenticatedBmcClient {
     credential_client: CredentialClient,
 }
 
+impl AuthenticatedBmcClient {
+    /// Build the shared authenticated BMC client used by endpoint exploration
+    /// and by callers performing BMC administration.
+    pub fn new(
+        redfish_client_pool: Arc<dyn BmcCredentialOps>,
+        nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+        ipmi_tool: Arc<dyn IPMITool>,
+        credential_manager: Arc<dyn CredentialManager>,
+    ) -> Self {
+        Self {
+            redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
+            ipmi_tool,
+            credential_client: CredentialClient::new(credential_manager),
+        }
+    }
+}
+
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct BmcEndpointExplorer {
-    bmc_client: AuthenticatedBmcClient,
+    bmc_client: Arc<AuthenticatedBmcClient>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
     /// Used to record per-device BMC rotation convergence at the moment the
@@ -99,50 +116,26 @@ pub struct BmcEndpointExplorer {
     database_connection: Option<PgPool>,
 }
 
-// Deref lets exploration methods keep using `self.redfish_client` etc. after
-// ownership of those clients moved onto the extracted type.
-impl std::ops::Deref for BmcEndpointExplorer {
-    type Target = AuthenticatedBmcClient;
-
-    fn deref(&self) -> &Self::Target {
-        &self.bmc_client
-    }
-}
-
 impl BmcEndpointExplorer {
-    /// `redfish_client_pool` is the direct pool's credential-operations
-    /// handle ([`BmcCredentialOps`]): exploration sets BMC root passwords
-    /// and probes vendors on the endpoint itself.
+    /// Build an explorer over the shared authenticated BMC client.
     pub fn new(
-        redfish_client_pool: Arc<dyn BmcCredentialOps>,
-        nv_redfish_client_pool: Arc<NvRedfishClientPool>,
-        ipmi_tool: Arc<dyn IPMITool>,
-        credential_manager: Arc<dyn CredentialManager>,
+        bmc_client: Arc<AuthenticatedBmcClient>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
         mode: SiteExplorerExploreMode,
         database_connection: Option<PgPool>,
     ) -> Self {
         Self {
-            bmc_client: AuthenticatedBmcClient {
-                redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
-                ipmi_tool,
-                credential_client: CredentialClient::new(credential_manager),
-            },
+            bmc_client,
             rotate_switch_nvos_credentials,
             mode,
             database_connection,
         }
     }
 
-    /// A shared [`AuthenticatedBmc`] handle to the same client exploration runs
-    /// on. Callers needing only BMC admin ops hold this instead of the explorer.
-    pub fn authenticated_bmc_client(&self) -> Arc<dyn AuthenticatedBmc> {
-        Arc::new(self.bmc_client.clone())
-    }
-
     pub async fn get_sitewide_bmc_password(&self) -> Result<String, EndpointExplorationError> {
         let version = self.current_sitewide_bmc_version().await?;
         let credentials = self
+            .bmc_client
             .credential_client
             .get_sitewide_bmc_root_credentials(version)
             .await?;
@@ -159,7 +152,8 @@ impl BmcEndpointExplorer {
         create_if_missing: bool,
     ) -> Result<String, EndpointExplorationError> {
         let version = self.current_sitewide_dpu_bmc_service_version().await?;
-        self.credential_client
+        self.bmc_client
+            .credential_client
             .get_sitewide_dpu_bmc_service_password(version, create_if_missing)
             .await
     }
@@ -259,8 +253,13 @@ impl BmcEndpointExplorer {
     }
 
     async fn get_dpu_factory_default_credentials(&self, bmc_ip_address: SocketAddr) -> Credentials {
-        let model = self.redfish_client.get_dpu_model_hint(bmc_ip_address).await;
-        self.credential_client
+        let model = self
+            .bmc_client
+            .redfish_client
+            .get_dpu_model_hint(bmc_ip_address)
+            .await;
+        self.bmc_client
+            .credential_client
             .get_dpu_factory_default_credentials(model)
             .await
     }
@@ -269,7 +268,8 @@ impl BmcEndpointExplorer {
         &self,
         bmc_mac_address: MacAddress,
     ) -> Result<Credentials, EndpointExplorationError> {
-        self.credential_client
+        self.bmc_client
+            .credential_client
             .get_switch_nvos_admin_credentials(bmc_mac_address)
             .await
     }
@@ -279,7 +279,8 @@ impl BmcEndpointExplorer {
         bmc_mac_address: MacAddress,
         credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
-        self.credential_client
+        self.bmc_client
+            .credential_client
             .set_bmc_root_credentials(bmc_mac_address, credentials)
             .await?;
 
@@ -318,7 +319,8 @@ impl BmcEndpointExplorer {
         root_credentials: &Credentials,
     ) -> Result<(), EndpointExplorationError> {
         let new_password = self.get_sitewide_dpu_bmc_service_password(true).await?;
-        self.redfish_client
+        self.bmc_client
+            .redfish_client
             .set_bf4_dpu_service_password(bmc_ip_address, root_credentials.clone(), new_password)
             .await?;
 
@@ -360,7 +362,8 @@ impl BmcEndpointExplorer {
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         match self.mode {
             SiteExplorerExploreMode::LibRedfish => {
-                self.redfish_client
+                self.bmc_client
+                    .redfish_client
                     .generate_exploration_report(
                         bmc_ip_address,
                         credentials.clone(),
@@ -370,12 +373,14 @@ impl BmcEndpointExplorer {
                     .await
             }
             SiteExplorerExploreMode::NvRedfish => {
-                self.redfish_client
+                self.bmc_client
+                    .redfish_client
                     .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface)
                     .await
             }
             SiteExplorerExploreMode::CompareResult => {
                 let libredfish = self
+                    .bmc_client
                     .redfish_client
                     .generate_exploration_report(
                         bmc_ip_address,
@@ -385,6 +390,7 @@ impl BmcEndpointExplorer {
                     )
                     .await;
                 let nvredfish = self
+                    .bmc_client
                     .redfish_client
                     .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface)
                     .await;
@@ -451,6 +457,7 @@ impl BmcEndpointExplorer {
             // return an error if we cannot log into the machine's BMC using current credentials
             let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
             let rotation = self
+                .bmc_client
                 .set_bmc_root_password(
                     bmc_ip_address,
                     vendor,
@@ -495,6 +502,7 @@ impl BmcEndpointExplorer {
 
         let version = self.current_sitewide_bmc_version().await?;
         let sitewide_credentials = self
+            .bmc_client
             .credential_client
             .get_sitewide_bmc_root_credentials(version)
             .await?;
@@ -509,7 +517,8 @@ impl BmcEndpointExplorer {
         // before validating with the sitewide credentials.
         tokio::time::sleep(BMC_AUTH_RETRY_DURATION).await;
 
-        self.redfish_client
+        self.bmc_client
+            .redfish_client
             .validate_bmc_credentials(bmc_ip_address, credentials.clone())
             .await?;
 
@@ -539,7 +548,8 @@ impl BmcEndpointExplorer {
                 %bmc_mac_address,
                 "Storing NVOS admin credentials in vault"
             );
-            self.credential_client
+            self.bmc_client
+                .credential_client
                 .set_bmc_nvos_admin_credentials(
                     bmc_mac_address,
                     &Credentials::UsernamePassword {
@@ -553,8 +563,6 @@ impl BmcEndpointExplorer {
     }
 }
 
-// Authenticated BMC ops live on the client, not the explorer. Exploration code
-// reaches these through `BmcEndpointExplorer`'s `Deref` to this type.
 impl AuthenticatedBmcClient {
     pub async fn get_bmc_root_credentials(
         &self,
@@ -754,7 +762,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
-        self.credential_client.check_preconditions(metrics).await
+        self.bmc_client
+            .credential_client
+            .check_preconditions(metrics)
+            .await
     }
 
     // 1) Authenticate and set the BMC root account credentials
@@ -776,7 +787,12 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
 
         let bmc_mac_address = interface.mac_address;
-        let vendor = match self.redfish_client.get_redfish_vendor(bmc_ip_address).await {
+        let vendor = match self
+            .bmc_client
+            .redfish_client
+            .get_redfish_vendor(bmc_ip_address)
+            .await
+        {
             Ok(vendor) => vendor,
             Err(e) => {
                 tracing::error!(
@@ -796,18 +812,22 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     return Err(e);
                 };
 
-                let (username, password) =
-                    match self.get_bmc_root_credentials(bmc_mac_address).await {
-                        Ok(Credentials::UsernamePassword { username, password }) => {
-                            (username, password)
-                        }
-                        Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
-                    };
+                let (username, password) = match self
+                    .bmc_client
+                    .get_bmc_root_credentials(bmc_mac_address)
+                    .await
+                {
+                    Ok(Credentials::UsernamePassword { username, password }) => {
+                        (username, password)
+                    }
+                    Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
+                };
 
                 // Lite-On and Delta power shelf BMCs don't expose vendor
                 // details in the service root, so we fall back to checking the
                 // Manufacturer field across all Chassis entries.
                 let vendor = match self
+                    .bmc_client
                     .redfish_client
                     .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
                     .await
@@ -845,7 +865,11 @@ impl EndpointExplorer for BmcEndpointExplorer {
         // Case 1: Vault contains a path at "bmc/{bmc_mac_address}/root"
         // This machine has its BMC set to the carbide sitewide BMC root password.
         // Create the redfish client and generate the report.
-        let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
+        let report = match self
+            .bmc_client
+            .get_bmc_root_credentials(bmc_mac_address)
+            .await
+        {
             Ok(credentials) => {
                 match self
                     .generate_exploration_report(
@@ -949,6 +973,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 };
 
                 let product = self
+                    .bmc_client
                     .redfish_client
                     .get_redfish_product(bmc_ip_address)
                     .await?;
@@ -1941,15 +1966,14 @@ mod tests {
         let mode = crate::config::SiteExplorerConfig::default_explore_mode();
         assert_eq!(mode, SiteExplorerExploreMode::NvRedfish);
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
-        let explorer = BmcEndpointExplorer::new(
+        let bmc_client = Arc::new(AuthenticatedBmcClient::new(
             Arc::new(RedfishSim::default()),
             Arc::new(NvRedfishClientPool::new(proxy_address)),
             carbide_ipmi::test_support(),
             Arc::new(TestCredentialManager::default()),
-            Arc::new(AtomicBool::new(false)),
-            mode,
-            None,
-        );
+        ));
+        let explorer =
+            BmcEndpointExplorer::new(bmc_client, Arc::new(AtomicBool::new(false)), mode, None);
 
         explorer
             .generate_exploration_report(
@@ -2075,11 +2099,14 @@ mod tests {
     ) -> Result<Vec<Option<RedfishSimBootInterfaceRef>>, String> {
         let sim = Arc::new(RedfishSim::default());
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
-        let explorer = BmcEndpointExplorer::new(
+        let bmc_client = Arc::new(AuthenticatedBmcClient::new(
             sim.clone(),
             Arc::new(NvRedfishClientPool::new(proxy_address)),
             carbide_ipmi::test_support(),
             Arc::new(TestCredentialManager::default()),
+        ));
+        let explorer = BmcEndpointExplorer::new(
+            bmc_client,
             Arc::new(AtomicBool::new(false)),
             SiteExplorerExploreMode::LibRedfish,
             None,
@@ -2194,11 +2221,14 @@ mod tests {
             .expect("seed site-wide BMC credentials");
 
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
-        let explorer = BmcEndpointExplorer::new(
+        let bmc_client = Arc::new(AuthenticatedBmcClient::new(
             sim.clone(),
             Arc::new(NvRedfishClientPool::new(proxy_address)),
             carbide_ipmi::test_support(),
             credential_manager.clone(),
+        ));
+        let explorer = BmcEndpointExplorer::new(
+            bmc_client,
             Arc::new(AtomicBool::new(false)),
             SiteExplorerExploreMode::LibRedfish,
             None,
