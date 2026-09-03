@@ -220,14 +220,15 @@ impl tracing::field::Visit for CaptureVisitor {
     }
 }
 
-/// A histogram sum delta compared with a small absolute tolerance.
+/// A histogram sum delta with approximate equality for floating-point drift.
 ///
 /// [`MetricsCapture::histogram_sum_delta`] subtracts two cumulative `f64`
 /// snapshots. A fractional observation recorded before the capture can make
 /// that subtraction differ from the expected delta by a few low-order bits.
+/// Values compare equal when their absolute difference is less than `1e-9`.
 #[derive(Clone, Copy, Debug)]
 pub struct ApproxHistogramSum(
-    /// The raw histogram sum delta.
+    /// The raw delta for callers that need the exact captured value.
     pub f64,
 );
 
@@ -274,7 +275,8 @@ impl MetricsCapture {
         self.counter_delta(&format!("{name}#count"), labels) as u64
     }
 
-    /// The sum the named histogram accumulated since [`MetricsCapture::start`].
+    /// The named histogram's sum delta since [`MetricsCapture::start`], wrapped
+    /// so values with an absolute difference below `1e-9` compare equal.
     pub fn histogram_sum_delta(&self, name: &str, labels: &[(&str, &str)]) -> ApproxHistogramSum {
         ApproxHistogramSum(self.counter_delta(&format!("{name}#sum"), labels))
     }
