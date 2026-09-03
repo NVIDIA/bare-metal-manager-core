@@ -5,7 +5,6 @@ package forge;
 import "codegen/v1/derive.proto";
 import "codegen/v1/extern_path.proto";
 
-import "chassis_reset.proto";
 import "common.proto";
 import "dns.proto";
 import "google/protobuf/duration.proto";
@@ -7230,6 +7229,12 @@ message AdminGpuResetRequest {
 }
 
 message AdminGpuResetResponse {
+}
+
+message AdminChassisResetRequest {
+  common.MachineId machine_id = 1;
+  // Case-sensitive Redfish chassis identifier.
+  string chassis_id = 2;
 }
 
 message GetRedfishJobStateRequest {
