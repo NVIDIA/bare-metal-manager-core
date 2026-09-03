@@ -33,6 +33,15 @@ Show only DPUs (or only hosts):
     $ nico-admin-cli machine show --dpus
     $ nico-admin-cli machine show --hosts
 
+Limit every column to 20 characters so long values don't wrap the table:
+    $ nico-admin-cli machine show --max-width 20
+
+Limit a column whose header contains spaces (quote the value):
+    $ nico-admin-cli machine show --max-width \"State Version=20\"
+
+Show only some columns, in the order given:
+    $ nico-admin-cli machine show --columns state,id,\"attached dpus\"
+
 ")]
 pub(crate) struct Args {
     #[clap(long, action = clap::ArgAction::HelpLong)]
@@ -90,4 +99,10 @@ pub(crate) struct Args {
         help = "History count. Valid if `machine` argument is passed."
     )]
     pub(crate) history_count: u32,
+
+    #[clap(flatten)]
+    pub(crate) width: crate::table_utils::MaxWidthArgs,
+
+    #[clap(flatten)]
+    pub(crate) columns: crate::table_utils::ColumnsArgs,
 }

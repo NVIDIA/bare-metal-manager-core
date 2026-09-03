@@ -11,7 +11,8 @@ nico-admin-cli-managed-host-show - Display managed host information
 **nico-admin-cli managed-host show** \[**--help**\]
 \[**-a**\|**--all**\] \[**-i**\|**--ips**\]
 \[**-t**\|**--instance-type-id**\] \[**-m**\|**--more**\] \[**--fix**\]
-\[**--quarantine**\] \[**--extended**\] \[**--sort-by**\] \[*MACHINE*\]
+\[**--quarantine**\] \[**--max-width**\] \[**--extended**\]
+\[**--sort-by**\] \[*MACHINE*\]
 
 ## DESCRIPTION
 
@@ -37,6 +38,15 @@ Show only hosts in maintenance mode
 
 **--quarantine**  
 Show only hosts in quarantine
+
+**--max-width** *\<\[COLUMN=\]WIDTH\>*  
+Limit displayed column width to WIDTH characters, truncating longer
+values with .... Repeatable. A bare WIDTH applies to every column;
+COLUMN=WIDTH limits just that column, where COLUMN must exactly match
+the columns displayed header text (case-insensitive), e.g. State=40. For
+a header containing spaces, quote the whole COLUMN=WIDTH argument, e.g.
+"State Version=40". An unmatched COLUMN is ignored with a warning
+listing the valid headers for this invocation.
 
 **--extended**  
 Extended result output.
@@ -65,6 +75,8 @@ empty for all
 nico-admin-cli managed-host show
 nico-admin-cli managed-host show 12345678-1234-5678-90ab-cdef01234567
 nico-admin-cli managed-host show --ips
+nico-admin-cli managed-host show --max-width State=40
+nico-admin-cli managed-host show --max-width "Machine IDs (H/D)=40"
 ```
 
 ---
