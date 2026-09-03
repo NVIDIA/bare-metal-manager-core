@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use ::rpc::forge::forge_server::Forge;
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
@@ -1393,7 +1394,7 @@ async fn test_instance_waits_for_primary_dpu_bgp_before_pxe_reboot(
 
     fn post_config_wait_health() -> rpc::health::HealthReport {
         dpu_health_alert(
-            "PostConfigCheckWait",
+            health_report::HealthProbeId::post_config_check_wait().as_str(),
             None,
             vec![
                 health_report::HealthAlertClassification::prevent_allocations(),
@@ -1567,6 +1568,142 @@ async fn test_instance_waits_for_primary_dpu_bgp_before_pxe_reboot(
         },
     )
     .await;
+}
+
+#[crate::sqlx_test]
+async fn test_instance_release_waits_for_primary_dpu_network_health_before_discovery_reboot(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    const DPU_NETWORK_READY_WAIT_REASON: &str =
+        "Waiting for the primary DPU network to become ready before PXE reboot";
+
+    fn agent_health(alert_id: Option<health_report::HealthProbeId>) -> rpc::health::HealthReport {
+        rpc::health::HealthReport {
+            source: "forge-dpu-agent".to_string(),
+            triggered_by: None,
+            observed_at: None,
+            successes: vec![],
+            alerts: alert_id
+                .map(|id| rpc::health::HealthProbeAlert {
+                    id: id.to_string(),
+                    target: None,
+                    in_alert_since: None,
+                    message: "test primary DPU network health".to_string(),
+                    tenant_message: None,
+                    classifications: vec![
+                        health_report::HealthAlertClassification::prevent_allocations().to_string(),
+                        health_report::HealthAlertClassification::prevent_host_state_changes()
+                            .to_string(),
+                    ],
+                })
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    async fn assert_release_is_waiting(env: &TestEnv, mh: &TestManagedHost, scenario: &str) {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert_eq!(
+            host.current_state(),
+            &ManagedHostState::Assigned {
+                instance_state: InstanceState::WaitingForDpusToUp,
+            },
+            "{scenario}",
+        );
+        let Some(PersistentStateHandlerOutcome::Wait { reason, .. }) =
+            &host.controller_state_outcome
+        else {
+            panic!("{scenario}: release gate should persist a Wait outcome");
+        };
+        assert_eq!(reason, DPU_NETWORK_READY_WAIT_REASON, "{scenario}");
+        txn.commit().await.unwrap();
+    }
+
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    let instance = mh
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance.id),
+            issue: None,
+            is_repair_tenant: None,
+            delete_attribution: None,
+        }))
+        .await
+        .expect("Delete instance failed.");
+
+    let mut txn = env.db_txn().await;
+    db::machine::update_state(
+        &mut txn,
+        &mh.host().id,
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForDpusToUp,
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let redfish_checkpoint = env.redfish_sim.timepoint();
+    network_configured_with_health(
+        &env,
+        &mh.dpu_ids[0],
+        Some(agent_health(Some(
+            health_report::HealthProbeId::nvue_api_running(),
+        ))),
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    assert_release_is_waiting(&env, &mh, "NVUE API is unavailable").await;
+
+    let power_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts()
+        .into_iter()
+        .filter(|action| matches!(action, RedfishSimAction::Power(_)))
+        .collect::<Vec<_>>();
+    assert!(
+        power_actions.is_empty(),
+        "release must not reboot the host before primary DPU network health is ready: {power_actions:?}",
+    );
+
+    network_configured_with_health(&env, &mh.dpu_ids[0], Some(agent_health(None))).await;
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    assert_eq!(
+        mh.host().db_machine(&mut txn).await.current_state(),
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::BootingWithDiscoveryImage {
+                retry: model::machine::RetryInfo { count: 0 },
+            },
+        }
+    );
+    txn.commit().await.unwrap();
+
+    let power_actions = env
+        .redfish_sim
+        .actions_since(&redfish_checkpoint)
+        .all_hosts()
+        .into_iter()
+        .filter(|action| matches!(action, RedfishSimAction::Power(_)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        power_actions,
+        vec![RedfishSimAction::Power(
+            libredfish::SystemPowerControl::ForceRestart,
+        )],
+    );
 }
 
 #[crate::sqlx_test]
