@@ -283,7 +283,7 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             redfish.bmc_reset_to_defaults().await?;
         }
         BmcReset => {
-            redfish.bmc_reset().await?;
+            redfish.bmc_reset(None).await?;
         }
         DisableSecureBoot => {
             redfish.disable_secure_boot().await?;

@@ -447,7 +447,7 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        client.bmc_reset().await.map_err(map_redfish_error)?;
+        client.bmc_reset(None).await.map_err(map_redfish_error)?;
 
         Ok(())
     }

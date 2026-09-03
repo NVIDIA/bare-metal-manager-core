@@ -96,6 +96,22 @@ impl Builder for EthernetInterfaceBuilder {
 }
 
 impl EthernetInterfaceBuilder {
+    /// Adds the one static IPv4 address exposed by this mock interface.
+    pub(crate) fn static_ipv4_address(
+        self,
+        address: &str,
+        subnet_mask: &str,
+        gateway: &str,
+    ) -> Self {
+        self.apply_patch(json!({
+            "IPv4StaticAddresses": [{
+                "Address": address,
+                "SubnetMask": subnet_mask,
+                "Gateway": gateway,
+            }],
+        }))
+    }
+
     pub fn mac_address(self, addr: MacAddress) -> Self {
         self.add_str_field("MACAddress", &addr.to_string())
     }
