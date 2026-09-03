@@ -610,7 +610,7 @@ func (ms ManageSubnet) createOrUpdateSubnetFromSite(
 			PrefixLength:               reportedPrefixLength,
 			Mtu:                        reportedSubnet.MTU,
 			Status:                     cdbm.SubnetStatusReady,
-			CreatedBy:                  site.CreatedBy,
+			CreatedBy:                  vpc.CreatedBy,
 		})
 		if createErr != nil {
 			return nil, fmt.Errorf("unable to create Subnet found on Site: failed to create Subnet, DB error: %w", createErr)

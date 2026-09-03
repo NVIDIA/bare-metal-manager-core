@@ -759,7 +759,7 @@ func testManageSubnetUpdateSubnetsInDBAutoCreatesAndRestores(t *testing.T) {
 		assert.Equal(t, tenant.ID, created.TenantID)
 		assert.Equal(t, tenantOrg, created.Org)
 		assert.Equal(t, site.ID, created.SiteID)
-		assert.Equal(t, site.CreatedBy, created.CreatedBy)
+		assert.Equal(t, parentVpc.CreatedBy, created.CreatedBy)
 		assert.Equal(t, cdbm.SubnetStatusReady, created.Status)
 		assert.Equal(t, "site-created-subnet", created.Name)
 		require.NotNil(t, created.IPv4Prefix)

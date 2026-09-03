@@ -761,7 +761,7 @@ func testManageVpcPrefixUpdateVpcPrefixesInDBAutoCreatesAndRestores(t *testing.T
 		assert.Equal(t, tenant.ID, created.TenantID)
 		assert.Equal(t, tenantOrg, created.Org)
 		assert.Equal(t, site.ID, created.SiteID)
-		assert.Equal(t, site.CreatedBy, created.CreatedBy)
+		assert.Equal(t, parentVpc.CreatedBy, created.CreatedBy)
 		assert.Equal(t, cdbm.VpcPrefixStatusReady, created.Status)
 		assert.Equal(t, "site-created-vpc-prefix", created.Name)
 		assert.Equal(t, "10.20.30.0/24", created.Prefix)
