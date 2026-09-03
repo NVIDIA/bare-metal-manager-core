@@ -6221,6 +6221,8 @@ const PRIMARY_DPU_BGP_WAIT_REASON: &str =
     "Waiting for the primary DPU p0 BGP session to be established";
 const HOST_HEALTH_WAIT_REASON: &str =
     "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot";
+const DPU_NETWORK_READY_WAIT_REASON: &str =
+    "Waiting for the primary DPU network to become ready before PXE reboot";
 
 /// `provisioning_pxe_reboot_wait_reason` returns the safety condition blocking a provisioning PXE
 /// reboot.
@@ -6255,39 +6257,82 @@ fn report_has_pxe_blocking_bgp_alert(report: &HealthReport) -> bool {
     report.alerts.iter().any(is_pxe_blocking_bgp_alert)
 }
 
-/// Checks whether effective health data contains the p0 BGP condition that blocks PXE.
-///
-/// The agent marks a failed p0 session with `PreventAllocations` because PXE
-/// boot depends on p0. A host Replace report overrides all DPU reports.
-/// Otherwise, only the primary attached DPU is checked: its Replace report
-/// overrides its Merge reports, and any Merge report may contain the blocking
-/// BGP alert when there is no Replace report.
-fn primary_dpu_has_pxe_blocking_bgp_alert(state: &ManagedHostStateSnapshot) -> bool {
-    if let Some(host_replace_report) = state.host_snapshot.health_reports.replace.as_ref() {
-        return report_has_pxe_blocking_bgp_alert(host_replace_report);
-    }
+/// Returns the DPU attached to the host's primary interface.
+fn primary_dpu_snapshot(state: &ManagedHostStateSnapshot) -> Option<&Machine> {
+    let primary_dpu_id = state.host_snapshot.primary_attached_dpu_machine_id()?;
 
-    let Some(primary_dpu_id) = state.host_snapshot.primary_attached_dpu_machine_id() else {
-        return false;
-    };
-
-    let Some(primary_dpu) = state
+    state
         .dpu_snapshots
         .iter()
-        .find(|dpu| dpu.id == primary_dpu_id.into())
-    else {
+        .find(|dpu| dpu.id == MachineId::from(primary_dpu_id))
+}
+
+/// Returns whether a health alert shows that the primary DPU network is not ready for release PXE.
+fn is_release_pxe_blocking_network_alert(alert: &HealthProbeAlert) -> bool {
+    let network_health_probe_ids = [
+        HealthProbeId::nvue_api_running(),
+        HealthProbeId::bgp_stats(),
+        HealthProbeId::post_config_check_wait(),
+    ];
+
+    (network_health_probe_ids.contains(&alert.id)
+        && alert
+            .classifications
+            .contains(&HealthAlertClassification::prevent_allocations()))
+        || is_pxe_blocking_bgp_alert(alert)
+}
+
+/// Checks whether a health report contains a network alert that should block release PXE.
+fn report_has_release_pxe_blocking_network_alert(report: &HealthReport) -> bool {
+    report
+        .alerts
+        .iter()
+        .any(is_release_pxe_blocking_network_alert)
+}
+
+/// Checks host and primary DPU health reports using their effective precedence.
+///
+/// A host Replace report overrides all DPU reports. Otherwise, the primary
+/// DPU's Replace report overrides its Merge reports, and any Merge report may
+/// match when there is no Replace report.
+fn primary_dpu_effective_health_matches(
+    state: &ManagedHostStateSnapshot,
+    report_matches: impl Fn(&HealthReport) -> bool,
+) -> bool {
+    if let Some(host_replace_report) = state.host_snapshot.health_reports.replace.as_ref() {
+        return report_matches(host_replace_report);
+    }
+
+    let Some(primary_dpu) = primary_dpu_snapshot(state) else {
         return false;
     };
 
     if let Some(dpu_replace_report) = primary_dpu.health_reports.replace.as_ref() {
-        return report_has_pxe_blocking_bgp_alert(dpu_replace_report);
+        return report_matches(dpu_replace_report);
     }
 
     primary_dpu
         .health_reports
         .merges
         .values()
-        .any(report_has_pxe_blocking_bgp_alert)
+        .any(report_matches)
+}
+
+/// Checks whether effective primary DPU health explicitly blocks release PXE.
+///
+/// Missing reports do not block instance deletion. The caller has already
+/// required a fresh network status from every managed DPU, while an operator
+/// Replace report retains its existing precedence over agent health.
+fn primary_dpu_has_release_pxe_blocking_network_alert(state: &ManagedHostStateSnapshot) -> bool {
+    primary_dpu_effective_health_matches(state, report_has_release_pxe_blocking_network_alert)
+}
+
+/// Checks whether effective health data contains the p0 BGP condition that blocks PXE.
+///
+/// The agent marks a failed p0 session with `PreventAllocations` because PXE
+/// boot depends on p0.
+fn primary_dpu_has_pxe_blocking_bgp_alert(state: &ManagedHostStateSnapshot) -> bool {
+    primary_dpu_effective_health_matches(state, report_has_pxe_blocking_bgp_alert)
 }
 
 /// Whether a captured desired target can be replaced before this substate runs.
@@ -8964,6 +9009,18 @@ impl StateHandler for InstanceStateHandler {
                         };
                         Ok(StateHandlerOutcome::transition(next_state))
                     } else {
+                        // Current DPU health can show that Scout's primary network path is not
+                        // ready even after every DPU publishes a fresh status. Other flows must
+                        // continue to BootingWithDiscoveryImage because that state starts repair.
+                        if instance.deleted.is_some()
+                            && mh_snapshot.has_managed_dpus()
+                            && primary_dpu_has_release_pxe_blocking_network_alert(mh_snapshot)
+                        {
+                            return Ok(StateHandlerOutcome::wait(
+                                DPU_NETWORK_READY_WAIT_REASON.to_string(),
+                            ));
+                        }
+
                         handler_host_power_control(
                             mh_snapshot,
                             ctx,
@@ -14251,6 +14308,84 @@ mod tests {
                     classifications,
                 })
             },
+        );
+    }
+
+    #[test]
+    fn release_pxe_waits_only_for_relevant_network_alerts() {
+        fn report(alerts: Vec<HealthProbeAlert>) -> HealthReport {
+            HealthReport {
+                source: HealthReport::DPU_AGENT_SOURCE.to_string(),
+                triggered_by: None,
+                observed_at: None,
+                successes: vec![],
+                alerts,
+            }
+        }
+
+        fn alert(
+            probe_id: HealthProbeId,
+            classifications: Vec<HealthAlertClassification>,
+        ) -> HealthProbeAlert {
+            HealthProbeAlert {
+                id: probe_id,
+                target: None,
+                in_alert_since: None,
+                message: "test alert".to_string(),
+                tenant_message: None,
+                classifications,
+            }
+        }
+
+        fn allocation_blocking_alert(probe_id: HealthProbeId) -> HealthProbeAlert {
+            alert(
+                probe_id,
+                vec![HealthAlertClassification::prevent_allocations()],
+            )
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "no network alert",
+                    input: report(vec![]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "NVUE API is unavailable",
+                    input: report(vec![allocation_blocking_alert(
+                        HealthProbeId::nvue_api_running(),
+                    )]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "FRR BGP health check failed",
+                    input: report(vec![allocation_blocking_alert(HealthProbeId::bgp_stats())]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "network config is still settling",
+                    input: report(vec![allocation_blocking_alert(
+                        HealthProbeId::post_config_check_wait(),
+                    )]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "informational NVUE alert does not block release",
+                    input: report(vec![alert(HealthProbeId::nvue_api_running(), vec![])]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "unrelated critical alert does not block release",
+                    input: report(vec![alert(
+                        HealthProbeId::from_str("DpuDiskUtilizationCritical")
+                            .expect("valid test probe id"),
+                        vec![HealthAlertClassification::prevent_host_state_changes()],
+                    )]),
+                    expect: false,
+                },
+            ],
+            |report| report_has_release_pxe_blocking_network_alert(&report),
         );
     }
 

@@ -638,7 +638,43 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	if strings.TrimSpace(desc) != "" {
 		body["description"] = desc
 	}
-	LogCmd(s, "vpc", "create", "--name", name, "--site-id", site.ID)
+
+	routingProfile := ""
+	routingProfileOverride := ""
+	siteRaw, _ := site.Raw.(map[string]interface{})
+	siteCapabilities, _ := siteRaw["capabilities"].(map[string]interface{})
+	nativeNetworking, _ := siteCapabilities["nativeNetworking"].(bool)
+	if nativeNetworking {
+		routingProfileResponse, _, requestErr := s.Client.Do("GET", apiPath(s, "tenant/current/routing-profile"), nil, map[string]string{"siteId": site.ID}, nil)
+		if requestErr != nil {
+			return fmt.Errorf("fetching Tenant routing profiles: %w", requestErr)
+		}
+		var tenantRoutingProfile struct {
+			DefaultRoutingProfile    string   `json:"defaultRoutingProfile"`
+			PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
+		}
+		if err := json.Unmarshal(routingProfileResponse, &tenantRoutingProfile); err != nil {
+			return fmt.Errorf("parsing Tenant routing profiles: %w", err)
+		}
+		routingProfile, err = PromptChoice(
+			fmt.Sprintf("Routing profile (%s (tenant default))", tenantRoutingProfile.DefaultRoutingProfile),
+			tenantRoutingProfile.PermittedRoutingProfiles,
+			tenantRoutingProfile.DefaultRoutingProfile,
+		)
+		if err != nil {
+			return err
+		}
+		if routingProfile != tenantRoutingProfile.DefaultRoutingProfile {
+			routingProfileOverride = routingProfile
+			body["routingProfile"] = routingProfileOverride
+		}
+	}
+
+	logArgs := []string{"vpc", "create", "--name", name, "--site-id", site.ID}
+	if routingProfileOverride != "" {
+		logArgs = append(logArgs, "--routing-profile", routingProfileOverride)
+	}
+	LogCmd(s, logArgs...)
 	bodyJSON, _ := json.Marshal(body)
 	resp, _, err := s.Client.Do("POST", apiPath(s, "vpc"), nil, nil, bodyJSON)
 	if err != nil {
@@ -649,7 +685,12 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
+	resolvedRoutingProfile := str(created, "routingProfile")
+	if resolvedRoutingProfile != "" {
+		fmt.Printf("%s VPC created: %s (%s), routing profile: %s\n", Green("OK"), str(created, "name"), str(created, "id"), resolvedRoutingProfile)
+	} else {
+		fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
+	}
 	return nil
 }
 
