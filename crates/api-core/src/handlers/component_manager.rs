@@ -1427,14 +1427,14 @@ fn pre_ingestion_unsupported_result(mac: &MacAddress, operation: &str) -> rpc::C
 /// machine row yet (only reachable before ingestion completes). `errors` holds
 /// MACs that could not be parsed, already rendered as per-MAC results.
 struct ComputeMacResolution {
-    ingested: HashMap<MachineId, MacAddress>,
+    ingested: HashMap<HostMachineId, MacAddress>,
     uningested: Vec<MacAddress>,
     errors: Vec<rpc::ComponentResult>,
 }
 
 impl ComputeMacResolution {
     /// Machine ids of the ingested MACs, for building an id-target sub-request.
-    fn ingested_machine_ids(&self) -> Vec<MachineId> {
+    fn ingested_machine_ids(&self) -> Vec<HostMachineId> {
         self.ingested.keys().copied().collect()
     }
 
@@ -1444,7 +1444,7 @@ impl ComputeMacResolution {
     /// `MachineId`'s `FromStr` decodes into a stack buffer, so this allocates
     /// nothing.
     fn mac_for_component_id(&self, component_id: Option<&str>) -> Option<MacAddress> {
-        let id = component_id?.parse::<MachineId>().ok()?;
+        let id = component_id?.parse::<HostMachineId>().ok()?;
         self.ingested.get(&id).copied()
     }
 
@@ -1976,7 +1976,7 @@ async fn pre_ingestion_compute_tray_firmware_statuses(
 async fn power_control_ingested_machine_ids(
     api: &Api,
     cm: &ComponentManager,
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
     action: PowerAction,
     bypass_state_controller: bool,
 ) -> Result<(Vec<rpc::ComponentResult>, Vec<IpAddr>), Status> {
@@ -3152,7 +3152,7 @@ async fn update_pre_ingestion_compute_tray_firmware(
 /// rack-level state controller maintenance flow and a direct backend dispatch.
 async fn update_compute_tray_firmware_by_machine_ids(
     api: &Api,
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
     components: &[i32],
     target_version: &str,
     access_token: &Option<String>,
@@ -3355,9 +3355,9 @@ fn select_firmware_status_routing(
 /// query over the fallback set's BMC IPs reclassifies those still tracked.
 async fn reclassify_preingestion_jobs_from_explored_endpoints(
     api: &Api,
-    persisted: &mut Vec<MachineId>,
-    fallback: &mut Vec<MachineId>,
-    machines_by_id: &HashMap<MachineId, Machine>,
+    persisted: &mut Vec<HostMachineId>,
+    fallback: &mut Vec<HostMachineId>,
+    machines_by_id: &HashMap<HostMachineId, HostMachine>,
 ) -> Result<(), Status> {
     let fallback_ips: Vec<IpAddr> = fallback
         .iter()
@@ -3613,7 +3613,7 @@ pub(crate) async fn get_component_firmware_status(
                 let sub = rpc::GetComponentFirmwareStatusRequest {
                     target: Some(
                         rpc::get_component_firmware_status_request::Target::MachineIds(
-                            ::rpc::common::MachineIdList {
+                            ::rpc::common::HostMachineIdList {
                                 machine_ids: resolution.ingested_machine_ids(),
                             },
                         ),
@@ -3654,7 +3654,7 @@ pub(crate) async fn get_component_firmware_status(
 /// ingested-MAC branch so the latter need not build a recursive sub-request.
 async fn compute_tray_firmware_versions_by_machine_ids(
     api: &Api,
-    machine_ids: &[MachineId],
+    machine_ids: &[HostMachineId],
 ) -> Result<Vec<rpc::DeviceFirmwareVersions>, Status> {
     if machine_ids.is_empty() {
         return Err(Status::invalid_argument("machine_ids must not be empty"));
@@ -5337,7 +5337,7 @@ mod tests {
 
         let mac: MacAddress = "AA:BB:CC:DD:EE:11".parse().unwrap();
         let resolution = ComputeMacResolution {
-            ingested: HashMap::from([(ID_PRESENT.parse::<MachineId>().unwrap(), mac)]),
+            ingested: HashMap::from([(ID_PRESENT.parse::<HostMachineId>().unwrap(), mac)]),
             uningested: Vec::new(),
             errors: Vec::new(),
         };

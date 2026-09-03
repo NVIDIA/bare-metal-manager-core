@@ -253,10 +253,14 @@ pub async fn find_machine_id_by_bmc_ip(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-pub async fn find_machine_id_by_bmc_mac(
+pub async fn find_machine_id_by_bmc_mac<ID>(
     txn: &mut PgConnection,
     mac_address: mac_address::MacAddress,
-) -> Result<Option<MachineId>, DatabaseError> {
+) -> Result<Option<ID>, DatabaseError>
+where
+    ID: MachineIdSubtypeTrait,
+    DatabaseError: From<<ID as TryFrom<MachineId>>::Error>,
+{
     let query = r#"
         SELECT machine_id
         FROM machine_interfaces
@@ -264,11 +268,13 @@ pub async fn find_machine_id_by_bmc_mac(
             AND machine_id IS NOT NULL
             AND mac_address = $1::macaddr
     "#;
-    sqlx::query_as(query)
+    let machine_id: Option<MachineId> = sqlx::query_as(query)
         .bind(mac_address)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(machine_id.map(ID::try_from).transpose()?)
 }
 
 pub async fn find_machine_bmc_pairs(

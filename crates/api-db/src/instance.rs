@@ -1524,8 +1524,8 @@ mod tests {
 
     /// Seeds `n` bare machines (no FK dependents besides `dpf`), each with a
     /// distinct id derived from its index, in a single multi-row INSERT.
-    async fn seed_machines(conn: &mut PgConnection, n: usize) -> Vec<MachineId> {
-        let machine_ids: Vec<MachineId> = (0..n)
+    async fn seed_machines(conn: &mut PgConnection, n: usize) -> Vec<HostMachineId> {
+        let machine_ids: Vec<HostMachineId> = (0..n)
             .map(|i| {
                 let mut hardware_hash = [0u8; 32];
                 hardware_hash[..8].copy_from_slice(&(i as u64).to_be_bytes());
@@ -1534,6 +1534,8 @@ mod tests {
                     hardware_hash,
                     MachineType::Host,
                 )
+                .try_into()
+                .unwrap()
             })
             .collect();
 
@@ -1548,7 +1550,7 @@ mod tests {
 
     /// Builds a minimal-but-valid `NewInstance` on `machine_id`, distinct from
     /// every other instance produced by this helper via `instance_id`.
-    fn new_instance(machine_id: MachineId, config: &InstanceConfig) -> NewInstance<'_> {
+    fn new_instance(machine_id: HostMachineId, config: &InstanceConfig) -> NewInstance<'_> {
         let version = ConfigVersion::initial();
         NewInstance {
             instance_id: InstanceId::new(),

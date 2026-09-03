@@ -141,14 +141,14 @@ pub(super) struct ComputeTrayTargetArgs {
 /// The resolved compute-tray selection, mapped by each command into the proto
 /// oneof variant for its request type.
 pub(super) enum ComputeTraySelection {
-    MachineIds(rpc::common::MachineIdList),
+    MachineIds(rpc::common::HostMachineIdList),
     Macs(rpc::forge::MacAddressList),
 }
 
 impl ComputeTrayTargetArgs {
     pub(super) fn into_selection(self) -> ComputeTraySelection {
         if !self.macs.is_present() {
-            ComputeTraySelection::MachineIds(rpc::common::MachineIdList {
+            ComputeTraySelection::MachineIds(rpc::common::HostMachineIdList {
                 machine_ids: self.machine_ids,
             })
         } else {

@@ -424,9 +424,7 @@ async fn resolve_machine_id_for_firmware_device(
         Ok(mac) => mac,
         Err(_) => return Ok(None),
     };
-    Ok(db_machine_topology::find_machine_id_by_bmc_mac(txn, mac)
-        .await?
-        .and_then(|id| HostMachineId::try_from(id).ok()))
+    Ok(db_machine_topology::find_machine_id_by_bmc_mac::<HostMachineId>(txn, mac).await?)
 }
 
 async fn resolve_switch_id_for_firmware_device(

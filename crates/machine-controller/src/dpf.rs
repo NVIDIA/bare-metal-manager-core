@@ -567,7 +567,7 @@ async fn enqueue_host(
         let mut conn = db_pool.acquire().await.map_err(|e| {
             DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
         })?;
-        db::machine_topology::find_machine_id_by_bmc_mac(&mut conn, bmc_mac)
+        db::machine_topology::find_machine_id_by_bmc_mac::<HostMachineId>(&mut conn, bmc_mac)
             .await
             .map_err(|e| {
                 DpfError::InvalidState(format!("DB error looking up host by BMC MAC: {e}"))
@@ -578,9 +578,6 @@ async fn enqueue_host(
         tracing::warn!(node = %node_name, bmc_mac_address = %bmc_mac, reason, "Could not find host for DPF node");
         return Ok(());
     };
-    let host_machine_id = HostMachineId::try_from(host_machine_id).map_err(|error| {
-        DpfError::InvalidState(format!("BMC MAC resolved to a non-host machine: {error}"))
-    })?;
 
     // Written before the enqueue so a processor cannot reach the host's handler
     // while the marker is still missing.
