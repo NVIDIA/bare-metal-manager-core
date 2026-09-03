@@ -230,6 +230,7 @@ impl CollectorState {
         }
     }
 
+    /// Removes saved PowerShelf IDs for endpoints absent from the discovery pass.
     pub(super) fn retain_power_shelf_ids(
         &mut self,
         active_power_shelf_endpoints: &HashSet<Cow<'static, str>>,
