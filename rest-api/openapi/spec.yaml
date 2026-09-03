@@ -20498,13 +20498,21 @@ components:
           type:
             - string
             - 'null'
+          pattern: '^(|smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/\s]+))$'
+          not:
+            type: string
+            pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
+          examples:
+            - smallest
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Whole-disk target that will be overwritten with the image. Accepts
             `smallest`, `/dev/nvme<controller>n<namespace>`, `/dev/sd<letters>`, or
-            `/dev/disk/by-id/<identifier>`. `smallest` selects the smallest suitable
-            disk, preferring one with an EFI partition to break a size tie. When
-            omitted or empty, the Site prefers a disk with an EFI partition, then
-            falls back to `/dev/nvme0n1` or `/dev/sda`.
+            `/dev/disk/by-id/<identifier>`. `smallest` selects the smallest enumerated
+            whole disk, preferring one with an EFI partition to break a size tie.
+            Partition aliases ending in `-part<digits>` are rejected.
+            An empty stored value means the Site prefers a disk with an EFI partition,
+            then falls back to `/dev/nvme0n1` or `/dev/sda`.
         rootFsId:
           type:
             - string
@@ -20793,7 +20801,7 @@ components:
           imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
-          imageDisk: /dev/sda
+          imageDisk: /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
           isCloudInit: false
           allowOverride: false
@@ -20869,13 +20877,22 @@ components:
           type:
             - string
             - 'null'
+          pattern: '^(|smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/\s]+))$'
+          not:
+            type: string
+            pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
+          examples:
+            - smallest
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Optional whole-disk target that will be overwritten with the image.
             Accepts `smallest`, `/dev/nvme<controller>n<namespace>`,
             `/dev/sd<letters>`, or `/dev/disk/by-id/<identifier>`. `smallest`
-            selects the smallest suitable disk, preferring one with an EFI partition
-            to break a size tie. When omitted or empty, the Site prefers a disk
-            with an EFI partition, then falls back to `/dev/nvme0n1` or `/dev/sda`.
+            selects the smallest enumerated whole disk, preferring one with an EFI
+            partition to break a size tie. Partition aliases ending in
+            `-part<digits>` are rejected. When omitted, null, or empty on creation,
+            the Site prefers a disk with an EFI partition, then falls back to
+            `/dev/nvme0n1` or `/dev/sda`.
         rootFsId:
           type:
             - string
@@ -20932,7 +20949,7 @@ components:
           description: Official Debian 12 for AMD/Intel
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
-          imageDisk: /dev/sda
+          imageDisk: smallest
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
           isCloudInit: false
           allowOverride: false
@@ -20982,13 +20999,23 @@ components:
           type:
             - string
             - 'null'
+          pattern: '^(|smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/\s]+))$'
+          not:
+            type: string
+            pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
+          examples:
+            - smallest
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Optional whole-disk target that will be overwritten with the image.
             Accepts `smallest`, `/dev/nvme<controller>n<namespace>`,
             `/dev/sd<letters>`, or `/dev/disk/by-id/<identifier>`. `smallest`
-            selects the smallest suitable disk, preferring one with an EFI partition
-            to break a size tie. When omitted or empty, the Site prefers a disk
-            with an EFI partition, then falls back to `/dev/nvme0n1` or `/dev/sda`.
+            selects the smallest enumerated whole disk, preferring one with an EFI
+            partition to break a size tie. Partition aliases ending in
+            `-part<digits>` are rejected. Omitting this field or sending null preserves
+            the current value. Sending an explicit empty string clears the value and
+            restores automatic selection: prefer a disk with an EFI partition, then
+            fall back to `/dev/nvme0n1` or `/dev/sda`.
         rootFsId:
           type:
             - string

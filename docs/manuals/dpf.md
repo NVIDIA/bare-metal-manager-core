@@ -738,6 +738,44 @@ The DPU agent's generated `dhcp_server.service_name`, `fmds.service_name`, and
 `hbn.nvue_https_address` are deployment-specific and take precedence over these
 template overlays.
 
+#### DPU LLDP sidecar
+
+The DPU agent chart also runs `nico-lldp-sidecar` from the resolved DPU agent
+image. The sidecar executes the DPU host's `lldpcli`, atomically publishes its
+LLDP-MED output at `/data/lldp`, and shares that directory with
+`nico-dpu-agent`. A successful snapshot is refreshed every 120 seconds and a
+failed collection is retried after 30 seconds. Snapshots are retained for ten
+minutes and the last successful file is kept after a failure, but the agent
+rejects snapshots older than five minutes.
+
+The defaults request 10 millicores of CPU and 64 MiB of memory and limit the
+container to 250 millicores and 128 MiB. Override them through the DPU agent
+chart overlay when required:
+
+```toml
+[dpf.services.dpu_agent.extra_helm_values.lldpSidecar.resources.requests]
+cpu = "20m"
+memory = "96Mi"
+
+[dpf.services.dpu_agent.extra_helm_values.lldpSidecar.resources.limits]
+cpu = "500m"
+memory = "192Mi"
+```
+
+The sidecar mounts the host `/run`, `/usr/sbin`, and `/lib` paths read-only and
+the host `/sys` path read-only at `/host-sys`. Its security context drops all
+Linux capabilities and adds only `DAC_OVERRIDE`; it permits privilege
+escalation. These mounts and permissions are part of the collection design. Do
+not broaden them as a workaround for a collection failure without first
+checking the sidecar logs and the host `lldpd` service.
+
+The OpenTelemetry configuration collects this container's pod logs with
+`systemd.unit=nico-lldp-sidecar`. Keep its image aligned with
+`nico-dpu-agent`, because the snapshot is an internal interface between those
+two containers. Refer to
+[DPU LLDP Collection](../dpu-management/dpu_configuration.md#dpu-lldp-collection)
+for the native-agent comparison and freshness behavior.
+
 #### Per-deployment configuration (`[dpf.deployments.*]`)
 
 Each DPU generation is provisioned by its own `DPUDeployment`, configured under

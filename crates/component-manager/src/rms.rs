@@ -241,15 +241,22 @@ impl NvosUpdateManager for RmsNvosUpdateManager {
                 nodes: Some(rms::NodeSet { nodes }),
             })
             .await
-            .map_err(|error| {
-                let cause = match error {
-                    RackManagerError::ApiInvocationError(status) => status.to_string(),
-                    error => error.to_string(),
-                };
-
-                ComponentManagerError::Internal(format!(
-                    "failed to submit NVOS update to RMS: {cause}"
-                ))
+            .map_err(|error| match error {
+                // RMS validates node descriptor support before creating a job,
+                // so InvalidArgument is terminal for the submitted request.
+                RackManagerError::ApiInvocationError(status)
+                    if status.code() == tonic::Code::InvalidArgument =>
+                {
+                    ComponentManagerError::InvalidArgument(format!(
+                        "failed to submit NVOS update to RMS: {status}"
+                    ))
+                }
+                RackManagerError::ApiInvocationError(status) => ComponentManagerError::Internal(
+                    format!("failed to submit NVOS update to RMS: {status}"),
+                ),
+                error => ComponentManagerError::Internal(format!(
+                    "failed to submit NVOS update to RMS: {error}"
+                )),
             })?;
 
         let batch_response = response.response.as_ref();
@@ -3769,6 +3776,71 @@ mod tests {
                 if credentials.username == "nvos-admin"
                     && credentials.password == "nvos-password"
         ));
+    }
+
+    #[tokio::test]
+    async fn rack_nvos_submission_preserves_rms_rpc_error_classification() {
+        let mock = Arc::new(MockRmsApi::new());
+        let rack_id = RackId::new("rack-1");
+
+        let switch = FirmwareUpgradeDeviceInfo {
+            node_id: "switch-1".to_string(),
+            mac: SW_MAC_1.to_string(),
+            bmc_ip: "192.0.2.10".to_string(),
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            os_mac: Some("11:22:33:44:55:66".to_string()),
+            os_ip: Some("192.0.2.20".to_string()),
+            os_username: Some("nvos-admin".to_string()),
+            os_password: Some("nvos-password".to_string()),
+            os_hostname: None,
+        };
+
+        mock.enqueue_apply_switch_system_image(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::invalid_argument("unsupported node descriptor"),
+        )))
+        .await;
+
+        let manager = RmsNvosUpdateManager {
+            client: mock.clone(),
+        };
+
+        let result = manager
+            .start_nvos_update(NvosUpdateRequest {
+                rack_id: &rack_id,
+                profile: &test_rms_profile(),
+                config_json: r#"{"Id":"fw-nvos-default"}"#,
+                access_token: "token",
+                switches: vec![switch.clone()],
+            })
+            .await;
+
+        let Err(ComponentManagerError::InvalidArgument(cause)) = result else {
+            panic!("expected RMS InvalidArgument to remain InvalidArgument");
+        };
+
+        assert!(cause.contains("unsupported node descriptor"));
+
+        mock.enqueue_apply_switch_system_image(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::unavailable("RMS unavailable"),
+        )))
+        .await;
+
+        let result = manager
+            .start_nvos_update(NvosUpdateRequest {
+                rack_id: &rack_id,
+                profile: &test_rms_profile(),
+                config_json: r#"{"Id":"fw-nvos-default"}"#,
+                access_token: "token",
+                switches: vec![switch],
+            })
+            .await;
+
+        let Err(ComponentManagerError::Internal(cause)) = result else {
+            panic!("expected RMS Unavailable to remain Internal");
+        };
+
+        assert!(cause.contains("RMS unavailable"));
     }
 
     #[test]
