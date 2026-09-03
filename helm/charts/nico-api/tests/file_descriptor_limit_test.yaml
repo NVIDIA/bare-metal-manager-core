@@ -1,0 +1,36 @@
+suite: nico-api file descriptor limit
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: raises the soft limit without touching the hard limit
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'FD_LIMIT=8192'
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'ulimit -Sn "\$FD_LIMIT"'
+      # A bare `ulimit -n` lowers the hard limit too, and an unprivileged
+      # process can never raise it back.
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'ulimit -n [0-9]'
+  - it: clamps to the hard limit and fails loudly when the limit cannot be applied
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'FD_HARD="\$\(ulimit -Hn\)"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'FD_LIMIT="\$FD_HARD"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'exit 1'
+  - it: applies the limit before starting either api binary
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'ulimit -Sn[\s\S]*exec /opt/nico/nico-api run'
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'ulimit -Sn[\s\S]*exec /opt/carbide/carbide-api run'
