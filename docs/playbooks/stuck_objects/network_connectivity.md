@@ -78,7 +78,7 @@ address before it changes any other interface.
 
 For other predictable Ethernet interface names (`enx*`, `enp*`, and `enP*`)
 that are using Scout's default DHCP network definition, Scout writes
-`/run/systemd/network/00-forge-scout-nonpreferred.network`. That runtime rule
+`/run/systemd/network/00-forge-scout-nonpreferred.network`. This runtime rule
 disables DHCP and IPv6 router advertisements and then reloads systemd-networkd.
 Scout waits roughly 30 seconds for global addresses and routes on those
 interfaces to disappear.
@@ -86,7 +86,7 @@ interfaces to disappear.
 This networkd cleanup is MAC-based and does not administratively bring the
 other links down. Scout separately classifies auxiliary interfaces during
 registration using Mellanox SF/VF and PCI virtual-function metadata. If
-validation, the networkd reload, or address removal fails, Scout logs the
+validation, networkd reload, or address removal fails, Scout logs the
 reason and continues startup so discovery remains fail-open.
 
 When Scout uses the wrong path or retains multiple global routes, check:
