@@ -32707,10 +32707,16 @@ func (x *FindTenantRequest) GetTenantOrganizationId() string {
 }
 
 type FindTenantResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tenant        *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Tenant *Tenant                `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	// Named VPC routing profiles whose access tier is permitted for this Tenant.
+	// Omitted and empty are equivalent. The list is empty when the Tenant, FNN,
+	// or the Tenant's configured routing profile is unavailable. Otherwise it
+	// includes that profile and every profile with an equal or higher access
+	// tier, sorted by profile name.
+	PermittedRoutingProfileTypes []string `protobuf:"bytes,2,rep,name=permitted_routing_profile_types,json=permittedRoutingProfileTypes,proto3" json:"permitted_routing_profile_types,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *FindTenantResponse) Reset() {
@@ -32746,6 +32752,13 @@ func (*FindTenantResponse) Descriptor() ([]byte, []int) {
 func (x *FindTenantResponse) GetTenant() *Tenant {
 	if x != nil {
 		return x.Tenant
+	}
+	return nil
+}
+
+func (x *FindTenantResponse) GetPermittedRoutingProfileTypes() []string {
+	if x != nil {
+		return x.PermittedRoutingProfileTypes
 	}
 	return nil
 }
@@ -67786,9 +67799,10 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x14UpdateTenantResponse\x12%\n" +
 	"\x06tenant\x18\x01 \x01(\v2\r.forge.TenantR\x06tenant\"I\n" +
 	"\x11FindTenantRequest\x124\n" +
-	"\x16tenant_organization_id\x18\x01 \x01(\tR\x14tenantOrganizationId\";\n" +
+	"\x16tenant_organization_id\x18\x01 \x01(\tR\x14tenantOrganizationId\"\x82\x01\n" +
 	"\x12FindTenantResponse\x12%\n" +
-	"\x06tenant\x18\x01 \x01(\v2\r.forge.TenantR\x06tenant\"^\n" +
+	"\x06tenant\x18\x01 \x01(\v2\r.forge.TenantR\x06tenant\x12E\n" +
+	"\x1fpermitted_routing_profile_types\x18\x02 \x03(\tR\x1cpermittedRoutingProfileTypes\"^\n" +
 	"\x16TenantKeysetIdentifier\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x1b\n" +
 	"\tkeyset_id\x18\x02 \x01(\tR\bkeysetId\"[\n" +

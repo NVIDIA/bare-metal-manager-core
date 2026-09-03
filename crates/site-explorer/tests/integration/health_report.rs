@@ -121,7 +121,7 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
         .await;
     let host_bmc_ip = build_data.host_bmc_ip();
 
-    let host_machine = find_machine(test_harness.api(), created_host.host.id).await?;
+    let host_machine = find_machine(test_harness.api(), created_host.host.id.into()).await?;
     let alerts = &host_machine.health.as_ref().unwrap().alerts;
     assert!(
         alerts.is_empty(),
@@ -136,7 +136,7 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
 
     explorer.run_single_iteration().await?;
 
-    let host_machine = find_machine(test_harness.api(), created_host.host.id).await?;
+    let host_machine = find_machine(test_harness.api(), created_host.host.id.into()).await?;
 
     let mut alerts = host_machine.health.as_ref().unwrap().alerts.clone();
     assert_eq!(
@@ -302,7 +302,7 @@ async fn test_orphan_managed_host_alert_emitted(
 
     // Run an iteration: audit_exploration_results should emit the orphan alert.
     explorer.run_single_iteration().await?;
-    let alerts = find_machine(test_harness.api(), created_host.host.id)
+    let alerts = find_machine(test_harness.api(), created_host.host.id.into())
         .await?
         .health
         .unwrap()
@@ -329,7 +329,7 @@ async fn test_orphan_managed_host_alert_emitted(
     txn.commit().await?;
 
     explorer.run_single_iteration().await?;
-    let alerts = find_machine(test_harness.api(), created_host.host.id)
+    let alerts = find_machine(test_harness.api(), created_host.host.id.into())
         .await?
         .health
         .unwrap()

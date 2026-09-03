@@ -534,6 +534,46 @@ paths:
 
         User must have authorization role with `TENANT_ADMIN` suffix.
       parameters: []
+  '/v2/org/{org}/nico/tenant/current/routing-profile':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      summary: Retrieve VPC routing profiles for current Tenant
+      operationId: get-current-tenant-routing-profile
+      description: |-
+        Retrieve the current Tenant's default VPC routing profile and the profiles it may explicitly select at the specified Site.
+
+        User must have authorization role with `TENANT_ADMIN` suffix. Alternative profiles are returned only when TargetedInstanceCreation is effective for this Tenant at the Site.
+      tags:
+        - Tenant
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site where the VPC will be created
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantRoutingProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeoutError'
   '/v2/org/{org}/nico/tenant/account':
     parameters:
       - schema:
@@ -17949,6 +17989,26 @@ components:
           deprecated: true
           readOnly: true
           description: Deprecated in favor of TenantAccount.siteCapabilities. On GET `/tenant/current`, the property is present and true only when every Ready Tenant Account enables TargetedInstanceCreation and no Tenant Site explicitly disables it; otherwise it is omitted. It is also omitted from embedded TenantSummary objects.
+    TenantRoutingProfile:
+      title: TenantRoutingProfile
+      type: object
+      description: Site-scoped VPC routing profiles available to the current Tenant
+      properties:
+        defaultRoutingProfile:
+          type: string
+          description: Routing profile applied by Core when a VPC omits routingProfile
+          example: internal
+        permittedRoutingProfiles:
+          type: array
+          description: Site-configured routing profiles the Tenant may choose at this Site. Choosing `defaultRoutingProfile` inherits it by omitting `routingProfile`; other returned values can be sent explicitly when creating a VPC.
+          items:
+            type: string
+          example:
+            - internal
+            - external
+      required:
+        - defaultRoutingProfile
+        - permittedRoutingProfiles
     TenantStats:
       title: TenantStats
       type: object
@@ -19487,7 +19547,7 @@ components:
             - 'null'
           minLength: 3
           maxLength: 64
-          description: Specify routing profile for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege. Current accepted values are `privileged-internal`, `internal`, and `external`.
+          description: Specify a Site-configured routing profile returned by GET `/tenant/current/routing-profile` for the VPC. Only supported when `networkVirtualizationType` is set to `FNN`, or when `networkVirtualizationType` is omitted and Site has Native Networking enabled. Requires Tenant to have elevated privilege.
         routingProfileOverrides:
           oneOf:
             - $ref: '#/components/schemas/VpcRoutingProfileOverrides'
@@ -22126,6 +22186,12 @@ components:
               deviceInstance: 0
               isPhysical: true
               virtualFunctionId: null
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+              deviceInstance: 0
+              attachmentType: Physical
+              virtualFunctionId: null
           nvLinkInterfaces:
             - nvLinkLogicalPartitionId: 2f8676fd-d228-4db5-ac76-1cfc74f48a23
               deviceInstance: 0
@@ -22301,6 +22367,12 @@ components:
           description: Associate one or more Partitions with this Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spectrumXAttachments:
+          type: array
+          maxItems: 64
+          description: 'Associate one or more SpectrumX Partitions with this Instance. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.'
+          items:
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to the DPUs of this Instance
@@ -22350,6 +22422,12 @@ components:
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 0
               isPhysical: true
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+              deviceInstance: 0
+              attachmentType: Physical
+              virtualFunctionId: null
           nvLinkInterfaces:
             - nvLinkLogicalPartitionId: 2f8676fd-d228-4db5-ac76-1cfc74f48a23
               deviceInstance: 0
@@ -22465,6 +22543,12 @@ components:
           description: InfiniBand interface configuration shared across all instances
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spectrumXAttachments:
+          type: array
+          maxItems: 64
+          description: 'SpectrumX Partition attachments shared across all Instances in the batch. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.'
+          items:
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         dpuExtensionServiceDeployments:
           type: array
           description: DPU Extension Services to deploy to all instances in the batch
@@ -22542,6 +22626,12 @@ components:
               device: 'MT2910 Family [ConnectX-7]'
               deviceInstance: 2
               isPhysical: false
+              virtualFunctionId: null
+          spectrumXAttachments:
+            - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+              device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+              deviceInstance: 0
+              attachmentType: Physical
               virtualFunctionId: null
           dpuExtensionServiceDeployments:
             - dpuExtensionServiceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -22654,6 +22744,12 @@ components:
           description: Update InfiniBand Interfaces of the Instance
           items:
             $ref: '#/components/schemas/InfiniBandInterfaceCreateRequest'
+        spectrumXAttachments:
+          type: array
+          maxItems: 64
+          description: 'Update SpectrumX Partition attachments of the Instance. Omitting this field leaves the Instance''s SpectrumX attachments unchanged; an explicit (possibly empty) list replaces them entirely. Each `device` and `deviceInstance` pair may appear only once, irrespective of `virtualFunctionId`.'
+          items:
+            $ref: '#/components/schemas/InstanceSpectrumXAttachmentCreateOrUpdateRequest'
         nvLinkInterfaces:
           type: array
           description: Update NVLink Interfaces of the Instance. A subset of GPUs may be specified. Each item references a GPU index (`deviceInstance`) and an NVLink Logical Partition. Different interfaces may reference different NVLink Logical Partitions. Partial updates are not allowed; specified interfaces will delete or replace existing Interfaces. Updating is not allowed if the Instance's VPC has the `nvLinkLogicalPartitionId` attribute set.
@@ -23079,6 +23175,50 @@ components:
             - integer
             - 'null'
           description: Must be specified if isPhysical is false
+    InstanceSpectrumXAttachmentCreateOrUpdateRequest:
+      title: InstanceSpectrumXAttachmentCreateOrUpdateRequest
+      type: object
+      examples:
+        - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+          deviceInstance: 0
+          attachmentType: Physical
+          virtualFunctionId: null
+        - spectrumXPartitionId: 8e6f2a1c-9b3d-4e5f-a6b7-c8d9e0f1a2b3
+          device: 'NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC'
+          deviceInstance: 3
+          attachmentType: OVN
+          virtualFunctionId: null
+      description: Request data to attach a SpectrumX Partition to an Instance
+      properties:
+        spectrumXPartitionId:
+          type: string
+          format: uuid
+          description: ID of the SpectrumX Partition the attachment should associate with
+        device:
+          type: string
+          description: 'SpectrumX device to attach over, matching the device description reported for the Machine''s SpectrumX interfaces'
+        deviceInstance:
+          type: integer
+          minimum: 0
+          description: 'Index of the device, used to identify which interface card to attach the Partition to'
+        attachmentType:
+          type: string
+          enum:
+            - Physical
+            - Virtual
+            - OVN
+          description: 'Type of SpectrumX attachment. `Virtual` is not currently supported and is rejected.'
+        virtualFunctionId:
+          type:
+            - integer
+            - 'null'
+          description: Must be omitted, as virtual functions are not currently supported
+      required:
+        - spectrumXPartitionId
+        - device
+        - deviceInstance
+        - attachmentType
     NVLinkInterface:
       title: NVLinkInterface
       type: object

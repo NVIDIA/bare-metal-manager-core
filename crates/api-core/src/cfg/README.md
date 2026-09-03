@@ -42,7 +42,7 @@ Use `site_explorer.dpu_policy` instead.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
-| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for tenant prefix overlap admission. This setting has no effect until [#3890](https://github.com/NVIDIA/infra-controller/issues/3890) lands and does not change the existing database prefix constraints. Admission will also require site-wide `vpc_isolation_behavior = "mutual_isolation"` and participating FNN base profiles with `tenant_prefix_overlap_eligible = true`. |
+| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for [tenant prefix overlap checks](#tenant-prefix-overlap-checks). The existing `VpcPrefix` exclusion continues to prevent overlapping `VpcPrefix` persistence until the cutover tracked by [#3892](https://github.com/NVIDIA/infra-controller/issues/3892). |
 | `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
@@ -717,7 +717,7 @@ client-certificate authentication is not used.
 | `route_target_imports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets imported into DPU VRFs for VPC routes. |
 | `route_targets_on_exports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets added to routes exported by the DPU. |
 | `internal` | `Option<bool>` | — (effective `false`) | Whether the profile uses internal VNI allocation. This property cannot be overridden on a VPC. |
-| `tenant_prefix_overlap_eligible` | `bool` | `false` | Base-profile opt-in for tenant prefix overlap admission. This setting has no effect until [#3890](https://github.com/NVIDIA/infra-controller/issues/3890) lands and cannot be overridden on a VPC. |
+| `tenant_prefix_overlap_eligible` | `bool` | `false` | Base routing profile opt-in for [tenant prefix overlap checks](#tenant-prefix-overlap-checks). This setting cannot be overridden on a VPC. |
 | `leak_default_route_from_underlay` | `Option<bool>` | — (effective `false`) | Leak the default route from the underlay/default VRF into tenant VRFs. |
 | `leak_tenant_host_routes_to_underlay` | `Option<bool>` | — (effective `false`) | Leak tenant host routes into the underlay/default VRF. |
 | `tenant_leak_communities_accepted` | `Option<bool>` | — (effective `false`) | Honor route-leak communities sent by the tenant host OS. |
@@ -728,6 +728,54 @@ client-certificate authentication is not used.
 Unset properties retain presence information so a VPC's inline
 `routing_profile_overrides` can inherit them. After the named profile and VPC
 override are combined, properties still unset use the effective defaults above.
+
+### Tenant prefix overlap checks
+
+`tenant_prefix_overlap_enabled` defaults to `false`. When set to `true`, NICo
+checks whether two `VpcPrefix` records may reuse the same CIDR. It does not
+permit direct `NetworkPrefix` reuse or change the database constraints.
+
+An overlapping `VpcPrefix` pair is eligible only when all of these conditions
+are true:
+
+- The requested and existing CIDRs are identical, the existing `VpcPrefix` is
+  not deleted, and the `VpcPrefix` records belong to different VPCs and tenant
+  organizations.
+- Both VPCs use FNN and have assigned, distinct status VNIs.
+- Each `VpcPrefix` is linked to a tenant-managed, `DatacenterOnly` `SitePrefix`
+  owned by its VPC tenant and containing the `VpcPrefix` CIDR. The requested
+  `SitePrefix` must be `Ready`; the existing `SitePrefix` may be `Ready` or
+  `Deleting`.
+- Site-wide `vpc_isolation_behavior` is `"mutual_isolation"`.
+- `site_global_vpc_vni` and `common_internal_route_target` are unset, and
+  `additional_route_target_imports` is empty, so they cannot bridge the VPCs.
+- Each resolved FNN profile, after applying its VPC overrides, has
+  `tenant_prefix_overlap_eligible = true` and `internal = true`; has no import
+  or export route targets; disables default-route leakage, tenant-host-route
+  leakage, and tenant leak communities; and has no accepted underlay leaks or
+  allowed anycast prefixes.
+
+The gRPC `CreateNetworkSegment` and `AttachNetworkSegmentToVpc` handlers reject
+any direct prefix that overlaps a `VpcPrefix`, regardless of the site gate. The
+gRPC `CreateVpcPrefix` handler considers prefixes on attached segments. It may
+adopt only direct Tenant segment prefixes in the same VPC that are not already
+linked to a `VpcPrefix`; every other direct `NetworkPrefix` overlap on an
+attached segment is rejected. An unattached `CreateNetworkSegment` request does
+not run these checks, but a later attachment does.
+
+These handlers do not validate changes to peering or VPC policy, or Instance
+paths that retain routing state. They also do not cover startup or audit every
+writer. Those checks are tracked in
+[#5114](https://github.com/NVIDIA/infra-controller/issues/5114) and
+[#5115](https://github.com/NVIDIA/infra-controller/issues/5115), while startup
+and complete writer coverage are tracked in
+[#5116](https://github.com/NVIDIA/infra-controller/issues/5116). All three must
+land before the database cutover in
+[#3892](https://github.com/NVIDIA/infra-controller/issues/3892).
+
+Even when the application accepts an eligible pair, the existing `VpcPrefix`
+exclusion rejects overlapping `VpcPrefix` persistence until the cutover tracked
+by [#3892](https://github.com/NVIDIA/infra-controller/issues/3892).
 
 ### `VpcDefinition`
 

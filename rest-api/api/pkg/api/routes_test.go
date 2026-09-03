@@ -41,7 +41,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"site-explorer":             2,
 		"service-account":           1,
 		"infrastructure-provider":   4,
-		"tenant":                    4,
+		"tenant":                    5,
 		"tenant-account":            5,
 		"site":                      6,
 		"vpc":                       6,
@@ -139,6 +139,8 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteBefore(t, got, http.MethodGet, taskPath, http.MethodGet, taskPath+"/:id")
 			subnetPath := "/org/:orgName/" + cfg.GetAPIName() + "/subnet"
 			assertRouteExists(t, got, http.MethodPost, subnetPath+"/:subnetId/attach-vpc")
+			tenantPath := "/org/:orgName/" + cfg.GetAPIName() + "/tenant"
+			assertRouteExists(t, got, http.MethodGet, tenantPath+"/current/routing-profile")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			dpuPath := "/org/:orgName/" + cfg.GetAPIName() + "/dpu"

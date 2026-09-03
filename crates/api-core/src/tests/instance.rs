@@ -239,7 +239,7 @@ async fn test_allocate_and_release_instance_impl(
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(&fetched_instance.machine_id, &mh.host().id);
+    assert_eq!(&fetched_instance.machine_id, &mh.host().id.into());
     for (segment_index, segment_id) in segment_ids.iter().enumerate() {
         let expected_count = if segment_index < instance_interface_count {
             1
@@ -397,7 +397,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     txn.commit().await.unwrap();
 
     let device_locator = host_machine
-        .get_device_locator_for_dpu_id(&mh.dpu().id)
+        .get_device_locator_for_dpu_id(&mh.dpu_ids[0])
         .unwrap();
 
     // send the request to create the instance
@@ -419,7 +419,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         .api
         .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: Some(mh.host().id),
+            machine_id: Some(mh.host().id.into()),
             instance_type_id: None,
             config: Some(instance_config),
             metadata: None,
@@ -480,7 +480,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(fetched_instance.machine_id, mh.host().id);
+    assert_eq!(fetched_instance.machine_id, mh.host().id.into());
     assert_eq!(
         db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
@@ -880,7 +880,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(fetched_instance.machine_id, mh.host().id);
+    assert_eq!(fetched_instance.machine_id, mh.host().id.into());
 
     assert_eq!(fetched_instance.metadata.name, "test_instance_with_labels");
     assert_eq!(
@@ -914,7 +914,10 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
                 metadata
             });
 
-    assert_eq!(instance_matched_by_label.machine_id.unwrap(), mh.host().id);
+    assert_eq!(
+        instance_matched_by_label.machine_id.unwrap(),
+        mh.host().id.into()
+    );
 
     assert_eq!(instance_matched_by_label.metadata, Some(instance_metadata));
 }
@@ -1060,7 +1063,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().id.into(),
+                dpu_machine_id: Some(mh.dpu().id.into()),
             },
         ))
         .await
@@ -1122,7 +1125,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().id.into(),
+                dpu_machine_id: Some(mh.dpu().id.into()),
             },
         ))
         .await
@@ -1464,7 +1467,7 @@ async fn test_instance_waits_for_primary_dpu_bgp_before_pxe_reboot(
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
-    let dpu_id = mh.dpu().id;
+    let dpu_id = mh.dpu_ids[0];
 
     let config = InstanceConfig::default_tenant_and_os()
         .network(single_interface_network_config(segment_id));
@@ -1735,7 +1738,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
     let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
     let request = crate::instance::InstanceAllocationRequest {
         instance_id: InstanceId::new(),
-        machine_id: dpu_machine_id,
+        machine_id: dpu_machine_id.into(),
         instance_type_id: None,
         config: model::instance::config::InstanceConfig {
             os: default_os_config().try_into().unwrap(),
@@ -1877,7 +1880,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
         .api
         .get_managed_host_network_config(tonic::Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: mh.dpu().id.into(),
+                dpu_machine_id: Some(mh.dpu().id.into()),
             },
         ))
         .await
@@ -2381,7 +2384,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(fetched_instance.machine_id, mh.id);
+    assert_eq!(fetched_instance.machine_id, mh.id.into());
 
     let network_config = fetched_instance.config.network;
     assert_eq!(fetched_instance.network_config_version.version_nr(), 1);
@@ -2587,7 +2590,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
-    assert_eq!(fetched_instance.machine_id, mh.id);
+    assert_eq!(fetched_instance.machine_id, mh.id.into());
     assert_eq!(
         db::instance_address::count_by_segment_id(
             &mut txn,
@@ -3107,7 +3110,7 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: managed_host.dpu().id.into(),
+                dpu_machine_id: Some(managed_host.dpu().id.into()),
             },
         ))
         .await
@@ -3320,7 +3323,7 @@ async fn test_slaac_vpc_allocation_preserves_prefix_without_ipv6_address(pool: P
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: dual_stack_host.dpu().id.into(),
+                dpu_machine_id: Some(dual_stack_host.dpu().id.into()),
             },
         ))
         .await
@@ -4289,7 +4292,7 @@ async fn assert_ipv6_only_resolution(
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: managed_host.dpu().id.into(),
+                dpu_machine_id: Some(managed_host.dpu().id.into()),
             },
         ))
         .await
@@ -4433,7 +4436,7 @@ async fn assert_dual_stack_resolution(
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: managed_host.dpu().id.into(),
+                dpu_machine_id: Some(managed_host.dpu().id.into()),
             },
         ))
         .await
@@ -5380,7 +5383,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_for_pf_and_vf_on_one_dpu(pool: sqlx:
     let first_vpc = first_vpc.expect("first VPC should be present");
     let second_vpc = second_vpc.expect("second VPC should be present");
     let mh = create_managed_host(&env).await;
-    let dpu_id = mh.dpu().id;
+    let dpu_id = mh.dpu_ids[0];
     let instance = mh
         .instance_builer(&env)
         .network(single_interface_network_config_with_vfs(vec![
@@ -5395,7 +5398,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_for_pf_and_vf_on_one_dpu(pool: sqlx:
         .api
         .get_managed_host_network_config(Request::new(
             rpc::forge::ManagedHostNetworkConfigRequest {
-                dpu_machine_id: Some(dpu_id),
+                dpu_machine_id: Some(dpu_id.into()),
             },
         ))
         .await
@@ -6184,7 +6187,7 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
     // Step 2: Trigger DPU reprovision.
     let mut txn = env.db_txn().await;
     let machine_update = DpuMachineUpdate {
-        host_machine_id: mh.host().id,
+        host_machine_id: mh.id,
         dpu_machine_id: mh.dpu_ids[0],
         firmware_version: "test".to_string(),
         dpf_managed: false,
@@ -6535,7 +6538,7 @@ async fn test_public_instance_endpoints_reject_out_of_range_wire_vfs(
         let create_error = env
             .api
             .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
-                machine_id: Some(create_host.id),
+                machine_id: Some(create_host.id.into()),
                 config: Some(config_with_wire_vf(wire_vf_id)),
                 instance_id: None,
                 instance_type_id: None,
@@ -6572,7 +6575,7 @@ async fn test_public_instance_endpoints_reject_out_of_range_wire_vfs(
     // VF15 is the inclusive boundary and must pass the same public create and update paths.
     env.api
         .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(create_host.id),
+            machine_id: Some(create_host.id.into()),
             config: Some(config_with_wire_vf(15)),
             instance_id: None,
             instance_type_id: None,
@@ -6708,7 +6711,7 @@ async fn test_allocate_instance_with_extension_services_rejected_on_dpf_host(
     let result = env
         .api
         .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: Some(mh.id),
+            machine_id: Some(mh.id.into()),
             config: Some(rpc::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -6860,7 +6863,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
     let instance = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.id.into(),
+            machine_id: Some(mh.id.into()),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
@@ -7352,7 +7355,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
     let instance_id = tinstance.id;
 
     // Explicitly mock healthy/running extension-service status from the DPU.
-    network_configured_with_health_and_ext_services(&env, &mh.dpu().id, None, None).await;
+    network_configured_with_health_and_ext_services(&env, &mh.dpu_ids[0], None, None).await;
 
     // Remove all extension services from desired config.
     env.api
@@ -7431,7 +7434,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
     // Instance config and status should no long have the extension services.
     network_configured_with_health_and_ext_services(
         &env,
-        &mh.dpu().id,
+        &mh.dpu_ids[0],
         None,
         Some(rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated),
     )
@@ -7535,7 +7538,7 @@ async fn test_extension_services_status_observation(
     let dpu_observation = instance_snapshot
         .observations
         .extension_services
-        .get(&mh.dpu().id)
+        .get(&mh.dpu_ids[0])
         .and_then(|observations| {
             observations
                 .for_service_type(model::extension_service::ExtensionServiceType::KubernetesPod)
@@ -7591,7 +7594,7 @@ async fn test_extension_services_status_observation(
     assert_eq!(service_status.dpu_statuses.len(), 1,);
 
     let dpu_status = &service_status.dpu_statuses[0];
-    assert_eq!(dpu_status.dpu_machine_id, Some(mh.dpu().id));
+    assert_eq!(dpu_status.dpu_machine_id, Some(mh.dpu().id.into()));
     assert_eq!(
         dpu_status.status,
         rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
@@ -7629,7 +7632,7 @@ async fn test_allocate_instance_with_invalid_os_image(
     let result = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.id.into(),
+            machine_id: Some(mh.id.into()),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
@@ -7692,7 +7695,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
     let result = env
         .api
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
-            machine_id: mh.id.into(),
+            machine_id: Some(mh.id.into()),
             config: Some(rpc::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
@@ -7745,7 +7748,7 @@ async fn test_can_not_create_instances_with_machine_in_quarantine(
     env.api
         .set_managed_host_quarantine_state(tonic::Request::new(
             rpc::forge::SetManagedHostQuarantineStateRequest {
-                machine_id: Some(host_machine_id),
+                machine_id: Some(host_machine_id.into()),
                 quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
                     mode: ManagedHostQuarantineMode::BlockAllTraffic as i32,
                     reason: Some("test".to_string()),

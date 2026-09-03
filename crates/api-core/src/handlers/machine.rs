@@ -23,7 +23,7 @@ use ::rpc::forge as rpc;
 use ::rpc::model::machine::ManagedHostStateSnapshotRpc;
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostOrDpuId, MachineId};
 use libredfish::SystemPowerControl;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::hardware_info::MachineNvLinkInfo;
@@ -442,7 +442,9 @@ async fn force_delete_cleanup_txn(
         // Free up all loopback IPs allocated for this DPU.
         db::vpc_dpu_loopback::delete_and_deallocate(
             &api.common_pools,
-            &dpu_machine.id,
+            &dpu_machine.id.try_into().map_err(|error| {
+                CarbideError::internal(format!("invalid DPU machine ID: {error}"))
+            })?,
             &mut txn,
             true,
         )
@@ -601,27 +603,37 @@ pub(crate) async fn admin_force_delete_machine(
     // state controller will use - which already contains the combined state
     let host_machine;
     let dpu_machines;
-    if machine.is_dpu() {
-        if let Some(host) = db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id).await? {
-            tracing::info!(
-                host_machine_id = %host.id,
-                dpu_machine_id = %machine.id,
-                "Found host machine",
-            );
-            // Get all DPUs attached to this host, in case there are more than one.
-            dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
-            host_machine = Some(host);
-        } else {
-            host_machine = None;
-            dpu_machines = vec![machine];
+    match machine.id.host_or_dpu_id() {
+        HostOrDpuId::Dpu(dpu_machine_id) => {
+            if let Some(host) =
+                db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id).await?
+            {
+                tracing::info!(
+                    host_machine_id = %host.id,
+                    dpu_machine_id = %machine.id,
+                    "Found host machine",
+                );
+                // Get all DPUs attached to this host, in case there are more than one.
+                let host_machine_id = host.id.try_into().map_err(|error| {
+                    CarbideError::internal(format!("invalid host machine ID: {error}"))
+                })?;
+                dpu_machines =
+                    db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id).await?;
+                host_machine = Some(host);
+            } else {
+                host_machine = None;
+                dpu_machines = vec![machine];
+            }
         }
-    } else {
-        dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id).await?;
-        tracing::info!(
-            dpu_machine_ids = ?dpu_machines.iter().map(|m| &m.id).collect::<Vec<_>>(),
-            "Found DPU machines",
-        );
-        host_machine = Some(machine);
+        HostOrDpuId::Host(host_machine_id) => {
+            dpu_machines =
+                db::machine::find_dpus_by_host_machine_id(&mut txn, &host_machine_id).await?;
+            tracing::info!(
+                dpu_machine_ids = ?dpu_machines.iter().map(|m| &m.id).collect::<Vec<_>>(),
+                "Found DPU machines",
+            );
+            host_machine = Some(machine);
+        }
     }
 
     if let Some(host_machine) = &host_machine {
