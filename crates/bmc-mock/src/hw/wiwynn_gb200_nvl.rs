@@ -48,7 +48,15 @@ impl WiwynnGB200Nvl<'_> {
             managers: vec![
                 redfish::manager::SingleConfig {
                     id: "BMC_0",
-                    eth_interfaces: Some(vec![]), // TODO: eth0 / eth1 / hmcusb0 / hostusb0
+                    // TODO: Add eth0, eth1, and hmcusb0.
+                    eth_interfaces: Some(vec![
+                        redfish::ethernet_interface::builder(
+                            &redfish::ethernet_interface::manager_resource("BMC_0", "hostusb0"),
+                        )
+                        .static_ipv4_address("10.0.1.1", "255.255.255.0", "0.0.0.0")
+                        .interface_enabled(true)
+                        .build(),
+                    ]),
                     host_interfaces: Some(vec![
                         redfish::host_interface::builder(
                             &redfish::host_interface::manager_resource("BMC_0", "hostusb0"),

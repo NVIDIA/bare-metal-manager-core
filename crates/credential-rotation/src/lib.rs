@@ -1576,7 +1576,7 @@ mod tests {
             ("Delta Electronics", RedfishVendor::DeltaPowerShelf),
         ] {
             let sim = RedfishSim::default();
-            sim.set_service_root_vendor(Some("Contoso".to_string()));
+            sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
             sim.set_chassis_manufacturer(Some(manufacturer.to_string()));
             let vendor = resolve_dispatch_vendor(
                 &sim,
