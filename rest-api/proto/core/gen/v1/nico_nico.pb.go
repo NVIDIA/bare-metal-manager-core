@@ -5932,6 +5932,7 @@ func (x GetMachineBootInterfacesResponse_Reconciliation_State) Number() protoref
 // Deprecated: Use GetMachineBootInterfacesResponse_Reconciliation_State.Descriptor instead.
 func (GetMachineBootInterfacesResponse_Reconciliation_State) EnumDescriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{890, 0, 0}
 =======
 <<<<<<< HEAD
@@ -5940,6 +5941,9 @@ func (GetMachineBootInterfacesResponse_Reconciliation_State) EnumDescriptor() ([
 	return file_nico_nico_proto_rawDescGZIP(), []int{886, 0, 0}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{888, 0, 0}
+>>>>>>> fab90f1e2 (review)
 }
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller
@@ -58990,7 +58994,7 @@ type MacAddressList struct {
 
 func (x *MacAddressList) Reset() {
 	*x = MacAddressList{}
-	mi := &file_nico_nico_proto_msgTypes[830]
+	mi := &file_nico_nico_proto_msgTypes[832]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59002,7 +59006,7 @@ func (x *MacAddressList) String() string {
 func (*MacAddressList) ProtoMessage() {}
 
 func (x *MacAddressList) ProtoReflect() protoreflect.Message {
-	mi := &file_nico_nico_proto_msgTypes[830]
+	mi := &file_nico_nico_proto_msgTypes[832]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59015,7 +59019,7 @@ func (x *MacAddressList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MacAddressList.ProtoReflect.Descriptor instead.
 func (*MacAddressList) Descriptor() ([]byte, []int) {
-	return file_nico_nico_proto_rawDescGZIP(), []int{830}
+	return file_nico_nico_proto_rawDescGZIP(), []int{832}
 }
 
 func (x *MacAddressList) GetMacAddresses() []string {
@@ -59041,6 +59045,7 @@ type GetComponentInventoryRequest struct {
 func (x *GetComponentInventoryRequest) Reset() {
 	*x = GetComponentInventoryRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[835]
 =======
 <<<<<<< HEAD
@@ -59049,6 +59054,9 @@ func (x *GetComponentInventoryRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[831]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[833]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59061,6 +59069,7 @@ func (*GetComponentInventoryRequest) ProtoMessage() {}
 
 func (x *GetComponentInventoryRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[835]
 =======
 <<<<<<< HEAD
@@ -59069,6 +59078,9 @@ func (x *GetComponentInventoryRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[831]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[833]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59082,6 +59094,7 @@ func (x *GetComponentInventoryRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetComponentInventoryRequest.ProtoReflect.Descriptor instead.
 func (*GetComponentInventoryRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{835}
 =======
 <<<<<<< HEAD
@@ -59090,6 +59103,9 @@ func (*GetComponentInventoryRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{831}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{833}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetComponentInventoryRequest) GetTarget() isGetComponentInventoryRequest_Target {
@@ -59174,6 +59190,7 @@ type ComponentInventoryEntry struct {
 func (x *ComponentInventoryEntry) Reset() {
 	*x = ComponentInventoryEntry{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[836]
 =======
 <<<<<<< HEAD
@@ -59182,6 +59199,9 @@ func (x *ComponentInventoryEntry) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[832]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[834]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59194,6 +59214,7 @@ func (*ComponentInventoryEntry) ProtoMessage() {}
 
 func (x *ComponentInventoryEntry) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[836]
 =======
 <<<<<<< HEAD
@@ -59202,6 +59223,9 @@ func (x *ComponentInventoryEntry) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[832]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[834]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59215,6 +59239,7 @@ func (x *ComponentInventoryEntry) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ComponentInventoryEntry.ProtoReflect.Descriptor instead.
 func (*ComponentInventoryEntry) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{836}
 =======
 <<<<<<< HEAD
@@ -59223,6 +59248,9 @@ func (*ComponentInventoryEntry) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{832}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{834}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ComponentInventoryEntry) GetResult() *ComponentResult {
@@ -59249,6 +59277,7 @@ type GetComponentInventoryResponse struct {
 func (x *GetComponentInventoryResponse) Reset() {
 	*x = GetComponentInventoryResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[837]
 =======
 <<<<<<< HEAD
@@ -59257,6 +59286,9 @@ func (x *GetComponentInventoryResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[833]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[835]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59269,6 +59301,7 @@ func (*GetComponentInventoryResponse) ProtoMessage() {}
 
 func (x *GetComponentInventoryResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[837]
 =======
 <<<<<<< HEAD
@@ -59277,6 +59310,9 @@ func (x *GetComponentInventoryResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[833]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[835]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59290,6 +59326,7 @@ func (x *GetComponentInventoryResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetComponentInventoryResponse.ProtoReflect.Descriptor instead.
 func (*GetComponentInventoryResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{837}
 =======
 <<<<<<< HEAD
@@ -59298,6 +59335,9 @@ func (*GetComponentInventoryResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{833}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{835}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetComponentInventoryResponse) GetEntries() []*ComponentInventoryEntry {
@@ -59327,6 +59367,7 @@ type ComponentPowerControlRequest struct {
 func (x *ComponentPowerControlRequest) Reset() {
 	*x = ComponentPowerControlRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[838]
 =======
 <<<<<<< HEAD
@@ -59335,6 +59376,9 @@ func (x *ComponentPowerControlRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[834]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[836]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59347,6 +59391,7 @@ func (*ComponentPowerControlRequest) ProtoMessage() {}
 
 func (x *ComponentPowerControlRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[838]
 =======
 <<<<<<< HEAD
@@ -59355,6 +59400,9 @@ func (x *ComponentPowerControlRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[834]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[836]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59368,6 +59416,7 @@ func (x *ComponentPowerControlRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ComponentPowerControlRequest.ProtoReflect.Descriptor instead.
 func (*ComponentPowerControlRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{838}
 =======
 <<<<<<< HEAD
@@ -59376,6 +59425,9 @@ func (*ComponentPowerControlRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{834}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{836}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ComponentPowerControlRequest) GetTarget() isComponentPowerControlRequest_Target {
@@ -59473,6 +59525,7 @@ type ComponentPowerControlResponse struct {
 func (x *ComponentPowerControlResponse) Reset() {
 	*x = ComponentPowerControlResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[839]
 =======
 <<<<<<< HEAD
@@ -59481,6 +59534,9 @@ func (x *ComponentPowerControlResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[835]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[837]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59493,6 +59549,7 @@ func (*ComponentPowerControlResponse) ProtoMessage() {}
 
 func (x *ComponentPowerControlResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[839]
 =======
 <<<<<<< HEAD
@@ -59501,6 +59558,9 @@ func (x *ComponentPowerControlResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[835]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[837]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59514,6 +59574,7 @@ func (x *ComponentPowerControlResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ComponentPowerControlResponse.ProtoReflect.Descriptor instead.
 func (*ComponentPowerControlResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{839}
 =======
 <<<<<<< HEAD
@@ -59522,6 +59583,9 @@ func (*ComponentPowerControlResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{835}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{837}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ComponentPowerControlResponse) GetResults() []*ComponentResult {
@@ -59546,6 +59610,7 @@ type ComponentConfigureSwitchCertificateRequest struct {
 func (x *ComponentConfigureSwitchCertificateRequest) Reset() {
 	*x = ComponentConfigureSwitchCertificateRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[840]
 =======
 <<<<<<< HEAD
@@ -59554,6 +59619,9 @@ func (x *ComponentConfigureSwitchCertificateRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[836]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[838]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59566,6 +59634,7 @@ func (*ComponentConfigureSwitchCertificateRequest) ProtoMessage() {}
 
 func (x *ComponentConfigureSwitchCertificateRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[840]
 =======
 <<<<<<< HEAD
@@ -59574,6 +59643,9 @@ func (x *ComponentConfigureSwitchCertificateRequest) ProtoReflect() protoreflect
 	mi := &file_nico_nico_proto_msgTypes[836]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[838]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59587,6 +59659,7 @@ func (x *ComponentConfigureSwitchCertificateRequest) ProtoReflect() protoreflect
 // Deprecated: Use ComponentConfigureSwitchCertificateRequest.ProtoReflect.Descriptor instead.
 func (*ComponentConfigureSwitchCertificateRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{840}
 =======
 <<<<<<< HEAD
@@ -59595,6 +59668,9 @@ func (*ComponentConfigureSwitchCertificateRequest) Descriptor() ([]byte, []int) 
 	return file_nico_nico_proto_rawDescGZIP(), []int{836}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{838}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ComponentConfigureSwitchCertificateRequest) GetSwitchIds() *SwitchIdList {
@@ -59628,6 +59704,7 @@ type ComponentConfigureSwitchCertificateResponse struct {
 func (x *ComponentConfigureSwitchCertificateResponse) Reset() {
 	*x = ComponentConfigureSwitchCertificateResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[841]
 =======
 <<<<<<< HEAD
@@ -59636,6 +59713,9 @@ func (x *ComponentConfigureSwitchCertificateResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[837]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[839]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59648,6 +59728,7 @@ func (*ComponentConfigureSwitchCertificateResponse) ProtoMessage() {}
 
 func (x *ComponentConfigureSwitchCertificateResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[841]
 =======
 <<<<<<< HEAD
@@ -59656,6 +59737,9 @@ func (x *ComponentConfigureSwitchCertificateResponse) ProtoReflect() protoreflec
 	mi := &file_nico_nico_proto_msgTypes[837]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[839]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59669,6 +59753,7 @@ func (x *ComponentConfigureSwitchCertificateResponse) ProtoReflect() protoreflec
 // Deprecated: Use ComponentConfigureSwitchCertificateResponse.ProtoReflect.Descriptor instead.
 func (*ComponentConfigureSwitchCertificateResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{841}
 =======
 <<<<<<< HEAD
@@ -59677,6 +59762,9 @@ func (*ComponentConfigureSwitchCertificateResponse) Descriptor() ([]byte, []int)
 	return file_nico_nico_proto_rawDescGZIP(), []int{837}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{839}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ComponentConfigureSwitchCertificateResponse) GetResults() []*ComponentResult {
@@ -59699,6 +59787,7 @@ type FirmwareUpdateStatus struct {
 func (x *FirmwareUpdateStatus) Reset() {
 	*x = FirmwareUpdateStatus{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[842]
 =======
 <<<<<<< HEAD
@@ -59707,6 +59796,9 @@ func (x *FirmwareUpdateStatus) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[838]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[840]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59719,6 +59811,7 @@ func (*FirmwareUpdateStatus) ProtoMessage() {}
 
 func (x *FirmwareUpdateStatus) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[842]
 =======
 <<<<<<< HEAD
@@ -59727,6 +59820,9 @@ func (x *FirmwareUpdateStatus) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[838]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[840]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59740,6 +59836,7 @@ func (x *FirmwareUpdateStatus) ProtoReflect() protoreflect.Message {
 // Deprecated: Use FirmwareUpdateStatus.ProtoReflect.Descriptor instead.
 func (*FirmwareUpdateStatus) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{842}
 =======
 <<<<<<< HEAD
@@ -59748,6 +59845,9 @@ func (*FirmwareUpdateStatus) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{838}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{840}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *FirmwareUpdateStatus) GetResult() *ComponentResult {
@@ -59780,18 +59880,20 @@ func (x *FirmwareUpdateStatus) GetUpdatedAt() *timestamppb.Timestamp {
 
 type UpdateComputeTrayFirmwareTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Selector:
-	//
-	//	*UpdateComputeTrayFirmwareTarget_MachineIds
-	//	*UpdateComputeTrayFirmwareTarget_BmcMacs
-	Selector      isUpdateComputeTrayFirmwareTarget_Selector `protobuf_oneof:"selector"`
-	Components    []ComputeTrayComponent                     `protobuf:"varint,2,rep,packed,name=components,proto3,enum=forge.ComputeTrayComponent" json:"components,omitempty"`
+	// Exactly one of machine_ids or bmc_macs must be set (the server rejects
+	// neither/both). machine_ids targets ingested trays; bmc_macs targets by BMC
+	// MAC, including pre-ingestion. These are plain fields rather than a oneof so
+	// field 1 stays wire-compatible with earlier releases that predate bmc_macs.
+	MachineIds    *MachineIdList         `protobuf:"bytes,1,opt,name=machine_ids,json=machineIds,proto3" json:"machine_ids,omitempty"`
+	Components    []ComputeTrayComponent `protobuf:"varint,2,rep,packed,name=components,proto3,enum=forge.ComputeTrayComponent" json:"components,omitempty"`
+	BmcMacs       *MacAddressList        `protobuf:"bytes,3,opt,name=bmc_macs,json=bmcMacs,proto3" json:"bmc_macs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateComputeTrayFirmwareTarget) Reset() {
 	*x = UpdateComputeTrayFirmwareTarget{}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[843]
 =======
@@ -59801,6 +59903,9 @@ func (x *UpdateComputeTrayFirmwareTarget) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[839]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[841]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59813,6 +59918,7 @@ func (*UpdateComputeTrayFirmwareTarget) ProtoMessage() {}
 
 func (x *UpdateComputeTrayFirmwareTarget) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[843]
 =======
 <<<<<<< HEAD
@@ -59821,6 +59927,9 @@ func (x *UpdateComputeTrayFirmwareTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[839]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[841]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59833,6 +59942,7 @@ func (x *UpdateComputeTrayFirmwareTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateComputeTrayFirmwareTarget.ProtoReflect.Descriptor instead.
 func (*UpdateComputeTrayFirmwareTarget) Descriptor() ([]byte, []int) {
+<<<<<<< HEAD
 <<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{843}
 =======
@@ -59849,22 +59959,14 @@ func (x *UpdateComputeTrayFirmwareTarget) GetSelector() isUpdateComputeTrayFirmw
 	return nil
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{841}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateComputeTrayFirmwareTarget) GetMachineIds() *MachineIdList {
 	if x != nil {
-		if x, ok := x.Selector.(*UpdateComputeTrayFirmwareTarget_MachineIds); ok {
-			return x.MachineIds
-		}
-	}
-	return nil
-}
-
-func (x *UpdateComputeTrayFirmwareTarget) GetBmcMacs() *MacAddressList {
-	if x != nil {
-		if x, ok := x.Selector.(*UpdateComputeTrayFirmwareTarget_BmcMacs); ok {
-			return x.BmcMacs
-		}
+		return x.MachineIds
 	}
 	return nil
 }
@@ -59876,21 +59978,12 @@ func (x *UpdateComputeTrayFirmwareTarget) GetComponents() []ComputeTrayComponent
 	return nil
 }
 
-type isUpdateComputeTrayFirmwareTarget_Selector interface {
-	isUpdateComputeTrayFirmwareTarget_Selector()
+func (x *UpdateComputeTrayFirmwareTarget) GetBmcMacs() *MacAddressList {
+	if x != nil {
+		return x.BmcMacs
+	}
+	return nil
 }
-
-type UpdateComputeTrayFirmwareTarget_MachineIds struct {
-	MachineIds *MachineIdList `protobuf:"bytes,1,opt,name=machine_ids,json=machineIds,proto3,oneof"`
-}
-
-type UpdateComputeTrayFirmwareTarget_BmcMacs struct {
-	BmcMacs *MacAddressList `protobuf:"bytes,3,opt,name=bmc_macs,json=bmcMacs,proto3,oneof"`
-}
-
-func (*UpdateComputeTrayFirmwareTarget_MachineIds) isUpdateComputeTrayFirmwareTarget_Selector() {}
-
-func (*UpdateComputeTrayFirmwareTarget_BmcMacs) isUpdateComputeTrayFirmwareTarget_Selector() {}
 
 type UpdateSwitchFirmwareTarget struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -59903,6 +59996,7 @@ type UpdateSwitchFirmwareTarget struct {
 func (x *UpdateSwitchFirmwareTarget) Reset() {
 	*x = UpdateSwitchFirmwareTarget{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[844]
 =======
 <<<<<<< HEAD
@@ -59911,6 +60005,9 @@ func (x *UpdateSwitchFirmwareTarget) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[840]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[842]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59923,6 +60020,7 @@ func (*UpdateSwitchFirmwareTarget) ProtoMessage() {}
 
 func (x *UpdateSwitchFirmwareTarget) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[844]
 =======
 <<<<<<< HEAD
@@ -59931,6 +60029,9 @@ func (x *UpdateSwitchFirmwareTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[840]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[842]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59944,6 +60045,7 @@ func (x *UpdateSwitchFirmwareTarget) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateSwitchFirmwareTarget.ProtoReflect.Descriptor instead.
 func (*UpdateSwitchFirmwareTarget) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{844}
 =======
 <<<<<<< HEAD
@@ -59952,6 +60054,9 @@ func (*UpdateSwitchFirmwareTarget) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{840}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{842}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateSwitchFirmwareTarget) GetSwitchIds() *SwitchIdList {
@@ -59979,6 +60084,7 @@ type UpdatePowerShelfFirmwareTarget struct {
 func (x *UpdatePowerShelfFirmwareTarget) Reset() {
 	*x = UpdatePowerShelfFirmwareTarget{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[845]
 =======
 <<<<<<< HEAD
@@ -59987,6 +60093,9 @@ func (x *UpdatePowerShelfFirmwareTarget) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[841]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[843]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -59999,6 +60108,7 @@ func (*UpdatePowerShelfFirmwareTarget) ProtoMessage() {}
 
 func (x *UpdatePowerShelfFirmwareTarget) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[845]
 =======
 <<<<<<< HEAD
@@ -60007,6 +60117,9 @@ func (x *UpdatePowerShelfFirmwareTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[841]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[843]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60020,6 +60133,7 @@ func (x *UpdatePowerShelfFirmwareTarget) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdatePowerShelfFirmwareTarget.ProtoReflect.Descriptor instead.
 func (*UpdatePowerShelfFirmwareTarget) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{845}
 =======
 <<<<<<< HEAD
@@ -60028,6 +60142,9 @@ func (*UpdatePowerShelfFirmwareTarget) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{841}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{843}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdatePowerShelfFirmwareTarget) GetPowerShelfIds() *PowerShelfIdList {
@@ -60056,6 +60173,7 @@ type UpdateFirmwareObjectTarget struct {
 func (x *UpdateFirmwareObjectTarget) Reset() {
 	*x = UpdateFirmwareObjectTarget{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[846]
 =======
 <<<<<<< HEAD
@@ -60064,6 +60182,9 @@ func (x *UpdateFirmwareObjectTarget) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[842]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[844]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60076,6 +60197,7 @@ func (*UpdateFirmwareObjectTarget) ProtoMessage() {}
 
 func (x *UpdateFirmwareObjectTarget) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[846]
 =======
 <<<<<<< HEAD
@@ -60084,6 +60206,9 @@ func (x *UpdateFirmwareObjectTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[842]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[844]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60097,6 +60222,7 @@ func (x *UpdateFirmwareObjectTarget) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateFirmwareObjectTarget.ProtoReflect.Descriptor instead.
 func (*UpdateFirmwareObjectTarget) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{846}
 =======
 <<<<<<< HEAD
@@ -60105,6 +60231,9 @@ func (*UpdateFirmwareObjectTarget) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{842}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{844}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateFirmwareObjectTarget) GetRackIds() *RackIdList {
@@ -60142,6 +60271,7 @@ type UpdateComponentFirmwareRequest struct {
 func (x *UpdateComponentFirmwareRequest) Reset() {
 	*x = UpdateComponentFirmwareRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[847]
 =======
 <<<<<<< HEAD
@@ -60150,6 +60280,9 @@ func (x *UpdateComponentFirmwareRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[843]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[845]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60162,6 +60295,7 @@ func (*UpdateComponentFirmwareRequest) ProtoMessage() {}
 
 func (x *UpdateComponentFirmwareRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[847]
 =======
 <<<<<<< HEAD
@@ -60170,6 +60304,9 @@ func (x *UpdateComponentFirmwareRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[843]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[845]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60183,6 +60320,7 @@ func (x *UpdateComponentFirmwareRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateComponentFirmwareRequest.ProtoReflect.Descriptor instead.
 func (*UpdateComponentFirmwareRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{847}
 =======
 <<<<<<< HEAD
@@ -60191,6 +60329,9 @@ func (*UpdateComponentFirmwareRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{843}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{845}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateComponentFirmwareRequest) GetTarget() isUpdateComponentFirmwareRequest_Target {
@@ -60303,6 +60444,7 @@ type UpdateComponentFirmwareResponse struct {
 func (x *UpdateComponentFirmwareResponse) Reset() {
 	*x = UpdateComponentFirmwareResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[848]
 =======
 <<<<<<< HEAD
@@ -60311,6 +60453,9 @@ func (x *UpdateComponentFirmwareResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[844]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[846]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60323,6 +60468,7 @@ func (*UpdateComponentFirmwareResponse) ProtoMessage() {}
 
 func (x *UpdateComponentFirmwareResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[848]
 =======
 <<<<<<< HEAD
@@ -60331,6 +60477,9 @@ func (x *UpdateComponentFirmwareResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[844]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[846]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60344,6 +60493,7 @@ func (x *UpdateComponentFirmwareResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateComponentFirmwareResponse.ProtoReflect.Descriptor instead.
 func (*UpdateComponentFirmwareResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{848}
 =======
 <<<<<<< HEAD
@@ -60352,6 +60502,9 @@ func (*UpdateComponentFirmwareResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{844}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{846}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateComponentFirmwareResponse) GetResults() []*ComponentResult {
@@ -60378,6 +60531,7 @@ type GetComponentFirmwareStatusRequest struct {
 func (x *GetComponentFirmwareStatusRequest) Reset() {
 	*x = GetComponentFirmwareStatusRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[849]
 =======
 <<<<<<< HEAD
@@ -60386,6 +60540,9 @@ func (x *GetComponentFirmwareStatusRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[845]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[847]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60398,6 +60555,7 @@ func (*GetComponentFirmwareStatusRequest) ProtoMessage() {}
 
 func (x *GetComponentFirmwareStatusRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[849]
 =======
 <<<<<<< HEAD
@@ -60406,6 +60564,9 @@ func (x *GetComponentFirmwareStatusRequest) ProtoReflect() protoreflect.Message 
 	mi := &file_nico_nico_proto_msgTypes[845]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[847]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60419,6 +60580,7 @@ func (x *GetComponentFirmwareStatusRequest) ProtoReflect() protoreflect.Message 
 // Deprecated: Use GetComponentFirmwareStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetComponentFirmwareStatusRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{849}
 =======
 <<<<<<< HEAD
@@ -60427,6 +60589,9 @@ func (*GetComponentFirmwareStatusRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{845}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{847}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetComponentFirmwareStatusRequest) GetTarget() isGetComponentFirmwareStatusRequest_Target {
@@ -60527,6 +60692,7 @@ type GetComponentFirmwareStatusResponse struct {
 func (x *GetComponentFirmwareStatusResponse) Reset() {
 	*x = GetComponentFirmwareStatusResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[850]
 =======
 <<<<<<< HEAD
@@ -60535,6 +60701,9 @@ func (x *GetComponentFirmwareStatusResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[846]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[848]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60547,6 +60716,7 @@ func (*GetComponentFirmwareStatusResponse) ProtoMessage() {}
 
 func (x *GetComponentFirmwareStatusResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[850]
 =======
 <<<<<<< HEAD
@@ -60555,6 +60725,9 @@ func (x *GetComponentFirmwareStatusResponse) ProtoReflect() protoreflect.Message
 	mi := &file_nico_nico_proto_msgTypes[846]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[848]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60568,6 +60741,7 @@ func (x *GetComponentFirmwareStatusResponse) ProtoReflect() protoreflect.Message
 // Deprecated: Use GetComponentFirmwareStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetComponentFirmwareStatusResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{850}
 =======
 <<<<<<< HEAD
@@ -60576,6 +60750,9 @@ func (*GetComponentFirmwareStatusResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{846}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{848}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetComponentFirmwareStatusResponse) GetStatuses() []*FirmwareUpdateStatus {
@@ -60602,6 +60779,7 @@ type ListComponentFirmwareVersionsRequest struct {
 func (x *ListComponentFirmwareVersionsRequest) Reset() {
 	*x = ListComponentFirmwareVersionsRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[851]
 =======
 <<<<<<< HEAD
@@ -60610,6 +60788,9 @@ func (x *ListComponentFirmwareVersionsRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[847]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[849]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60622,6 +60803,7 @@ func (*ListComponentFirmwareVersionsRequest) ProtoMessage() {}
 
 func (x *ListComponentFirmwareVersionsRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[851]
 =======
 <<<<<<< HEAD
@@ -60630,6 +60812,9 @@ func (x *ListComponentFirmwareVersionsRequest) ProtoReflect() protoreflect.Messa
 	mi := &file_nico_nico_proto_msgTypes[847]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[849]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60643,6 +60828,7 @@ func (x *ListComponentFirmwareVersionsRequest) ProtoReflect() protoreflect.Messa
 // Deprecated: Use ListComponentFirmwareVersionsRequest.ProtoReflect.Descriptor instead.
 func (*ListComponentFirmwareVersionsRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{851}
 =======
 <<<<<<< HEAD
@@ -60651,6 +60837,9 @@ func (*ListComponentFirmwareVersionsRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{847}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{849}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ListComponentFirmwareVersionsRequest) GetTarget() isListComponentFirmwareVersionsRequest_Target {
@@ -60758,6 +60947,7 @@ type ComputeTrayFirmwareVersions struct {
 func (x *ComputeTrayFirmwareVersions) Reset() {
 	*x = ComputeTrayFirmwareVersions{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[852]
 =======
 <<<<<<< HEAD
@@ -60766,6 +60956,9 @@ func (x *ComputeTrayFirmwareVersions) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[848]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[850]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60778,6 +60971,7 @@ func (*ComputeTrayFirmwareVersions) ProtoMessage() {}
 
 func (x *ComputeTrayFirmwareVersions) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[852]
 =======
 <<<<<<< HEAD
@@ -60786,6 +60980,9 @@ func (x *ComputeTrayFirmwareVersions) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[848]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[850]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60799,6 +60996,7 @@ func (x *ComputeTrayFirmwareVersions) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ComputeTrayFirmwareVersions.ProtoReflect.Descriptor instead.
 func (*ComputeTrayFirmwareVersions) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{852}
 =======
 <<<<<<< HEAD
@@ -60807,6 +61005,9 @@ func (*ComputeTrayFirmwareVersions) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{848}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{850}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ComputeTrayFirmwareVersions) GetComponent() ComputeTrayComponent {
@@ -60837,6 +61038,7 @@ type DeviceFirmwareVersions struct {
 func (x *DeviceFirmwareVersions) Reset() {
 	*x = DeviceFirmwareVersions{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[853]
 =======
 <<<<<<< HEAD
@@ -60845,6 +61047,9 @@ func (x *DeviceFirmwareVersions) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[849]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[851]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60857,6 +61062,7 @@ func (*DeviceFirmwareVersions) ProtoMessage() {}
 
 func (x *DeviceFirmwareVersions) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[853]
 =======
 <<<<<<< HEAD
@@ -60865,6 +61071,9 @@ func (x *DeviceFirmwareVersions) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[849]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[851]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60878,6 +61087,7 @@ func (x *DeviceFirmwareVersions) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DeviceFirmwareVersions.ProtoReflect.Descriptor instead.
 func (*DeviceFirmwareVersions) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{853}
 =======
 <<<<<<< HEAD
@@ -60886,6 +61096,9 @@ func (*DeviceFirmwareVersions) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{849}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{851}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *DeviceFirmwareVersions) GetResult() *ComponentResult {
@@ -60919,6 +61132,7 @@ type ListComponentFirmwareVersionsResponse struct {
 func (x *ListComponentFirmwareVersionsResponse) Reset() {
 	*x = ListComponentFirmwareVersionsResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[854]
 =======
 <<<<<<< HEAD
@@ -60927,6 +61141,9 @@ func (x *ListComponentFirmwareVersionsResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[850]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[852]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60939,6 +61156,7 @@ func (*ListComponentFirmwareVersionsResponse) ProtoMessage() {}
 
 func (x *ListComponentFirmwareVersionsResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[854]
 =======
 <<<<<<< HEAD
@@ -60947,6 +61165,9 @@ func (x *ListComponentFirmwareVersionsResponse) ProtoReflect() protoreflect.Mess
 	mi := &file_nico_nico_proto_msgTypes[850]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[852]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60960,6 +61181,7 @@ func (x *ListComponentFirmwareVersionsResponse) ProtoReflect() protoreflect.Mess
 // Deprecated: Use ListComponentFirmwareVersionsResponse.ProtoReflect.Descriptor instead.
 func (*ListComponentFirmwareVersionsResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{854}
 =======
 <<<<<<< HEAD
@@ -60968,6 +61190,9 @@ func (*ListComponentFirmwareVersionsResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{850}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{852}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ListComponentFirmwareVersionsResponse) GetDevices() []*DeviceFirmwareVersions {
@@ -60990,6 +61215,7 @@ type SpxPartitionCreationRequest struct {
 func (x *SpxPartitionCreationRequest) Reset() {
 	*x = SpxPartitionCreationRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[855]
 =======
 <<<<<<< HEAD
@@ -60998,6 +61224,9 @@ func (x *SpxPartitionCreationRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[851]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[853]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61010,6 +61239,7 @@ func (*SpxPartitionCreationRequest) ProtoMessage() {}
 
 func (x *SpxPartitionCreationRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[855]
 =======
 <<<<<<< HEAD
@@ -61018,6 +61248,9 @@ func (x *SpxPartitionCreationRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[851]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[853]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61031,6 +61264,7 @@ func (x *SpxPartitionCreationRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionCreationRequest.ProtoReflect.Descriptor instead.
 func (*SpxPartitionCreationRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{855}
 =======
 <<<<<<< HEAD
@@ -61039,6 +61273,9 @@ func (*SpxPartitionCreationRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{851}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{853}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartitionCreationRequest) GetMetadata() *Metadata {
@@ -61082,6 +61319,7 @@ type SpxPartition struct {
 func (x *SpxPartition) Reset() {
 	*x = SpxPartition{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[856]
 =======
 <<<<<<< HEAD
@@ -61090,6 +61328,9 @@ func (x *SpxPartition) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[852]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[854]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61102,6 +61343,7 @@ func (*SpxPartition) ProtoMessage() {}
 
 func (x *SpxPartition) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[856]
 =======
 <<<<<<< HEAD
@@ -61110,6 +61352,9 @@ func (x *SpxPartition) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[852]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[854]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61123,6 +61368,7 @@ func (x *SpxPartition) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartition.ProtoReflect.Descriptor instead.
 func (*SpxPartition) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{856}
 =======
 <<<<<<< HEAD
@@ -61131,6 +61377,9 @@ func (*SpxPartition) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{852}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{854}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartition) GetMetadata() *Metadata {
@@ -61171,6 +61420,7 @@ type SpxPartitionIdList struct {
 func (x *SpxPartitionIdList) Reset() {
 	*x = SpxPartitionIdList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[857]
 =======
 <<<<<<< HEAD
@@ -61179,6 +61429,9 @@ func (x *SpxPartitionIdList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[853]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[855]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61191,6 +61444,7 @@ func (*SpxPartitionIdList) ProtoMessage() {}
 
 func (x *SpxPartitionIdList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[857]
 =======
 <<<<<<< HEAD
@@ -61199,6 +61453,9 @@ func (x *SpxPartitionIdList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[853]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[855]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61212,6 +61469,7 @@ func (x *SpxPartitionIdList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionIdList.ProtoReflect.Descriptor instead.
 func (*SpxPartitionIdList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{857}
 =======
 <<<<<<< HEAD
@@ -61220,6 +61478,9 @@ func (*SpxPartitionIdList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{853}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{855}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartitionIdList) GetSpxPartitionIds() []*SpxPartitionId {
@@ -61239,6 +61500,7 @@ type SpxPartitionDeletionRequest struct {
 func (x *SpxPartitionDeletionRequest) Reset() {
 	*x = SpxPartitionDeletionRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[858]
 =======
 <<<<<<< HEAD
@@ -61247,6 +61509,9 @@ func (x *SpxPartitionDeletionRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[854]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[856]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61259,6 +61524,7 @@ func (*SpxPartitionDeletionRequest) ProtoMessage() {}
 
 func (x *SpxPartitionDeletionRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[858]
 =======
 <<<<<<< HEAD
@@ -61267,6 +61533,9 @@ func (x *SpxPartitionDeletionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[854]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[856]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61280,6 +61549,7 @@ func (x *SpxPartitionDeletionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionDeletionRequest.ProtoReflect.Descriptor instead.
 func (*SpxPartitionDeletionRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{858}
 =======
 <<<<<<< HEAD
@@ -61288,6 +61558,9 @@ func (*SpxPartitionDeletionRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{854}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{856}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartitionDeletionRequest) GetId() *SpxPartitionId {
@@ -61306,6 +61579,7 @@ type SpxPartitionDeletionResult struct {
 func (x *SpxPartitionDeletionResult) Reset() {
 	*x = SpxPartitionDeletionResult{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[859]
 =======
 <<<<<<< HEAD
@@ -61314,6 +61588,9 @@ func (x *SpxPartitionDeletionResult) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[855]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[857]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61326,6 +61603,7 @@ func (*SpxPartitionDeletionResult) ProtoMessage() {}
 
 func (x *SpxPartitionDeletionResult) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[859]
 =======
 <<<<<<< HEAD
@@ -61334,6 +61612,9 @@ func (x *SpxPartitionDeletionResult) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[855]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[857]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61347,6 +61628,7 @@ func (x *SpxPartitionDeletionResult) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionDeletionResult.ProtoReflect.Descriptor instead.
 func (*SpxPartitionDeletionResult) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{859}
 =======
 <<<<<<< HEAD
@@ -61355,6 +61637,9 @@ func (*SpxPartitionDeletionResult) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{855}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{857}
+>>>>>>> fab90f1e2 (review)
 }
 
 type SpxPartitionSearchFilter struct {
@@ -61369,6 +61654,7 @@ type SpxPartitionSearchFilter struct {
 func (x *SpxPartitionSearchFilter) Reset() {
 	*x = SpxPartitionSearchFilter{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[860]
 =======
 <<<<<<< HEAD
@@ -61377,6 +61663,9 @@ func (x *SpxPartitionSearchFilter) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[856]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[858]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61389,6 +61678,7 @@ func (*SpxPartitionSearchFilter) ProtoMessage() {}
 
 func (x *SpxPartitionSearchFilter) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[860]
 =======
 <<<<<<< HEAD
@@ -61397,6 +61687,9 @@ func (x *SpxPartitionSearchFilter) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[856]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[858]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61410,6 +61703,7 @@ func (x *SpxPartitionSearchFilter) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionSearchFilter.ProtoReflect.Descriptor instead.
 func (*SpxPartitionSearchFilter) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{860}
 =======
 <<<<<<< HEAD
@@ -61418,6 +61712,9 @@ func (*SpxPartitionSearchFilter) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{856}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{858}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartitionSearchFilter) GetName() string {
@@ -61451,6 +61748,7 @@ type SpxPartitionList struct {
 func (x *SpxPartitionList) Reset() {
 	*x = SpxPartitionList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[861]
 =======
 <<<<<<< HEAD
@@ -61459,6 +61757,9 @@ func (x *SpxPartitionList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[857]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[859]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61471,6 +61772,7 @@ func (*SpxPartitionList) ProtoMessage() {}
 
 func (x *SpxPartitionList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[861]
 =======
 <<<<<<< HEAD
@@ -61479,6 +61781,9 @@ func (x *SpxPartitionList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[857]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[859]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61492,6 +61797,7 @@ func (x *SpxPartitionList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionList.ProtoReflect.Descriptor instead.
 func (*SpxPartitionList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{861}
 =======
 <<<<<<< HEAD
@@ -61500,6 +61806,9 @@ func (*SpxPartitionList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{857}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{859}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartitionList) GetSpxPartitions() []*SpxPartition {
@@ -61519,6 +61828,7 @@ type SpxPartitionsByIdsRequest struct {
 func (x *SpxPartitionsByIdsRequest) Reset() {
 	*x = SpxPartitionsByIdsRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[862]
 =======
 <<<<<<< HEAD
@@ -61527,6 +61837,9 @@ func (x *SpxPartitionsByIdsRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[858]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[860]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61539,6 +61852,7 @@ func (*SpxPartitionsByIdsRequest) ProtoMessage() {}
 
 func (x *SpxPartitionsByIdsRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[862]
 =======
 <<<<<<< HEAD
@@ -61547,6 +61861,9 @@ func (x *SpxPartitionsByIdsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[858]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[860]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61560,6 +61877,7 @@ func (x *SpxPartitionsByIdsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SpxPartitionsByIdsRequest.ProtoReflect.Descriptor instead.
 func (*SpxPartitionsByIdsRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{862}
 =======
 <<<<<<< HEAD
@@ -61568,6 +61886,9 @@ func (*SpxPartitionsByIdsRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{858}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{860}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SpxPartitionsByIdsRequest) GetSpxPartitionIds() []*SpxPartitionId {
@@ -61596,6 +61917,7 @@ type AdminForceDeleteSwitchRequest struct {
 func (x *AdminForceDeleteSwitchRequest) Reset() {
 	*x = AdminForceDeleteSwitchRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[863]
 =======
 <<<<<<< HEAD
@@ -61604,6 +61926,9 @@ func (x *AdminForceDeleteSwitchRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[859]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[861]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61616,6 +61941,7 @@ func (*AdminForceDeleteSwitchRequest) ProtoMessage() {}
 
 func (x *AdminForceDeleteSwitchRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[863]
 =======
 <<<<<<< HEAD
@@ -61624,6 +61950,9 @@ func (x *AdminForceDeleteSwitchRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[859]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[861]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61637,6 +61966,7 @@ func (x *AdminForceDeleteSwitchRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AdminForceDeleteSwitchRequest.ProtoReflect.Descriptor instead.
 func (*AdminForceDeleteSwitchRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{863}
 =======
 <<<<<<< HEAD
@@ -61645,6 +61975,9 @@ func (*AdminForceDeleteSwitchRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{859}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{861}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *AdminForceDeleteSwitchRequest) GetSwitchId() *SwitchId {
@@ -61681,6 +62014,7 @@ type AdminForceDeleteSwitchResponse struct {
 func (x *AdminForceDeleteSwitchResponse) Reset() {
 	*x = AdminForceDeleteSwitchResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[864]
 =======
 <<<<<<< HEAD
@@ -61689,6 +62023,9 @@ func (x *AdminForceDeleteSwitchResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[860]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[862]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61701,6 +62038,7 @@ func (*AdminForceDeleteSwitchResponse) ProtoMessage() {}
 
 func (x *AdminForceDeleteSwitchResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[864]
 =======
 <<<<<<< HEAD
@@ -61709,6 +62047,9 @@ func (x *AdminForceDeleteSwitchResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[860]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[862]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61722,6 +62063,7 @@ func (x *AdminForceDeleteSwitchResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AdminForceDeleteSwitchResponse.ProtoReflect.Descriptor instead.
 func (*AdminForceDeleteSwitchResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{864}
 =======
 <<<<<<< HEAD
@@ -61730,6 +62072,9 @@ func (*AdminForceDeleteSwitchResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{860}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{862}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *AdminForceDeleteSwitchResponse) GetSwitchId() string {
@@ -61764,6 +62109,7 @@ type AdminForceDeletePowerShelfRequest struct {
 func (x *AdminForceDeletePowerShelfRequest) Reset() {
 	*x = AdminForceDeletePowerShelfRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[865]
 =======
 <<<<<<< HEAD
@@ -61772,6 +62118,9 @@ func (x *AdminForceDeletePowerShelfRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[861]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[863]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61784,6 +62133,7 @@ func (*AdminForceDeletePowerShelfRequest) ProtoMessage() {}
 
 func (x *AdminForceDeletePowerShelfRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[865]
 =======
 <<<<<<< HEAD
@@ -61792,6 +62142,9 @@ func (x *AdminForceDeletePowerShelfRequest) ProtoReflect() protoreflect.Message 
 	mi := &file_nico_nico_proto_msgTypes[861]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[863]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61805,6 +62158,7 @@ func (x *AdminForceDeletePowerShelfRequest) ProtoReflect() protoreflect.Message 
 // Deprecated: Use AdminForceDeletePowerShelfRequest.ProtoReflect.Descriptor instead.
 func (*AdminForceDeletePowerShelfRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{865}
 =======
 <<<<<<< HEAD
@@ -61813,6 +62167,9 @@ func (*AdminForceDeletePowerShelfRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{861}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{863}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *AdminForceDeletePowerShelfRequest) GetPowerShelfId() *PowerShelfId {
@@ -61849,6 +62206,7 @@ type AdminForceDeletePowerShelfResponse struct {
 func (x *AdminForceDeletePowerShelfResponse) Reset() {
 	*x = AdminForceDeletePowerShelfResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[866]
 =======
 <<<<<<< HEAD
@@ -61857,6 +62215,9 @@ func (x *AdminForceDeletePowerShelfResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[862]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[864]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61869,6 +62230,7 @@ func (*AdminForceDeletePowerShelfResponse) ProtoMessage() {}
 
 func (x *AdminForceDeletePowerShelfResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[866]
 =======
 <<<<<<< HEAD
@@ -61877,6 +62239,9 @@ func (x *AdminForceDeletePowerShelfResponse) ProtoReflect() protoreflect.Message
 	mi := &file_nico_nico_proto_msgTypes[862]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[864]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61890,6 +62255,7 @@ func (x *AdminForceDeletePowerShelfResponse) ProtoReflect() protoreflect.Message
 // Deprecated: Use AdminForceDeletePowerShelfResponse.ProtoReflect.Descriptor instead.
 func (*AdminForceDeletePowerShelfResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{866}
 =======
 <<<<<<< HEAD
@@ -61898,6 +62264,9 @@ func (*AdminForceDeletePowerShelfResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{862}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{864}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *AdminForceDeletePowerShelfResponse) GetPowerShelfId() string {
@@ -61942,6 +62311,7 @@ type OperatingSystem struct {
 func (x *OperatingSystem) Reset() {
 	*x = OperatingSystem{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[867]
 =======
 <<<<<<< HEAD
@@ -61950,6 +62320,9 @@ func (x *OperatingSystem) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[863]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[865]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -61962,6 +62335,7 @@ func (*OperatingSystem) ProtoMessage() {}
 
 func (x *OperatingSystem) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[867]
 =======
 <<<<<<< HEAD
@@ -61970,6 +62344,9 @@ func (x *OperatingSystem) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[863]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[865]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61983,6 +62360,7 @@ func (x *OperatingSystem) ProtoReflect() protoreflect.Message {
 // Deprecated: Use OperatingSystem.ProtoReflect.Descriptor instead.
 func (*OperatingSystem) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{867}
 =======
 <<<<<<< HEAD
@@ -61991,6 +62369,9 @@ func (*OperatingSystem) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{863}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{865}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *OperatingSystem) GetId() *OperatingSystemId {
@@ -62136,6 +62517,7 @@ type CreateOperatingSystemRequest struct {
 func (x *CreateOperatingSystemRequest) Reset() {
 	*x = CreateOperatingSystemRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[868]
 =======
 <<<<<<< HEAD
@@ -62144,6 +62526,9 @@ func (x *CreateOperatingSystemRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[864]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[866]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62156,6 +62541,7 @@ func (*CreateOperatingSystemRequest) ProtoMessage() {}
 
 func (x *CreateOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[868]
 =======
 <<<<<<< HEAD
@@ -62164,6 +62550,9 @@ func (x *CreateOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[864]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[866]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62177,6 +62566,7 @@ func (x *CreateOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateOperatingSystemRequest.ProtoReflect.Descriptor instead.
 func (*CreateOperatingSystemRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{868}
 =======
 <<<<<<< HEAD
@@ -62185,6 +62575,9 @@ func (*CreateOperatingSystemRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{864}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{866}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *CreateOperatingSystemRequest) GetName() string {
@@ -62283,6 +62676,7 @@ type IpxeTemplateParameters struct {
 func (x *IpxeTemplateParameters) Reset() {
 	*x = IpxeTemplateParameters{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[869]
 =======
 <<<<<<< HEAD
@@ -62291,6 +62685,9 @@ func (x *IpxeTemplateParameters) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[865]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[867]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62303,6 +62700,7 @@ func (*IpxeTemplateParameters) ProtoMessage() {}
 
 func (x *IpxeTemplateParameters) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[869]
 =======
 <<<<<<< HEAD
@@ -62311,6 +62709,9 @@ func (x *IpxeTemplateParameters) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[865]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[867]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62324,6 +62725,7 @@ func (x *IpxeTemplateParameters) ProtoReflect() protoreflect.Message {
 // Deprecated: Use IpxeTemplateParameters.ProtoReflect.Descriptor instead.
 func (*IpxeTemplateParameters) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{869}
 =======
 <<<<<<< HEAD
@@ -62332,6 +62734,9 @@ func (*IpxeTemplateParameters) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{865}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{867}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *IpxeTemplateParameters) GetItems() []*IpxeTemplateParameter {
@@ -62352,6 +62757,7 @@ type IpxeTemplateArtifacts struct {
 func (x *IpxeTemplateArtifacts) Reset() {
 	*x = IpxeTemplateArtifacts{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[870]
 =======
 <<<<<<< HEAD
@@ -62360,6 +62766,9 @@ func (x *IpxeTemplateArtifacts) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[866]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[868]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62372,6 +62781,7 @@ func (*IpxeTemplateArtifacts) ProtoMessage() {}
 
 func (x *IpxeTemplateArtifacts) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[870]
 =======
 <<<<<<< HEAD
@@ -62380,6 +62790,9 @@ func (x *IpxeTemplateArtifacts) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[866]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[868]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62393,6 +62806,7 @@ func (x *IpxeTemplateArtifacts) ProtoReflect() protoreflect.Message {
 // Deprecated: Use IpxeTemplateArtifacts.ProtoReflect.Descriptor instead.
 func (*IpxeTemplateArtifacts) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{870}
 =======
 <<<<<<< HEAD
@@ -62401,6 +62815,9 @@ func (*IpxeTemplateArtifacts) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{866}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{868}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *IpxeTemplateArtifacts) GetItems() []*IpxeTemplateArtifact {
@@ -62431,6 +62848,7 @@ type UpdateOperatingSystemRequest struct {
 func (x *UpdateOperatingSystemRequest) Reset() {
 	*x = UpdateOperatingSystemRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[871]
 =======
 <<<<<<< HEAD
@@ -62439,6 +62857,9 @@ func (x *UpdateOperatingSystemRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[867]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[869]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62451,6 +62872,7 @@ func (*UpdateOperatingSystemRequest) ProtoMessage() {}
 
 func (x *UpdateOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[871]
 =======
 <<<<<<< HEAD
@@ -62459,6 +62881,9 @@ func (x *UpdateOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[867]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[869]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62472,6 +62897,7 @@ func (x *UpdateOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateOperatingSystemRequest.ProtoReflect.Descriptor instead.
 func (*UpdateOperatingSystemRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{871}
 =======
 <<<<<<< HEAD
@@ -62480,6 +62906,9 @@ func (*UpdateOperatingSystemRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{867}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{869}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateOperatingSystemRequest) GetId() *OperatingSystemId {
@@ -62576,6 +63005,7 @@ type DeleteOperatingSystemRequest struct {
 func (x *DeleteOperatingSystemRequest) Reset() {
 	*x = DeleteOperatingSystemRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[872]
 =======
 <<<<<<< HEAD
@@ -62584,6 +63014,9 @@ func (x *DeleteOperatingSystemRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[868]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[870]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62596,6 +63029,7 @@ func (*DeleteOperatingSystemRequest) ProtoMessage() {}
 
 func (x *DeleteOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[872]
 =======
 <<<<<<< HEAD
@@ -62604,6 +63038,9 @@ func (x *DeleteOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[868]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[870]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62617,6 +63054,7 @@ func (x *DeleteOperatingSystemRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DeleteOperatingSystemRequest.ProtoReflect.Descriptor instead.
 func (*DeleteOperatingSystemRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{872}
 =======
 <<<<<<< HEAD
@@ -62625,6 +63063,9 @@ func (*DeleteOperatingSystemRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{868}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{870}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *DeleteOperatingSystemRequest) GetId() *OperatingSystemId {
@@ -62643,6 +63084,7 @@ type DeleteOperatingSystemResponse struct {
 func (x *DeleteOperatingSystemResponse) Reset() {
 	*x = DeleteOperatingSystemResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[873]
 =======
 <<<<<<< HEAD
@@ -62651,6 +63093,9 @@ func (x *DeleteOperatingSystemResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[869]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[871]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62663,6 +63108,7 @@ func (*DeleteOperatingSystemResponse) ProtoMessage() {}
 
 func (x *DeleteOperatingSystemResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[873]
 =======
 <<<<<<< HEAD
@@ -62671,6 +63117,9 @@ func (x *DeleteOperatingSystemResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[869]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[871]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62684,6 +63133,7 @@ func (x *DeleteOperatingSystemResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DeleteOperatingSystemResponse.ProtoReflect.Descriptor instead.
 func (*DeleteOperatingSystemResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{873}
 =======
 <<<<<<< HEAD
@@ -62692,6 +63142,9 @@ func (*DeleteOperatingSystemResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{869}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{871}
+>>>>>>> fab90f1e2 (review)
 }
 
 type OperatingSystemSearchFilter struct {
@@ -62704,6 +63157,7 @@ type OperatingSystemSearchFilter struct {
 func (x *OperatingSystemSearchFilter) Reset() {
 	*x = OperatingSystemSearchFilter{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[874]
 =======
 <<<<<<< HEAD
@@ -62712,6 +63166,9 @@ func (x *OperatingSystemSearchFilter) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[870]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[872]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62724,6 +63181,7 @@ func (*OperatingSystemSearchFilter) ProtoMessage() {}
 
 func (x *OperatingSystemSearchFilter) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[874]
 =======
 <<<<<<< HEAD
@@ -62732,6 +63190,9 @@ func (x *OperatingSystemSearchFilter) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[870]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[872]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62745,6 +63206,7 @@ func (x *OperatingSystemSearchFilter) ProtoReflect() protoreflect.Message {
 // Deprecated: Use OperatingSystemSearchFilter.ProtoReflect.Descriptor instead.
 func (*OperatingSystemSearchFilter) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{874}
 =======
 <<<<<<< HEAD
@@ -62753,6 +63215,9 @@ func (*OperatingSystemSearchFilter) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{870}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{872}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *OperatingSystemSearchFilter) GetTenantOrganizationId() string {
@@ -62772,6 +63237,7 @@ type OperatingSystemIdList struct {
 func (x *OperatingSystemIdList) Reset() {
 	*x = OperatingSystemIdList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[875]
 =======
 <<<<<<< HEAD
@@ -62780,6 +63246,9 @@ func (x *OperatingSystemIdList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[871]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[873]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62792,6 +63261,7 @@ func (*OperatingSystemIdList) ProtoMessage() {}
 
 func (x *OperatingSystemIdList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[875]
 =======
 <<<<<<< HEAD
@@ -62800,6 +63270,9 @@ func (x *OperatingSystemIdList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[871]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[873]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62813,6 +63286,7 @@ func (x *OperatingSystemIdList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use OperatingSystemIdList.ProtoReflect.Descriptor instead.
 func (*OperatingSystemIdList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{875}
 =======
 <<<<<<< HEAD
@@ -62821,6 +63295,9 @@ func (*OperatingSystemIdList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{871}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{873}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *OperatingSystemIdList) GetIds() []*OperatingSystemId {
@@ -62840,6 +63317,7 @@ type OperatingSystemsByIdsRequest struct {
 func (x *OperatingSystemsByIdsRequest) Reset() {
 	*x = OperatingSystemsByIdsRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[876]
 =======
 <<<<<<< HEAD
@@ -62848,6 +63326,9 @@ func (x *OperatingSystemsByIdsRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[872]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[874]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62860,6 +63341,7 @@ func (*OperatingSystemsByIdsRequest) ProtoMessage() {}
 
 func (x *OperatingSystemsByIdsRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[876]
 =======
 <<<<<<< HEAD
@@ -62868,6 +63350,9 @@ func (x *OperatingSystemsByIdsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[872]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[874]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62881,6 +63366,7 @@ func (x *OperatingSystemsByIdsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use OperatingSystemsByIdsRequest.ProtoReflect.Descriptor instead.
 func (*OperatingSystemsByIdsRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{876}
 =======
 <<<<<<< HEAD
@@ -62889,6 +63375,9 @@ func (*OperatingSystemsByIdsRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{872}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{874}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *OperatingSystemsByIdsRequest) GetIds() []*OperatingSystemId {
@@ -62908,6 +63397,7 @@ type OperatingSystemList struct {
 func (x *OperatingSystemList) Reset() {
 	*x = OperatingSystemList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[877]
 =======
 <<<<<<< HEAD
@@ -62916,6 +63406,9 @@ func (x *OperatingSystemList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[873]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[875]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62928,6 +63421,7 @@ func (*OperatingSystemList) ProtoMessage() {}
 
 func (x *OperatingSystemList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[877]
 =======
 <<<<<<< HEAD
@@ -62936,6 +63430,9 @@ func (x *OperatingSystemList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[873]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[875]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62949,6 +63446,7 @@ func (x *OperatingSystemList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use OperatingSystemList.ProtoReflect.Descriptor instead.
 func (*OperatingSystemList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{877}
 =======
 <<<<<<< HEAD
@@ -62957,6 +63455,9 @@ func (*OperatingSystemList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{873}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{875}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *OperatingSystemList) GetOperatingSystems() []*OperatingSystem {
@@ -62976,6 +63477,7 @@ type GetOperatingSystemCachableIpxeTemplateArtifactsRequest struct {
 func (x *GetOperatingSystemCachableIpxeTemplateArtifactsRequest) Reset() {
 	*x = GetOperatingSystemCachableIpxeTemplateArtifactsRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[878]
 =======
 <<<<<<< HEAD
@@ -62984,6 +63486,9 @@ func (x *GetOperatingSystemCachableIpxeTemplateArtifactsRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[874]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[876]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62996,6 +63501,7 @@ func (*GetOperatingSystemCachableIpxeTemplateArtifactsRequest) ProtoMessage() {}
 
 func (x *GetOperatingSystemCachableIpxeTemplateArtifactsRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[878]
 =======
 <<<<<<< HEAD
@@ -63004,6 +63510,9 @@ func (x *GetOperatingSystemCachableIpxeTemplateArtifactsRequest) ProtoReflect() 
 	mi := &file_nico_nico_proto_msgTypes[874]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[876]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63017,6 +63526,7 @@ func (x *GetOperatingSystemCachableIpxeTemplateArtifactsRequest) ProtoReflect() 
 // Deprecated: Use GetOperatingSystemCachableIpxeTemplateArtifactsRequest.ProtoReflect.Descriptor instead.
 func (*GetOperatingSystemCachableIpxeTemplateArtifactsRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{878}
 =======
 <<<<<<< HEAD
@@ -63025,6 +63535,9 @@ func (*GetOperatingSystemCachableIpxeTemplateArtifactsRequest) Descriptor() ([]b
 	return file_nico_nico_proto_rawDescGZIP(), []int{874}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{876}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetOperatingSystemCachableIpxeTemplateArtifactsRequest) GetId() *OperatingSystemId {
@@ -63044,6 +63557,7 @@ type IpxeTemplateArtifactList struct {
 func (x *IpxeTemplateArtifactList) Reset() {
 	*x = IpxeTemplateArtifactList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[879]
 =======
 <<<<<<< HEAD
@@ -63052,6 +63566,9 @@ func (x *IpxeTemplateArtifactList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[875]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[877]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63064,6 +63581,7 @@ func (*IpxeTemplateArtifactList) ProtoMessage() {}
 
 func (x *IpxeTemplateArtifactList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[879]
 =======
 <<<<<<< HEAD
@@ -63072,6 +63590,9 @@ func (x *IpxeTemplateArtifactList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[875]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[877]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63085,6 +63606,7 @@ func (x *IpxeTemplateArtifactList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use IpxeTemplateArtifactList.ProtoReflect.Descriptor instead.
 func (*IpxeTemplateArtifactList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{879}
 =======
 <<<<<<< HEAD
@@ -63093,6 +63615,9 @@ func (*IpxeTemplateArtifactList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{875}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{877}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *IpxeTemplateArtifactList) GetArtifacts() []*IpxeTemplateArtifact {
@@ -63115,6 +63640,7 @@ type IpxeTemplateArtifactUpdateRequest struct {
 func (x *IpxeTemplateArtifactUpdateRequest) Reset() {
 	*x = IpxeTemplateArtifactUpdateRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[880]
 =======
 <<<<<<< HEAD
@@ -63123,6 +63649,9 @@ func (x *IpxeTemplateArtifactUpdateRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[876]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[878]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63135,6 +63664,7 @@ func (*IpxeTemplateArtifactUpdateRequest) ProtoMessage() {}
 
 func (x *IpxeTemplateArtifactUpdateRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[880]
 =======
 <<<<<<< HEAD
@@ -63143,6 +63673,9 @@ func (x *IpxeTemplateArtifactUpdateRequest) ProtoReflect() protoreflect.Message 
 	mi := &file_nico_nico_proto_msgTypes[876]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[878]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63156,6 +63689,7 @@ func (x *IpxeTemplateArtifactUpdateRequest) ProtoReflect() protoreflect.Message 
 // Deprecated: Use IpxeTemplateArtifactUpdateRequest.ProtoReflect.Descriptor instead.
 func (*IpxeTemplateArtifactUpdateRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{880}
 =======
 <<<<<<< HEAD
@@ -63164,6 +63698,9 @@ func (*IpxeTemplateArtifactUpdateRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{876}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{878}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *IpxeTemplateArtifactUpdateRequest) GetName() string {
@@ -63191,6 +63728,7 @@ type UpdateOperatingSystemIpxeTemplateArtifactRequest struct {
 func (x *UpdateOperatingSystemIpxeTemplateArtifactRequest) Reset() {
 	*x = UpdateOperatingSystemIpxeTemplateArtifactRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[881]
 =======
 <<<<<<< HEAD
@@ -63199,6 +63737,9 @@ func (x *UpdateOperatingSystemIpxeTemplateArtifactRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[877]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[879]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63211,6 +63752,7 @@ func (*UpdateOperatingSystemIpxeTemplateArtifactRequest) ProtoMessage() {}
 
 func (x *UpdateOperatingSystemIpxeTemplateArtifactRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[881]
 =======
 <<<<<<< HEAD
@@ -63219,6 +63761,9 @@ func (x *UpdateOperatingSystemIpxeTemplateArtifactRequest) ProtoReflect() protor
 	mi := &file_nico_nico_proto_msgTypes[877]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[879]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63232,6 +63777,7 @@ func (x *UpdateOperatingSystemIpxeTemplateArtifactRequest) ProtoReflect() protor
 // Deprecated: Use UpdateOperatingSystemIpxeTemplateArtifactRequest.ProtoReflect.Descriptor instead.
 func (*UpdateOperatingSystemIpxeTemplateArtifactRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{881}
 =======
 <<<<<<< HEAD
@@ -63240,6 +63786,9 @@ func (*UpdateOperatingSystemIpxeTemplateArtifactRequest) Descriptor() ([]byte, [
 	return file_nico_nico_proto_rawDescGZIP(), []int{877}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{879}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *UpdateOperatingSystemIpxeTemplateArtifactRequest) GetId() *OperatingSystemId {
@@ -63271,6 +63820,7 @@ type ReWrapSecretsRequest struct {
 func (x *ReWrapSecretsRequest) Reset() {
 	*x = ReWrapSecretsRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[882]
 =======
 <<<<<<< HEAD
@@ -63279,6 +63829,9 @@ func (x *ReWrapSecretsRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[878]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[880]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63291,6 +63844,7 @@ func (*ReWrapSecretsRequest) ProtoMessage() {}
 
 func (x *ReWrapSecretsRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[882]
 =======
 <<<<<<< HEAD
@@ -63299,6 +63853,9 @@ func (x *ReWrapSecretsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[878]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[880]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63312,6 +63869,7 @@ func (x *ReWrapSecretsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ReWrapSecretsRequest.ProtoReflect.Descriptor instead.
 func (*ReWrapSecretsRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{882}
 =======
 <<<<<<< HEAD
@@ -63320,6 +63878,9 @@ func (*ReWrapSecretsRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{878}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{880}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ReWrapSecretsRequest) GetBatchSize() uint32 {
@@ -63347,6 +63908,7 @@ type ReWrapSecretsResponse struct {
 func (x *ReWrapSecretsResponse) Reset() {
 	*x = ReWrapSecretsResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[883]
 =======
 <<<<<<< HEAD
@@ -63355,6 +63917,9 @@ func (x *ReWrapSecretsResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[879]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[881]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63367,6 +63932,7 @@ func (*ReWrapSecretsResponse) ProtoMessage() {}
 
 func (x *ReWrapSecretsResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[883]
 =======
 <<<<<<< HEAD
@@ -63375,6 +63941,9 @@ func (x *ReWrapSecretsResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[879]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[881]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63388,6 +63957,7 @@ func (x *ReWrapSecretsResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ReWrapSecretsResponse.ProtoReflect.Descriptor instead.
 func (*ReWrapSecretsResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{883}
 =======
 <<<<<<< HEAD
@@ -63396,6 +63966,9 @@ func (*ReWrapSecretsResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{879}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{881}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ReWrapSecretsResponse) GetReWrapped() uint64 {
@@ -63429,6 +64002,7 @@ type GetMachineBootInterfacesRequest struct {
 func (x *GetMachineBootInterfacesRequest) Reset() {
 	*x = GetMachineBootInterfacesRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[884]
 =======
 <<<<<<< HEAD
@@ -63437,6 +64011,9 @@ func (x *GetMachineBootInterfacesRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[880]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[882]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63449,6 +64026,7 @@ func (*GetMachineBootInterfacesRequest) ProtoMessage() {}
 
 func (x *GetMachineBootInterfacesRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[884]
 =======
 <<<<<<< HEAD
@@ -63457,6 +64035,9 @@ func (x *GetMachineBootInterfacesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[880]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[882]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63470,6 +64051,7 @@ func (x *GetMachineBootInterfacesRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetMachineBootInterfacesRequest.ProtoReflect.Descriptor instead.
 func (*GetMachineBootInterfacesRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{884}
 =======
 <<<<<<< HEAD
@@ -63478,6 +64060,9 @@ func (*GetMachineBootInterfacesRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{880}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{882}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetMachineBootInterfacesRequest) GetMachineId() *MachineId {
@@ -63503,6 +64088,7 @@ type MachineBootInterface struct {
 func (x *MachineBootInterface) Reset() {
 	*x = MachineBootInterface{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[885]
 =======
 <<<<<<< HEAD
@@ -63511,6 +64097,9 @@ func (x *MachineBootInterface) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[881]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[883]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63523,6 +64112,7 @@ func (*MachineBootInterface) ProtoMessage() {}
 
 func (x *MachineBootInterface) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[885]
 =======
 <<<<<<< HEAD
@@ -63531,6 +64121,9 @@ func (x *MachineBootInterface) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[881]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[883]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63544,6 +64137,7 @@ func (x *MachineBootInterface) ProtoReflect() protoreflect.Message {
 // Deprecated: Use MachineBootInterface.ProtoReflect.Descriptor instead.
 func (*MachineBootInterface) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{885}
 =======
 <<<<<<< HEAD
@@ -63552,6 +64146,9 @@ func (*MachineBootInterface) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{881}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{883}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *MachineBootInterface) GetMacAddress() string {
@@ -63590,6 +64187,7 @@ type MachineInterfaceBootInterface struct {
 func (x *MachineInterfaceBootInterface) Reset() {
 	*x = MachineInterfaceBootInterface{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[886]
 =======
 <<<<<<< HEAD
@@ -63598,6 +64196,9 @@ func (x *MachineInterfaceBootInterface) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[882]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[884]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63610,6 +64211,7 @@ func (*MachineInterfaceBootInterface) ProtoMessage() {}
 
 func (x *MachineInterfaceBootInterface) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[886]
 =======
 <<<<<<< HEAD
@@ -63618,6 +64220,9 @@ func (x *MachineInterfaceBootInterface) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[882]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[884]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63631,6 +64236,7 @@ func (x *MachineInterfaceBootInterface) ProtoReflect() protoreflect.Message {
 // Deprecated: Use MachineInterfaceBootInterface.ProtoReflect.Descriptor instead.
 func (*MachineInterfaceBootInterface) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{886}
 =======
 <<<<<<< HEAD
@@ -63639,6 +64245,9 @@ func (*MachineInterfaceBootInterface) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{882}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{884}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *MachineInterfaceBootInterface) GetMacAddress() string {
@@ -63692,6 +64301,7 @@ type PredictedBootInterface struct {
 func (x *PredictedBootInterface) Reset() {
 	*x = PredictedBootInterface{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[887]
 =======
 <<<<<<< HEAD
@@ -63700,6 +64310,9 @@ func (x *PredictedBootInterface) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[883]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[885]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63712,6 +64325,7 @@ func (*PredictedBootInterface) ProtoMessage() {}
 
 func (x *PredictedBootInterface) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[887]
 =======
 <<<<<<< HEAD
@@ -63720,6 +64334,9 @@ func (x *PredictedBootInterface) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[883]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[885]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63733,6 +64350,7 @@ func (x *PredictedBootInterface) ProtoReflect() protoreflect.Message {
 // Deprecated: Use PredictedBootInterface.ProtoReflect.Descriptor instead.
 func (*PredictedBootInterface) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{887}
 =======
 <<<<<<< HEAD
@@ -63741,6 +64359,9 @@ func (*PredictedBootInterface) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{883}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{885}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *PredictedBootInterface) GetMacAddress() string {
@@ -63786,6 +64407,7 @@ type ExploredBootInterface struct {
 func (x *ExploredBootInterface) Reset() {
 	*x = ExploredBootInterface{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[888]
 =======
 <<<<<<< HEAD
@@ -63794,6 +64416,9 @@ func (x *ExploredBootInterface) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[884]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[886]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63806,6 +64431,7 @@ func (*ExploredBootInterface) ProtoMessage() {}
 
 func (x *ExploredBootInterface) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[888]
 =======
 <<<<<<< HEAD
@@ -63814,6 +64440,9 @@ func (x *ExploredBootInterface) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[884]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[886]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63827,6 +64456,7 @@ func (x *ExploredBootInterface) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExploredBootInterface.ProtoReflect.Descriptor instead.
 func (*ExploredBootInterface) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{888}
 =======
 <<<<<<< HEAD
@@ -63835,6 +64465,9 @@ func (*ExploredBootInterface) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{884}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{886}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *ExploredBootInterface) GetAddress() string {
@@ -63873,6 +64506,7 @@ type RetainedBootInterface struct {
 func (x *RetainedBootInterface) Reset() {
 	*x = RetainedBootInterface{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[889]
 =======
 <<<<<<< HEAD
@@ -63881,6 +64515,9 @@ func (x *RetainedBootInterface) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[885]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[887]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -63893,6 +64530,7 @@ func (*RetainedBootInterface) ProtoMessage() {}
 
 func (x *RetainedBootInterface) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[889]
 =======
 <<<<<<< HEAD
@@ -63901,6 +64539,9 @@ func (x *RetainedBootInterface) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[885]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[887]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63914,6 +64555,7 @@ func (x *RetainedBootInterface) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RetainedBootInterface.ProtoReflect.Descriptor instead.
 func (*RetainedBootInterface) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{889}
 =======
 <<<<<<< HEAD
@@ -63922,6 +64564,9 @@ func (*RetainedBootInterface) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{885}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{887}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *RetainedBootInterface) GetMacAddress() string {
@@ -63986,6 +64631,7 @@ type GetMachineBootInterfacesResponse struct {
 func (x *GetMachineBootInterfacesResponse) Reset() {
 	*x = GetMachineBootInterfacesResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[890]
 =======
 <<<<<<< HEAD
@@ -63994,6 +64640,9 @@ func (x *GetMachineBootInterfacesResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[886]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[888]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64006,6 +64655,7 @@ func (*GetMachineBootInterfacesResponse) ProtoMessage() {}
 
 func (x *GetMachineBootInterfacesResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[890]
 =======
 <<<<<<< HEAD
@@ -64014,6 +64664,9 @@ func (x *GetMachineBootInterfacesResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[886]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[888]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64027,6 +64680,7 @@ func (x *GetMachineBootInterfacesResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetMachineBootInterfacesResponse.ProtoReflect.Descriptor instead.
 func (*GetMachineBootInterfacesResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{890}
 =======
 <<<<<<< HEAD
@@ -64035,6 +64689,9 @@ func (*GetMachineBootInterfacesResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{886}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{888}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetMachineBootInterfacesResponse) GetMachineId() *MachineId {
@@ -64124,6 +64781,7 @@ type GetContainerRegistryCredentialRequest struct {
 func (x *GetContainerRegistryCredentialRequest) Reset() {
 	*x = GetContainerRegistryCredentialRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[891]
 =======
 <<<<<<< HEAD
@@ -64132,6 +64790,9 @@ func (x *GetContainerRegistryCredentialRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[887]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[889]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64144,6 +64805,7 @@ func (*GetContainerRegistryCredentialRequest) ProtoMessage() {}
 
 func (x *GetContainerRegistryCredentialRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[891]
 =======
 <<<<<<< HEAD
@@ -64152,6 +64814,9 @@ func (x *GetContainerRegistryCredentialRequest) ProtoReflect() protoreflect.Mess
 	mi := &file_nico_nico_proto_msgTypes[887]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[889]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64165,6 +64830,7 @@ func (x *GetContainerRegistryCredentialRequest) ProtoReflect() protoreflect.Mess
 // Deprecated: Use GetContainerRegistryCredentialRequest.ProtoReflect.Descriptor instead.
 func (*GetContainerRegistryCredentialRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{891}
 =======
 <<<<<<< HEAD
@@ -64173,6 +64839,9 @@ func (*GetContainerRegistryCredentialRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{887}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{889}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetContainerRegistryCredentialRequest) GetRegistry() string {
@@ -64193,6 +64862,7 @@ type GetContainerRegistryCredentialResponse struct {
 func (x *GetContainerRegistryCredentialResponse) Reset() {
 	*x = GetContainerRegistryCredentialResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[892]
 =======
 <<<<<<< HEAD
@@ -64201,6 +64871,9 @@ func (x *GetContainerRegistryCredentialResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[888]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[890]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64213,6 +64886,7 @@ func (*GetContainerRegistryCredentialResponse) ProtoMessage() {}
 
 func (x *GetContainerRegistryCredentialResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[892]
 =======
 <<<<<<< HEAD
@@ -64221,6 +64895,9 @@ func (x *GetContainerRegistryCredentialResponse) ProtoReflect() protoreflect.Mes
 	mi := &file_nico_nico_proto_msgTypes[888]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[890]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64234,6 +64911,7 @@ func (x *GetContainerRegistryCredentialResponse) ProtoReflect() protoreflect.Mes
 // Deprecated: Use GetContainerRegistryCredentialResponse.ProtoReflect.Descriptor instead.
 func (*GetContainerRegistryCredentialResponse) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{892}
 =======
 <<<<<<< HEAD
@@ -64242,6 +64920,9 @@ func (*GetContainerRegistryCredentialResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{888}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{890}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetContainerRegistryCredentialResponse) GetUsername() string {
@@ -64270,6 +64951,7 @@ type SetContainerRegistryCredentialRequest struct {
 func (x *SetContainerRegistryCredentialRequest) Reset() {
 	*x = SetContainerRegistryCredentialRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[893]
 =======
 <<<<<<< HEAD
@@ -64278,6 +64960,9 @@ func (x *SetContainerRegistryCredentialRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[889]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[891]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64290,6 +64975,7 @@ func (*SetContainerRegistryCredentialRequest) ProtoMessage() {}
 
 func (x *SetContainerRegistryCredentialRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[893]
 =======
 <<<<<<< HEAD
@@ -64298,6 +64984,9 @@ func (x *SetContainerRegistryCredentialRequest) ProtoReflect() protoreflect.Mess
 	mi := &file_nico_nico_proto_msgTypes[889]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[891]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64311,6 +65000,7 @@ func (x *SetContainerRegistryCredentialRequest) ProtoReflect() protoreflect.Mess
 // Deprecated: Use SetContainerRegistryCredentialRequest.ProtoReflect.Descriptor instead.
 func (*SetContainerRegistryCredentialRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{893}
 =======
 <<<<<<< HEAD
@@ -64319,6 +65009,9 @@ func (*SetContainerRegistryCredentialRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{889}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{891}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SetContainerRegistryCredentialRequest) GetRegistry() string {
@@ -64359,6 +65052,7 @@ type SitePrefix struct {
 func (x *SitePrefix) Reset() {
 	*x = SitePrefix{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[894]
 =======
 <<<<<<< HEAD
@@ -64367,6 +65061,9 @@ func (x *SitePrefix) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[890]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[892]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64379,6 +65076,7 @@ func (*SitePrefix) ProtoMessage() {}
 
 func (x *SitePrefix) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[894]
 =======
 <<<<<<< HEAD
@@ -64387,6 +65085,9 @@ func (x *SitePrefix) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[890]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[892]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64400,6 +65101,7 @@ func (x *SitePrefix) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefix.ProtoReflect.Descriptor instead.
 func (*SitePrefix) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{894}
 =======
 <<<<<<< HEAD
@@ -64408,6 +65110,9 @@ func (*SitePrefix) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{890}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{892}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefix) GetId() *SitePrefixId {
@@ -64473,6 +65178,7 @@ type SitePrefixConfig struct {
 func (x *SitePrefixConfig) Reset() {
 	*x = SitePrefixConfig{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[895]
 =======
 <<<<<<< HEAD
@@ -64481,6 +65187,9 @@ func (x *SitePrefixConfig) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[891]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[893]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64493,6 +65202,7 @@ func (*SitePrefixConfig) ProtoMessage() {}
 
 func (x *SitePrefixConfig) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[895]
 =======
 <<<<<<< HEAD
@@ -64501,6 +65211,9 @@ func (x *SitePrefixConfig) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[891]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[893]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64514,6 +65227,7 @@ func (x *SitePrefixConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixConfig.ProtoReflect.Descriptor instead.
 func (*SitePrefixConfig) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{895}
 =======
 <<<<<<< HEAD
@@ -64522,6 +65236,9 @@ func (*SitePrefixConfig) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{891}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{893}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixConfig) GetPrefix() string {
@@ -64560,6 +65277,7 @@ type SitePrefixStatus struct {
 func (x *SitePrefixStatus) Reset() {
 	*x = SitePrefixStatus{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[896]
 =======
 <<<<<<< HEAD
@@ -64568,6 +65286,9 @@ func (x *SitePrefixStatus) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[892]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[894]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64580,6 +65301,7 @@ func (*SitePrefixStatus) ProtoMessage() {}
 
 func (x *SitePrefixStatus) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[896]
 =======
 <<<<<<< HEAD
@@ -64588,6 +65310,9 @@ func (x *SitePrefixStatus) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[892]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[894]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64601,6 +65326,7 @@ func (x *SitePrefixStatus) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixStatus.ProtoReflect.Descriptor instead.
 func (*SitePrefixStatus) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{896}
 =======
 <<<<<<< HEAD
@@ -64609,6 +65335,9 @@ func (*SitePrefixStatus) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{892}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{894}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixStatus) GetAuthority() SitePrefixAuthority {
@@ -64643,6 +65372,7 @@ type SitePrefixQuotaUsage struct {
 func (x *SitePrefixQuotaUsage) Reset() {
 	*x = SitePrefixQuotaUsage{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[897]
 =======
 <<<<<<< HEAD
@@ -64651,6 +65381,9 @@ func (x *SitePrefixQuotaUsage) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[893]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[895]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64663,6 +65396,7 @@ func (*SitePrefixQuotaUsage) ProtoMessage() {}
 
 func (x *SitePrefixQuotaUsage) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[897]
 =======
 <<<<<<< HEAD
@@ -64671,6 +65405,9 @@ func (x *SitePrefixQuotaUsage) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[893]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[895]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64684,6 +65421,7 @@ func (x *SitePrefixQuotaUsage) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixQuotaUsage.ProtoReflect.Descriptor instead.
 func (*SitePrefixQuotaUsage) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{897}
 =======
 <<<<<<< HEAD
@@ -64692,6 +65430,9 @@ func (*SitePrefixQuotaUsage) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{893}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{895}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixQuotaUsage) GetUsed() uint32 {
@@ -64726,6 +65467,7 @@ type SitePrefixCreationRequest struct {
 func (x *SitePrefixCreationRequest) Reset() {
 	*x = SitePrefixCreationRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[898]
 =======
 <<<<<<< HEAD
@@ -64734,6 +65476,9 @@ func (x *SitePrefixCreationRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[894]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[896]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64746,6 +65491,7 @@ func (*SitePrefixCreationRequest) ProtoMessage() {}
 
 func (x *SitePrefixCreationRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[898]
 =======
 <<<<<<< HEAD
@@ -64754,6 +65500,9 @@ func (x *SitePrefixCreationRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[894]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[896]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64767,6 +65516,7 @@ func (x *SitePrefixCreationRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixCreationRequest.ProtoReflect.Descriptor instead.
 func (*SitePrefixCreationRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{898}
 =======
 <<<<<<< HEAD
@@ -64775,6 +65525,9 @@ func (*SitePrefixCreationRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{894}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{896}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixCreationRequest) GetId() *SitePrefixId {
@@ -64820,6 +65573,7 @@ type SitePrefixUpdateRequest struct {
 func (x *SitePrefixUpdateRequest) Reset() {
 	*x = SitePrefixUpdateRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[899]
 =======
 <<<<<<< HEAD
@@ -64828,6 +65582,9 @@ func (x *SitePrefixUpdateRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[895]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[897]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64840,6 +65597,7 @@ func (*SitePrefixUpdateRequest) ProtoMessage() {}
 
 func (x *SitePrefixUpdateRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[899]
 =======
 <<<<<<< HEAD
@@ -64848,6 +65606,9 @@ func (x *SitePrefixUpdateRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[895]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[897]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64861,6 +65622,7 @@ func (x *SitePrefixUpdateRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixUpdateRequest.ProtoReflect.Descriptor instead.
 func (*SitePrefixUpdateRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{899}
 =======
 <<<<<<< HEAD
@@ -64869,6 +65631,9 @@ func (*SitePrefixUpdateRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{895}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{897}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixUpdateRequest) GetId() *SitePrefixId {
@@ -64913,6 +65678,7 @@ type SitePrefixDeletionRequest struct {
 func (x *SitePrefixDeletionRequest) Reset() {
 	*x = SitePrefixDeletionRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[900]
 =======
 <<<<<<< HEAD
@@ -64921,6 +65687,9 @@ func (x *SitePrefixDeletionRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[896]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[898]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -64933,6 +65702,7 @@ func (*SitePrefixDeletionRequest) ProtoMessage() {}
 
 func (x *SitePrefixDeletionRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[900]
 =======
 <<<<<<< HEAD
@@ -64941,6 +65711,9 @@ func (x *SitePrefixDeletionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[896]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[898]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64954,6 +65727,7 @@ func (x *SitePrefixDeletionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixDeletionRequest.ProtoReflect.Descriptor instead.
 func (*SitePrefixDeletionRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{900}
 =======
 <<<<<<< HEAD
@@ -64962,6 +65736,9 @@ func (*SitePrefixDeletionRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{896}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{898}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixDeletionRequest) GetId() *SitePrefixId {
@@ -64988,6 +65765,7 @@ type SitePrefixDeletionResult struct {
 func (x *SitePrefixDeletionResult) Reset() {
 	*x = SitePrefixDeletionResult{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[901]
 =======
 <<<<<<< HEAD
@@ -64996,6 +65774,9 @@ func (x *SitePrefixDeletionResult) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[897]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[899]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65008,6 +65789,7 @@ func (*SitePrefixDeletionResult) ProtoMessage() {}
 
 func (x *SitePrefixDeletionResult) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[901]
 =======
 <<<<<<< HEAD
@@ -65016,6 +65798,9 @@ func (x *SitePrefixDeletionResult) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[897]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[899]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65029,6 +65814,7 @@ func (x *SitePrefixDeletionResult) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixDeletionResult.ProtoReflect.Descriptor instead.
 func (*SitePrefixDeletionResult) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{901}
 =======
 <<<<<<< HEAD
@@ -65037,6 +65823,9 @@ func (*SitePrefixDeletionResult) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{897}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{899}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixDeletionResult) GetSitePrefix() *SitePrefix {
@@ -65056,6 +65845,7 @@ type SitePrefixStateHistoriesRequest struct {
 func (x *SitePrefixStateHistoriesRequest) Reset() {
 	*x = SitePrefixStateHistoriesRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[902]
 =======
 <<<<<<< HEAD
@@ -65064,6 +65854,9 @@ func (x *SitePrefixStateHistoriesRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[898]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[900]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65076,6 +65869,7 @@ func (*SitePrefixStateHistoriesRequest) ProtoMessage() {}
 
 func (x *SitePrefixStateHistoriesRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[902]
 =======
 <<<<<<< HEAD
@@ -65084,6 +65878,9 @@ func (x *SitePrefixStateHistoriesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[898]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[900]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65097,6 +65894,7 @@ func (x *SitePrefixStateHistoriesRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixStateHistoriesRequest.ProtoReflect.Descriptor instead.
 func (*SitePrefixStateHistoriesRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{902}
 =======
 <<<<<<< HEAD
@@ -65105,6 +65903,9 @@ func (*SitePrefixStateHistoriesRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{898}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{900}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixStateHistoriesRequest) GetSitePrefixIds() []*SitePrefixId {
@@ -65132,6 +65933,7 @@ type SitePrefixSearchFilter struct {
 func (x *SitePrefixSearchFilter) Reset() {
 	*x = SitePrefixSearchFilter{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[903]
 =======
 <<<<<<< HEAD
@@ -65140,6 +65942,9 @@ func (x *SitePrefixSearchFilter) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[899]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[901]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65152,6 +65957,7 @@ func (*SitePrefixSearchFilter) ProtoMessage() {}
 
 func (x *SitePrefixSearchFilter) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[903]
 =======
 <<<<<<< HEAD
@@ -65160,6 +65966,9 @@ func (x *SitePrefixSearchFilter) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[899]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[901]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65173,6 +65982,7 @@ func (x *SitePrefixSearchFilter) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixSearchFilter.ProtoReflect.Descriptor instead.
 func (*SitePrefixSearchFilter) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{903}
 =======
 <<<<<<< HEAD
@@ -65181,6 +65991,9 @@ func (*SitePrefixSearchFilter) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{899}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{901}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixSearchFilter) GetTenantOrganizationId() string {
@@ -65235,6 +66048,7 @@ type SitePrefixesByIdsRequest struct {
 func (x *SitePrefixesByIdsRequest) Reset() {
 	*x = SitePrefixesByIdsRequest{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[904]
 =======
 <<<<<<< HEAD
@@ -65243,6 +66057,9 @@ func (x *SitePrefixesByIdsRequest) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[900]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[902]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65255,6 +66072,7 @@ func (*SitePrefixesByIdsRequest) ProtoMessage() {}
 
 func (x *SitePrefixesByIdsRequest) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[904]
 =======
 <<<<<<< HEAD
@@ -65263,6 +66081,9 @@ func (x *SitePrefixesByIdsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[900]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[902]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65276,6 +66097,7 @@ func (x *SitePrefixesByIdsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixesByIdsRequest.ProtoReflect.Descriptor instead.
 func (*SitePrefixesByIdsRequest) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{904}
 =======
 <<<<<<< HEAD
@@ -65284,6 +66106,9 @@ func (*SitePrefixesByIdsRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{900}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{902}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixesByIdsRequest) GetSitePrefixIds() []*SitePrefixId {
@@ -65303,6 +66128,7 @@ type SitePrefixIdList struct {
 func (x *SitePrefixIdList) Reset() {
 	*x = SitePrefixIdList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[905]
 =======
 <<<<<<< HEAD
@@ -65311,6 +66137,9 @@ func (x *SitePrefixIdList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[901]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[903]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65323,6 +66152,7 @@ func (*SitePrefixIdList) ProtoMessage() {}
 
 func (x *SitePrefixIdList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[905]
 =======
 <<<<<<< HEAD
@@ -65331,6 +66161,9 @@ func (x *SitePrefixIdList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[901]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[903]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65344,6 +66177,7 @@ func (x *SitePrefixIdList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixIdList.ProtoReflect.Descriptor instead.
 func (*SitePrefixIdList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{905}
 =======
 <<<<<<< HEAD
@@ -65352,6 +66186,9 @@ func (*SitePrefixIdList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{901}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{903}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixIdList) GetSitePrefixIds() []*SitePrefixId {
@@ -65371,6 +66208,7 @@ type SitePrefixList struct {
 func (x *SitePrefixList) Reset() {
 	*x = SitePrefixList{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[906]
 =======
 <<<<<<< HEAD
@@ -65379,6 +66217,9 @@ func (x *SitePrefixList) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[902]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[904]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65391,6 +66232,7 @@ func (*SitePrefixList) ProtoMessage() {}
 
 func (x *SitePrefixList) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[906]
 =======
 <<<<<<< HEAD
@@ -65399,6 +66241,9 @@ func (x *SitePrefixList) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[902]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[904]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65412,6 +66257,7 @@ func (x *SitePrefixList) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SitePrefixList.ProtoReflect.Descriptor instead.
 func (*SitePrefixList) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{906}
 =======
 <<<<<<< HEAD
@@ -65420,6 +66266,9 @@ func (*SitePrefixList) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{902}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{904}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *SitePrefixList) GetSitePrefixes() []*SitePrefix {
@@ -65460,6 +66309,7 @@ type InterfaceAddressConfig struct {
 func (x *InterfaceAddressConfig) Reset() {
 	*x = InterfaceAddressConfig{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[907]
 =======
 <<<<<<< HEAD
@@ -65468,6 +66318,9 @@ func (x *InterfaceAddressConfig) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[903]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[905]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65480,6 +66333,7 @@ func (*InterfaceAddressConfig) ProtoMessage() {}
 
 func (x *InterfaceAddressConfig) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[907]
 =======
 <<<<<<< HEAD
@@ -65488,6 +66342,9 @@ func (x *InterfaceAddressConfig) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[903]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[905]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65501,6 +66358,7 @@ func (x *InterfaceAddressConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use InterfaceAddressConfig.ProtoReflect.Descriptor instead.
 func (*InterfaceAddressConfig) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{907}
 =======
 <<<<<<< HEAD
@@ -65509,6 +66367,9 @@ func (*InterfaceAddressConfig) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{903}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{905}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *InterfaceAddressConfig) GetAddressFamily() AddressFamily {
@@ -65572,6 +66433,7 @@ type DNSMessage_DNSQuestion struct {
 func (x *DNSMessage_DNSQuestion) Reset() {
 	*x = DNSMessage_DNSQuestion{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[909]
 =======
 <<<<<<< HEAD
@@ -65580,6 +66442,9 @@ func (x *DNSMessage_DNSQuestion) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[905]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[907]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65592,6 +66457,7 @@ func (*DNSMessage_DNSQuestion) ProtoMessage() {}
 
 func (x *DNSMessage_DNSQuestion) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[909]
 =======
 <<<<<<< HEAD
@@ -65600,6 +66466,9 @@ func (x *DNSMessage_DNSQuestion) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[905]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[907]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65646,6 +66515,7 @@ type DNSMessage_DNSResponse struct {
 func (x *DNSMessage_DNSResponse) Reset() {
 	*x = DNSMessage_DNSResponse{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[910]
 =======
 <<<<<<< HEAD
@@ -65654,6 +66524,9 @@ func (x *DNSMessage_DNSResponse) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[906]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[908]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65666,6 +66539,7 @@ func (*DNSMessage_DNSResponse) ProtoMessage() {}
 
 func (x *DNSMessage_DNSResponse) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[910]
 =======
 <<<<<<< HEAD
@@ -65674,6 +66548,9 @@ func (x *DNSMessage_DNSResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[906]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[908]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65706,6 +66583,7 @@ type DNSMessage_DNSResponse_DNSRR struct {
 func (x *DNSMessage_DNSResponse_DNSRR) Reset() {
 	*x = DNSMessage_DNSResponse_DNSRR{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[911]
 =======
 <<<<<<< HEAD
@@ -65714,6 +66592,9 @@ func (x *DNSMessage_DNSResponse_DNSRR) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[907]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[909]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65726,6 +66607,7 @@ func (*DNSMessage_DNSResponse_DNSRR) ProtoMessage() {}
 
 func (x *DNSMessage_DNSResponse_DNSRR) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[911]
 =======
 <<<<<<< HEAD
@@ -65734,6 +66616,9 @@ func (x *DNSMessage_DNSResponse_DNSRR) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[907]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[909]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65768,6 +66653,7 @@ type MachineCredentialsUpdateRequest_Credentials struct {
 func (x *MachineCredentialsUpdateRequest_Credentials) Reset() {
 	*x = MachineCredentialsUpdateRequest_Credentials{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[916]
 =======
 <<<<<<< HEAD
@@ -65776,6 +66662,9 @@ func (x *MachineCredentialsUpdateRequest_Credentials) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[912]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[914]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65788,6 +66677,7 @@ func (*MachineCredentialsUpdateRequest_Credentials) ProtoMessage() {}
 
 func (x *MachineCredentialsUpdateRequest_Credentials) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[916]
 =======
 <<<<<<< HEAD
@@ -65796,6 +66686,9 @@ func (x *MachineCredentialsUpdateRequest_Credentials) ProtoReflect() protoreflec
 	mi := &file_nico_nico_proto_msgTypes[912]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[914]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65843,6 +66736,7 @@ type ForgeAgentControlResponse_ForgeAgentControlExtraInfo struct {
 func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo) Reset() {
 	*x = ForgeAgentControlResponse_ForgeAgentControlExtraInfo{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[917]
 =======
 <<<<<<< HEAD
@@ -65851,6 +66745,9 @@ func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[913]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[915]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65863,6 +66760,7 @@ func (*ForgeAgentControlResponse_ForgeAgentControlExtraInfo) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[917]
 =======
 <<<<<<< HEAD
@@ -65871,6 +66769,9 @@ func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo) ProtoReflect() pr
 	mi := &file_nico_nico_proto_msgTypes[913]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[915]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65902,6 +66803,7 @@ type ForgeAgentControlResponse_Noop struct {
 func (x *ForgeAgentControlResponse_Noop) Reset() {
 	*x = ForgeAgentControlResponse_Noop{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[918]
 =======
 <<<<<<< HEAD
@@ -65910,6 +66812,9 @@ func (x *ForgeAgentControlResponse_Noop) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[914]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[916]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65922,6 +66827,7 @@ func (*ForgeAgentControlResponse_Noop) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_Noop) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[918]
 =======
 <<<<<<< HEAD
@@ -65930,6 +66836,9 @@ func (x *ForgeAgentControlResponse_Noop) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[914]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[916]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65954,6 +66863,7 @@ type ForgeAgentControlResponse_Reset struct {
 func (x *ForgeAgentControlResponse_Reset) Reset() {
 	*x = ForgeAgentControlResponse_Reset{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[919]
 =======
 <<<<<<< HEAD
@@ -65962,6 +66872,9 @@ func (x *ForgeAgentControlResponse_Reset) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[915]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[917]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -65974,6 +66887,7 @@ func (*ForgeAgentControlResponse_Reset) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_Reset) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[919]
 =======
 <<<<<<< HEAD
@@ -65982,6 +66896,9 @@ func (x *ForgeAgentControlResponse_Reset) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[915]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[917]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66006,6 +66923,7 @@ type ForgeAgentControlResponse_Discovery struct {
 func (x *ForgeAgentControlResponse_Discovery) Reset() {
 	*x = ForgeAgentControlResponse_Discovery{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[920]
 =======
 <<<<<<< HEAD
@@ -66014,6 +66932,9 @@ func (x *ForgeAgentControlResponse_Discovery) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[916]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[918]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66026,6 +66947,7 @@ func (*ForgeAgentControlResponse_Discovery) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_Discovery) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[920]
 =======
 <<<<<<< HEAD
@@ -66034,6 +66956,9 @@ func (x *ForgeAgentControlResponse_Discovery) ProtoReflect() protoreflect.Messag
 	mi := &file_nico_nico_proto_msgTypes[916]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[918]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66058,6 +66983,7 @@ type ForgeAgentControlResponse_Rebuild struct {
 func (x *ForgeAgentControlResponse_Rebuild) Reset() {
 	*x = ForgeAgentControlResponse_Rebuild{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[921]
 =======
 <<<<<<< HEAD
@@ -66066,6 +66992,9 @@ func (x *ForgeAgentControlResponse_Rebuild) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[917]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[919]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66078,6 +67007,7 @@ func (*ForgeAgentControlResponse_Rebuild) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_Rebuild) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[921]
 =======
 <<<<<<< HEAD
@@ -66086,6 +67016,9 @@ func (x *ForgeAgentControlResponse_Rebuild) ProtoReflect() protoreflect.Message 
 	mi := &file_nico_nico_proto_msgTypes[917]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[919]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66110,6 +67043,7 @@ type ForgeAgentControlResponse_Retry struct {
 func (x *ForgeAgentControlResponse_Retry) Reset() {
 	*x = ForgeAgentControlResponse_Retry{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[922]
 =======
 <<<<<<< HEAD
@@ -66118,6 +67052,9 @@ func (x *ForgeAgentControlResponse_Retry) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[918]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[920]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66130,6 +67067,7 @@ func (*ForgeAgentControlResponse_Retry) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_Retry) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[922]
 =======
 <<<<<<< HEAD
@@ -66138,6 +67076,9 @@ func (x *ForgeAgentControlResponse_Retry) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[918]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[920]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66162,6 +67103,7 @@ type ForgeAgentControlResponse_Measure struct {
 func (x *ForgeAgentControlResponse_Measure) Reset() {
 	*x = ForgeAgentControlResponse_Measure{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[923]
 =======
 <<<<<<< HEAD
@@ -66170,6 +67112,9 @@ func (x *ForgeAgentControlResponse_Measure) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[919]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[921]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66182,6 +67127,7 @@ func (*ForgeAgentControlResponse_Measure) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_Measure) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[923]
 =======
 <<<<<<< HEAD
@@ -66190,6 +67136,9 @@ func (x *ForgeAgentControlResponse_Measure) ProtoReflect() protoreflect.Message 
 	mi := &file_nico_nico_proto_msgTypes[919]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[921]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66214,6 +67163,7 @@ type ForgeAgentControlResponse_LogError struct {
 func (x *ForgeAgentControlResponse_LogError) Reset() {
 	*x = ForgeAgentControlResponse_LogError{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[924]
 =======
 <<<<<<< HEAD
@@ -66222,6 +67172,9 @@ func (x *ForgeAgentControlResponse_LogError) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[920]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[922]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66234,6 +67187,7 @@ func (*ForgeAgentControlResponse_LogError) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_LogError) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[924]
 =======
 <<<<<<< HEAD
@@ -66242,6 +67196,9 @@ func (x *ForgeAgentControlResponse_LogError) ProtoReflect() protoreflect.Message
 	mi := &file_nico_nico_proto_msgTypes[920]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[922]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66270,6 +67227,7 @@ type ForgeAgentControlResponse_MachineValidation struct {
 func (x *ForgeAgentControlResponse_MachineValidation) Reset() {
 	*x = ForgeAgentControlResponse_MachineValidation{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[925]
 =======
 <<<<<<< HEAD
@@ -66278,6 +67236,9 @@ func (x *ForgeAgentControlResponse_MachineValidation) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[921]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[923]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66290,6 +67251,7 @@ func (*ForgeAgentControlResponse_MachineValidation) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MachineValidation) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[925]
 =======
 <<<<<<< HEAD
@@ -66298,6 +67260,9 @@ func (x *ForgeAgentControlResponse_MachineValidation) ProtoReflect() protoreflec
 	mi := &file_nico_nico_proto_msgTypes[921]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[923]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66354,6 +67319,7 @@ type ForgeAgentControlResponse_MachineValidationFilter struct {
 func (x *ForgeAgentControlResponse_MachineValidationFilter) Reset() {
 	*x = ForgeAgentControlResponse_MachineValidationFilter{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[926]
 =======
 <<<<<<< HEAD
@@ -66362,6 +67328,9 @@ func (x *ForgeAgentControlResponse_MachineValidationFilter) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[922]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[924]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66374,6 +67343,7 @@ func (*ForgeAgentControlResponse_MachineValidationFilter) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MachineValidationFilter) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[926]
 =======
 <<<<<<< HEAD
@@ -66382,6 +67352,9 @@ func (x *ForgeAgentControlResponse_MachineValidationFilter) ProtoReflect() proto
 	mi := &file_nico_nico_proto_msgTypes[922]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[924]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66435,6 +67408,7 @@ type ForgeAgentControlResponse_MlxAction struct {
 func (x *ForgeAgentControlResponse_MlxAction) Reset() {
 	*x = ForgeAgentControlResponse_MlxAction{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[927]
 =======
 <<<<<<< HEAD
@@ -66443,6 +67417,9 @@ func (x *ForgeAgentControlResponse_MlxAction) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[923]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[925]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66455,6 +67432,7 @@ func (*ForgeAgentControlResponse_MlxAction) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxAction) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[927]
 =======
 <<<<<<< HEAD
@@ -66463,6 +67441,9 @@ func (x *ForgeAgentControlResponse_MlxAction) ProtoReflect() protoreflect.Messag
 	mi := &file_nico_nico_proto_msgTypes[923]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[925]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66503,6 +67484,7 @@ type ForgeAgentControlResponse_MlxDeviceAction struct {
 func (x *ForgeAgentControlResponse_MlxDeviceAction) Reset() {
 	*x = ForgeAgentControlResponse_MlxDeviceAction{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[928]
 =======
 <<<<<<< HEAD
@@ -66511,6 +67493,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceAction) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[924]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[926]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66523,6 +67508,7 @@ func (*ForgeAgentControlResponse_MlxDeviceAction) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxDeviceAction) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[928]
 =======
 <<<<<<< HEAD
@@ -66531,6 +67517,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceAction) ProtoReflect() protoreflect.
 	mi := &file_nico_nico_proto_msgTypes[924]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[926]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66653,6 +67642,7 @@ type ForgeAgentControlResponse_MlxDeviceNoop struct {
 func (x *ForgeAgentControlResponse_MlxDeviceNoop) Reset() {
 	*x = ForgeAgentControlResponse_MlxDeviceNoop{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[929]
 =======
 <<<<<<< HEAD
@@ -66661,6 +67651,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceNoop) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[925]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[927]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66673,6 +67666,7 @@ func (*ForgeAgentControlResponse_MlxDeviceNoop) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxDeviceNoop) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[929]
 =======
 <<<<<<< HEAD
@@ -66681,6 +67675,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceNoop) ProtoReflect() protoreflect.Me
 	mi := &file_nico_nico_proto_msgTypes[925]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[927]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66706,6 +67703,7 @@ type ForgeAgentControlResponse_MlxDeviceLock struct {
 func (x *ForgeAgentControlResponse_MlxDeviceLock) Reset() {
 	*x = ForgeAgentControlResponse_MlxDeviceLock{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[930]
 =======
 <<<<<<< HEAD
@@ -66714,6 +67712,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceLock) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[926]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[928]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66726,6 +67727,7 @@ func (*ForgeAgentControlResponse_MlxDeviceLock) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxDeviceLock) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[930]
 =======
 <<<<<<< HEAD
@@ -66734,6 +67736,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceLock) ProtoReflect() protoreflect.Me
 	mi := &file_nico_nico_proto_msgTypes[926]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[928]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66766,6 +67771,7 @@ type ForgeAgentControlResponse_MlxDeviceUnlock struct {
 func (x *ForgeAgentControlResponse_MlxDeviceUnlock) Reset() {
 	*x = ForgeAgentControlResponse_MlxDeviceUnlock{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[931]
 =======
 <<<<<<< HEAD
@@ -66774,6 +67780,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceUnlock) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[927]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[929]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66786,6 +67795,7 @@ func (*ForgeAgentControlResponse_MlxDeviceUnlock) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxDeviceUnlock) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[931]
 =======
 <<<<<<< HEAD
@@ -66794,6 +67804,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceUnlock) ProtoReflect() protoreflect.
 	mi := &file_nico_nico_proto_msgTypes[927]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[929]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66826,6 +67839,7 @@ type ForgeAgentControlResponse_MlxDeviceApplyProfile struct {
 func (x *ForgeAgentControlResponse_MlxDeviceApplyProfile) Reset() {
 	*x = ForgeAgentControlResponse_MlxDeviceApplyProfile{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[932]
 =======
 <<<<<<< HEAD
@@ -66834,6 +67848,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceApplyProfile) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[928]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[930]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66846,6 +67863,7 @@ func (*ForgeAgentControlResponse_MlxDeviceApplyProfile) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxDeviceApplyProfile) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[932]
 =======
 <<<<<<< HEAD
@@ -66854,6 +67872,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceApplyProfile) ProtoReflect() protore
 	mi := &file_nico_nico_proto_msgTypes[928]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[930]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66886,6 +67907,7 @@ type ForgeAgentControlResponse_MlxDeviceApplyFirmware struct {
 func (x *ForgeAgentControlResponse_MlxDeviceApplyFirmware) Reset() {
 	*x = ForgeAgentControlResponse_MlxDeviceApplyFirmware{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[933]
 =======
 <<<<<<< HEAD
@@ -66894,6 +67916,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceApplyFirmware) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[929]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[931]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66906,6 +67931,7 @@ func (*ForgeAgentControlResponse_MlxDeviceApplyFirmware) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_MlxDeviceApplyFirmware) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[933]
 =======
 <<<<<<< HEAD
@@ -66914,6 +67940,9 @@ func (x *ForgeAgentControlResponse_MlxDeviceApplyFirmware) ProtoReflect() protor
 	mi := &file_nico_nico_proto_msgTypes[929]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[931]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66946,6 +67975,7 @@ type ForgeAgentControlResponse_FirmwareUpgrade struct {
 func (x *ForgeAgentControlResponse_FirmwareUpgrade) Reset() {
 	*x = ForgeAgentControlResponse_FirmwareUpgrade{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[934]
 =======
 <<<<<<< HEAD
@@ -66954,6 +67984,9 @@ func (x *ForgeAgentControlResponse_FirmwareUpgrade) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[930]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[932]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66966,6 +67999,7 @@ func (*ForgeAgentControlResponse_FirmwareUpgrade) ProtoMessage() {}
 
 func (x *ForgeAgentControlResponse_FirmwareUpgrade) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[934]
 =======
 <<<<<<< HEAD
@@ -66974,6 +68008,9 @@ func (x *ForgeAgentControlResponse_FirmwareUpgrade) ProtoReflect() protoreflect.
 	mi := &file_nico_nico_proto_msgTypes[930]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[932]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67007,6 +68044,7 @@ type ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair struct {
 func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair) Reset() {
 	*x = ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[935]
 =======
 <<<<<<< HEAD
@@ -67015,6 +68053,9 @@ func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair) Rese
 	mi := &file_nico_nico_proto_msgTypes[931]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[933]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67027,6 +68068,7 @@ func (*ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair) ProtoM
 
 func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[935]
 =======
 <<<<<<< HEAD
@@ -67035,6 +68077,9 @@ func (x *ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair) Prot
 	mi := &file_nico_nico_proto_msgTypes[931]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[933]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67076,6 +68121,7 @@ type MachineCleanupInfo_CleanupStepResult struct {
 func (x *MachineCleanupInfo_CleanupStepResult) Reset() {
 	*x = MachineCleanupInfo_CleanupStepResult{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[936]
 =======
 <<<<<<< HEAD
@@ -67084,6 +68130,9 @@ func (x *MachineCleanupInfo_CleanupStepResult) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[932]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[934]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67096,6 +68145,7 @@ func (*MachineCleanupInfo_CleanupStepResult) ProtoMessage() {}
 
 func (x *MachineCleanupInfo_CleanupStepResult) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[936]
 =======
 <<<<<<< HEAD
@@ -67104,6 +68154,9 @@ func (x *MachineCleanupInfo_CleanupStepResult) ProtoReflect() protoreflect.Messa
 	mi := &file_nico_nico_proto_msgTypes[932]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[934]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67149,6 +68202,7 @@ type DpuReprovisioningListResponse_DpuReprovisioningListItem struct {
 func (x *DpuReprovisioningListResponse_DpuReprovisioningListItem) Reset() {
 	*x = DpuReprovisioningListResponse_DpuReprovisioningListItem{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[937]
 =======
 <<<<<<< HEAD
@@ -67157,6 +68211,9 @@ func (x *DpuReprovisioningListResponse_DpuReprovisioningListItem) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[933]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[935]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67169,6 +68226,7 @@ func (*DpuReprovisioningListResponse_DpuReprovisioningListItem) ProtoMessage() {
 
 func (x *DpuReprovisioningListResponse_DpuReprovisioningListItem) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[937]
 =======
 <<<<<<< HEAD
@@ -67177,6 +68235,9 @@ func (x *DpuReprovisioningListResponse_DpuReprovisioningListItem) ProtoReflect()
 	mi := &file_nico_nico_proto_msgTypes[933]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[935]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67256,6 +68317,7 @@ type HostReprovisioningListResponse_HostReprovisioningListItem struct {
 func (x *HostReprovisioningListResponse_HostReprovisioningListItem) Reset() {
 	*x = HostReprovisioningListResponse_HostReprovisioningListItem{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[938]
 =======
 <<<<<<< HEAD
@@ -67264,6 +68326,9 @@ func (x *HostReprovisioningListResponse_HostReprovisioningListItem) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[934]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[936]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67276,6 +68341,7 @@ func (*HostReprovisioningListResponse_HostReprovisioningListItem) ProtoMessage()
 
 func (x *HostReprovisioningListResponse_HostReprovisioningListItem) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[938]
 =======
 <<<<<<< HEAD
@@ -67284,6 +68350,9 @@ func (x *HostReprovisioningListResponse_HostReprovisioningListItem) ProtoReflect
 	mi := &file_nico_nico_proto_msgTypes[934]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[936]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67371,6 +68440,7 @@ type MachineValidationTestUpdateRequest_Payload struct {
 func (x *MachineValidationTestUpdateRequest_Payload) Reset() {
 	*x = MachineValidationTestUpdateRequest_Payload{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[939]
 =======
 <<<<<<< HEAD
@@ -67379,6 +68449,9 @@ func (x *MachineValidationTestUpdateRequest_Payload) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[935]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[937]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67391,6 +68464,7 @@ func (*MachineValidationTestUpdateRequest_Payload) ProtoMessage() {}
 
 func (x *MachineValidationTestUpdateRequest_Payload) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[939]
 =======
 <<<<<<< HEAD
@@ -67399,6 +68473,9 @@ func (x *MachineValidationTestUpdateRequest_Payload) ProtoReflect() protoreflect
 	mi := &file_nico_nico_proto_msgTypes[935]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[937]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67559,6 +68636,7 @@ type DPFStateResponse_DPFState struct {
 func (x *DPFStateResponse_DPFState) Reset() {
 	*x = DPFStateResponse_DPFState{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[945]
 =======
 <<<<<<< HEAD
@@ -67567,6 +68645,9 @@ func (x *DPFStateResponse_DPFState) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[941]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[943]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67579,6 +68660,7 @@ func (*DPFStateResponse_DPFState) ProtoMessage() {}
 
 func (x *DPFStateResponse_DPFState) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[945]
 =======
 <<<<<<< HEAD
@@ -67587,6 +68669,9 @@ func (x *DPFStateResponse_DPFState) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[941]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[943]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67665,6 +68750,7 @@ type GetMachineBootInterfacesResponse_Reconciliation struct {
 func (x *GetMachineBootInterfacesResponse_Reconciliation) Reset() {
 	*x = GetMachineBootInterfacesResponse_Reconciliation{}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[946]
 =======
 <<<<<<< HEAD
@@ -67673,6 +68759,9 @@ func (x *GetMachineBootInterfacesResponse_Reconciliation) Reset() {
 	mi := &file_nico_nico_proto_msgTypes[942]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[944]
+>>>>>>> fab90f1e2 (review)
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67685,6 +68774,7 @@ func (*GetMachineBootInterfacesResponse_Reconciliation) ProtoMessage() {}
 
 func (x *GetMachineBootInterfacesResponse_Reconciliation) ProtoReflect() protoreflect.Message {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	mi := &file_nico_nico_proto_msgTypes[946]
 =======
 <<<<<<< HEAD
@@ -67693,6 +68783,9 @@ func (x *GetMachineBootInterfacesResponse_Reconciliation) ProtoReflect() protore
 	mi := &file_nico_nico_proto_msgTypes[942]
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	mi := &file_nico_nico_proto_msgTypes[944]
+>>>>>>> fab90f1e2 (review)
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67706,6 +68799,7 @@ func (x *GetMachineBootInterfacesResponse_Reconciliation) ProtoReflect() protore
 // Deprecated: Use GetMachineBootInterfacesResponse_Reconciliation.ProtoReflect.Descriptor instead.
 func (*GetMachineBootInterfacesResponse_Reconciliation) Descriptor() ([]byte, []int) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return file_nico_nico_proto_rawDescGZIP(), []int{890, 0}
 =======
 <<<<<<< HEAD
@@ -67714,6 +68808,9 @@ func (*GetMachineBootInterfacesResponse_Reconciliation) Descriptor() ([]byte, []
 	return file_nico_nico_proto_rawDescGZIP(), []int{886, 0}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	return file_nico_nico_proto_rawDescGZIP(), []int{888, 0}
+>>>>>>> fab90f1e2 (review)
 }
 
 func (x *GetMachineBootInterfacesResponse_Reconciliation) GetDesiredBootInterface() *MachineBootInterface {
@@ -72754,16 +73851,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x05state\x18\x02 \x01(\x0e2\x1a.forge.FirmwareUpdateStateR\x05state\x12%\n" +
 	"\x0etarget_version\x18\x03 \x01(\tR\rtargetVersion\x129\n" +
 	"\n" +
-	"updated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xd8\x01\n" +
-	"\x1fUpdateComputeTrayFirmwareTarget\x128\n" +
-	"\vmachine_ids\x18\x01 \x01(\v2\x15.common.MachineIdListH\x00R\n" +
-	"machineIds\x122\n" +
-	"\bbmc_macs\x18\x03 \x01(\v2\x15.forge.MacAddressListH\x00R\abmcMacs\x12;\n" +
+	"updated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xc8\x01\n" +
+	"\x1fUpdateComputeTrayFirmwareTarget\x126\n" +
+	"\vmachine_ids\x18\x01 \x01(\v2\x15.common.MachineIdListR\n" +
+	"machineIds\x12;\n" +
 	"\n" +
 	"components\x18\x02 \x03(\x0e2\x1b.forge.ComputeTrayComponentR\n" +
-	"componentsB\n" +
-	"\n" +
-	"\bselector\"\x8a\x01\n" +
+	"components\x120\n" +
+	"\bbmc_macs\x18\x03 \x01(\v2\x15.forge.MacAddressListR\abmcMacs\"\x8a\x01\n" +
 	"\x1aUpdateSwitchFirmwareTarget\x122\n" +
 	"\n" +
 	"switch_ids\x18\x01 \x01(\v2\x13.forge.SwitchIdListR\tswitchIds\x128\n" +
@@ -74157,6 +75252,7 @@ func file_nico_nico_proto_rawDescGZIP() []byte {
 
 var file_nico_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 108)
 <<<<<<< HEAD
+<<<<<<< HEAD
 var file_nico_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 947)
 =======
 <<<<<<< HEAD
@@ -74165,6 +75261,9 @@ var file_nico_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 944)
 var file_nico_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 943)
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+var file_nico_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 945)
+>>>>>>> fab90f1e2 (review)
 var file_nico_nico_proto_goTypes = []any{
 	(SpdmAttestationStatus)(0),                      // 0: forge.SpdmAttestationStatus
 	(SpdmListAttestationMachinesRequestSelector)(0), // 1: forge.SpdmListAttestationMachinesRequestSelector
@@ -74797,7 +75896,6 @@ var file_nico_nico_proto_goTypes = []any{
 	(*RackMaintenanceTerminateResponse)(nil),                                  // 628: forge.RackMaintenanceTerminateResponse
 	(*AdminPowerControlRequest)(nil),                                          // 629: forge.AdminPowerControlRequest
 	(*AdminPowerControlResponse)(nil),                                         // 630: forge.AdminPowerControlResponse
-<<<<<<< HEAD
 	(*AdminGpuResetRequest)(nil),                                              // 631: forge.AdminGpuResetRequest
 	(*AdminGpuResetResponse)(nil),                                             // 632: forge.AdminGpuResetResponse
 	(*GetRedfishJobStateRequest)(nil),                                         // 633: forge.GetRedfishJobStateRequest
@@ -75724,6 +76822,7 @@ var file_nico_nico_proto_goTypes = []any{
 	(*ComponentResult)(nil),                                                   // 937: forge.ComponentResult
 	(*SwitchIdList)(nil),                                                      // 938: forge.SwitchIdList
 	(*PowerShelfIdList)(nil),                                                  // 939: forge.PowerShelfIdList
+<<<<<<< HEAD
 	(*GetComponentInventoryRequest)(nil),                                      // 940: forge.GetComponentInventoryRequest
 	(*ComponentInventoryEntry)(nil),                                           // 941: forge.ComponentInventoryEntry
 	(*GetComponentInventoryResponse)(nil),                                     // 942: forge.GetComponentInventoryResponse
@@ -76691,10 +77790,342 @@ var file_nico_nico_proto_goTypes = []any{
 	(*MlxAdminConfigCompareResponse)(nil),                // 1266: mlx_device.MlxAdminConfigCompareResponse
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	(*MacAddressList)(nil),                                                    // 940: forge.MacAddressList
+	(*GetComponentInventoryRequest)(nil),                                      // 941: forge.GetComponentInventoryRequest
+	(*ComponentInventoryEntry)(nil),                                           // 942: forge.ComponentInventoryEntry
+	(*GetComponentInventoryResponse)(nil),                                     // 943: forge.GetComponentInventoryResponse
+	(*ComponentPowerControlRequest)(nil),                                      // 944: forge.ComponentPowerControlRequest
+	(*ComponentPowerControlResponse)(nil),                                     // 945: forge.ComponentPowerControlResponse
+	(*ComponentConfigureSwitchCertificateRequest)(nil),                        // 946: forge.ComponentConfigureSwitchCertificateRequest
+	(*ComponentConfigureSwitchCertificateResponse)(nil),                       // 947: forge.ComponentConfigureSwitchCertificateResponse
+	(*FirmwareUpdateStatus)(nil),                                              // 948: forge.FirmwareUpdateStatus
+	(*UpdateComputeTrayFirmwareTarget)(nil),                                   // 949: forge.UpdateComputeTrayFirmwareTarget
+	(*UpdateSwitchFirmwareTarget)(nil),                                        // 950: forge.UpdateSwitchFirmwareTarget
+	(*UpdatePowerShelfFirmwareTarget)(nil),                                    // 951: forge.UpdatePowerShelfFirmwareTarget
+	(*UpdateFirmwareObjectTarget)(nil),                                        // 952: forge.UpdateFirmwareObjectTarget
+	(*UpdateComponentFirmwareRequest)(nil),                                    // 953: forge.UpdateComponentFirmwareRequest
+	(*UpdateComponentFirmwareResponse)(nil),                                   // 954: forge.UpdateComponentFirmwareResponse
+	(*GetComponentFirmwareStatusRequest)(nil),                                 // 955: forge.GetComponentFirmwareStatusRequest
+	(*GetComponentFirmwareStatusResponse)(nil),                                // 956: forge.GetComponentFirmwareStatusResponse
+	(*ListComponentFirmwareVersionsRequest)(nil),                              // 957: forge.ListComponentFirmwareVersionsRequest
+	(*ComputeTrayFirmwareVersions)(nil),                                       // 958: forge.ComputeTrayFirmwareVersions
+	(*DeviceFirmwareVersions)(nil),                                            // 959: forge.DeviceFirmwareVersions
+	(*ListComponentFirmwareVersionsResponse)(nil),                             // 960: forge.ListComponentFirmwareVersionsResponse
+	(*SpxPartitionCreationRequest)(nil),                                       // 961: forge.SpxPartitionCreationRequest
+	(*SpxPartition)(nil),                                                      // 962: forge.SpxPartition
+	(*SpxPartitionIdList)(nil),                                                // 963: forge.SpxPartitionIdList
+	(*SpxPartitionDeletionRequest)(nil),                                       // 964: forge.SpxPartitionDeletionRequest
+	(*SpxPartitionDeletionResult)(nil),                                        // 965: forge.SpxPartitionDeletionResult
+	(*SpxPartitionSearchFilter)(nil),                                          // 966: forge.SpxPartitionSearchFilter
+	(*SpxPartitionList)(nil),                                                  // 967: forge.SpxPartitionList
+	(*SpxPartitionsByIdsRequest)(nil),                                         // 968: forge.SpxPartitionsByIdsRequest
+	(*AdminForceDeleteSwitchRequest)(nil),                                     // 969: forge.AdminForceDeleteSwitchRequest
+	(*AdminForceDeleteSwitchResponse)(nil),                                    // 970: forge.AdminForceDeleteSwitchResponse
+	(*AdminForceDeletePowerShelfRequest)(nil),                                 // 971: forge.AdminForceDeletePowerShelfRequest
+	(*AdminForceDeletePowerShelfResponse)(nil),                                // 972: forge.AdminForceDeletePowerShelfResponse
+	(*OperatingSystem)(nil),                                                   // 973: forge.OperatingSystem
+	(*CreateOperatingSystemRequest)(nil),                                      // 974: forge.CreateOperatingSystemRequest
+	(*IpxeTemplateParameters)(nil),                                            // 975: forge.IpxeTemplateParameters
+	(*IpxeTemplateArtifacts)(nil),                                             // 976: forge.IpxeTemplateArtifacts
+	(*UpdateOperatingSystemRequest)(nil),                                      // 977: forge.UpdateOperatingSystemRequest
+	(*DeleteOperatingSystemRequest)(nil),                                      // 978: forge.DeleteOperatingSystemRequest
+	(*DeleteOperatingSystemResponse)(nil),                                     // 979: forge.DeleteOperatingSystemResponse
+	(*OperatingSystemSearchFilter)(nil),                                       // 980: forge.OperatingSystemSearchFilter
+	(*OperatingSystemIdList)(nil),                                             // 981: forge.OperatingSystemIdList
+	(*OperatingSystemsByIdsRequest)(nil),                                      // 982: forge.OperatingSystemsByIdsRequest
+	(*OperatingSystemList)(nil),                                               // 983: forge.OperatingSystemList
+	(*GetOperatingSystemCachableIpxeTemplateArtifactsRequest)(nil),            // 984: forge.GetOperatingSystemCachableIpxeTemplateArtifactsRequest
+	(*IpxeTemplateArtifactList)(nil),                                          // 985: forge.IpxeTemplateArtifactList
+	(*IpxeTemplateArtifactUpdateRequest)(nil),                                 // 986: forge.IpxeTemplateArtifactUpdateRequest
+	(*UpdateOperatingSystemIpxeTemplateArtifactRequest)(nil),                  // 987: forge.UpdateOperatingSystemIpxeTemplateArtifactRequest
+	(*ReWrapSecretsRequest)(nil),                                              // 988: forge.ReWrapSecretsRequest
+	(*ReWrapSecretsResponse)(nil),                                             // 989: forge.ReWrapSecretsResponse
+	(*GetMachineBootInterfacesRequest)(nil),                                   // 990: forge.GetMachineBootInterfacesRequest
+	(*MachineBootInterface)(nil),                                              // 991: forge.MachineBootInterface
+	(*MachineInterfaceBootInterface)(nil),                                     // 992: forge.MachineInterfaceBootInterface
+	(*PredictedBootInterface)(nil),                                            // 993: forge.PredictedBootInterface
+	(*ExploredBootInterface)(nil),                                             // 994: forge.ExploredBootInterface
+	(*RetainedBootInterface)(nil),                                             // 995: forge.RetainedBootInterface
+	(*GetMachineBootInterfacesResponse)(nil),                                  // 996: forge.GetMachineBootInterfacesResponse
+	(*GetContainerRegistryCredentialRequest)(nil),                             // 997: forge.GetContainerRegistryCredentialRequest
+	(*GetContainerRegistryCredentialResponse)(nil),                            // 998: forge.GetContainerRegistryCredentialResponse
+	(*SetContainerRegistryCredentialRequest)(nil),                             // 999: forge.SetContainerRegistryCredentialRequest
+	(*SitePrefix)(nil),                                                        // 1000: forge.SitePrefix
+	(*SitePrefixConfig)(nil),                                                  // 1001: forge.SitePrefixConfig
+	(*SitePrefixStatus)(nil),                                                  // 1002: forge.SitePrefixStatus
+	(*SitePrefixQuotaUsage)(nil),                                              // 1003: forge.SitePrefixQuotaUsage
+	(*SitePrefixCreationRequest)(nil),                                         // 1004: forge.SitePrefixCreationRequest
+	(*SitePrefixUpdateRequest)(nil),                                           // 1005: forge.SitePrefixUpdateRequest
+	(*SitePrefixDeletionRequest)(nil),                                         // 1006: forge.SitePrefixDeletionRequest
+	(*SitePrefixDeletionResult)(nil),                                          // 1007: forge.SitePrefixDeletionResult
+	(*SitePrefixStateHistoriesRequest)(nil),                                   // 1008: forge.SitePrefixStateHistoriesRequest
+	(*SitePrefixSearchFilter)(nil),                                            // 1009: forge.SitePrefixSearchFilter
+	(*SitePrefixesByIdsRequest)(nil),                                          // 1010: forge.SitePrefixesByIdsRequest
+	(*SitePrefixIdList)(nil),                                                  // 1011: forge.SitePrefixIdList
+	(*SitePrefixList)(nil),                                                    // 1012: forge.SitePrefixList
+	(*InterfaceAddressConfig)(nil),                                            // 1013: forge.InterfaceAddressConfig
+	nil,                                                                       // 1014: forge.RuntimeConfig.DpuNicFirmwareUpdateVersionEntry
+	(*DNSMessage_DNSQuestion)(nil),                                            // 1015: forge.DNSMessage.DNSQuestion
+	(*DNSMessage_DNSResponse)(nil),                                            // 1016: forge.DNSMessage.DNSResponse
+	(*DNSMessage_DNSResponse_DNSRR)(nil),                                      // 1017: forge.DNSMessage.DNSResponse.DNSRR
+	nil,                                                                       // 1018: forge.FabricManagerConfig.ConfigMapEntry
+	nil,                                                                       // 1019: forge.StateHistories.HistoriesEntry
+	nil,                                                                       // 1020: forge.MachineStateHistories.HistoriesEntry
+	nil,                                                                       // 1021: forge.HealthHistories.HistoriesEntry
+	(*MachineCredentialsUpdateRequest_Credentials)(nil),                       // 1022: forge.MachineCredentialsUpdateRequest.Credentials
+	(*ForgeAgentControlResponse_ForgeAgentControlExtraInfo)(nil),              // 1023: forge.ForgeAgentControlResponse.ForgeAgentControlExtraInfo
+	(*ForgeAgentControlResponse_Noop)(nil),                                    // 1024: forge.ForgeAgentControlResponse.Noop
+	(*ForgeAgentControlResponse_Reset)(nil),                                   // 1025: forge.ForgeAgentControlResponse.Reset
+	(*ForgeAgentControlResponse_Discovery)(nil),                               // 1026: forge.ForgeAgentControlResponse.Discovery
+	(*ForgeAgentControlResponse_Rebuild)(nil),                                 // 1027: forge.ForgeAgentControlResponse.Rebuild
+	(*ForgeAgentControlResponse_Retry)(nil),                                   // 1028: forge.ForgeAgentControlResponse.Retry
+	(*ForgeAgentControlResponse_Measure)(nil),                                 // 1029: forge.ForgeAgentControlResponse.Measure
+	(*ForgeAgentControlResponse_LogError)(nil),                                // 1030: forge.ForgeAgentControlResponse.LogError
+	(*ForgeAgentControlResponse_MachineValidation)(nil),                       // 1031: forge.ForgeAgentControlResponse.MachineValidation
+	(*ForgeAgentControlResponse_MachineValidationFilter)(nil),                 // 1032: forge.ForgeAgentControlResponse.MachineValidationFilter
+	(*ForgeAgentControlResponse_MlxAction)(nil),                               // 1033: forge.ForgeAgentControlResponse.MlxAction
+	(*ForgeAgentControlResponse_MlxDeviceAction)(nil),                         // 1034: forge.ForgeAgentControlResponse.MlxDeviceAction
+	(*ForgeAgentControlResponse_MlxDeviceNoop)(nil),                           // 1035: forge.ForgeAgentControlResponse.MlxDeviceNoop
+	(*ForgeAgentControlResponse_MlxDeviceLock)(nil),                           // 1036: forge.ForgeAgentControlResponse.MlxDeviceLock
+	(*ForgeAgentControlResponse_MlxDeviceUnlock)(nil),                         // 1037: forge.ForgeAgentControlResponse.MlxDeviceUnlock
+	(*ForgeAgentControlResponse_MlxDeviceApplyProfile)(nil),                   // 1038: forge.ForgeAgentControlResponse.MlxDeviceApplyProfile
+	(*ForgeAgentControlResponse_MlxDeviceApplyFirmware)(nil),                  // 1039: forge.ForgeAgentControlResponse.MlxDeviceApplyFirmware
+	(*ForgeAgentControlResponse_FirmwareUpgrade)(nil),                         // 1040: forge.ForgeAgentControlResponse.FirmwareUpgrade
+	(*ForgeAgentControlResponse_ForgeAgentControlExtraInfo_KeyValuePair)(nil), // 1041: forge.ForgeAgentControlResponse.ForgeAgentControlExtraInfo.KeyValuePair
+	(*MachineCleanupInfo_CleanupStepResult)(nil),                              // 1042: forge.MachineCleanupInfo.CleanupStepResult
+	(*DpuReprovisioningListResponse_DpuReprovisioningListItem)(nil),           // 1043: forge.DpuReprovisioningListResponse.DpuReprovisioningListItem
+	(*HostReprovisioningListResponse_HostReprovisioningListItem)(nil),         // 1044: forge.HostReprovisioningListResponse.HostReprovisioningListItem
+	(*MachineValidationTestUpdateRequest_Payload)(nil),                        // 1045: forge.MachineValidationTestUpdateRequest.Payload
+	nil,                               // 1046: forge.RedfishBrowseResponse.HeadersEntry
+	nil,                               // 1047: forge.RedfishActionResult.HeadersEntry
+	nil,                               // 1048: forge.UfmBrowseResponse.HeadersEntry
+	nil,                               // 1049: forge.DesiredFirmwareVersionEntry.ComponentVersionsEntry
+	nil,                               // 1050: forge.NmxcBrowseResponse.HeadersEntry
+	(*DPFStateResponse_DPFState)(nil), // 1051: forge.DPFStateResponse.DPFState
+	(*GetMachineBootInterfacesResponse_Reconciliation)(nil), // 1052: forge.GetMachineBootInterfacesResponse.Reconciliation
+	(*MachineId)(nil),                                    // 1053: common.MachineId
+	(*timestamppb.Timestamp)(nil),                        // 1054: google.protobuf.Timestamp
+	(*VpcId)(nil),                                        // 1055: common.VpcId
+	(*RouteTargets)(nil),                                 // 1056: common.RouteTargets
+	(*RouteTarget)(nil),                                  // 1057: common.RouteTarget
+	(*NVLinkLogicalPartitionId)(nil),                     // 1058: common.NVLinkLogicalPartitionId
+	(*VpcPrefixId)(nil),                                  // 1059: common.VpcPrefixId
+	(*SitePrefixId)(nil),                                 // 1060: common.SitePrefixId
+	(*VpcPeeringId)(nil),                                 // 1061: common.VpcPeeringId
+	(*IBPartitionId)(nil),                                // 1062: common.IBPartitionId
+	(*HealthReport)(nil),                                 // 1063: health.HealthReport
+	(*PowerShelfId)(nil),                                 // 1064: common.PowerShelfId
+	(*RackId)(nil),                                       // 1065: common.RackId
+	(*UUID)(nil),                                         // 1066: common.UUID
+	(*SwitchId)(nil),                                     // 1067: common.SwitchId
+	(*NVLinkDomainId)(nil),                               // 1068: common.NVLinkDomainId
+	(*RackProfileId)(nil),                                // 1069: common.RackProfileId
+	(*DomainId)(nil),                                     // 1070: common.DomainId
+	(*NetworkSegmentId)(nil),                             // 1071: common.NetworkSegmentId
+	(*NetworkPrefixId)(nil),                              // 1072: common.NetworkPrefixId
+	(*InstanceId)(nil),                                   // 1073: common.InstanceId
+	(*IpxeTemplateId)(nil),                               // 1074: common.IpxeTemplateId
+	(*OperatingSystemId)(nil),                            // 1075: common.OperatingSystemId
+	(*SpxPartitionId)(nil),                               // 1076: common.SpxPartitionId
+	(*MachineInterfaceId)(nil),                           // 1077: common.MachineInterfaceId
+	(*DiscoveryInfo)(nil),                                // 1078: machine_discovery.DiscoveryInfo
+	(*durationpb.Duration)(nil),                          // 1079: google.protobuf.Duration
+	(*StringList)(nil),                                   // 1080: common.StringList
+	(*Gpu)(nil),                                          // 1081: machine_discovery.Gpu
+	(*DeviceId)(nil),                                     // 1082: common.DeviceId
+	(*MachineValidationId)(nil),                          // 1083: common.MachineValidationId
+	(*Uint32List)(nil),                                   // 1084: common.Uint32List
+	(*DpaInterfaceId)(nil),                               // 1085: common.DpaInterfaceId
+	(*ComputeAllocationId)(nil),                          // 1086: common.ComputeAllocationId
+	(*RackHardwareType)(nil),                             // 1087: common.RackHardwareType
+	(*NVLinkPartitionId)(nil),                            // 1088: common.NVLinkPartitionId
+	(*RemediationId)(nil),                                // 1089: common.RemediationId
+	(*MlxDeviceLockdownResponse)(nil),                    // 1090: mlx_device.MlxDeviceLockdownResponse
+	(*MlxDeviceProfileSyncResponse)(nil),                 // 1091: mlx_device.MlxDeviceProfileSyncResponse
+	(*MlxDeviceProfileCompareResponse)(nil),              // 1092: mlx_device.MlxDeviceProfileCompareResponse
+	(*MlxDeviceInfoDeviceResponse)(nil),                  // 1093: mlx_device.MlxDeviceInfoDeviceResponse
+	(*MlxDeviceInfoReportResponse)(nil),                  // 1094: mlx_device.MlxDeviceInfoReportResponse
+	(*MlxDeviceRegistryListResponse)(nil),                // 1095: mlx_device.MlxDeviceRegistryListResponse
+	(*MlxDeviceRegistryShowResponse)(nil),                // 1096: mlx_device.MlxDeviceRegistryShowResponse
+	(*MlxDeviceConfigQueryResponse)(nil),                 // 1097: mlx_device.MlxDeviceConfigQueryResponse
+	(*MlxDeviceConfigSetResponse)(nil),                   // 1098: mlx_device.MlxDeviceConfigSetResponse
+	(*MlxDeviceConfigSyncResponse)(nil),                  // 1099: mlx_device.MlxDeviceConfigSyncResponse
+	(*MlxDeviceConfigCompareResponse)(nil),               // 1100: mlx_device.MlxDeviceConfigCompareResponse
+	(*MlxDeviceLockdownLockRequest)(nil),                 // 1101: mlx_device.MlxDeviceLockdownLockRequest
+	(*MlxDeviceLockdownUnlockRequest)(nil),               // 1102: mlx_device.MlxDeviceLockdownUnlockRequest
+	(*MlxDeviceLockdownStatusRequest)(nil),               // 1103: mlx_device.MlxDeviceLockdownStatusRequest
+	(*MlxDeviceProfileSyncRequest)(nil),                  // 1104: mlx_device.MlxDeviceProfileSyncRequest
+	(*MlxDeviceProfileCompareRequest)(nil),               // 1105: mlx_device.MlxDeviceProfileCompareRequest
+	(*MlxDeviceInfoDeviceRequest)(nil),                   // 1106: mlx_device.MlxDeviceInfoDeviceRequest
+	(*MlxDeviceInfoReportRequest)(nil),                   // 1107: mlx_device.MlxDeviceInfoReportRequest
+	(*MlxDeviceRegistryListRequest)(nil),                 // 1108: mlx_device.MlxDeviceRegistryListRequest
+	(*MlxDeviceRegistryShowRequest)(nil),                 // 1109: mlx_device.MlxDeviceRegistryShowRequest
+	(*MlxDeviceConfigQueryRequest)(nil),                  // 1110: mlx_device.MlxDeviceConfigQueryRequest
+	(*MlxDeviceConfigSetRequest)(nil),                    // 1111: mlx_device.MlxDeviceConfigSetRequest
+	(*MlxDeviceConfigSyncRequest)(nil),                   // 1112: mlx_device.MlxDeviceConfigSyncRequest
+	(*MlxDeviceConfigCompareRequest)(nil),                // 1113: mlx_device.MlxDeviceConfigCompareRequest
+	(*Domain)(nil),                                       // 1114: dns.Domain
+	(*MachineIdList)(nil),                                // 1115: common.MachineIdList
+	(*EndpointExplorationReport)(nil),                    // 1116: site_explorer.EndpointExplorationReport
+	(SystemPowerControl)(0),                              // 1117: common.SystemPowerControl
+	(*SerializableMlxConfigProfile)(nil),                 // 1118: mlx_device.SerializableMlxConfigProfile
+	(*FirmwareFlasherProfile)(nil),                       // 1119: mlx_device.FirmwareFlasherProfile
+	(*ScoutFirmwareUpgradeTask)(nil),                     // 1120: scout_firmware_upgrade.ScoutFirmwareUpgradeTask
+	(*CreateDomainRequest)(nil),                          // 1121: dns.CreateDomainRequest
+	(*UpdateDomainRequest)(nil),                          // 1122: dns.UpdateDomainRequest
+	(*DomainDeletionRequest)(nil),                        // 1123: dns.DomainDeletionRequest
+	(*DomainSearchQuery)(nil),                            // 1124: dns.DomainSearchQuery
+	(*DnsResourceRecordLookupRequest)(nil),               // 1125: dns.DnsResourceRecordLookupRequest
+	(*GetAllDomainsRequest)(nil),                         // 1126: dns.GetAllDomainsRequest
+	(*DomainMetadataRequest)(nil),                        // 1127: dns.DomainMetadataRequest
+	(*emptypb.Empty)(nil),                                // 1128: google.protobuf.Empty
+	(*ExploredEndpointSearchFilter)(nil),                 // 1129: site_explorer.ExploredEndpointSearchFilter
+	(*ExploredEndpointsByIdsRequest)(nil),                // 1130: site_explorer.ExploredEndpointsByIdsRequest
+	(*ExploredManagedHostSearchFilter)(nil),              // 1131: site_explorer.ExploredManagedHostSearchFilter
+	(*ExploredManagedHostsByIdsRequest)(nil),             // 1132: site_explorer.ExploredManagedHostsByIdsRequest
+	(*ExploredMlxDeviceHostSearchFilter)(nil),            // 1133: site_explorer.ExploredMlxDeviceHostSearchFilter
+	(*ExploredMlxDevicesByIdsRequest)(nil),               // 1134: site_explorer.ExploredMlxDevicesByIdsRequest
+	(*CreateMeasurementBundleRequest)(nil),               // 1135: measured_boot.CreateMeasurementBundleRequest
+	(*DeleteMeasurementBundleRequest)(nil),               // 1136: measured_boot.DeleteMeasurementBundleRequest
+	(*RenameMeasurementBundleRequest)(nil),               // 1137: measured_boot.RenameMeasurementBundleRequest
+	(*UpdateMeasurementBundleRequest)(nil),               // 1138: measured_boot.UpdateMeasurementBundleRequest
+	(*ShowMeasurementBundleRequest)(nil),                 // 1139: measured_boot.ShowMeasurementBundleRequest
+	(*ShowMeasurementBundlesRequest)(nil),                // 1140: measured_boot.ShowMeasurementBundlesRequest
+	(*ListMeasurementBundlesRequest)(nil),                // 1141: measured_boot.ListMeasurementBundlesRequest
+	(*ListMeasurementBundleMachinesRequest)(nil),         // 1142: measured_boot.ListMeasurementBundleMachinesRequest
+	(*FindClosestBundleMatchRequest)(nil),                // 1143: measured_boot.FindClosestBundleMatchRequest
+	(*DeleteMeasurementJournalRequest)(nil),              // 1144: measured_boot.DeleteMeasurementJournalRequest
+	(*ShowMeasurementJournalRequest)(nil),                // 1145: measured_boot.ShowMeasurementJournalRequest
+	(*ShowMeasurementJournalsRequest)(nil),               // 1146: measured_boot.ShowMeasurementJournalsRequest
+	(*ListMeasurementJournalRequest)(nil),                // 1147: measured_boot.ListMeasurementJournalRequest
+	(*AttestCandidateMachineRequest)(nil),                // 1148: measured_boot.AttestCandidateMachineRequest
+	(*ShowCandidateMachineRequest)(nil),                  // 1149: measured_boot.ShowCandidateMachineRequest
+	(*ShowCandidateMachinesRequest)(nil),                 // 1150: measured_boot.ShowCandidateMachinesRequest
+	(*ListCandidateMachinesRequest)(nil),                 // 1151: measured_boot.ListCandidateMachinesRequest
+	(*CreateMeasurementSystemProfileRequest)(nil),        // 1152: measured_boot.CreateMeasurementSystemProfileRequest
+	(*DeleteMeasurementSystemProfileRequest)(nil),        // 1153: measured_boot.DeleteMeasurementSystemProfileRequest
+	(*RenameMeasurementSystemProfileRequest)(nil),        // 1154: measured_boot.RenameMeasurementSystemProfileRequest
+	(*ShowMeasurementSystemProfileRequest)(nil),          // 1155: measured_boot.ShowMeasurementSystemProfileRequest
+	(*ShowMeasurementSystemProfilesRequest)(nil),         // 1156: measured_boot.ShowMeasurementSystemProfilesRequest
+	(*ListMeasurementSystemProfilesRequest)(nil),         // 1157: measured_boot.ListMeasurementSystemProfilesRequest
+	(*ListMeasurementSystemProfileBundlesRequest)(nil),   // 1158: measured_boot.ListMeasurementSystemProfileBundlesRequest
+	(*ListMeasurementSystemProfileMachinesRequest)(nil),  // 1159: measured_boot.ListMeasurementSystemProfileMachinesRequest
+	(*CreateMeasurementReportRequest)(nil),               // 1160: measured_boot.CreateMeasurementReportRequest
+	(*DeleteMeasurementReportRequest)(nil),               // 1161: measured_boot.DeleteMeasurementReportRequest
+	(*PromoteMeasurementReportRequest)(nil),              // 1162: measured_boot.PromoteMeasurementReportRequest
+	(*RevokeMeasurementReportRequest)(nil),               // 1163: measured_boot.RevokeMeasurementReportRequest
+	(*ShowMeasurementReportForIdRequest)(nil),            // 1164: measured_boot.ShowMeasurementReportForIdRequest
+	(*ShowMeasurementReportsForMachineRequest)(nil),      // 1165: measured_boot.ShowMeasurementReportsForMachineRequest
+	(*ShowMeasurementReportsRequest)(nil),                // 1166: measured_boot.ShowMeasurementReportsRequest
+	(*ListMeasurementReportRequest)(nil),                 // 1167: measured_boot.ListMeasurementReportRequest
+	(*MatchMeasurementReportRequest)(nil),                // 1168: measured_boot.MatchMeasurementReportRequest
+	(*ImportSiteMeasurementsRequest)(nil),                // 1169: measured_boot.ImportSiteMeasurementsRequest
+	(*ExportSiteMeasurementsRequest)(nil),                // 1170: measured_boot.ExportSiteMeasurementsRequest
+	(*AddMeasurementTrustedMachineRequest)(nil),          // 1171: measured_boot.AddMeasurementTrustedMachineRequest
+	(*RemoveMeasurementTrustedMachineRequest)(nil),       // 1172: measured_boot.RemoveMeasurementTrustedMachineRequest
+	(*AddMeasurementTrustedProfileRequest)(nil),          // 1173: measured_boot.AddMeasurementTrustedProfileRequest
+	(*RemoveMeasurementTrustedProfileRequest)(nil),       // 1174: measured_boot.RemoveMeasurementTrustedProfileRequest
+	(*ListMeasurementTrustedMachinesRequest)(nil),        // 1175: measured_boot.ListMeasurementTrustedMachinesRequest
+	(*ListMeasurementTrustedProfilesRequest)(nil),        // 1176: measured_boot.ListMeasurementTrustedProfilesRequest
+	(*ListAttestationSummaryRequest)(nil),                // 1177: measured_boot.ListAttestationSummaryRequest
+	(*PublishMlxDeviceReportRequest)(nil),                // 1178: mlx_device.PublishMlxDeviceReportRequest
+	(*PublishMlxObservationReportRequest)(nil),           // 1179: mlx_device.PublishMlxObservationReportRequest
+	(*MlxAdminProfileSyncRequest)(nil),                   // 1180: mlx_device.MlxAdminProfileSyncRequest
+	(*MlxAdminProfileShowRequest)(nil),                   // 1181: mlx_device.MlxAdminProfileShowRequest
+	(*MlxAdminProfileCompareRequest)(nil),                // 1182: mlx_device.MlxAdminProfileCompareRequest
+	(*MlxAdminProfileListRequest)(nil),                   // 1183: mlx_device.MlxAdminProfileListRequest
+	(*MlxAdminLockdownLockRequest)(nil),                  // 1184: mlx_device.MlxAdminLockdownLockRequest
+	(*MlxAdminLockdownUnlockRequest)(nil),                // 1185: mlx_device.MlxAdminLockdownUnlockRequest
+	(*MlxAdminLockdownStatusRequest)(nil),                // 1186: mlx_device.MlxAdminLockdownStatusRequest
+	(*MlxAdminDeviceInfoRequest)(nil),                    // 1187: mlx_device.MlxAdminDeviceInfoRequest
+	(*MlxAdminDeviceReportRequest)(nil),                  // 1188: mlx_device.MlxAdminDeviceReportRequest
+	(*MlxAdminRegistryListRequest)(nil),                  // 1189: mlx_device.MlxAdminRegistryListRequest
+	(*MlxAdminRegistryShowRequest)(nil),                  // 1190: mlx_device.MlxAdminRegistryShowRequest
+	(*MlxAdminConfigQueryRequest)(nil),                   // 1191: mlx_device.MlxAdminConfigQueryRequest
+	(*MlxAdminConfigSetRequest)(nil),                     // 1192: mlx_device.MlxAdminConfigSetRequest
+	(*MlxAdminConfigSyncRequest)(nil),                    // 1193: mlx_device.MlxAdminConfigSyncRequest
+	(*MlxAdminConfigCompareRequest)(nil),                 // 1194: mlx_device.MlxAdminConfigCompareRequest
+	(*DomainDeletionResult)(nil),                         // 1195: dns.DomainDeletionResult
+	(*DomainList)(nil),                                   // 1196: dns.DomainList
+	(*DnsResourceRecordLookupResponse)(nil),              // 1197: dns.DnsResourceRecordLookupResponse
+	(*GetAllDomainsResponse)(nil),                        // 1198: dns.GetAllDomainsResponse
+	(*DomainMetadataResponse)(nil),                       // 1199: dns.DomainMetadataResponse
+	(*SiteExplorationReport)(nil),                        // 1200: site_explorer.SiteExplorationReport
+	(*SiteExplorerLastRunResponse)(nil),                  // 1201: site_explorer.SiteExplorerLastRunResponse
+	(*ExploredEndpoint)(nil),                             // 1202: site_explorer.ExploredEndpoint
+	(*ExploredEndpointIdList)(nil),                       // 1203: site_explorer.ExploredEndpointIdList
+	(*ExploredEndpointList)(nil),                         // 1204: site_explorer.ExploredEndpointList
+	(*ExploredManagedHostIdList)(nil),                    // 1205: site_explorer.ExploredManagedHostIdList
+	(*ExploredManagedHostList)(nil),                      // 1206: site_explorer.ExploredManagedHostList
+	(*ExploredMlxDeviceHostIdList)(nil),                  // 1207: site_explorer.ExploredMlxDeviceHostIdList
+	(*ExploredMlxDeviceList)(nil),                        // 1208: site_explorer.ExploredMlxDeviceList
+	(*CreateMeasurementBundleResponse)(nil),              // 1209: measured_boot.CreateMeasurementBundleResponse
+	(*DeleteMeasurementBundleResponse)(nil),              // 1210: measured_boot.DeleteMeasurementBundleResponse
+	(*RenameMeasurementBundleResponse)(nil),              // 1211: measured_boot.RenameMeasurementBundleResponse
+	(*UpdateMeasurementBundleResponse)(nil),              // 1212: measured_boot.UpdateMeasurementBundleResponse
+	(*ShowMeasurementBundleResponse)(nil),                // 1213: measured_boot.ShowMeasurementBundleResponse
+	(*ShowMeasurementBundlesResponse)(nil),               // 1214: measured_boot.ShowMeasurementBundlesResponse
+	(*ListMeasurementBundlesResponse)(nil),               // 1215: measured_boot.ListMeasurementBundlesResponse
+	(*ListMeasurementBundleMachinesResponse)(nil),        // 1216: measured_boot.ListMeasurementBundleMachinesResponse
+	(*DeleteMeasurementJournalResponse)(nil),             // 1217: measured_boot.DeleteMeasurementJournalResponse
+	(*ShowMeasurementJournalResponse)(nil),               // 1218: measured_boot.ShowMeasurementJournalResponse
+	(*ShowMeasurementJournalsResponse)(nil),              // 1219: measured_boot.ShowMeasurementJournalsResponse
+	(*ListMeasurementJournalResponse)(nil),               // 1220: measured_boot.ListMeasurementJournalResponse
+	(*AttestCandidateMachineResponse)(nil),               // 1221: measured_boot.AttestCandidateMachineResponse
+	(*ShowCandidateMachineResponse)(nil),                 // 1222: measured_boot.ShowCandidateMachineResponse
+	(*ShowCandidateMachinesResponse)(nil),                // 1223: measured_boot.ShowCandidateMachinesResponse
+	(*ListCandidateMachinesResponse)(nil),                // 1224: measured_boot.ListCandidateMachinesResponse
+	(*CreateMeasurementSystemProfileResponse)(nil),       // 1225: measured_boot.CreateMeasurementSystemProfileResponse
+	(*DeleteMeasurementSystemProfileResponse)(nil),       // 1226: measured_boot.DeleteMeasurementSystemProfileResponse
+	(*RenameMeasurementSystemProfileResponse)(nil),       // 1227: measured_boot.RenameMeasurementSystemProfileResponse
+	(*ShowMeasurementSystemProfileResponse)(nil),         // 1228: measured_boot.ShowMeasurementSystemProfileResponse
+	(*ShowMeasurementSystemProfilesResponse)(nil),        // 1229: measured_boot.ShowMeasurementSystemProfilesResponse
+	(*ListMeasurementSystemProfilesResponse)(nil),        // 1230: measured_boot.ListMeasurementSystemProfilesResponse
+	(*ListMeasurementSystemProfileBundlesResponse)(nil),  // 1231: measured_boot.ListMeasurementSystemProfileBundlesResponse
+	(*ListMeasurementSystemProfileMachinesResponse)(nil), // 1232: measured_boot.ListMeasurementSystemProfileMachinesResponse
+	(*CreateMeasurementReportResponse)(nil),              // 1233: measured_boot.CreateMeasurementReportResponse
+	(*DeleteMeasurementReportResponse)(nil),              // 1234: measured_boot.DeleteMeasurementReportResponse
+	(*PromoteMeasurementReportResponse)(nil),             // 1235: measured_boot.PromoteMeasurementReportResponse
+	(*RevokeMeasurementReportResponse)(nil),              // 1236: measured_boot.RevokeMeasurementReportResponse
+	(*ShowMeasurementReportForIdResponse)(nil),           // 1237: measured_boot.ShowMeasurementReportForIdResponse
+	(*ShowMeasurementReportsForMachineResponse)(nil),     // 1238: measured_boot.ShowMeasurementReportsForMachineResponse
+	(*ShowMeasurementReportsResponse)(nil),               // 1239: measured_boot.ShowMeasurementReportsResponse
+	(*ListMeasurementReportResponse)(nil),                // 1240: measured_boot.ListMeasurementReportResponse
+	(*MatchMeasurementReportResponse)(nil),               // 1241: measured_boot.MatchMeasurementReportResponse
+	(*ImportSiteMeasurementsResponse)(nil),               // 1242: measured_boot.ImportSiteMeasurementsResponse
+	(*ExportSiteMeasurementsResponse)(nil),               // 1243: measured_boot.ExportSiteMeasurementsResponse
+	(*AddMeasurementTrustedMachineResponse)(nil),         // 1244: measured_boot.AddMeasurementTrustedMachineResponse
+	(*RemoveMeasurementTrustedMachineResponse)(nil),      // 1245: measured_boot.RemoveMeasurementTrustedMachineResponse
+	(*AddMeasurementTrustedProfileResponse)(nil),         // 1246: measured_boot.AddMeasurementTrustedProfileResponse
+	(*RemoveMeasurementTrustedProfileResponse)(nil),      // 1247: measured_boot.RemoveMeasurementTrustedProfileResponse
+	(*ListMeasurementTrustedMachinesResponse)(nil),       // 1248: measured_boot.ListMeasurementTrustedMachinesResponse
+	(*ListMeasurementTrustedProfilesResponse)(nil),       // 1249: measured_boot.ListMeasurementTrustedProfilesResponse
+	(*ListAttestationSummaryResponse)(nil),               // 1250: measured_boot.ListAttestationSummaryResponse
+	(*LockdownStatus)(nil),                               // 1251: site_explorer.LockdownStatus
+	(*PublishMlxDeviceReportResponse)(nil),               // 1252: mlx_device.PublishMlxDeviceReportResponse
+	(*PublishMlxObservationReportResponse)(nil),          // 1253: mlx_device.PublishMlxObservationReportResponse
+	(*MlxAdminProfileSyncResponse)(nil),                  // 1254: mlx_device.MlxAdminProfileSyncResponse
+	(*MlxAdminProfileShowResponse)(nil),                  // 1255: mlx_device.MlxAdminProfileShowResponse
+	(*MlxAdminProfileCompareResponse)(nil),               // 1256: mlx_device.MlxAdminProfileCompareResponse
+	(*MlxAdminProfileListResponse)(nil),                  // 1257: mlx_device.MlxAdminProfileListResponse
+	(*MlxAdminLockdownLockResponse)(nil),                 // 1258: mlx_device.MlxAdminLockdownLockResponse
+	(*MlxAdminLockdownUnlockResponse)(nil),               // 1259: mlx_device.MlxAdminLockdownUnlockResponse
+	(*MlxAdminLockdownStatusResponse)(nil),               // 1260: mlx_device.MlxAdminLockdownStatusResponse
+	(*MlxAdminDeviceInfoResponse)(nil),                   // 1261: mlx_device.MlxAdminDeviceInfoResponse
+	(*MlxAdminDeviceReportResponse)(nil),                 // 1262: mlx_device.MlxAdminDeviceReportResponse
+	(*MlxAdminRegistryListResponse)(nil),                 // 1263: mlx_device.MlxAdminRegistryListResponse
+	(*MlxAdminRegistryShowResponse)(nil),                 // 1264: mlx_device.MlxAdminRegistryShowResponse
+	(*MlxAdminConfigQueryResponse)(nil),                  // 1265: mlx_device.MlxAdminConfigQueryResponse
+	(*MlxAdminConfigSetResponse)(nil),                    // 1266: mlx_device.MlxAdminConfigSetResponse
+	(*MlxAdminConfigSyncResponse)(nil),                   // 1267: mlx_device.MlxAdminConfigSyncResponse
+	(*MlxAdminConfigCompareResponse)(nil),                // 1268: mlx_device.MlxAdminConfigCompareResponse
+>>>>>>> fab90f1e2 (review)
 }
 var file_nico_nico_proto_depIdxs = []int32{
 	377,  // 0: forge.LifecycleStatus.state_reason:type_name -> forge.ControllerStateReason
 	379,  // 1: forge.LifecycleStatus.sla:type_name -> forge.StateSla
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 2: forge.SpdmMachineAttestationStatus.machine_id:type_name -> common.MachineId
 =======
@@ -76749,12 +78180,36 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1052, // 22: forge.TokenDelegationResponse.updated_at:type_name -> google.protobuf.Timestamp
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 2: forge.SpdmMachineAttestationStatus.machine_id:type_name -> common.MachineId
+	0,    // 3: forge.SpdmMachineAttestationStatus.attestation_status:type_name -> forge.SpdmAttestationStatus
+	1053, // 4: forge.SpdmMachineAttestationTriggerResponse.machine_id:type_name -> common.MachineId
+	1053, // 5: forge.SpdmAttestationDetails.machine_id:type_name -> common.MachineId
+	1054, // 6: forge.SpdmAttestationDetails.started_at:type_name -> google.protobuf.Timestamp
+	1054, // 7: forge.SpdmAttestationDetails.cancelled_at:type_name -> google.protobuf.Timestamp
+	1054, // 8: forge.SpdmAttestationDetails.completed_at:type_name -> google.protobuf.Timestamp
+	111,  // 9: forge.SpdmGetAttestationMachineResponse.attestations_details:type_name -> forge.SpdmAttestationDetails
+	1053, // 10: forge.SpdmMachineAttestationTriggerRequest.machine_id:type_name -> common.MachineId
+	1053, // 11: forge.SpdmListAttestationMachinesRequest.machine_id:type_name -> common.MachineId
+	1,    // 12: forge.SpdmListAttestationMachinesRequest.selector:type_name -> forge.SpdmListAttestationMachinesRequestSelector
+	109,  // 13: forge.SpdmListAttestationMachinesResponse.statuses:type_name -> forge.SpdmMachineAttestationStatus
+	1054, // 14: forge.TenantIdentitySigningKey.expire_at:type_name -> google.protobuf.Timestamp
+	120,  // 15: forge.SetTenantIdentityConfigRequest.config:type_name -> forge.TenantIdentityConfig
+	120,  // 16: forge.TenantIdentityConfigResponse.config:type_name -> forge.TenantIdentityConfig
+	1054, // 17: forge.TenantIdentityConfigResponse.created_at:type_name -> google.protobuf.Timestamp
+	1054, // 18: forge.TenantIdentityConfigResponse.updated_at:type_name -> google.protobuf.Timestamp
+	119,  // 19: forge.TenantIdentityConfigResponse.signing_keys:type_name -> forge.TenantIdentitySigningKey
+	124,  // 20: forge.TokenDelegationResponse.client_secret_basic:type_name -> forge.ClientSecretBasicResponse
+	1054, // 21: forge.TokenDelegationResponse.created_at:type_name -> google.protobuf.Timestamp
+	1054, // 22: forge.TokenDelegationResponse.updated_at:type_name -> google.protobuf.Timestamp
+>>>>>>> fab90f1e2 (review)
 	123,  // 23: forge.TokenDelegation.client_secret_basic:type_name -> forge.ClientSecretBasic
 	127,  // 24: forge.TokenDelegationRequest.config:type_name -> forge.TokenDelegation
 	130,  // 25: forge.ReencryptTenantIdentitySecretsResponse.failures:type_name -> forge.ReencryptTenantIdentityFailure
 	2,    // 26: forge.JwksRequest.kind:type_name -> forge.JwksKind
 	3,    // 27: forge.MachineIngestionStateResponse.machine_ingestion_state:type_name -> forge.MachineIngestionState
 	138,  // 28: forge.TpmCaAddedCaStatus.id:type_name -> forge.TpmCaCertId
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 29: forge.TpmEkCertStatus.machine_id:type_name -> common.MachineId
 	139,  // 30: forge.TpmEkCertStatusCollection.tpm_ek_cert_statuses:type_name -> forge.TpmEkCertStatus
@@ -76773,11 +78228,18 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 32: forge.AttestQuoteRequest.machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 29: forge.TpmEkCertStatus.machine_id:type_name -> common.MachineId
+	139,  // 30: forge.TpmEkCertStatusCollection.tpm_ek_cert_statuses:type_name -> forge.TpmEkCertStatus
+	142,  // 31: forge.TpmCaCertDetailCollection.tpm_ca_cert_details:type_name -> forge.TpmCaCertDetail
+	1053, // 32: forge.AttestQuoteRequest.machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	460,  // 33: forge.AttestQuoteResponse.machine_certificate:type_name -> forge.MachineCertificate
 	4,    // 34: forge.CredentialCreationRequest.credential_type:type_name -> forge.CredentialType
 	4,    // 35: forge.CredentialDeletionRequest.credential_type:type_name -> forge.CredentialType
 	5,    // 36: forge.RotateCredentialRequest.credential_type:type_name -> forge.RotationCredentialType
 	5,    // 37: forge.RotateCredentialResult.credential_type:type_name -> forge.RotationCredentialType
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1056, // 38: forge.RotateCredentialResult.started_at:type_name -> google.protobuf.Timestamp
 =======
@@ -76856,10 +78318,45 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1052, // 69: forge.Vpc.deleted:type_name -> google.protobuf.Timestamp
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1054, // 38: forge.RotateCredentialResult.started_at:type_name -> google.protobuf.Timestamp
+	5,    // 39: forge.CredentialRotationStatusRequest.credential_type:type_name -> forge.RotationCredentialType
+	1054, // 40: forge.DeviceCredentialRotationStatus.quarantined_until:type_name -> google.protobuf.Timestamp
+	1054, // 41: forge.DeviceCredentialRotationStatus.last_attempt_at:type_name -> google.protobuf.Timestamp
+	1054, // 42: forge.CredentialRotationStatusResult.started_at:type_name -> google.protobuf.Timestamp
+	154,  // 43: forge.CredentialRotationStatusResult.device:type_name -> forge.DeviceCredentialRotationStatus
+	6,    // 44: forge.BuildInfo.capabilities:type_name -> forge.BuildCapability
+	158,  // 45: forge.BuildInfo.runtime_config:type_name -> forge.RuntimeConfig
+	1014, // 46: forge.RuntimeConfig.dpu_nic_firmware_update_version:type_name -> forge.RuntimeConfig.DpuNicFirmwareUpdateVersionEntry
+	1015, // 47: forge.DNSMessage.question:type_name -> forge.DNSMessage.DNSQuestion
+	1016, // 48: forge.DNSMessage.response:type_name -> forge.DNSMessage.DNSResponse
+	1055, // 49: forge.VpcSearchQuery.id:type_name -> common.VpcId
+	285,  // 50: forge.VpcSearchFilter.label:type_name -> forge.Label
+	1055, // 51: forge.VpcIdList.vpc_ids:type_name -> common.VpcId
+	1055, // 52: forge.VpcsByIdsRequest.vpc_ids:type_name -> common.VpcId
+	910,  // 53: forge.PrefixFilterPolicyEntries.values:type_name -> forge.PrefixFilterPolicyEntry
+	1056, // 54: forge.VpcRoutingProfileOverrides.route_target_imports:type_name -> common.RouteTargets
+	1056, // 55: forge.VpcRoutingProfileOverrides.route_targets_on_exports:type_name -> common.RouteTargets
+	172,  // 56: forge.VpcRoutingProfileOverrides.accepted_leaks_from_underlay:type_name -> forge.PrefixFilterPolicyEntries
+	172,  // 57: forge.VpcRoutingProfileOverrides.allowed_anycast_prefixes:type_name -> forge.PrefixFilterPolicyEntries
+	1057, // 58: forge.VpcEffectiveRoutingProfile.route_target_imports:type_name -> common.RouteTarget
+	1057, // 59: forge.VpcEffectiveRoutingProfile.route_targets_on_exports:type_name -> common.RouteTarget
+	910,  // 60: forge.VpcEffectiveRoutingProfile.accepted_leaks_from_underlay:type_name -> forge.PrefixFilterPolicyEntry
+	910,  // 61: forge.VpcEffectiveRoutingProfile.allowed_anycast_prefixes:type_name -> forge.PrefixFilterPolicyEntry
+	7,    // 62: forge.VpcConfig.network_virtualization_type:type_name -> forge.VpcVirtualizationType
+	1058, // 63: forge.VpcConfig.default_nvlink_logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	173,  // 64: forge.VpcConfig.routing_profile_overrides:type_name -> forge.VpcRoutingProfileOverrides
+	174,  // 65: forge.VpcStatus.effective_routing_profile:type_name -> forge.VpcEffectiveRoutingProfile
+	1055, // 66: forge.Vpc.id:type_name -> common.VpcId
+	1054, // 67: forge.Vpc.created:type_name -> google.protobuf.Timestamp
+	1054, // 68: forge.Vpc.updated:type_name -> google.protobuf.Timestamp
+	1054, // 69: forge.Vpc.deleted:type_name -> google.protobuf.Timestamp
+>>>>>>> fab90f1e2 (review)
 	286,  // 70: forge.Vpc.metadata:type_name -> forge.Metadata
 	176,  // 71: forge.Vpc.status:type_name -> forge.VpcStatus
 	175,  // 72: forge.Vpc.config:type_name -> forge.VpcConfig
 	7,    // 73: forge.VpcCreationRequest.network_virtualization_type:type_name -> forge.VpcVirtualizationType
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1057, // 74: forge.VpcCreationRequest.id:type_name -> common.VpcId
 =======
@@ -76981,11 +78478,69 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1060, // 128: forge.IBPartition.id:type_name -> common.IBPartitionId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1055, // 74: forge.VpcCreationRequest.id:type_name -> common.VpcId
+	286,  // 75: forge.VpcCreationRequest.metadata:type_name -> forge.Metadata
+	1058, // 76: forge.VpcCreationRequest.default_nvlink_logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	173,  // 77: forge.VpcCreationRequest.routing_profile_overrides:type_name -> forge.VpcRoutingProfileOverrides
+	1055, // 78: forge.VpcUpdateRequest.id:type_name -> common.VpcId
+	286,  // 79: forge.VpcUpdateRequest.metadata:type_name -> forge.Metadata
+	1058, // 80: forge.VpcUpdateRequest.default_nvlink_logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	173,  // 81: forge.VpcUpdateRequest.routing_profile_overrides:type_name -> forge.VpcRoutingProfileOverrides
+	177,  // 82: forge.VpcUpdateResult.vpc:type_name -> forge.Vpc
+	1055, // 83: forge.VpcUpdateVirtualizationRequest.id:type_name -> common.VpcId
+	7,    // 84: forge.VpcUpdateVirtualizationRequest.network_virtualization_type:type_name -> forge.VpcVirtualizationType
+	1055, // 85: forge.VpcDeletionRequest.id:type_name -> common.VpcId
+	177,  // 86: forge.VpcList.vpcs:type_name -> forge.Vpc
+	1059, // 87: forge.VpcPrefix.id:type_name -> common.VpcPrefixId
+	1055, // 88: forge.VpcPrefix.vpc_id:type_name -> common.VpcId
+	187,  // 89: forge.VpcPrefix.config:type_name -> forge.VpcPrefixConfig
+	188,  // 90: forge.VpcPrefix.status:type_name -> forge.VpcPrefixStatus
+	286,  // 91: forge.VpcPrefix.metadata:type_name -> forge.Metadata
+	1060, // 92: forge.VpcPrefix.site_prefix_id:type_name -> common.SitePrefixId
+	108,  // 93: forge.VpcPrefixStatus.lifecycle:type_name -> forge.LifecycleStatus
+	9,    // 94: forge.VpcPrefixStatus.tenant_state:type_name -> forge.TenantState
+	1059, // 95: forge.VpcPrefixCreationRequest.id:type_name -> common.VpcPrefixId
+	1055, // 96: forge.VpcPrefixCreationRequest.vpc_id:type_name -> common.VpcId
+	187,  // 97: forge.VpcPrefixCreationRequest.config:type_name -> forge.VpcPrefixConfig
+	286,  // 98: forge.VpcPrefixCreationRequest.metadata:type_name -> forge.Metadata
+	1060, // 99: forge.VpcPrefixCreationRequest.site_prefix_id:type_name -> common.SitePrefixId
+	1055, // 100: forge.VpcPrefixSearchQuery.vpc_id:type_name -> common.VpcId
+	1059, // 101: forge.VpcPrefixSearchQuery.tenant_prefix_id:type_name -> common.VpcPrefixId
+	8,    // 102: forge.VpcPrefixSearchQuery.prefix_match_type:type_name -> forge.PrefixMatchType
+	11,   // 103: forge.VpcPrefixSearchQuery.deleted:type_name -> forge.DeletedFilter
+	1060, // 104: forge.VpcPrefixSearchQuery.site_prefix_id:type_name -> common.SitePrefixId
+	1059, // 105: forge.VpcPrefixGetRequest.vpc_prefix_ids:type_name -> common.VpcPrefixId
+	11,   // 106: forge.VpcPrefixGetRequest.deleted:type_name -> forge.DeletedFilter
+	1059, // 107: forge.VpcPrefixIdList.vpc_prefix_ids:type_name -> common.VpcPrefixId
+	186,  // 108: forge.VpcPrefixList.vpc_prefixes:type_name -> forge.VpcPrefix
+	1059, // 109: forge.VpcPrefixUpdateRequest.id:type_name -> common.VpcPrefixId
+	187,  // 110: forge.VpcPrefixUpdateRequest.config:type_name -> forge.VpcPrefixConfig
+	286,  // 111: forge.VpcPrefixUpdateRequest.metadata:type_name -> forge.Metadata
+	1059, // 112: forge.VpcPrefixDeletionRequest.id:type_name -> common.VpcPrefixId
+	1059, // 113: forge.VpcPrefixStateHistoriesRequest.vpc_prefix_ids:type_name -> common.VpcPrefixId
+	1061, // 114: forge.VpcPeering.id:type_name -> common.VpcPeeringId
+	1055, // 115: forge.VpcPeering.vpc_id:type_name -> common.VpcId
+	1055, // 116: forge.VpcPeering.peer_vpc_id:type_name -> common.VpcId
+	1061, // 117: forge.VpcPeeringIdList.vpc_peering_ids:type_name -> common.VpcPeeringId
+	198,  // 118: forge.VpcPeeringList.vpc_peerings:type_name -> forge.VpcPeering
+	1055, // 119: forge.VpcPeeringCreationRequest.vpc_id:type_name -> common.VpcId
+	1055, // 120: forge.VpcPeeringCreationRequest.peer_vpc_id:type_name -> common.VpcId
+	1061, // 121: forge.VpcPeeringCreationRequest.id:type_name -> common.VpcPeeringId
+	1055, // 122: forge.VpcPeeringSearchFilter.vpc_id:type_name -> common.VpcId
+	1061, // 123: forge.VpcPeeringsByIdsRequest.vpc_peering_ids:type_name -> common.VpcPeeringId
+	1061, // 124: forge.VpcPeeringDeletionRequest.id:type_name -> common.VpcPeeringId
+	9,    // 125: forge.IBPartitionStatus.state:type_name -> forge.TenantState
+	377,  // 126: forge.IBPartitionStatus.state_reason:type_name -> forge.ControllerStateReason
+	379,  // 127: forge.IBPartitionStatus.state_sla:type_name -> forge.StateSla
+	1062, // 128: forge.IBPartition.id:type_name -> common.IBPartitionId
+>>>>>>> fab90f1e2 (review)
 	206,  // 129: forge.IBPartition.config:type_name -> forge.IBPartitionConfig
 	207,  // 130: forge.IBPartition.status:type_name -> forge.IBPartitionStatus
 	286,  // 131: forge.IBPartition.metadata:type_name -> forge.Metadata
 	208,  // 132: forge.IBPartitionList.ib_partitions:type_name -> forge.IBPartition
 	206,  // 133: forge.IBPartitionCreationRequest.config:type_name -> forge.IBPartitionConfig
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1064, // 134: forge.IBPartitionCreationRequest.id:type_name -> common.IBPartitionId
 =======
@@ -77191,11 +78746,110 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1068, // 229: forge.NetworkSegmentConfig.subdomain_id:type_name -> common.DomainId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1062, // 134: forge.IBPartitionCreationRequest.id:type_name -> common.IBPartitionId
+	286,  // 135: forge.IBPartitionCreationRequest.metadata:type_name -> forge.Metadata
+	1062, // 136: forge.IBPartitionUpdateRequest.id:type_name -> common.IBPartitionId
+	206,  // 137: forge.IBPartitionUpdateRequest.config:type_name -> forge.IBPartitionConfig
+	286,  // 138: forge.IBPartitionUpdateRequest.metadata:type_name -> forge.Metadata
+	1062, // 139: forge.IBPartitionDeletionRequest.id:type_name -> common.IBPartitionId
+	1062, // 140: forge.IBPartitionsByIdsRequest.ib_partition_ids:type_name -> common.IBPartitionId
+	1062, // 141: forge.IBPartitionIdList.ib_partition_ids:type_name -> common.IBPartitionId
+	377,  // 142: forge.PowerShelfStatus.state_reason:type_name -> forge.ControllerStateReason
+	379,  // 143: forge.PowerShelfStatus.state_sla:type_name -> forge.StateSla
+	1063, // 144: forge.PowerShelfStatus.health:type_name -> health.HealthReport
+	376,  // 145: forge.PowerShelfStatus.health_sources:type_name -> forge.HealthSourceOrigin
+	108,  // 146: forge.PowerShelfStatus.lifecycle:type_name -> forge.LifecycleStatus
+	1064, // 147: forge.PowerShelf.id:type_name -> common.PowerShelfId
+	217,  // 148: forge.PowerShelf.config:type_name -> forge.PowerShelfConfig
+	218,  // 149: forge.PowerShelf.status:type_name -> forge.PowerShelfStatus
+	1054, // 150: forge.PowerShelf.deleted:type_name -> google.protobuf.Timestamp
+	286,  // 151: forge.PowerShelf.metadata:type_name -> forge.Metadata
+	362,  // 152: forge.PowerShelf.bmc_info:type_name -> forge.BmcInfo
+	1065, // 153: forge.PowerShelf.rack_id:type_name -> common.RackId
+	219,  // 154: forge.PowerShelfList.power_shelves:type_name -> forge.PowerShelf
+	217,  // 155: forge.PowerShelfCreationRequest.config:type_name -> forge.PowerShelfConfig
+	1064, // 156: forge.PowerShelfCreationRequest.id:type_name -> common.PowerShelfId
+	1064, // 157: forge.DecommissionPowerShelfRequest.power_shelf_id:type_name -> common.PowerShelfId
+	1064, // 158: forge.PowerShelfDeletionRequest.id:type_name -> common.PowerShelfId
+	1064, // 159: forge.PowerShelfMaintenanceRequest.power_shelf_ids:type_name -> common.PowerShelfId
+	10,   // 160: forge.PowerShelfMaintenanceRequest.operation:type_name -> forge.PowerShelfMaintenanceOperation
+	1064, // 161: forge.PowerShelfStateHistoriesRequest.power_shelf_ids:type_name -> common.PowerShelfId
+	1064, // 162: forge.PowerShelfHealthHistoriesRequest.power_shelf_ids:type_name -> common.PowerShelfId
+	1054, // 163: forge.PowerShelfHealthHistoriesRequest.start_time:type_name -> google.protobuf.Timestamp
+	1054, // 164: forge.PowerShelfHealthHistoriesRequest.end_time:type_name -> google.protobuf.Timestamp
+	1064, // 165: forge.PowerShelfQuery.power_shelf_id:type_name -> common.PowerShelfId
+	1065, // 166: forge.PowerShelfSearchFilter.rack_id:type_name -> common.RackId
+	11,   // 167: forge.PowerShelfSearchFilter.deleted:type_name -> forge.DeletedFilter
+	1064, // 168: forge.PowerShelvesByIdsRequest.power_shelf_ids:type_name -> common.PowerShelfId
+	286,  // 169: forge.ExpectedPowerShelf.metadata:type_name -> forge.Metadata
+	1065, // 170: forge.ExpectedPowerShelf.rack_id:type_name -> common.RackId
+	1066, // 171: forge.ExpectedPowerShelf.expected_power_shelf_id:type_name -> common.UUID
+	1066, // 172: forge.ExpectedPowerShelfRequest.expected_power_shelf_id:type_name -> common.UUID
+	232,  // 173: forge.ExpectedPowerShelfList.expected_power_shelves:type_name -> forge.ExpectedPowerShelf
+	236,  // 174: forge.LinkedExpectedPowerShelfList.expected_power_shelves:type_name -> forge.LinkedExpectedPowerShelf
+	1064, // 175: forge.LinkedExpectedPowerShelf.power_shelf_id:type_name -> common.PowerShelfId
+	1066, // 176: forge.LinkedExpectedPowerShelf.expected_power_shelf_id:type_name -> common.UUID
+	1065, // 177: forge.LinkedExpectedPowerShelf.rack_id:type_name -> common.RackId
+	238,  // 178: forge.SwitchConfig.fabric_manager_config:type_name -> forge.FabricManagerConfig
+	1018, // 179: forge.FabricManagerConfig.config_map:type_name -> forge.FabricManagerConfig.ConfigMapEntry
+	12,   // 180: forge.FabricManagerStatus.fabric_manager_state:type_name -> forge.FabricManagerState
+	377,  // 181: forge.SwitchStatus.state_reason:type_name -> forge.ControllerStateReason
+	379,  // 182: forge.SwitchStatus.state_sla:type_name -> forge.StateSla
+	1063, // 183: forge.SwitchStatus.health:type_name -> health.HealthReport
+	376,  // 184: forge.SwitchStatus.health_sources:type_name -> forge.HealthSourceOrigin
+	108,  // 185: forge.SwitchStatus.lifecycle:type_name -> forge.LifecycleStatus
+	239,  // 186: forge.SwitchStatus.fabric_manager_status_details:type_name -> forge.FabricManagerStatus
+	1067, // 187: forge.Switch.id:type_name -> common.SwitchId
+	237,  // 188: forge.Switch.config:type_name -> forge.SwitchConfig
+	240,  // 189: forge.Switch.status:type_name -> forge.SwitchStatus
+	1054, // 190: forge.Switch.deleted:type_name -> google.protobuf.Timestamp
+	362,  // 191: forge.Switch.bmc_info:type_name -> forge.BmcInfo
+	286,  // 192: forge.Switch.metadata:type_name -> forge.Metadata
+	1065, // 193: forge.Switch.rack_id:type_name -> common.RackId
+	241,  // 194: forge.Switch.placement_in_rack:type_name -> forge.PlacementInRack
+	363,  // 195: forge.Switch.nvos_info:type_name -> forge.SwitchNvosInfo
+	1068, // 196: forge.Switch.nvlink_domain_uuid:type_name -> common.NVLinkDomainId
+	242,  // 197: forge.SwitchList.switches:type_name -> forge.Switch
+	237,  // 198: forge.SwitchCreationRequest.config:type_name -> forge.SwitchConfig
+	1066, // 199: forge.SwitchCreationRequest.id:type_name -> common.UUID
+	241,  // 200: forge.SwitchCreationRequest.placement_in_rack:type_name -> forge.PlacementInRack
+	1067, // 201: forge.SwitchDeletionRequest.id:type_name -> common.SwitchId
+	1067, // 202: forge.DecommissionSwitchRequest.switch_id:type_name -> common.SwitchId
+	1054, // 203: forge.StateHistoryRecord.time:type_name -> google.protobuf.Timestamp
+	249,  // 204: forge.StateHistoryRecords.records:type_name -> forge.StateHistoryRecord
+	1067, // 205: forge.SwitchStateHistoriesRequest.switch_ids:type_name -> common.SwitchId
+	1067, // 206: forge.SwitchHealthHistoriesRequest.switch_ids:type_name -> common.SwitchId
+	1054, // 207: forge.SwitchHealthHistoriesRequest.start_time:type_name -> google.protobuf.Timestamp
+	1054, // 208: forge.SwitchHealthHistoriesRequest.end_time:type_name -> google.protobuf.Timestamp
+	1019, // 209: forge.StateHistories.histories:type_name -> forge.StateHistories.HistoriesEntry
+	1067, // 210: forge.SwitchQuery.switch_id:type_name -> common.SwitchId
+	1065, // 211: forge.SwitchSearchFilter.rack_id:type_name -> common.RackId
+	11,   // 212: forge.SwitchSearchFilter.deleted:type_name -> forge.DeletedFilter
+	1067, // 213: forge.SwitchesByIdsRequest.switch_ids:type_name -> common.SwitchId
+	286,  // 214: forge.ExpectedSwitch.metadata:type_name -> forge.Metadata
+	1065, // 215: forge.ExpectedSwitch.rack_id:type_name -> common.RackId
+	1066, // 216: forge.ExpectedSwitch.expected_switch_id:type_name -> common.UUID
+	1066, // 217: forge.ExpectedSwitchRequest.expected_switch_id:type_name -> common.UUID
+	257,  // 218: forge.ExpectedSwitchList.expected_switches:type_name -> forge.ExpectedSwitch
+	261,  // 219: forge.LinkedExpectedSwitchList.expected_switches:type_name -> forge.LinkedExpectedSwitch
+	1067, // 220: forge.LinkedExpectedSwitch.switch_id:type_name -> common.SwitchId
+	1066, // 221: forge.LinkedExpectedSwitch.expected_switch_id:type_name -> common.UUID
+	1065, // 222: forge.LinkedExpectedSwitch.rack_id:type_name -> common.RackId
+	1065, // 223: forge.ExpectedRack.rack_id:type_name -> common.RackId
+	1069, // 224: forge.ExpectedRack.rack_profile_id:type_name -> common.RackProfileId
+	286,  // 225: forge.ExpectedRack.metadata:type_name -> forge.Metadata
+	262,  // 226: forge.ExpectedRackList.expected_racks:type_name -> forge.ExpectedRack
+	1054, // 227: forge.NetworkSegmentStateHistory.time:type_name -> google.protobuf.Timestamp
+	1055, // 228: forge.NetworkSegmentConfig.vpc_id:type_name -> common.VpcId
+	1070, // 229: forge.NetworkSegmentConfig.subdomain_id:type_name -> common.DomainId
+>>>>>>> fab90f1e2 (review)
 	13,   // 230: forge.NetworkSegmentConfig.segment_type:type_name -> forge.NetworkSegmentType
 	280,  // 231: forge.NetworkSegmentConfig.prefixes:type_name -> forge.NetworkPrefix
 	14,   // 232: forge.NetworkSegmentStatus.flags:type_name -> forge.NetworkSegmentFlag
 	108,  // 233: forge.NetworkSegmentStatus.lifecycle:type_name -> forge.LifecycleStatus
 	9,    // 234: forge.NetworkSegmentStatus.tenant_state:type_name -> forge.TenantState
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1073, // 235: forge.NetworkSegment.id:type_name -> common.NetworkSegmentId
 	1057, // 236: forge.NetworkSegment.vpc_id:type_name -> common.VpcId
@@ -77223,6 +78877,15 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1052, // 241: forge.NetworkSegment.deleted:type_name -> google.protobuf.Timestamp
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1071, // 235: forge.NetworkSegment.id:type_name -> common.NetworkSegmentId
+	1055, // 236: forge.NetworkSegment.vpc_id:type_name -> common.VpcId
+	1070, // 237: forge.NetworkSegment.subdomain_id:type_name -> common.DomainId
+	280,  // 238: forge.NetworkSegment.prefixes:type_name -> forge.NetworkPrefix
+	1054, // 239: forge.NetworkSegment.created:type_name -> google.protobuf.Timestamp
+	1054, // 240: forge.NetworkSegment.updated:type_name -> google.protobuf.Timestamp
+	1054, // 241: forge.NetworkSegment.deleted:type_name -> google.protobuf.Timestamp
+>>>>>>> fab90f1e2 (review)
 	13,   // 242: forge.NetworkSegment.segment_type:type_name -> forge.NetworkSegmentType
 	14,   // 243: forge.NetworkSegment.flags:type_name -> forge.NetworkSegmentFlag
 	268,  // 244: forge.NetworkSegment.config:type_name -> forge.NetworkSegmentConfig
@@ -77232,6 +78895,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	267,  // 248: forge.NetworkSegment.history:type_name -> forge.NetworkSegmentStateHistory
 	377,  // 249: forge.NetworkSegment.state_reason:type_name -> forge.ControllerStateReason
 	379,  // 250: forge.NetworkSegment.state_sla:type_name -> forge.StateSla
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1057, // 251: forge.NetworkSegmentCreationRequest.vpc_id:type_name -> common.VpcId
 	1072, // 252: forge.NetworkSegmentCreationRequest.subdomain_id:type_name -> common.DomainId
@@ -77288,10 +78952,35 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1071, // 272: forge.InstanceAllocationRequest.instance_id:type_name -> common.InstanceId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1055, // 251: forge.NetworkSegmentCreationRequest.vpc_id:type_name -> common.VpcId
+	1070, // 252: forge.NetworkSegmentCreationRequest.subdomain_id:type_name -> common.DomainId
+	280,  // 253: forge.NetworkSegmentCreationRequest.prefixes:type_name -> forge.NetworkPrefix
+	13,   // 254: forge.NetworkSegmentCreationRequest.segment_type:type_name -> forge.NetworkSegmentType
+	1071, // 255: forge.NetworkSegmentCreationRequest.id:type_name -> common.NetworkSegmentId
+	1071, // 256: forge.NetworkSegmentDeletionRequest.id:type_name -> common.NetworkSegmentId
+	1071, // 257: forge.AttachNetworkSegmentToVpcRequest.network_segment_id:type_name -> common.NetworkSegmentId
+	1055, // 258: forge.AttachNetworkSegmentToVpcRequest.vpc_id:type_name -> common.VpcId
+	1071, // 259: forge.NetworkSegmentStateHistoriesRequest.network_segment_ids:type_name -> common.NetworkSegmentId
+	1071, // 260: forge.NetworkSegmentIdList.network_segments_ids:type_name -> common.NetworkSegmentId
+	1071, // 261: forge.NetworkSegmentsByIdsRequest.network_segments_ids:type_name -> common.NetworkSegmentId
+	1072, // 262: forge.NetworkPrefix.id:type_name -> common.NetworkPrefixId
+	92,   // 263: forge.InstancePowerRequest.operation:type_name -> forge.InstancePowerRequest.Operation
+	1073, // 264: forge.InstancePowerRequest.instance_id:type_name -> common.InstanceId
+	319,  // 265: forge.InstanceList.instances:type_name -> forge.Instance
+	285,  // 266: forge.Metadata.labels:type_name -> forge.Label
+	285,  // 267: forge.InstanceSearchFilter.label:type_name -> forge.Label
+	1073, // 268: forge.InstanceIdList.instance_ids:type_name -> common.InstanceId
+	1073, // 269: forge.InstancesByIdsRequest.instance_ids:type_name -> common.InstanceId
+	1053, // 270: forge.InstanceAllocationRequest.machine_id:type_name -> common.MachineId
+	299,  // 271: forge.InstanceAllocationRequest.config:type_name -> forge.InstanceConfig
+	1073, // 272: forge.InstanceAllocationRequest.instance_id:type_name -> common.InstanceId
+>>>>>>> fab90f1e2 (review)
 	286,  // 273: forge.InstanceAllocationRequest.metadata:type_name -> forge.Metadata
 	290,  // 274: forge.BatchInstanceAllocationRequest.instance_requests:type_name -> forge.InstanceAllocationRequest
 	319,  // 275: forge.BatchInstanceAllocationResponse.instances:type_name -> forge.Instance
 	15,   // 276: forge.IpxeTemplateArtifact.cache_strategy:type_name -> forge.IpxeTemplateArtifactCacheStrategy
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1076, // 277: forge.IpxeTemplate.id:type_name -> common.IpxeTemplateId
 	16,   // 278: forge.IpxeTemplate.visibility:type_name -> forge.IpxeTemplateVisibility
@@ -77313,6 +79002,13 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1073, // 281: forge.InstanceOperatingSystemConfig.operating_system_id:type_name -> common.OperatingSystemId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1074, // 277: forge.IpxeTemplate.id:type_name -> common.IpxeTemplateId
+	16,   // 278: forge.IpxeTemplate.visibility:type_name -> forge.IpxeTemplateVisibility
+	298,  // 279: forge.InstanceOperatingSystemConfig.ipxe:type_name -> forge.InlineIpxe
+	1066, // 280: forge.InstanceOperatingSystemConfig.os_image_id:type_name -> common.UUID
+	1075, // 281: forge.InstanceOperatingSystemConfig.operating_system_id:type_name -> common.OperatingSystemId
+>>>>>>> fab90f1e2 (review)
 	296,  // 282: forge.InstanceConfig.tenant:type_name -> forge.TenantConfig
 	297,  // 283: forge.InstanceConfig.os:type_name -> forge.InstanceOperatingSystemConfig
 	300,  // 284: forge.InstanceConfig.network:type_name -> forge.InstanceNetworkConfig
@@ -77323,6 +79019,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	321,  // 289: forge.InstanceNetworkConfig.interfaces:type_name -> forge.InstanceInterfaceConfig
 	301,  // 290: forge.InstanceNetworkConfig.auto_config:type_name -> forge.InstanceNetworkAutoConfig
 <<<<<<< HEAD
+<<<<<<< HEAD
 	1057, // 291: forge.InstanceNetworkAutoConfig.vpc_id:type_name -> common.VpcId
 =======
 <<<<<<< HEAD
@@ -77331,10 +79028,14 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1053, // 291: forge.InstanceNetworkAutoConfig.vpc_id:type_name -> common.VpcId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1055, // 291: forge.InstanceNetworkAutoConfig.vpc_id:type_name -> common.VpcId
+>>>>>>> fab90f1e2 (review)
 	325,  // 292: forge.InstanceInfinibandConfig.ib_interfaces:type_name -> forge.InstanceIBInterfaceConfig
 	303,  // 293: forge.InstanceDpuExtensionServicesConfig.service_configs:type_name -> forge.InstanceDpuExtensionServiceConfig
 	330,  // 294: forge.InstanceNVLinkConfig.gpu_configs:type_name -> forge.InstanceNVLinkGpuConfig
 	307,  // 295: forge.InstanceSpxConfig.spx_attachments:type_name -> forge.InstanceSpxAttachment
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1078, // 296: forge.InstanceSpxAttachment.spx_partition_id:type_name -> common.SpxPartitionId
 =======
@@ -77356,6 +79057,13 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1071, // 300: forge.InstanceConfigUpdateRequest.instance_id:type_name -> common.InstanceId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1076, // 296: forge.InstanceSpxAttachment.spx_partition_id:type_name -> common.SpxPartitionId
+	17,   // 297: forge.InstanceSpxAttachment.attachment_type:type_name -> forge.SpxAttachmentType
+	1073, // 298: forge.InstanceOperatingSystemUpdateRequest.instance_id:type_name -> common.InstanceId
+	297,  // 299: forge.InstanceOperatingSystemUpdateRequest.os:type_name -> forge.InstanceOperatingSystemConfig
+	1073, // 300: forge.InstanceConfigUpdateRequest.instance_id:type_name -> common.InstanceId
+>>>>>>> fab90f1e2 (review)
 	299,  // 301: forge.InstanceConfigUpdateRequest.config:type_name -> forge.InstanceConfig
 	286,  // 302: forge.InstanceConfigUpdateRequest.metadata:type_name -> forge.Metadata
 	380,  // 303: forge.InstanceStatus.tenant:type_name -> forge.InstanceTenantStatus
@@ -77370,6 +79078,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	25,   // 312: forge.InstanceSpxStatus.configs_synced:type_name -> forge.SyncState
 	17,   // 313: forge.InstanceSpxAttachmentStatus.attachment_type:type_name -> forge.SpxAttachmentType
 <<<<<<< HEAD
+<<<<<<< HEAD
 	1078, // 314: forge.InstanceSpxAttachmentStatus.spx_partition_id:type_name -> common.SpxPartitionId
 =======
 <<<<<<< HEAD
@@ -77378,10 +79087,14 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1074, // 314: forge.InstanceSpxAttachmentStatus.spx_partition_id:type_name -> common.SpxPartitionId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1076, // 314: forge.InstanceSpxAttachmentStatus.spx_partition_id:type_name -> common.SpxPartitionId
+>>>>>>> fab90f1e2 (review)
 	327,  // 315: forge.InstanceNetworkStatus.interfaces:type_name -> forge.InstanceInterfaceStatus
 	25,   // 316: forge.InstanceNetworkStatus.configs_synced:type_name -> forge.SyncState
 	328,  // 317: forge.InstanceInfinibandStatus.ib_interfaces:type_name -> forge.InstanceIBInterfaceStatus
 	25,   // 318: forge.InstanceInfinibandStatus.configs_synced:type_name -> forge.SyncState
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 319: forge.DpuExtensionServiceStatus.dpu_machine_id:type_name -> common.MachineId
 =======
@@ -77391,6 +79104,9 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 319: forge.DpuExtensionServiceStatus.dpu_machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 319: forge.DpuExtensionServiceStatus.dpu_machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	76,   // 320: forge.DpuExtensionServiceStatus.status:type_name -> forge.DpuExtensionServiceDeploymentStatus
 	477,  // 321: forge.DpuExtensionServiceStatus.components:type_name -> forge.DpuExtensionServiceComponent
 	76,   // 322: forge.InstanceDpuExtensionServiceStatus.deployment_status:type_name -> forge.DpuExtensionServiceDeploymentStatus
@@ -77399,6 +79115,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	25,   // 325: forge.InstanceDpuExtensionServicesStatus.configs_synced:type_name -> forge.SyncState
 	329,  // 326: forge.InstanceNVLinkStatus.gpu_statuses:type_name -> forge.InstanceNVLinkGpuStatus
 	25,   // 327: forge.InstanceNVLinkStatus.configs_synced:type_name -> forge.SyncState
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1075, // 328: forge.Instance.id:type_name -> common.InstanceId
 	1055, // 329: forge.Instance.machine_id:type_name -> common.MachineId
@@ -77411,10 +79128,15 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 329: forge.Instance.machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1073, // 328: forge.Instance.id:type_name -> common.InstanceId
+	1053, // 329: forge.Instance.machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	286,  // 330: forge.Instance.metadata:type_name -> forge.Metadata
 	299,  // 331: forge.Instance.config:type_name -> forge.InstanceConfig
 	310,  // 332: forge.Instance.status:type_name -> forge.InstanceStatus
 	93,   // 333: forge.InstanceUpdateStatus.module:type_name -> forge.InstanceUpdateStatus.Module
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1056, // 334: forge.InstanceUpdateStatus.trigger_received_at:type_name -> google.protobuf.Timestamp
 	1056, // 335: forge.InstanceUpdateStatus.update_triggered_at:type_name -> google.protobuf.Timestamp
@@ -77565,6 +79287,74 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1061, // 399: forge.MachineStatus.health:type_name -> health.HealthReport
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1054, // 334: forge.InstanceUpdateStatus.trigger_received_at:type_name -> google.protobuf.Timestamp
+	1054, // 335: forge.InstanceUpdateStatus.update_triggered_at:type_name -> google.protobuf.Timestamp
+	41,   // 336: forge.InstanceInterfaceConfig.function_type:type_name -> forge.InterfaceFunctionType
+	1071, // 337: forge.InstanceInterfaceConfig.network_segment_id:type_name -> common.NetworkSegmentId
+	1071, // 338: forge.InstanceInterfaceConfig.segment_id:type_name -> common.NetworkSegmentId
+	1059, // 339: forge.InstanceInterfaceConfig.vpc_prefix_id:type_name -> common.VpcPrefixId
+	322,  // 340: forge.InstanceInterfaceConfig.vpc:type_name -> forge.InstanceInterfaceVpcSelection
+	323,  // 341: forge.InstanceInterfaceConfig.ipv6_interface_config:type_name -> forge.InstanceInterfaceIpv6Config
+	324,  // 342: forge.InstanceInterfaceConfig.routing_profile:type_name -> forge.InstanceInterfaceRoutingProfile
+	1055, // 343: forge.InstanceInterfaceVpcSelection.vpc_id:type_name -> common.VpcId
+	18,   // 344: forge.InstanceInterfaceVpcSelection.family_mode:type_name -> forge.InstanceInterfaceIpFamilyMode
+	1059, // 345: forge.InstanceInterfaceIpv6Config.vpc_prefix_id:type_name -> common.VpcPrefixId
+	910,  // 346: forge.InstanceInterfaceRoutingProfile.allowed_anycast_prefixes:type_name -> forge.PrefixFilterPolicyEntry
+	41,   // 347: forge.InstanceIBInterfaceConfig.function_type:type_name -> forge.InterfaceFunctionType
+	1062, // 348: forge.InstanceIBInterfaceConfig.ib_partition_id:type_name -> common.IBPartitionId
+	1059, // 349: forge.InstanceInterfaceResolvedVpcPrefixes.ipv4_vpc_prefix_id:type_name -> common.VpcPrefixId
+	1059, // 350: forge.InstanceInterfaceResolvedVpcPrefixes.ipv6_vpc_prefix_id:type_name -> common.VpcPrefixId
+	1055, // 351: forge.InstanceInterfaceStatus.vpc_id:type_name -> common.VpcId
+	326,  // 352: forge.InstanceInterfaceStatus.resolved_vpc_prefixes:type_name -> forge.InstanceInterfaceResolvedVpcPrefixes
+	1068, // 353: forge.InstanceNVLinkGpuStatus.domain_id:type_name -> common.NVLinkDomainId
+	1058, // 354: forge.InstanceNVLinkGpuStatus.logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 355: forge.InstanceNVLinkGpuConfig.logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	1073, // 356: forge.InstancePhoneHomeLastContactRequest.instance_id:type_name -> common.InstanceId
+	1054, // 357: forge.InstancePhoneHomeLastContactResponse.timestamp:type_name -> google.protobuf.Timestamp
+	19,   // 358: forge.Issue.category:type_name -> forge.IssueCategory
+	334,  // 359: forge.DeleteAttribution.initiated_by:type_name -> forge.DeleteInitiatedBy
+	1073, // 360: forge.InstanceReleaseRequest.id:type_name -> common.InstanceId
+	333,  // 361: forge.InstanceReleaseRequest.issue:type_name -> forge.Issue
+	335,  // 362: forge.InstanceReleaseRequest.delete_attribution:type_name -> forge.DeleteAttribution
+	1053, // 363: forge.MachinesByIdsRequest.machine_ids:type_name -> common.MachineId
+	1065, // 364: forge.MachineSearchConfig.rack_id:type_name -> common.RackId
+	1053, // 365: forge.MachineStateHistoriesRequest.machine_ids:type_name -> common.MachineId
+	1020, // 366: forge.MachineStateHistories.histories:type_name -> forge.MachineStateHistories.HistoriesEntry
+	381,  // 367: forge.MachineStateHistoryRecords.records:type_name -> forge.MachineEvent
+	1053, // 368: forge.MachineHealthHistoriesRequest.machine_ids:type_name -> common.MachineId
+	1054, // 369: forge.MachineHealthHistoriesRequest.start_time:type_name -> google.protobuf.Timestamp
+	1054, // 370: forge.MachineHealthHistoriesRequest.end_time:type_name -> google.protobuf.Timestamp
+	1021, // 371: forge.HealthHistories.histories:type_name -> forge.HealthHistories.HistoriesEntry
+	346,  // 372: forge.HealthHistoryRecords.records:type_name -> forge.HealthHistoryRecord
+	1063, // 373: forge.HealthHistoryRecord.health:type_name -> health.HealthReport
+	1054, // 374: forge.HealthHistoryRecord.time:type_name -> google.protobuf.Timestamp
+	498,  // 375: forge.TenantList.tenants:type_name -> forge.Tenant
+	382,  // 376: forge.InterfaceList.interfaces:type_name -> forge.MachineInterface
+	366,  // 377: forge.MachineList.machines:type_name -> forge.Machine
+	1077, // 378: forge.InterfaceDeleteQuery.id:type_name -> common.MachineInterfaceId
+	1077, // 379: forge.InterfaceSearchQuery.id:type_name -> common.MachineInterfaceId
+	1077, // 380: forge.AssignStaticAddressRequest.interface_id:type_name -> common.MachineInterfaceId
+	1077, // 381: forge.AssignStaticAddressResponse.interface_id:type_name -> common.MachineInterfaceId
+	20,   // 382: forge.AssignStaticAddressResponse.status:type_name -> forge.AssignStaticAddressStatus
+	1077, // 383: forge.RemoveStaticAddressRequest.interface_id:type_name -> common.MachineInterfaceId
+	1077, // 384: forge.RemoveStaticAddressResponse.interface_id:type_name -> common.MachineInterfaceId
+	21,   // 385: forge.RemoveStaticAddressResponse.status:type_name -> forge.RemoveStaticAddressStatus
+	1077, // 386: forge.FindInterfaceAddressesRequest.interface_id:type_name -> common.MachineInterfaceId
+	1077, // 387: forge.FindInterfaceAddressesResponse.interface_id:type_name -> common.MachineInterfaceId
+	360,  // 388: forge.FindInterfaceAddressesResponse.addresses:type_name -> forge.InterfaceAddress
+	1077, // 389: forge.BmcInfo.machine_interface_id:type_name -> common.MachineInterfaceId
+	1054, // 390: forge.MachineConfig.maintenance_start_time:type_name -> google.protobuf.Timestamp
+	367,  // 391: forge.MachineConfig.dpf:type_name -> forge.DpfMachineState
+	382,  // 392: forge.MachineStatus.interfaces:type_name -> forge.MachineInterface
+	1078, // 393: forge.MachineStatus.discovery_info:type_name -> machine_discovery.DiscoveryInfo
+	1054, // 394: forge.MachineStatus.last_reboot_time:type_name -> google.protobuf.Timestamp
+	1054, // 395: forge.MachineStatus.last_observation_time:type_name -> google.protobuf.Timestamp
+	1053, // 396: forge.MachineStatus.associated_host_machine_id:type_name -> common.MachineId
+	1053, // 397: forge.MachineStatus.associated_dpu_machine_ids:type_name -> common.MachineId
+	1054, // 398: forge.MachineStatus.last_reboot_requested_time:type_name -> google.protobuf.Timestamp
+	1063, // 399: forge.MachineStatus.health:type_name -> health.HealthReport
+>>>>>>> fab90f1e2 (review)
 	376,  // 400: forge.MachineStatus.health_sources:type_name -> forge.HealthSourceOrigin
 	383,  // 401: forge.MachineStatus.infiniband:type_name -> forge.InfinibandStatusObservation
 	672,  // 402: forge.MachineStatus.capabilities:type_name -> forge.MachineCapabilitiesSet
@@ -77576,6 +79366,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	368,  // 408: forge.MachineStatus.instance_network_restrictions:type_name -> forge.InstanceNetworkRestrictions
 	108,  // 409: forge.MachineStatus.lifecycle:type_name -> forge.LifecycleStatus
 <<<<<<< HEAD
+<<<<<<< HEAD
 	1055, // 410: forge.Machine.id:type_name -> common.MachineId
 =======
 <<<<<<< HEAD
@@ -77584,10 +79375,14 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 410: forge.Machine.id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 410: forge.Machine.id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	377,  // 411: forge.Machine.state_reason:type_name -> forge.ControllerStateReason
 	379,  // 412: forge.Machine.state_sla:type_name -> forge.StateSla
 	381,  // 413: forge.Machine.events:type_name -> forge.MachineEvent
 	382,  // 414: forge.Machine.interfaces:type_name -> forge.MachineInterface
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1080, // 415: forge.Machine.discovery_info:type_name -> machine_discovery.DiscoveryInfo
 =======
@@ -77623,6 +79418,19 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1061, // 425: forge.Machine.health:type_name -> health.HealthReport
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1078, // 415: forge.Machine.discovery_info:type_name -> machine_discovery.DiscoveryInfo
+	22,   // 416: forge.Machine.machine_type:type_name -> forge.MachineType
+	362,  // 417: forge.Machine.bmc_info:type_name -> forge.BmcInfo
+	1054, // 418: forge.Machine.last_reboot_time:type_name -> google.protobuf.Timestamp
+	1054, // 419: forge.Machine.last_observation_time:type_name -> google.protobuf.Timestamp
+	1054, // 420: forge.Machine.maintenance_start_time:type_name -> google.protobuf.Timestamp
+	1053, // 421: forge.Machine.associated_host_machine_id:type_name -> common.MachineId
+	374,  // 422: forge.Machine.inventory:type_name -> forge.MachineComponentInventory
+	1054, // 423: forge.Machine.last_reboot_requested_time:type_name -> google.protobuf.Timestamp
+	1053, // 424: forge.Machine.associated_dpu_machine_ids:type_name -> common.MachineId
+	1063, // 425: forge.Machine.health:type_name -> health.HealthReport
+>>>>>>> fab90f1e2 (review)
 	376,  // 426: forge.Machine.health_sources:type_name -> forge.HealthSourceOrigin
 	383,  // 427: forge.Machine.ib_status:type_name -> forge.InfinibandStatusObservation
 	286,  // 428: forge.Machine.metadata:type_name -> forge.Metadata
@@ -77630,6 +79438,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	672,  // 430: forge.Machine.capabilities:type_name -> forge.MachineCapabilitiesSet
 	745,  // 431: forge.Machine.hw_sku_status:type_name -> forge.SkuStatus
 	412,  // 432: forge.Machine.quarantine_state:type_name -> forge.ManagedHostQuarantineState
+<<<<<<< HEAD
 <<<<<<< HEAD
 	799,  // 433: forge.Machine.nvlink_info:type_name -> forge.MachineNVLinkInfo
 	809,  // 434: forge.Machine.nvlink_status_observation:type_name -> forge.MachineNVLinkStatusObservation
@@ -77645,12 +79454,18 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1063, // 435: forge.Machine.rack_id:type_name -> common.RackId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	796,  // 433: forge.Machine.nvlink_info:type_name -> forge.MachineNVLinkInfo
+	806,  // 434: forge.Machine.nvlink_status_observation:type_name -> forge.MachineNVLinkStatusObservation
+	1065, // 435: forge.Machine.rack_id:type_name -> common.RackId
+>>>>>>> fab90f1e2 (review)
 	241,  // 436: forge.Machine.placement_in_rack:type_name -> forge.PlacementInRack
 	801,  // 437: forge.Machine.spx_status_observation:type_name -> forge.MachineSpxStatusObservation
 	367,  // 438: forge.Machine.dpf:type_name -> forge.DpfMachineState
 	364,  // 439: forge.Machine.config:type_name -> forge.MachineConfig
 	365,  // 440: forge.Machine.status:type_name -> forge.MachineStatus
 	23,   // 441: forge.InstanceNetworkRestrictions.network_segment_membership_type:type_name -> forge.InstanceNetworkSegmentMembershipType
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1073, // 442: forge.InstanceNetworkRestrictions.network_segment_ids:type_name -> common.NetworkSegmentId
 	1055, // 443: forge.MachineMetadataUpdateRequest.machine_id:type_name -> common.MachineId
@@ -77683,11 +79498,24 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 451: forge.DpuAgentInventoryReport.machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1071, // 442: forge.InstanceNetworkRestrictions.network_segment_ids:type_name -> common.NetworkSegmentId
+	1053, // 443: forge.MachineMetadataUpdateRequest.machine_id:type_name -> common.MachineId
+	286,  // 444: forge.MachineMetadataUpdateRequest.metadata:type_name -> forge.Metadata
+	1065, // 445: forge.RackMetadataUpdateRequest.rack_id:type_name -> common.RackId
+	286,  // 446: forge.RackMetadataUpdateRequest.metadata:type_name -> forge.Metadata
+	1067, // 447: forge.SwitchMetadataUpdateRequest.switch_id:type_name -> common.SwitchId
+	286,  // 448: forge.SwitchMetadataUpdateRequest.metadata:type_name -> forge.Metadata
+	1064, // 449: forge.PowerShelfMetadataUpdateRequest.power_shelf_id:type_name -> common.PowerShelfId
+	286,  // 450: forge.PowerShelfMetadataUpdateRequest.metadata:type_name -> forge.Metadata
+	1053, // 451: forge.DpuAgentInventoryReport.machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	374,  // 452: forge.DpuAgentInventoryReport.inventory:type_name -> forge.MachineComponentInventory
 	375,  // 453: forge.MachineComponentInventory.components:type_name -> forge.MachineInventorySoftwareComponent
 	42,   // 454: forge.HealthSourceOrigin.mode:type_name -> forge.HealthReportApplyMode
 	24,   // 455: forge.ControllerStateReason.outcome:type_name -> forge.ControllerStateOutcome
 	378,  // 456: forge.ControllerStateReason.source_ref:type_name -> forge.ControllerStateSourceReference
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1081, // 457: forge.StateSla.sla:type_name -> google.protobuf.Duration
 =======
@@ -77757,11 +79585,43 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1065, // 485: forge.GetSwitchNvosCredentialsRequest.switch_id:type_name -> common.SwitchId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1079, // 457: forge.StateSla.sla:type_name -> google.protobuf.Duration
+	9,    // 458: forge.InstanceTenantStatus.state:type_name -> forge.TenantState
+	1054, // 459: forge.MachineEvent.time:type_name -> google.protobuf.Timestamp
+	1077, // 460: forge.MachineInterface.id:type_name -> common.MachineInterfaceId
+	1053, // 461: forge.MachineInterface.attached_dpu_machine_id:type_name -> common.MachineId
+	1053, // 462: forge.MachineInterface.machine_id:type_name -> common.MachineId
+	1071, // 463: forge.MachineInterface.segment_id:type_name -> common.NetworkSegmentId
+	1070, // 464: forge.MachineInterface.domain_id:type_name -> common.DomainId
+	1054, // 465: forge.MachineInterface.created:type_name -> google.protobuf.Timestamp
+	1054, // 466: forge.MachineInterface.last_dhcp:type_name -> google.protobuf.Timestamp
+	1064, // 467: forge.MachineInterface.power_shelf_id:type_name -> common.PowerShelfId
+	1067, // 468: forge.MachineInterface.switch_id:type_name -> common.SwitchId
+	27,   // 469: forge.MachineInterface.association_type:type_name -> forge.InterfaceAssociationType
+	28,   // 470: forge.MachineInterface.interface_type:type_name -> forge.InterfaceType
+	384,  // 471: forge.InfinibandStatusObservation.ib_interfaces:type_name -> forge.MachineIbInterface
+	1054, // 472: forge.InfinibandStatusObservation.observed_at:type_name -> google.protobuf.Timestamp
+	1080, // 473: forge.MachineIbInterface.associated_pkeys:type_name -> common.StringList
+	1080, // 474: forge.MachineIbInterface.associated_partition_ids:type_name -> common.StringList
+	29,   // 475: forge.DhcpDiscovery.address_family:type_name -> forge.AddressFamily
+	30,   // 476: forge.DhcpDiscovery.message_kind:type_name -> forge.MessageKind
+	31,   // 477: forge.ExpireDhcpLeaseResponse.status:type_name -> forge.ExpireDhcpLeaseStatus
+	1053, // 478: forge.DhcpRecord.machine_id:type_name -> common.MachineId
+	1077, // 479: forge.DhcpRecord.machine_interface_id:type_name -> common.MachineInterfaceId
+	1071, // 480: forge.DhcpRecord.segment_id:type_name -> common.NetworkSegmentId
+	1070, // 481: forge.DhcpRecord.subdomain_id:type_name -> common.DomainId
+	1054, // 482: forge.DhcpRecord.last_invalidation_time:type_name -> google.protobuf.Timestamp
+	270,  // 483: forge.NetworkSegmentList.network_segments:type_name -> forge.NetworkSegment
+	32,   // 484: forge.SSHKeyValidationResponse.role:type_name -> forge.UserRoles
+	1067, // 485: forge.GetSwitchNvosCredentialsRequest.switch_id:type_name -> common.SwitchId
+>>>>>>> fab90f1e2 (review)
 	395,  // 486: forge.GetBmcCredentialsResponse.credentials:type_name -> forge.BmcCredentials
 	878,  // 487: forge.BmcCredentials.username_password:type_name -> forge.UsernamePassword
 	879,  // 488: forge.BmcCredentials.session_token:type_name -> forge.SessionToken
 	403,  // 489: forge.SshRequest.endpoint_request:type_name -> forge.BmcEndpointRequest
 	405,  // 490: forge.CopyBfbToDpuRshimRequest.ssh_request:type_name -> forge.SshRequest
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 491: forge.UpdateMachineHardwareInfoRequest.machine_id:type_name -> common.MachineId
 =======
@@ -77805,6 +79665,23 @@ var file_nico_nico_proto_depIdxs = []int32{
 	718,  // 505: forge.ManagedHostNetworkConfigResponse.network_security_policy_overrides:type_name -> forge.ResolvedNetworkSecurityGroupRule
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 491: forge.UpdateMachineHardwareInfoRequest.machine_id:type_name -> common.MachineId
+	408,  // 492: forge.UpdateMachineHardwareInfoRequest.info:type_name -> forge.MachineHardwareInfo
+	33,   // 493: forge.UpdateMachineHardwareInfoRequest.update_type:type_name -> forge.MachineHardwareInfoUpdateType
+	1081, // 494: forge.MachineHardwareInfo.gpus:type_name -> machine_discovery.Gpu
+	1053, // 495: forge.ManagedHostNetworkConfigRequest.dpu_machine_id:type_name -> common.MachineId
+	419,  // 496: forge.ManagedHostNetworkConfigResponse.managed_host_config:type_name -> forge.ManagedHostNetworkConfig
+	420,  // 497: forge.ManagedHostNetworkConfigResponse.admin_interface:type_name -> forge.FlatInterfaceConfig
+	420,  // 498: forge.ManagedHostNetworkConfigResponse.tenant_interfaces:type_name -> forge.FlatInterfaceConfig
+	1073, // 499: forge.ManagedHostNetworkConfigResponse.instance_id:type_name -> common.InstanceId
+	7,    // 500: forge.ManagedHostNetworkConfigResponse.network_virtualization_type:type_name -> forge.VpcVirtualizationType
+	35,   // 501: forge.ManagedHostNetworkConfigResponse.vpc_isolation_behavior:type_name -> forge.VpcIsolationBehaviorType
+	319,  // 502: forge.ManagedHostNetworkConfigResponse.instance:type_name -> forge.Instance
+	1057, // 503: forge.ManagedHostNetworkConfigResponse.common_internal_route_target:type_name -> common.RouteTarget
+	1057, // 504: forge.ManagedHostNetworkConfigResponse.additional_route_target_imports:type_name -> common.RouteTarget
+	720,  // 505: forge.ManagedHostNetworkConfigResponse.network_security_policy_overrides:type_name -> forge.ResolvedNetworkSecurityGroupRule
+>>>>>>> fab90f1e2 (review)
 	411,  // 506: forge.ManagedHostNetworkConfigResponse.dpu_extension_services:type_name -> forge.ManagedHostDpuExtensionServiceConfig
 	914,  // 507: forge.ManagedHostNetworkConfigResponse.routing_profile:type_name -> forge.RoutingProfile
 	803,  // 508: forge.ManagedHostNetworkConfigResponse.astra_config:type_name -> forge.AstraConfig
@@ -77812,6 +79689,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	880,  // 510: forge.ManagedHostDpuExtensionServiceConfig.credential:type_name -> forge.DpuExtensionServiceCredential
 	899,  // 511: forge.ManagedHostDpuExtensionServiceConfig.observability:type_name -> forge.DpuExtensionServiceObservability
 	34,   // 512: forge.ManagedHostQuarantineState.mode:type_name -> forge.ManagedHostQuarantineMode
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 513: forge.GetManagedHostQuarantineStateRequest.machine_id:type_name -> common.MachineId
 =======
@@ -77835,12 +79713,21 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 518: forge.ClearManagedHostQuarantineStateRequest.machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 513: forge.GetManagedHostQuarantineStateRequest.machine_id:type_name -> common.MachineId
+	412,  // 514: forge.GetManagedHostQuarantineStateResponse.quarantine_state:type_name -> forge.ManagedHostQuarantineState
+	1053, // 515: forge.SetManagedHostQuarantineStateRequest.machine_id:type_name -> common.MachineId
+	412,  // 516: forge.SetManagedHostQuarantineStateRequest.quarantine_state:type_name -> forge.ManagedHostQuarantineState
+	412,  // 517: forge.SetManagedHostQuarantineStateResponse.prior_quarantine_state:type_name -> forge.ManagedHostQuarantineState
+	1053, // 518: forge.ClearManagedHostQuarantineStateRequest.machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	412,  // 519: forge.ClearManagedHostQuarantineStateResponse.prior_quarantine_state:type_name -> forge.ManagedHostQuarantineState
 	412,  // 520: forge.ManagedHostNetworkConfig.quarantine_state:type_name -> forge.ManagedHostQuarantineState
 	41,   // 521: forge.FlatInterfaceConfig.function_type:type_name -> forge.InterfaceFunctionType
 	422,  // 522: forge.FlatInterfaceConfig.ipv6_interface_config:type_name -> forge.FlatInterfaceIpv6Config
 	914,  // 523: forge.FlatInterfaceConfig.vpc_routing_profile:type_name -> forge.RoutingProfile
 	421,  // 524: forge.FlatInterfaceConfig.interface_routing_profile:type_name -> forge.FlatInterfaceRoutingProfile
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1015, // 525: forge.FlatInterfaceConfig.addresses:type_name -> forge.InterfaceAddressConfig
 	423,  // 526: forge.FlatInterfaceConfig.network_security_group:type_name -> forge.FlatInterfaceNetworkSecurityGroupConfig
@@ -77849,9 +79736,13 @@ var file_nico_nico_proto_depIdxs = []int32{
 =======
 <<<<<<< HEAD
 	1012, // 525: forge.FlatInterfaceConfig.addresses:type_name -> forge.InterfaceAddressConfig
+=======
+	1013, // 525: forge.FlatInterfaceConfig.addresses:type_name -> forge.InterfaceAddressConfig
+>>>>>>> fab90f1e2 (review)
 	423,  // 526: forge.FlatInterfaceConfig.network_security_group:type_name -> forge.FlatInterfaceNetworkSecurityGroupConfig
-	1065, // 527: forge.FlatInterfaceConfig.internal_uuid:type_name -> common.UUID
+	1066, // 527: forge.FlatInterfaceConfig.internal_uuid:type_name -> common.UUID
 	910,  // 528: forge.FlatInterfaceRoutingProfile.allowed_anycast_prefixes:type_name -> forge.PrefixFilterPolicyEntry
+<<<<<<< HEAD
 =======
 	1011, // 525: forge.FlatInterfaceConfig.addresses:type_name -> forge.InterfaceAddressConfig
 	423,  // 526: forge.FlatInterfaceConfig.network_security_group:type_name -> forge.FlatInterfaceNetworkSecurityGroupConfig
@@ -77859,9 +79750,12 @@ var file_nico_nico_proto_depIdxs = []int32{
 	908,  // 528: forge.FlatInterfaceRoutingProfile.allowed_anycast_prefixes:type_name -> forge.PrefixFilterPolicyEntry
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+>>>>>>> fab90f1e2 (review)
 	59,   // 529: forge.FlatInterfaceNetworkSecurityGroupConfig.source:type_name -> forge.NetworkSecurityGroupSource
 	723,  // 530: forge.FlatInterfaceNetworkSecurityGroupConfig.rules:type_name -> forge.ResolvedNetworkSecurityGroupRule
 	474,  // 531: forge.ManagedHostNetworkStatusResponse.all:type_name -> forge.DpuNetworkStatus
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1056, // 532: forge.DpuAgentUpgradeCheckRequest.binary_mtime:type_name -> google.protobuf.Timestamp
 =======
@@ -77891,11 +79785,23 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 540: forge.LockdownStatusRequest.machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1054, // 532: forge.DpuAgentUpgradeCheckRequest.binary_mtime:type_name -> google.protobuf.Timestamp
+	36,   // 533: forge.DpuAgentUpgradePolicyRequest.new_policy:type_name -> forge.AgentUpgradePolicy
+	36,   // 534: forge.DpuAgentUpgradePolicyResponse.active_policy:type_name -> forge.AgentUpgradePolicy
+	1053, // 535: forge.DecommissionManagedHostRequest.machine_id:type_name -> common.MachineId
+	403,  // 536: forge.LockdownRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+	1053, // 537: forge.LockdownRequest.machine_id:type_name -> common.MachineId
+	37,   // 538: forge.LockdownRequest.action:type_name -> forge.LockdownAction
+	403,  // 539: forge.LockdownStatusRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+	1053, // 540: forge.LockdownStatusRequest.machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	403,  // 541: forge.MachineSetupStatusRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 542: forge.MachineSetupRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 543: forge.SetDpuFirstBootOrderRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 544: forge.AdminRebootRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 545: forge.AdminBmcResetRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1084, // 546: forge.AdminBmcResetRequest.device_id:type_name -> common.DeviceId
 =======
@@ -77993,12 +79899,58 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1075, // 588: forge.PxeInstructionRequest.interface_id:type_name -> common.MachineInterfaceId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1082, // 546: forge.AdminBmcResetRequest.device_id:type_name -> common.DeviceId
+	94,   // 547: forge.AdminBmcResetRequest.reset_type:type_name -> forge.AdminBmcResetRequest.ResetType
+	403,  // 548: forge.EnableInfiniteBootRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+	403,  // 549: forge.IsInfiniteBootEnabledRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+	1053, // 550: forge.BMCMetaDataGetRequest.machine_id:type_name -> common.MachineId
+	32,   // 551: forge.BMCMetaDataGetRequest.role:type_name -> forge.UserRoles
+	38,   // 552: forge.BMCMetaDataGetRequest.request_type:type_name -> forge.BMCRequestType
+	403,  // 553: forge.BMCMetaDataGetRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+	1053, // 554: forge.MachineCredentialsUpdateRequest.machine_id:type_name -> common.MachineId
+	1022, // 555: forge.MachineCredentialsUpdateRequest.credentials:type_name -> forge.MachineCredentialsUpdateRequest.Credentials
+	1053, // 556: forge.ForgeAgentControlRequest.machine_id:type_name -> common.MachineId
+	96,   // 557: forge.ForgeAgentControlResponse.legacy_action:type_name -> forge.ForgeAgentControlResponse.LegacyAction
+	1023, // 558: forge.ForgeAgentControlResponse.data:type_name -> forge.ForgeAgentControlResponse.ForgeAgentControlExtraInfo
+	1024, // 559: forge.ForgeAgentControlResponse.noop:type_name -> forge.ForgeAgentControlResponse.Noop
+	1025, // 560: forge.ForgeAgentControlResponse.reset:type_name -> forge.ForgeAgentControlResponse.Reset
+	1026, // 561: forge.ForgeAgentControlResponse.discovery:type_name -> forge.ForgeAgentControlResponse.Discovery
+	1027, // 562: forge.ForgeAgentControlResponse.rebuild:type_name -> forge.ForgeAgentControlResponse.Rebuild
+	1028, // 563: forge.ForgeAgentControlResponse.retry:type_name -> forge.ForgeAgentControlResponse.Retry
+	1029, // 564: forge.ForgeAgentControlResponse.measure:type_name -> forge.ForgeAgentControlResponse.Measure
+	1030, // 565: forge.ForgeAgentControlResponse.log_error:type_name -> forge.ForgeAgentControlResponse.LogError
+	1031, // 566: forge.ForgeAgentControlResponse.machine_validation:type_name -> forge.ForgeAgentControlResponse.MachineValidation
+	1033, // 567: forge.ForgeAgentControlResponse.mlx_action:type_name -> forge.ForgeAgentControlResponse.MlxAction
+	1040, // 568: forge.ForgeAgentControlResponse.firmware_upgrade:type_name -> forge.ForgeAgentControlResponse.FirmwareUpgrade
+	1077, // 569: forge.MachineDiscoveryInfo.machine_interface_id:type_name -> common.MachineInterfaceId
+	1078, // 570: forge.MachineDiscoveryInfo.info:type_name -> machine_discovery.DiscoveryInfo
+	39,   // 571: forge.MachineDiscoveryInfo.discovery_reporter:type_name -> forge.MachineDiscoveryReporter
+	1053, // 572: forge.MachineDiscoveryCompletedRequest.machine_id:type_name -> common.MachineId
+	1053, // 573: forge.MachineCleanupInfo.machine_id:type_name -> common.MachineId
+	1042, // 574: forge.MachineCleanupInfo.nvme:type_name -> forge.MachineCleanupInfo.CleanupStepResult
+	1042, // 575: forge.MachineCleanupInfo.ram:type_name -> forge.MachineCleanupInfo.CleanupStepResult
+	1042, // 576: forge.MachineCleanupInfo.mem_overwrite:type_name -> forge.MachineCleanupInfo.CleanupStepResult
+	1042, // 577: forge.MachineCleanupInfo.ib:type_name -> forge.MachineCleanupInfo.CleanupStepResult
+	1042, // 578: forge.MachineCleanupInfo.hdd:type_name -> forge.MachineCleanupInfo.CleanupStepResult
+	97,   // 579: forge.MachineCleanupInfo.result:type_name -> forge.MachineCleanupInfo.CleanupResult
+	460,  // 580: forge.MachineCertificateResult.machine_certificate:type_name -> forge.MachineCertificate
+	1053, // 581: forge.MachineDiscoveryResult.machine_id:type_name -> common.MachineId
+	460,  // 582: forge.MachineDiscoveryResult.machine_certificate:type_name -> forge.MachineCertificate
+	144,  // 583: forge.MachineDiscoveryResult.attest_key_challenge:type_name -> forge.AttestKeyBindChallenge
+	1077, // 584: forge.MachineDiscoveryResult.machine_interface_id:type_name -> common.MachineInterfaceId
+	1053, // 585: forge.ForgeScoutErrorReport.machine_id:type_name -> common.MachineId
+	1077, // 586: forge.ForgeScoutErrorReport.machine_interface_id:type_name -> common.MachineInterfaceId
+	26,   // 587: forge.PxeInstructionRequest.arch:type_name -> forge.MachineArchitecture
+	1077, // 588: forge.PxeInstructionRequest.interface_id:type_name -> common.MachineInterfaceId
+>>>>>>> fab90f1e2 (review)
 	382,  // 589: forge.CloudInitDiscoveryInstructions.machine_interface:type_name -> forge.MachineInterface
 	920,  // 590: forge.CloudInitDiscoveryInstructions.domain:type_name -> forge.PxeDomain
 	40,   // 591: forge.CloudInitDiscoveryInstructions.bootstrap_ca_source:type_name -> forge.BootstrapCaSource
 	91,   // 592: forge.CloudInitDiscoveryInstructions.dpu_nvconfig_profile:type_name -> forge.DpuNvConfigProfile
 	470,  // 593: forge.CloudInitInstructions.discovery_instructions:type_name -> forge.CloudInitDiscoveryInstructions
 	471,  // 594: forge.CloudInitInstructions.metadata:type_name -> forge.CloudInitMetaData
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 595: forge.DpuNetworkStatus.dpu_machine_id:type_name -> common.MachineId
 	1056, // 596: forge.DpuNetworkStatus.observed_at:type_name -> google.protobuf.Timestamp
@@ -78041,12 +79993,51 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1070, // 628: forge.InsertNVLinkDomainHealthReportRequest.domain_id:type_name -> common.NVLinkDomainId
 	479,  // 629: forge.InsertNVLinkDomainHealthReportRequest.health_report_entry:type_name -> forge.HealthReportEntry
 	1070, // 630: forge.RemoveNVLinkDomainHealthReportRequest.domain_id:type_name -> common.NVLinkDomainId
+=======
+	1053, // 595: forge.DpuNetworkStatus.dpu_machine_id:type_name -> common.MachineId
+	1054, // 596: forge.DpuNetworkStatus.observed_at:type_name -> google.protobuf.Timestamp
+	495,  // 597: forge.DpuNetworkStatus.interfaces:type_name -> forge.InstanceInterfaceStatusObservation
+	1073, // 598: forge.DpuNetworkStatus.instance_id:type_name -> common.InstanceId
+	1063, // 599: forge.DpuNetworkStatus.dpu_health:type_name -> health.HealthReport
+	496,  // 600: forge.DpuNetworkStatus.fabric_interfaces:type_name -> forge.FabricInterfaceData
+	475,  // 601: forge.DpuNetworkStatus.last_dhcp_requests:type_name -> forge.LastDhcpRequest
+	476,  // 602: forge.DpuNetworkStatus.dpu_extension_services:type_name -> forge.DpuExtensionServiceStatusObservation
+	802,  // 603: forge.DpuNetworkStatus.astra_config_status:type_name -> forge.AstraConfigStatus
+	1077, // 604: forge.LastDhcpRequest.host_interface_id:type_name -> common.MachineInterfaceId
+	74,   // 605: forge.DpuExtensionServiceStatusObservation.service_type:type_name -> forge.DpuExtensionServiceType
+	76,   // 606: forge.DpuExtensionServiceStatusObservation.state:type_name -> forge.DpuExtensionServiceDeploymentStatus
+	477,  // 607: forge.DpuExtensionServiceStatusObservation.components:type_name -> forge.DpuExtensionServiceComponent
+	1063, // 608: forge.OptionalHealthReport.report:type_name -> health.HealthReport
+	1063, // 609: forge.HealthReportEntry.report:type_name -> health.HealthReport
+	42,   // 610: forge.HealthReportEntry.mode:type_name -> forge.HealthReportApplyMode
+	1053, // 611: forge.InsertMachineHealthReportRequest.machine_id:type_name -> common.MachineId
+	479,  // 612: forge.InsertMachineHealthReportRequest.health_report_entry:type_name -> forge.HealthReportEntry
+	1065, // 613: forge.InsertRackHealthReportRequest.rack_id:type_name -> common.RackId
+	479,  // 614: forge.InsertRackHealthReportRequest.health_report_entry:type_name -> forge.HealthReportEntry
+	1065, // 615: forge.RemoveRackHealthReportRequest.rack_id:type_name -> common.RackId
+	1065, // 616: forge.ListRackHealthReportsRequest.rack_id:type_name -> common.RackId
+	1067, // 617: forge.InsertSwitchHealthReportRequest.switch_id:type_name -> common.SwitchId
+	479,  // 618: forge.InsertSwitchHealthReportRequest.health_report_entry:type_name -> forge.HealthReportEntry
+	1067, // 619: forge.RemoveSwitchHealthReportRequest.switch_id:type_name -> common.SwitchId
+	1067, // 620: forge.ListSwitchHealthReportsRequest.switch_id:type_name -> common.SwitchId
+	1064, // 621: forge.InsertPowerShelfHealthReportRequest.power_shelf_id:type_name -> common.PowerShelfId
+	479,  // 622: forge.InsertPowerShelfHealthReportRequest.health_report_entry:type_name -> forge.HealthReportEntry
+	1064, // 623: forge.RemovePowerShelfHealthReportRequest.power_shelf_id:type_name -> common.PowerShelfId
+	1064, // 624: forge.ListPowerShelfHealthReportsRequest.power_shelf_id:type_name -> common.PowerShelfId
+	479,  // 625: forge.ListHealthReportResponse.health_report_entries:type_name -> forge.HealthReportEntry
+	1053, // 626: forge.RemoveMachineHealthReportRequest.machine_id:type_name -> common.MachineId
+	1068, // 627: forge.ListNVLinkDomainHealthReportsRequest.domain_id:type_name -> common.NVLinkDomainId
+	1068, // 628: forge.InsertNVLinkDomainHealthReportRequest.domain_id:type_name -> common.NVLinkDomainId
+	479,  // 629: forge.InsertNVLinkDomainHealthReportRequest.health_report_entry:type_name -> forge.HealthReportEntry
+	1068, // 630: forge.RemoveNVLinkDomainHealthReportRequest.domain_id:type_name -> common.NVLinkDomainId
+>>>>>>> fab90f1e2 (review)
 	41,   // 631: forge.InstanceInterfaceStatusObservation.function_type:type_name -> forge.InterfaceFunctionType
 <<<<<<< HEAD
 	717,  // 632: forge.InstanceInterfaceStatusObservation.network_security_group:type_name -> forge.NetworkSecurityGroupStatus
 	1068, // 633: forge.InstanceInterfaceStatusObservation.internal_uuid:type_name -> common.UUID
 =======
 	714,  // 632: forge.InstanceInterfaceStatusObservation.network_security_group:type_name -> forge.NetworkSecurityGroupStatus
+<<<<<<< HEAD
 	1065, // 633: forge.InstanceInterfaceStatusObservation.internal_uuid:type_name -> common.UUID
 =======
 	1051, // 595: forge.DpuNetworkStatus.dpu_machine_id:type_name -> common.MachineId
@@ -78090,6 +80081,9 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1064, // 633: forge.InstanceInterfaceStatusObservation.internal_uuid:type_name -> common.UUID
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1066, // 633: forge.InstanceInterfaceStatusObservation.internal_uuid:type_name -> common.UUID
+>>>>>>> fab90f1e2 (review)
 	497,  // 634: forge.FabricInterfaceData.link_data:type_name -> forge.LinkData
 	286,  // 635: forge.Tenant.metadata:type_name -> forge.Metadata
 	286,  // 636: forge.CreateTenantRequest.metadata:type_name -> forge.Metadata
@@ -78111,6 +80105,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	505,  // 652: forge.TenantKeysetsByIdsRequest.keyset_ids:type_name -> forge.TenantKeysetIdentifier
 	523,  // 653: forge.ResourcePools.pools:type_name -> forge.ResourcePool
 	44,   // 654: forge.MaintenanceRequest.operation:type_name -> forge.MaintenanceOperation
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 655: forge.MaintenanceRequest.host_id:type_name -> common.MachineId
 =======
@@ -78190,11 +80185,48 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1051, // 688: forge.MachineIdBmcIp.machine_id:type_name -> common.MachineId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 655: forge.MaintenanceRequest.host_id:type_name -> common.MachineId
+	45,   // 656: forge.SetDynamicConfigRequest.setting:type_name -> forge.ConfigSetting
+	554,  // 657: forge.FindIpAddressResponse.matches:type_name -> forge.IpAddressMatch
+	1066, // 658: forge.IdentifyUuidRequest.uuid:type_name -> common.UUID
+	1066, // 659: forge.IdentifyUuidResponse.uuid:type_name -> common.UUID
+	46,   // 660: forge.IdentifyUuidResponse.object_type:type_name -> forge.UuidType
+	47,   // 661: forge.IdentifyMacResponse.object_type:type_name -> forge.MacOwner
+	1053, // 662: forge.IdentifySerialResponse.machine_id:type_name -> common.MachineId
+	1053, // 663: forge.DpuReprovisioningRequest.dpu_id:type_name -> common.MachineId
+	98,   // 664: forge.DpuReprovisioningRequest.mode:type_name -> forge.DpuReprovisioningRequest.Mode
+	48,   // 665: forge.DpuReprovisioningRequest.initiator:type_name -> forge.UpdateInitiator
+	1053, // 666: forge.DpuReprovisioningRequest.machine_id:type_name -> common.MachineId
+	1043, // 667: forge.DpuReprovisioningListResponse.dpus:type_name -> forge.DpuReprovisioningListResponse.DpuReprovisioningListItem
+	1053, // 668: forge.HostReprovisioningRequest.machine_id:type_name -> common.MachineId
+	99,   // 669: forge.HostReprovisioningRequest.mode:type_name -> forge.HostReprovisioningRequest.Mode
+	48,   // 670: forge.HostReprovisioningRequest.initiator:type_name -> forge.UpdateInitiator
+	100,  // 671: forge.BmcCredentialRotationRequest.mode:type_name -> forge.BmcCredentialRotationRequest.Mode
+	1082, // 672: forge.BmcCredentialRotationRequest.device_id:type_name -> common.DeviceId
+	101,  // 673: forge.UefiCredentialRotationRequest.mode:type_name -> forge.UefiCredentialRotationRequest.Mode
+	1053, // 674: forge.UefiCredentialRotationRequest.machine_id:type_name -> common.MachineId
+	102,  // 675: forge.NicLockdownCredentialRotationRequest.mode:type_name -> forge.NicLockdownCredentialRotationRequest.Mode
+	1053, // 676: forge.NicLockdownCredentialRotationRequest.machine_id:type_name -> common.MachineId
+	1044, // 677: forge.HostReprovisioningListResponse.hosts:type_name -> forge.HostReprovisioningListResponse.HostReprovisioningListItem
+	548,  // 678: forge.DpuInfoStatusObservation.os_operational_state:type_name -> forge.DpuOsOperationalState
+	549,  // 679: forge.DpuInfoStatusObservation.representors:type_name -> forge.DpuRepresentorStatus
+	1054, // 680: forge.DpuInfoStatusObservation.last_heartbeat:type_name -> google.protobuf.Timestamp
+	550,  // 681: forge.DpuInfo.observed_status:type_name -> forge.DpuInfoStatusObservation
+	551,  // 682: forge.GetDpuInfoListResponse.dpu_list:type_name -> forge.DpuInfo
+	49,   // 683: forge.IpAddressMatch.ip_type:type_name -> forge.IpType
+	1077, // 684: forge.MachineBootOverride.machine_interface_id:type_name -> common.MachineInterfaceId
+	1053, // 685: forge.ConnectedDevice.id:type_name -> common.MachineId
+	556,  // 686: forge.ConnectedDeviceList.connected_devices:type_name -> forge.ConnectedDevice
+	562,  // 687: forge.MachineIdBmcIpPairs.pairs:type_name -> forge.MachineIdBmcIp
+	1053, // 688: forge.MachineIdBmcIp.machine_id:type_name -> common.MachineId
+>>>>>>> fab90f1e2 (review)
 	556,  // 689: forge.NetworkDevice.devices:type_name -> forge.ConnectedDevice
 	563,  // 690: forge.NetworkTopologyData.network_devices:type_name -> forge.NetworkDevice
 	50,   // 691: forge.RouteServers.source_type:type_name -> forge.RouteServerSourceType
 	569,  // 692: forge.RouteServerEntries.route_servers:type_name -> forge.RouteServer
 	50,   // 693: forge.RouteServer.source_type:type_name -> forge.RouteServerSourceType
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1055, // 694: forge.SetHostUefiPasswordRequest.host_id:type_name -> common.MachineId
 	1055, // 695: forge.ClearHostUefiPasswordRequest.host_id:type_name -> common.MachineId
@@ -78228,11 +80260,23 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1072, // 702: forge.GetIpxeTemplateRequest.id:type_name -> common.IpxeTemplateId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1053, // 694: forge.SetHostUefiPasswordRequest.host_id:type_name -> common.MachineId
+	1053, // 695: forge.ClearHostUefiPasswordRequest.host_id:type_name -> common.MachineId
+	1053, // 696: forge.SetDpuUefiPasswordRequest.dpu_id:type_name -> common.MachineId
+	1066, // 697: forge.OsImageAttributes.id:type_name -> common.UUID
+	576,  // 698: forge.OsImage.attributes:type_name -> forge.OsImageAttributes
+	51,   // 699: forge.OsImage.status:type_name -> forge.OsImageStatus
+	577,  // 700: forge.ListOsImageResponse.images:type_name -> forge.OsImage
+	1066, // 701: forge.DeleteOsImageRequest.id:type_name -> common.UUID
+	1074, // 702: forge.GetIpxeTemplateRequest.id:type_name -> common.IpxeTemplateId
+>>>>>>> fab90f1e2 (review)
 	295,  // 703: forge.IpxeTemplateList.templates:type_name -> forge.IpxeTemplate
 	13,   // 704: forge.ExpectedHostNic.network_segment_type:type_name -> forge.NetworkSegmentType
 	85,   // 705: forge.ExpectedHostNic.role:type_name -> forge.ExpectedInterfaceRole
 	86,   // 706: forge.ExpectedHostNic.ip_allocation:type_name -> forge.ExpectedInterfaceIpAllocation
 	286,  // 707: forge.ExpectedMachine.metadata:type_name -> forge.Metadata
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1068, // 708: forge.ExpectedMachine.id:type_name -> common.UUID
 =======
@@ -78336,12 +80380,61 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1081, // 753: forge.MachineValidationOnDemandResponse.validation_id:type_name -> common.MachineValidationId
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1066, // 708: forge.ExpectedMachine.id:type_name -> common.UUID
+	585,  // 709: forge.ExpectedMachine.host_nics:type_name -> forge.ExpectedHostNic
+	1065, // 710: forge.ExpectedMachine.rack_id:type_name -> common.RackId
+	52,   // 711: forge.ExpectedMachine.dpu_mode:type_name -> forge.DpuMode
+	586,  // 712: forge.ExpectedMachine.host_lifecycle_profile:type_name -> forge.HostLifecycleProfile
+	53,   // 713: forge.ExpectedMachine.bmc_ip_allocation:type_name -> forge.BmcIpAllocationType
+	1066, // 714: forge.ExpectedMachineRequest.id:type_name -> common.UUID
+	587,  // 715: forge.ExpectedMachineList.expected_machines:type_name -> forge.ExpectedMachine
+	591,  // 716: forge.LinkedExpectedMachineList.expected_machines:type_name -> forge.LinkedExpectedMachine
+	1053, // 717: forge.LinkedExpectedMachine.machine_id:type_name -> common.MachineId
+	1066, // 718: forge.LinkedExpectedMachine.expected_machine_id:type_name -> common.UUID
+	593,  // 719: forge.UnexpectedMachineList.unexpected_machines:type_name -> forge.UnexpectedMachine
+	1053, // 720: forge.UnexpectedMachine.machine_id:type_name -> common.MachineId
+	589,  // 721: forge.BatchExpectedMachineOperationRequest.expected_machines:type_name -> forge.ExpectedMachineList
+	1066, // 722: forge.ExpectedMachineOperationResult.id:type_name -> common.UUID
+	587,  // 723: forge.ExpectedMachineOperationResult.expected_machine:type_name -> forge.ExpectedMachine
+	595,  // 724: forge.BatchExpectedMachineOperationResponse.results:type_name -> forge.ExpectedMachineOperationResult
+	1053, // 725: forge.MachineRebootCompletedRequest.machine_id:type_name -> common.MachineId
+	1053, // 726: forge.ScoutFirmwareUpgradeStatusRequest.machine_id:type_name -> common.MachineId
+	1053, // 727: forge.MachineValidationCompletedRequest.machine_id:type_name -> common.MachineId
+	1083, // 728: forge.MachineValidationCompletedRequest.validation_id:type_name -> common.MachineValidationId
+	1054, // 729: forge.MachineValidationResult.start_time:type_name -> google.protobuf.Timestamp
+	1054, // 730: forge.MachineValidationResult.end_time:type_name -> google.protobuf.Timestamp
+	1083, // 731: forge.MachineValidationResult.validation_id:type_name -> common.MachineValidationId
+	602,  // 732: forge.MachineValidationResultPostRequest.result:type_name -> forge.MachineValidationResult
+	602,  // 733: forge.MachineValidationResultList.results:type_name -> forge.MachineValidationResult
+	1053, // 734: forge.MachineValidationGetRequest.machine_id:type_name -> common.MachineId
+	1083, // 735: forge.MachineValidationGetRequest.validation_id:type_name -> common.MachineValidationId
+	54,   // 736: forge.MachineValidationStatus.started:type_name -> forge.MachineValidationStarted
+	55,   // 737: forge.MachineValidationStatus.in_progress:type_name -> forge.MachineValidationInProgress
+	56,   // 738: forge.MachineValidationStatus.completed:type_name -> forge.MachineValidationCompleted
+	1083, // 739: forge.MachineValidationRun.validation_id:type_name -> common.MachineValidationId
+	1053, // 740: forge.MachineValidationRun.machine_id:type_name -> common.MachineId
+	1054, // 741: forge.MachineValidationRun.start_time:type_name -> google.protobuf.Timestamp
+	1054, // 742: forge.MachineValidationRun.end_time:type_name -> google.protobuf.Timestamp
+	606,  // 743: forge.MachineValidationRun.status:type_name -> forge.MachineValidationStatus
+	1079, // 744: forge.MachineValidationRun.duration_to_complete:type_name -> google.protobuf.Duration
+	1054, // 745: forge.MachineValidationRun.last_heartbeat_at:type_name -> google.protobuf.Timestamp
+	1053, // 746: forge.MachineSetAutoUpdateRequest.machine_id:type_name -> common.MachineId
+	103,  // 747: forge.MachineSetAutoUpdateRequest.action:type_name -> forge.MachineSetAutoUpdateRequest.SetAutoupdateAction
+	1054, // 748: forge.MachineValidationExternalConfig.timestamp:type_name -> google.protobuf.Timestamp
+	611,  // 749: forge.GetMachineValidationExternalConfigResponse.config:type_name -> forge.MachineValidationExternalConfig
+	611,  // 750: forge.GetMachineValidationExternalConfigsResponse.configs:type_name -> forge.MachineValidationExternalConfig
+	1053, // 751: forge.MachineValidationOnDemandRequest.machine_id:type_name -> common.MachineId
+	104,  // 752: forge.MachineValidationOnDemandRequest.action:type_name -> forge.MachineValidationOnDemandRequest.Action
+	1083, // 753: forge.MachineValidationOnDemandResponse.validation_id:type_name -> common.MachineValidationId
+>>>>>>> fab90f1e2 (review)
 	607,  // 754: forge.MachineValidationOnDemandResponse.run:type_name -> forge.MachineValidationRun
 	619,  // 755: forge.MaintenanceActivityConfig.firmware_upgrade:type_name -> forge.FirmwareUpgradeActivity
 	621,  // 756: forge.MaintenanceActivityConfig.configure_nmx_cluster:type_name -> forge.ConfigureNmxClusterActivity
 	622,  // 757: forge.MaintenanceActivityConfig.power_sequence:type_name -> forge.PowerSequenceActivity
 	620,  // 758: forge.MaintenanceActivityConfig.nvos_update:type_name -> forge.NvosUpdateActivity
 	623,  // 759: forge.RackMaintenanceScope.activities:type_name -> forge.MaintenanceActivityConfig
+<<<<<<< HEAD
 <<<<<<< HEAD
 	1067, // 760: forge.RackMaintenanceOnDemandRequest.rack_id:type_name -> common.RackId
 =======
@@ -78896,9 +80989,43 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1065, // 789: forge.MachineValidationHeartbeatRequest.run_item_id:type_name -> common.UUID
 	1065, // 790: forge.MachineValidationHeartbeatRequest.attempt_id:type_name -> common.UUID
 	1044, // 791: forge.MachineValidationTestUpdateRequest.payload:type_name -> forge.MachineValidationTestUpdateRequest.Payload
+=======
+	1065, // 760: forge.RackMaintenanceOnDemandRequest.rack_id:type_name -> common.RackId
+	624,  // 761: forge.RackMaintenanceOnDemandRequest.scope:type_name -> forge.RackMaintenanceScope
+	1065, // 762: forge.RackMaintenanceTerminateRequest.rack_id:type_name -> common.RackId
+	403,  // 763: forge.AdminPowerControlRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
+	105,  // 764: forge.AdminPowerControlRequest.action:type_name -> forge.AdminPowerControlRequest.SystemPowerControl
+	1053, // 765: forge.AdminGpuResetRequest.machine_id:type_name -> common.MachineId
+	105,  // 766: forge.AdminGpuResetRequest.action:type_name -> forge.AdminPowerControlRequest.SystemPowerControl
+	1053, // 767: forge.GetRedfishJobStateRequest.machine_id:type_name -> common.MachineId
+	106,  // 768: forge.GetRedfishJobStateResponse.job_state:type_name -> forge.GetRedfishJobStateResponse.RedfishJobState
+	607,  // 769: forge.MachineValidationRunList.runs:type_name -> forge.MachineValidationRun
+	1053, // 770: forge.MachineValidationRunListGetRequest.machine_id:type_name -> common.MachineId
+	1083, // 771: forge.MachineValidationRunItemSearchFilter.validation_id:type_name -> common.MachineValidationId
+	1066, // 772: forge.MachineValidationRunItemIdList.run_item_ids:type_name -> common.UUID
+	1066, // 773: forge.MachineValidationRunItemsByIdsRequest.run_item_ids:type_name -> common.UUID
+	641,  // 774: forge.MachineValidationRunItemList.run_items:type_name -> forge.MachineValidationRunItem
+	1066, // 775: forge.MachineValidationRunItem.run_item_id:type_name -> common.UUID
+	1083, // 776: forge.MachineValidationRunItem.validation_id:type_name -> common.MachineValidationId
+	1079, // 777: forge.MachineValidationRunItem.timeout:type_name -> google.protobuf.Duration
+	1054, // 778: forge.MachineValidationRunItem.started_at:type_name -> google.protobuf.Timestamp
+	1054, // 779: forge.MachineValidationRunItem.ended_at:type_name -> google.protobuf.Timestamp
+	1054, // 780: forge.MachineValidationRunItem.last_heartbeat_at:type_name -> google.protobuf.Timestamp
+	1066, // 781: forge.MachineValidationRunItem.current_attempt_id:type_name -> common.UUID
+	1066, // 782: forge.MachineValidationAttemptGetRequest.attempt_id:type_name -> common.UUID
+	1066, // 783: forge.MachineValidationAttempt.attempt_id:type_name -> common.UUID
+	1066, // 784: forge.MachineValidationAttempt.run_item_id:type_name -> common.UUID
+	1054, // 785: forge.MachineValidationAttempt.started_at:type_name -> google.protobuf.Timestamp
+	1054, // 786: forge.MachineValidationAttempt.ended_at:type_name -> google.protobuf.Timestamp
+	1054, // 787: forge.MachineValidationAttempt.last_heartbeat_at:type_name -> google.protobuf.Timestamp
+	1083, // 788: forge.MachineValidationHeartbeatRequest.validation_id:type_name -> common.MachineValidationId
+	1066, // 789: forge.MachineValidationHeartbeatRequest.run_item_id:type_name -> common.UUID
+	1066, // 790: forge.MachineValidationHeartbeatRequest.attempt_id:type_name -> common.UUID
+	1045, // 791: forge.MachineValidationTestUpdateRequest.payload:type_name -> forge.MachineValidationTestUpdateRequest.Payload
+>>>>>>> fab90f1e2 (review)
 	655,  // 792: forge.MachineValidationTestsGetResponse.tests:type_name -> forge.MachineValidationTest
-	1082, // 793: forge.MachineValidationRunRequest.validation_id:type_name -> common.MachineValidationId
-	1078, // 794: forge.MachineValidationRunRequest.duration_to_complete:type_name -> google.protobuf.Duration
+	1083, // 793: forge.MachineValidationRunRequest.validation_id:type_name -> common.MachineValidationId
+	1079, // 794: forge.MachineValidationRunRequest.duration_to_complete:type_name -> google.protobuf.Duration
 	655,  // 795: forge.MachineValidationRunRequest.selected_tests:type_name -> forge.MachineValidationTest
 	57,   // 796: forge.MachineCapabilityAttributesGpu.device_type:type_name -> forge.MachineCapabilityDeviceType
 	57,   // 797: forge.MachineCapabilityAttributesNetwork.device_type:type_name -> forge.MachineCapabilityDeviceType
@@ -78914,7 +81041,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	286,  // 807: forge.InstanceType.metadata:type_name -> forge.Metadata
 	770,  // 808: forge.InstanceType.allocation_stats:type_name -> forge.InstanceTypeAllocationStats
 	58,   // 809: forge.InstanceTypeMachineCapabilityFilterAttributes.capability_type:type_name -> forge.MachineCapabilityType
-	1083, // 810: forge.InstanceTypeMachineCapabilityFilterAttributes.inactive_devices:type_name -> common.Uint32List
+	1084, // 810: forge.InstanceTypeMachineCapabilityFilterAttributes.inactive_devices:type_name -> common.Uint32List
 	57,   // 811: forge.InstanceTypeMachineCapabilityFilterAttributes.device_type:type_name -> forge.MachineCapabilityDeviceType
 	286,  // 812: forge.CreateInstanceTypeRequest.metadata:type_name -> forge.Metadata
 	670,  // 813: forge.CreateInstanceTypeRequest.instance_type_attributes:type_name -> forge.InstanceTypeAttributes
@@ -78923,15 +81050,15 @@ var file_nico_nico_proto_depIdxs = []int32{
 	671,  // 816: forge.UpdateInstanceTypeResponse.instance_type:type_name -> forge.InstanceType
 	286,  // 817: forge.UpdateInstanceTypeRequest.metadata:type_name -> forge.Metadata
 	670,  // 818: forge.UpdateInstanceTypeRequest.instance_type_attributes:type_name -> forge.InstanceTypeAttributes
-	1045, // 819: forge.RedfishBrowseResponse.headers:type_name -> forge.RedfishBrowseResponse.HeadersEntry
+	1046, // 819: forge.RedfishBrowseResponse.headers:type_name -> forge.RedfishBrowseResponse.HeadersEntry
 	691,  // 820: forge.RedfishListActionsResponse.actions:type_name -> forge.RedfishAction
-	1053, // 821: forge.RedfishAction.approver_dates:type_name -> google.protobuf.Timestamp
-	1053, // 822: forge.RedfishAction.applied_at:type_name -> google.protobuf.Timestamp
+	1054, // 821: forge.RedfishAction.approver_dates:type_name -> google.protobuf.Timestamp
+	1054, // 822: forge.RedfishAction.applied_at:type_name -> google.protobuf.Timestamp
 	692,  // 823: forge.RedfishAction.results:type_name -> forge.OptionalRedfishActionResult
 	693,  // 824: forge.OptionalRedfishActionResult.result:type_name -> forge.RedfishActionResult
-	1046, // 825: forge.RedfishActionResult.headers:type_name -> forge.RedfishActionResult.HeadersEntry
-	1053, // 826: forge.RedfishActionResult.completed_at:type_name -> google.protobuf.Timestamp
-	1047, // 827: forge.UfmBrowseResponse.headers:type_name -> forge.UfmBrowseResponse.HeadersEntry
+	1047, // 825: forge.RedfishActionResult.headers:type_name -> forge.RedfishActionResult.HeadersEntry
+	1054, // 826: forge.RedfishActionResult.completed_at:type_name -> google.protobuf.Timestamp
+	1048, // 827: forge.UfmBrowseResponse.headers:type_name -> forge.UfmBrowseResponse.HeadersEntry
 	719,  // 828: forge.NetworkSecurityGroupAttributes.rules:type_name -> forge.NetworkSecurityGroupRuleAttributes
 	286,  // 829: forge.NetworkSecurityGroup.metadata:type_name -> forge.Metadata
 	702,  // 830: forge.NetworkSecurityGroup.attributes:type_name -> forge.NetworkSecurityGroupAttributes
@@ -78953,7 +81080,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	719,  // 846: forge.ResolvedNetworkSecurityGroupRule.rule:type_name -> forge.NetworkSecurityGroupRuleAttributes
 	722,  // 847: forge.GetNetworkSecurityGroupAttachmentsResponse.attachments:type_name -> forge.NetworkSecurityGroupAttachments
 	726,  // 848: forge.GetDesiredFirmwareVersionsResponse.entries:type_name -> forge.DesiredFirmwareVersionEntry
-	1048, // 849: forge.DesiredFirmwareVersionEntry.component_versions:type_name -> forge.DesiredFirmwareVersionEntry.ComponentVersionsEntry
+	1049, // 849: forge.DesiredFirmwareVersionEntry.component_versions:type_name -> forge.DesiredFirmwareVersionEntry.ComponentVersionsEntry
 	727,  // 850: forge.SkuComponents.chassis:type_name -> forge.SkuComponentChassis
 	728,  // 851: forge.SkuComponents.cpus:type_name -> forge.SkuComponentCpu
 	729,  // 852: forge.SkuComponents.gpus:type_name -> forge.SkuComponentGpu
@@ -78962,102 +81089,102 @@ var file_nico_nico_proto_depIdxs = []int32{
 	732,  // 855: forge.SkuComponents.storage:type_name -> forge.SkuComponentStorage
 	734,  // 856: forge.SkuComponents.memory:type_name -> forge.SkuComponentMemory
 	735,  // 857: forge.SkuComponents.tpm:type_name -> forge.SkuComponentTpm
-	1053, // 858: forge.Sku.created:type_name -> google.protobuf.Timestamp
+	1054, // 858: forge.Sku.created:type_name -> google.protobuf.Timestamp
 	736,  // 859: forge.Sku.components:type_name -> forge.SkuComponents
-	1052, // 860: forge.Sku.associated_machine_ids:type_name -> common.MachineId
-	1052, // 861: forge.SkuMachinePair.machine_id:type_name -> common.MachineId
-	1052, // 862: forge.RemoveSkuRequest.machine_id:type_name -> common.MachineId
+	1053, // 860: forge.Sku.associated_machine_ids:type_name -> common.MachineId
+	1053, // 861: forge.SkuMachinePair.machine_id:type_name -> common.MachineId
+	1053, // 862: forge.RemoveSkuRequest.machine_id:type_name -> common.MachineId
 	737,  // 863: forge.SkuList.skus:type_name -> forge.Sku
-	1053, // 864: forge.SkuStatus.verify_request_time:type_name -> google.protobuf.Timestamp
-	1053, // 865: forge.SkuStatus.last_match_attempt:type_name -> google.protobuf.Timestamp
-	1053, // 866: forge.SkuStatus.last_generate_attempt:type_name -> google.protobuf.Timestamp
-	1084, // 867: forge.DpaInterface.id:type_name -> common.DpaInterfaceId
-	1052, // 868: forge.DpaInterface.machine_id:type_name -> common.MachineId
-	1053, // 869: forge.DpaInterface.created:type_name -> google.protobuf.Timestamp
-	1053, // 870: forge.DpaInterface.updated:type_name -> google.protobuf.Timestamp
-	1053, // 871: forge.DpaInterface.deleted:type_name -> google.protobuf.Timestamp
+	1054, // 864: forge.SkuStatus.verify_request_time:type_name -> google.protobuf.Timestamp
+	1054, // 865: forge.SkuStatus.last_match_attempt:type_name -> google.protobuf.Timestamp
+	1054, // 866: forge.SkuStatus.last_generate_attempt:type_name -> google.protobuf.Timestamp
+	1085, // 867: forge.DpaInterface.id:type_name -> common.DpaInterfaceId
+	1053, // 868: forge.DpaInterface.machine_id:type_name -> common.MachineId
+	1054, // 869: forge.DpaInterface.created:type_name -> google.protobuf.Timestamp
+	1054, // 870: forge.DpaInterface.updated:type_name -> google.protobuf.Timestamp
+	1054, // 871: forge.DpaInterface.deleted:type_name -> google.protobuf.Timestamp
 	249,  // 872: forge.DpaInterface.history:type_name -> forge.StateHistoryRecord
-	1053, // 873: forge.DpaInterface.last_hb_time:type_name -> google.protobuf.Timestamp
+	1054, // 873: forge.DpaInterface.last_hb_time:type_name -> google.protobuf.Timestamp
 	64,   // 874: forge.DpaInterface.interface_type:type_name -> forge.DpaInterfaceType
-	1052, // 875: forge.DpaInterfaceCreationRequest.machine_id:type_name -> common.MachineId
+	1053, // 875: forge.DpaInterfaceCreationRequest.machine_id:type_name -> common.MachineId
 	64,   // 876: forge.DpaInterfaceCreationRequest.interface_type:type_name -> forge.DpaInterfaceType
-	1084, // 877: forge.DpaInterfaceIdList.ids:type_name -> common.DpaInterfaceId
-	1084, // 878: forge.DpaInterfacesByIdsRequest.ids:type_name -> common.DpaInterfaceId
+	1085, // 877: forge.DpaInterfaceIdList.ids:type_name -> common.DpaInterfaceId
+	1085, // 878: forge.DpaInterfacesByIdsRequest.ids:type_name -> common.DpaInterfaceId
 	745,  // 879: forge.DpaInterfaceList.interfaces:type_name -> forge.DpaInterface
-	1084, // 880: forge.DpaNetworkObservationSetRequest.id:type_name -> common.DpaInterfaceId
-	1084, // 881: forge.DpaInterfaceDeletionRequest.id:type_name -> common.DpaInterfaceId
-	1052, // 882: forge.PowerOptionRequest.machine_id:type_name -> common.MachineId
-	1052, // 883: forge.PowerOptionUpdateRequest.machine_id:type_name -> common.MachineId
+	1085, // 880: forge.DpaNetworkObservationSetRequest.id:type_name -> common.DpaInterfaceId
+	1085, // 881: forge.DpaInterfaceDeletionRequest.id:type_name -> common.DpaInterfaceId
+	1053, // 882: forge.PowerOptionRequest.machine_id:type_name -> common.MachineId
+	1053, // 883: forge.PowerOptionUpdateRequest.machine_id:type_name -> common.MachineId
 	65,   // 884: forge.PowerOptionUpdateRequest.power_state:type_name -> forge.PowerState
 	65,   // 885: forge.PowerOptions.desired_state:type_name -> forge.PowerState
-	1053, // 886: forge.PowerOptions.desired_state_updated_at:type_name -> google.protobuf.Timestamp
+	1054, // 886: forge.PowerOptions.desired_state_updated_at:type_name -> google.protobuf.Timestamp
 	65,   // 887: forge.PowerOptions.actual_state:type_name -> forge.PowerState
-	1053, // 888: forge.PowerOptions.actual_state_updated_at:type_name -> google.protobuf.Timestamp
-	1052, // 889: forge.PowerOptions.host_id:type_name -> common.MachineId
-	1053, // 890: forge.PowerOptions.next_power_state_fetch_at:type_name -> google.protobuf.Timestamp
-	1053, // 891: forge.PowerOptions.tried_triggering_on_at:type_name -> google.protobuf.Timestamp
-	1053, // 892: forge.PowerOptions.wait_until_time_before_performing_next_power_action:type_name -> google.protobuf.Timestamp
+	1054, // 888: forge.PowerOptions.actual_state_updated_at:type_name -> google.protobuf.Timestamp
+	1053, // 889: forge.PowerOptions.host_id:type_name -> common.MachineId
+	1054, // 890: forge.PowerOptions.next_power_state_fetch_at:type_name -> google.protobuf.Timestamp
+	1054, // 891: forge.PowerOptions.tried_triggering_on_at:type_name -> google.protobuf.Timestamp
+	1054, // 892: forge.PowerOptions.wait_until_time_before_performing_next_power_action:type_name -> google.protobuf.Timestamp
 	756,  // 893: forge.PowerOptionResponse.response:type_name -> forge.PowerOptions
-	1085, // 894: forge.ComputeAllocation.id:type_name -> common.ComputeAllocationId
+	1086, // 894: forge.ComputeAllocation.id:type_name -> common.ComputeAllocationId
 	758,  // 895: forge.ComputeAllocation.attributes:type_name -> forge.ComputeAllocationAttributes
 	286,  // 896: forge.ComputeAllocation.metadata:type_name -> forge.Metadata
-	1085, // 897: forge.CreateComputeAllocationRequest.id:type_name -> common.ComputeAllocationId
+	1086, // 897: forge.CreateComputeAllocationRequest.id:type_name -> common.ComputeAllocationId
 	286,  // 898: forge.CreateComputeAllocationRequest.metadata:type_name -> forge.Metadata
 	758,  // 899: forge.CreateComputeAllocationRequest.attributes:type_name -> forge.ComputeAllocationAttributes
 	759,  // 900: forge.CreateComputeAllocationResponse.allocation:type_name -> forge.ComputeAllocation
-	1085, // 901: forge.FindComputeAllocationIdsResponse.ids:type_name -> common.ComputeAllocationId
-	1085, // 902: forge.FindComputeAllocationsByIdsRequest.ids:type_name -> common.ComputeAllocationId
+	1086, // 901: forge.FindComputeAllocationIdsResponse.ids:type_name -> common.ComputeAllocationId
+	1086, // 902: forge.FindComputeAllocationsByIdsRequest.ids:type_name -> common.ComputeAllocationId
 	759,  // 903: forge.FindComputeAllocationsByIdsResponse.allocations:type_name -> forge.ComputeAllocation
 	759,  // 904: forge.UpdateComputeAllocationResponse.allocation:type_name -> forge.ComputeAllocation
-	1085, // 905: forge.UpdateComputeAllocationRequest.id:type_name -> common.ComputeAllocationId
+	1086, // 905: forge.UpdateComputeAllocationRequest.id:type_name -> common.ComputeAllocationId
 	286,  // 906: forge.UpdateComputeAllocationRequest.metadata:type_name -> forge.Metadata
 	758,  // 907: forge.UpdateComputeAllocationRequest.attributes:type_name -> forge.ComputeAllocationAttributes
-	1085, // 908: forge.DeleteComputeAllocationRequest.id:type_name -> common.ComputeAllocationId
+	1086, // 908: forge.DeleteComputeAllocationRequest.id:type_name -> common.ComputeAllocationId
 	777,  // 909: forge.GetRackResponse.rack:type_name -> forge.Rack
 	777,  // 910: forge.RackList.racks:type_name -> forge.Rack
 	285,  // 911: forge.RackSearchFilter.label:type_name -> forge.Label
-	1064, // 912: forge.RackIdList.rack_ids:type_name -> common.RackId
-	1064, // 913: forge.RacksByIdsRequest.rack_ids:type_name -> common.RackId
-	1064, // 914: forge.Rack.id:type_name -> common.RackId
-	1053, // 915: forge.Rack.created:type_name -> google.protobuf.Timestamp
-	1053, // 916: forge.Rack.updated:type_name -> google.protobuf.Timestamp
-	1053, // 917: forge.Rack.deleted:type_name -> google.protobuf.Timestamp
+	1065, // 912: forge.RackIdList.rack_ids:type_name -> common.RackId
+	1065, // 913: forge.RacksByIdsRequest.rack_ids:type_name -> common.RackId
+	1065, // 914: forge.Rack.id:type_name -> common.RackId
+	1054, // 915: forge.Rack.created:type_name -> google.protobuf.Timestamp
+	1054, // 916: forge.Rack.updated:type_name -> google.protobuf.Timestamp
+	1054, // 917: forge.Rack.deleted:type_name -> google.protobuf.Timestamp
 	286,  // 918: forge.Rack.metadata:type_name -> forge.Metadata
 	778,  // 919: forge.Rack.config:type_name -> forge.RackConfig
 	779,  // 920: forge.Rack.status:type_name -> forge.RackStatus
-	1062, // 921: forge.RackStatus.health:type_name -> health.HealthReport
+	1063, // 921: forge.RackStatus.health:type_name -> health.HealthReport
 	376,  // 922: forge.RackStatus.health_sources:type_name -> forge.HealthSourceOrigin
 	108,  // 923: forge.RackStatus.lifecycle:type_name -> forge.LifecycleStatus
-	1064, // 924: forge.RackStateHistoriesRequest.rack_ids:type_name -> common.RackId
-	1064, // 925: forge.RackHealthHistoriesRequest.rack_ids:type_name -> common.RackId
-	1053, // 926: forge.RackHealthHistoriesRequest.start_time:type_name -> google.protobuf.Timestamp
-	1053, // 927: forge.RackHealthHistoriesRequest.end_time:type_name -> google.protobuf.Timestamp
-	1064, // 928: forge.AdminForceDeleteRackRequest.rack_id:type_name -> common.RackId
+	1065, // 924: forge.RackStateHistoriesRequest.rack_ids:type_name -> common.RackId
+	1065, // 925: forge.RackHealthHistoriesRequest.rack_ids:type_name -> common.RackId
+	1054, // 926: forge.RackHealthHistoriesRequest.start_time:type_name -> google.protobuf.Timestamp
+	1054, // 927: forge.RackHealthHistoriesRequest.end_time:type_name -> google.protobuf.Timestamp
+	1065, // 928: forge.AdminForceDeleteRackRequest.rack_id:type_name -> common.RackId
 	785,  // 929: forge.RackCapabilitiesSet.compute:type_name -> forge.RackCapabilityCompute
 	786,  // 930: forge.RackCapabilitiesSet.switch:type_name -> forge.RackCapabilitySwitch
 	787,  // 931: forge.RackCapabilitiesSet.power_shelf:type_name -> forge.RackCapabilityPowerShelf
-	1086, // 932: forge.RackProfile.rack_hardware_type:type_name -> common.RackHardwareType
+	1087, // 932: forge.RackProfile.rack_hardware_type:type_name -> common.RackHardwareType
 	66,   // 933: forge.RackProfile.rack_hardware_topology:type_name -> forge.RackHardwareTopology
 	68,   // 934: forge.RackProfile.rack_hardware_class:type_name -> forge.RackHardwareClass
 	788,  // 935: forge.RackProfile.capabilities:type_name -> forge.RackCapabilitiesSet
 	67,   // 936: forge.RackProfile.product_family:type_name -> forge.RackProductFamily
-	1064, // 937: forge.GetRackProfileRequest.rack_id:type_name -> common.RackId
-	1064, // 938: forge.GetRackProfileResponse.rack_id:type_name -> common.RackId
-	1068, // 939: forge.GetRackProfileResponse.rack_profile_id:type_name -> common.RackProfileId
+	1065, // 937: forge.GetRackProfileRequest.rack_id:type_name -> common.RackId
+	1065, // 938: forge.GetRackProfileResponse.rack_id:type_name -> common.RackId
+	1069, // 939: forge.GetRackProfileResponse.rack_profile_id:type_name -> common.RackProfileId
 	789,  // 940: forge.GetRackProfileResponse.profile:type_name -> forge.RackProfile
-	1068, // 941: forge.ConfiguredRackProfile.rack_profile_id:type_name -> common.RackProfileId
+	1069, // 941: forge.ConfiguredRackProfile.rack_profile_id:type_name -> common.RackProfileId
 	789,  // 942: forge.ConfiguredRackProfile.profile:type_name -> forge.RackProfile
 	792,  // 943: forge.ListRackProfilesResponse.rack_profiles:type_name -> forge.ConfiguredRackProfile
 	69,   // 944: forge.RackManagerForgeRequest.cmd:type_name -> forge.RackManagerForgeCmd
-	1067, // 945: forge.MachineNVLinkInfo.domain_uuid:type_name -> common.NVLinkDomainId
+	1068, // 945: forge.MachineNVLinkInfo.domain_uuid:type_name -> common.NVLinkDomainId
 	805,  // 946: forge.MachineNVLinkInfo.gpus:type_name -> forge.NVLinkGpu
-	1052, // 947: forge.UpdateMachineNvLinkInfoRequest.machine_id:type_name -> common.MachineId
+	1053, // 947: forge.UpdateMachineNvLinkInfoRequest.machine_id:type_name -> common.MachineId
 	796,  // 948: forge.UpdateMachineNvLinkInfoRequest.nvlink_info:type_name -> forge.MachineNVLinkInfo
 	799,  // 949: forge.MachineSpxStatusObservation.attachment_status:type_name -> forge.MachineSpxAttachmentStatusObservation
-	1053, // 950: forge.MachineSpxStatusObservation.observed_at:type_name -> google.protobuf.Timestamp
-	1075, // 951: forge.MachineSpxAttachmentStatusObservation.partition_id:type_name -> common.SpxPartitionId
+	1054, // 950: forge.MachineSpxStatusObservation.observed_at:type_name -> google.protobuf.Timestamp
+	1076, // 951: forge.MachineSpxAttachmentStatusObservation.partition_id:type_name -> common.SpxPartitionId
 	17,   // 952: forge.MachineSpxAttachmentStatusObservation.attachment_type:type_name -> forge.SpxAttachmentType
-	1053, // 953: forge.MachineSpxAttachmentStatusObservation.observed_at:type_name -> google.protobuf.Timestamp
+	1054, // 953: forge.MachineSpxAttachmentStatusObservation.observed_at:type_name -> google.protobuf.Timestamp
 	801,  // 954: forge.AstraConfig.astra_attachments:type_name -> forge.AstraAttachment
 	17,   // 955: forge.AstraAttachment.attachment_type:type_name -> forge.SpxAttachmentType
 	803,  // 956: forge.AstraConfigStatus.astra_attachments_status:type_name -> forge.AstraAttachmentStatus
@@ -79065,41 +81192,41 @@ var file_nico_nico_proto_depIdxs = []int32{
 	804,  // 958: forge.AstraAttachmentStatus.status:type_name -> forge.AstraStatus
 	70,   // 959: forge.AstraStatus.phase:type_name -> forge.AstraPhase
 	807,  // 960: forge.MachineNVLinkStatusObservation.gpu_status:type_name -> forge.MachineNVLinkGpuStatusObservation
-	1087, // 961: forge.MachineNVLinkGpuStatusObservation.partition_id:type_name -> common.NVLinkPartitionId
-	1057, // 962: forge.MachineNVLinkGpuStatusObservation.logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
-	1067, // 963: forge.MachineNVLinkGpuStatusObservation.domain_id:type_name -> common.NVLinkDomainId
+	1088, // 961: forge.MachineNVLinkGpuStatusObservation.partition_id:type_name -> common.NVLinkPartitionId
+	1058, // 962: forge.MachineNVLinkGpuStatusObservation.logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	1068, // 963: forge.MachineNVLinkGpuStatusObservation.domain_id:type_name -> common.NVLinkDomainId
 	71,   // 964: forge.NmxcBrowseRequest.operation:type_name -> forge.NmxcBrowseOperation
-	1064, // 965: forge.NmxcBrowseRequest.rack_id:type_name -> common.RackId
-	1049, // 966: forge.NmxcBrowseResponse.headers:type_name -> forge.NmxcBrowseResponse.HeadersEntry
-	1087, // 967: forge.NVLinkPartition.id:type_name -> common.NVLinkPartitionId
-	1067, // 968: forge.NVLinkPartition.domain_uuid:type_name -> common.NVLinkDomainId
-	1057, // 969: forge.NVLinkPartition.logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
+	1065, // 965: forge.NmxcBrowseRequest.rack_id:type_name -> common.RackId
+	1050, // 966: forge.NmxcBrowseResponse.headers:type_name -> forge.NmxcBrowseResponse.HeadersEntry
+	1088, // 967: forge.NVLinkPartition.id:type_name -> common.NVLinkPartitionId
+	1068, // 968: forge.NVLinkPartition.domain_uuid:type_name -> common.NVLinkDomainId
+	1058, // 969: forge.NVLinkPartition.logical_partition_id:type_name -> common.NVLinkLogicalPartitionId
 	810,  // 970: forge.NVLinkPartitionList.partitions:type_name -> forge.NVLinkPartition
-	1065, // 971: forge.NVLinkPartitionQuery.id:type_name -> common.UUID
+	1066, // 971: forge.NVLinkPartitionQuery.id:type_name -> common.UUID
 	812,  // 972: forge.NVLinkPartitionQuery.search_config:type_name -> forge.NVLinkPartitionSearchConfig
-	1087, // 973: forge.NVLinkPartitionsByIdsRequest.partition_ids:type_name -> common.NVLinkPartitionId
-	1087, // 974: forge.NVLinkPartitionIdList.partition_ids:type_name -> common.NVLinkPartitionId
+	1088, // 973: forge.NVLinkPartitionsByIdsRequest.partition_ids:type_name -> common.NVLinkPartitionId
+	1088, // 974: forge.NVLinkPartitionIdList.partition_ids:type_name -> common.NVLinkPartitionId
 	286,  // 975: forge.NVLinkLogicalPartitionConfig.metadata:type_name -> forge.Metadata
 	9,    // 976: forge.NVLinkLogicalPartitionStatus.state:type_name -> forge.TenantState
-	1057, // 977: forge.NVLinkLogicalPartition.id:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 977: forge.NVLinkLogicalPartition.id:type_name -> common.NVLinkLogicalPartitionId
 	818,  // 978: forge.NVLinkLogicalPartition.config:type_name -> forge.NVLinkLogicalPartitionConfig
 	819,  // 979: forge.NVLinkLogicalPartition.status:type_name -> forge.NVLinkLogicalPartitionStatus
-	1053, // 980: forge.NVLinkLogicalPartition.created:type_name -> google.protobuf.Timestamp
+	1054, // 980: forge.NVLinkLogicalPartition.created:type_name -> google.protobuf.Timestamp
 	820,  // 981: forge.NVLinkLogicalPartitionList.partitions:type_name -> forge.NVLinkLogicalPartition
 	818,  // 982: forge.NVLinkLogicalPartitionCreationRequest.config:type_name -> forge.NVLinkLogicalPartitionConfig
-	1057, // 983: forge.NVLinkLogicalPartitionCreationRequest.id:type_name -> common.NVLinkLogicalPartitionId
-	1057, // 984: forge.NVLinkLogicalPartitionDeletionRequest.id:type_name -> common.NVLinkLogicalPartitionId
-	1057, // 985: forge.NVLinkLogicalPartitionsByIdsRequest.partition_ids:type_name -> common.NVLinkLogicalPartitionId
-	1057, // 986: forge.NVLinkLogicalPartitionIdList.partition_ids:type_name -> common.NVLinkLogicalPartitionId
-	1057, // 987: forge.NVLinkLogicalPartitionUpdateRequest.id:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 983: forge.NVLinkLogicalPartitionCreationRequest.id:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 984: forge.NVLinkLogicalPartitionDeletionRequest.id:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 985: forge.NVLinkLogicalPartitionsByIdsRequest.partition_ids:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 986: forge.NVLinkLogicalPartitionIdList.partition_ids:type_name -> common.NVLinkLogicalPartitionId
+	1058, // 987: forge.NVLinkLogicalPartitionUpdateRequest.id:type_name -> common.NVLinkLogicalPartitionId
 	818,  // 988: forge.NVLinkLogicalPartitionUpdateRequest.config:type_name -> forge.NVLinkLogicalPartitionConfig
 	403,  // 989: forge.CreateBmcUserRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 990: forge.DeleteBmcUserRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 991: forge.SetBmcRootPasswordRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	403,  // 992: forge.ProbeBmcVendorRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
-	1052, // 993: forge.SetFirmwareUpdateTimeWindowRequest.machine_ids:type_name -> common.MachineId
-	1053, // 994: forge.SetFirmwareUpdateTimeWindowRequest.start_timestamp:type_name -> google.protobuf.Timestamp
-	1053, // 995: forge.SetFirmwareUpdateTimeWindowRequest.end_timestamp:type_name -> google.protobuf.Timestamp
+	1053, // 993: forge.SetFirmwareUpdateTimeWindowRequest.machine_ids:type_name -> common.MachineId
+	1054, // 994: forge.SetFirmwareUpdateTimeWindowRequest.start_timestamp:type_name -> google.protobuf.Timestamp
+	1054, // 995: forge.SetFirmwareUpdateTimeWindowRequest.end_timestamp:type_name -> google.protobuf.Timestamp
 	842,  // 996: forge.UpsertHostFirmwareConfigRequest.components:type_name -> forge.UpsertHostFirmwareComponentConfig
 	72,   // 997: forge.UpsertHostFirmwareConfigRequest.ordering:type_name -> forge.HostFirmwareComponentType
 	72,   // 998: forge.UpsertHostFirmwareComponentConfig.type:type_name -> forge.HostFirmwareComponentType
@@ -79109,43 +81236,43 @@ var file_nico_nico_proto_depIdxs = []int32{
 	845,  // 1002: forge.HostFirmwareVersionConfig.artifacts:type_name -> forge.HostFirmwareArtifact
 	843,  // 1003: forge.HostFirmwareConfigResponse.components:type_name -> forge.HostFirmwareComponentConfigResponse
 	72,   // 1004: forge.HostFirmwareConfigResponse.ordering:type_name -> forge.HostFirmwareComponentType
-	1053, // 1005: forge.HostFirmwareConfigResponse.created_at:type_name -> google.protobuf.Timestamp
-	1053, // 1006: forge.HostFirmwareConfigResponse.updated_at:type_name -> google.protobuf.Timestamp
+	1054, // 1005: forge.HostFirmwareConfigResponse.created_at:type_name -> google.protobuf.Timestamp
+	1054, // 1006: forge.HostFirmwareConfigResponse.updated_at:type_name -> google.protobuf.Timestamp
 	849,  // 1007: forge.ListHostFirmwareResponse.available:type_name -> forge.AvailableHostFirmware
 	73,   // 1008: forge.TrimTableRequest.target:type_name -> forge.TrimTableTarget
 	852,  // 1009: forge.NvlinkNmxcEndpointList.entries:type_name -> forge.NvlinkNmxcEndpoint
 	286,  // 1010: forge.CreateRemediationRequest.metadata:type_name -> forge.Metadata
-	1088, // 1011: forge.CreateRemediationResponse.remediation_id:type_name -> common.RemediationId
-	1088, // 1012: forge.RemediationIdList.remediation_ids:type_name -> common.RemediationId
+	1089, // 1011: forge.CreateRemediationResponse.remediation_id:type_name -> common.RemediationId
+	1089, // 1012: forge.RemediationIdList.remediation_ids:type_name -> common.RemediationId
 	859,  // 1013: forge.RemediationList.remediations:type_name -> forge.Remediation
-	1088, // 1014: forge.Remediation.id:type_name -> common.RemediationId
+	1089, // 1014: forge.Remediation.id:type_name -> common.RemediationId
 	286,  // 1015: forge.Remediation.metadata:type_name -> forge.Metadata
-	1053, // 1016: forge.Remediation.creation_time:type_name -> google.protobuf.Timestamp
-	1088, // 1017: forge.ApproveRemediationRequest.remediation_id:type_name -> common.RemediationId
-	1088, // 1018: forge.RevokeRemediationRequest.remediation_id:type_name -> common.RemediationId
-	1088, // 1019: forge.EnableRemediationRequest.remediation_id:type_name -> common.RemediationId
-	1088, // 1020: forge.DisableRemediationRequest.remediation_id:type_name -> common.RemediationId
-	1088, // 1021: forge.FindAppliedRemediationIdsRequest.remediation_id:type_name -> common.RemediationId
-	1052, // 1022: forge.FindAppliedRemediationIdsRequest.dpu_machine_id:type_name -> common.MachineId
-	1088, // 1023: forge.AppliedRemediationIdList.remediation_ids:type_name -> common.RemediationId
-	1052, // 1024: forge.AppliedRemediationIdList.dpu_machine_ids:type_name -> common.MachineId
-	1088, // 1025: forge.FindAppliedRemediationsRequest.remediation_id:type_name -> common.RemediationId
-	1052, // 1026: forge.FindAppliedRemediationsRequest.dpu_machine_id:type_name -> common.MachineId
-	1088, // 1027: forge.AppliedRemediation.remediation_id:type_name -> common.RemediationId
-	1052, // 1028: forge.AppliedRemediation.dpu_machine_id:type_name -> common.MachineId
-	1053, // 1029: forge.AppliedRemediation.applied_time:type_name -> google.protobuf.Timestamp
+	1054, // 1016: forge.Remediation.creation_time:type_name -> google.protobuf.Timestamp
+	1089, // 1017: forge.ApproveRemediationRequest.remediation_id:type_name -> common.RemediationId
+	1089, // 1018: forge.RevokeRemediationRequest.remediation_id:type_name -> common.RemediationId
+	1089, // 1019: forge.EnableRemediationRequest.remediation_id:type_name -> common.RemediationId
+	1089, // 1020: forge.DisableRemediationRequest.remediation_id:type_name -> common.RemediationId
+	1089, // 1021: forge.FindAppliedRemediationIdsRequest.remediation_id:type_name -> common.RemediationId
+	1053, // 1022: forge.FindAppliedRemediationIdsRequest.dpu_machine_id:type_name -> common.MachineId
+	1089, // 1023: forge.AppliedRemediationIdList.remediation_ids:type_name -> common.RemediationId
+	1053, // 1024: forge.AppliedRemediationIdList.dpu_machine_ids:type_name -> common.MachineId
+	1089, // 1025: forge.FindAppliedRemediationsRequest.remediation_id:type_name -> common.RemediationId
+	1053, // 1026: forge.FindAppliedRemediationsRequest.dpu_machine_id:type_name -> common.MachineId
+	1089, // 1027: forge.AppliedRemediation.remediation_id:type_name -> common.RemediationId
+	1053, // 1028: forge.AppliedRemediation.dpu_machine_id:type_name -> common.MachineId
+	1054, // 1029: forge.AppliedRemediation.applied_time:type_name -> google.protobuf.Timestamp
 	286,  // 1030: forge.AppliedRemediation.metadata:type_name -> forge.Metadata
 	867,  // 1031: forge.AppliedRemediationList.applied_remediations:type_name -> forge.AppliedRemediation
-	1052, // 1032: forge.GetNextRemediationForMachineRequest.dpu_machine_id:type_name -> common.MachineId
-	1088, // 1033: forge.GetNextRemediationForMachineResponse.remediation_id:type_name -> common.RemediationId
-	1088, // 1034: forge.RemediationAppliedRequest.remediation_id:type_name -> common.RemediationId
-	1052, // 1035: forge.RemediationAppliedRequest.dpu_machine_id:type_name -> common.MachineId
+	1053, // 1032: forge.GetNextRemediationForMachineRequest.dpu_machine_id:type_name -> common.MachineId
+	1089, // 1033: forge.GetNextRemediationForMachineResponse.remediation_id:type_name -> common.RemediationId
+	1089, // 1034: forge.RemediationAppliedRequest.remediation_id:type_name -> common.RemediationId
+	1053, // 1035: forge.RemediationAppliedRequest.dpu_machine_id:type_name -> common.MachineId
 	872,  // 1036: forge.RemediationAppliedRequest.status:type_name -> forge.RemediationApplicationStatus
 	286,  // 1037: forge.RemediationApplicationStatus.metadata:type_name -> forge.Metadata
-	1052, // 1038: forge.SetPrimaryDpuRequest.host_machine_id:type_name -> common.MachineId
-	1052, // 1039: forge.SetPrimaryDpuRequest.dpu_machine_id:type_name -> common.MachineId
-	1052, // 1040: forge.SetPrimaryInterfaceRequest.host_machine_id:type_name -> common.MachineId
-	1076, // 1041: forge.SetPrimaryInterfaceRequest.interface_id:type_name -> common.MachineInterfaceId
+	1053, // 1038: forge.SetPrimaryDpuRequest.host_machine_id:type_name -> common.MachineId
+	1053, // 1039: forge.SetPrimaryDpuRequest.dpu_machine_id:type_name -> common.MachineId
+	1053, // 1040: forge.SetPrimaryInterfaceRequest.host_machine_id:type_name -> common.MachineId
+	1077, // 1041: forge.SetPrimaryInterfaceRequest.interface_id:type_name -> common.MachineInterfaceId
 	875,  // 1042: forge.DpuExtensionServiceCredential.username_password:type_name -> forge.UsernamePassword
 	896,  // 1043: forge.DpuExtensionServiceVersionInfo.observability:type_name -> forge.DpuExtensionServiceObservability
 	74,   // 1044: forge.DpuExtensionService.service_type:type_name -> forge.DpuExtensionServiceType
@@ -79163,85 +81290,86 @@ var file_nico_nico_proto_depIdxs = []int32{
 	893,  // 1056: forge.DpuExtensionServiceObservabilityConfig.prometheus:type_name -> forge.DpuExtensionServiceObservabilityConfigPrometheus
 	894,  // 1057: forge.DpuExtensionServiceObservabilityConfig.logging:type_name -> forge.DpuExtensionServiceObservabilityConfigLogging
 	895,  // 1058: forge.DpuExtensionServiceObservability.configs:type_name -> forge.DpuExtensionServiceObservabilityConfig
-	1065, // 1059: forge.ScoutStreamApiBoundMessage.flow_uuid:type_name -> common.UUID
+	1066, // 1059: forge.ScoutStreamApiBoundMessage.flow_uuid:type_name -> common.UUID
 	899,  // 1060: forge.ScoutStreamApiBoundMessage.init:type_name -> forge.ScoutStreamInitRequest
-	1089, // 1061: forge.ScoutStreamApiBoundMessage.mlx_device_lockdown_response:type_name -> mlx_device.MlxDeviceLockdownResponse
-	1090, // 1062: forge.ScoutStreamApiBoundMessage.mlx_device_profile_sync_response:type_name -> mlx_device.MlxDeviceProfileSyncResponse
-	1091, // 1063: forge.ScoutStreamApiBoundMessage.mlx_device_profile_compare_response:type_name -> mlx_device.MlxDeviceProfileCompareResponse
-	1092, // 1064: forge.ScoutStreamApiBoundMessage.mlx_device_info_device_response:type_name -> mlx_device.MlxDeviceInfoDeviceResponse
-	1093, // 1065: forge.ScoutStreamApiBoundMessage.mlx_device_info_report_response:type_name -> mlx_device.MlxDeviceInfoReportResponse
-	1094, // 1066: forge.ScoutStreamApiBoundMessage.mlx_device_registry_list_response:type_name -> mlx_device.MlxDeviceRegistryListResponse
-	1095, // 1067: forge.ScoutStreamApiBoundMessage.mlx_device_registry_show_response:type_name -> mlx_device.MlxDeviceRegistryShowResponse
-	1096, // 1068: forge.ScoutStreamApiBoundMessage.mlx_device_config_query_response:type_name -> mlx_device.MlxDeviceConfigQueryResponse
-	1097, // 1069: forge.ScoutStreamApiBoundMessage.mlx_device_config_set_response:type_name -> mlx_device.MlxDeviceConfigSetResponse
-	1098, // 1070: forge.ScoutStreamApiBoundMessage.mlx_device_config_sync_response:type_name -> mlx_device.MlxDeviceConfigSyncResponse
-	1099, // 1071: forge.ScoutStreamApiBoundMessage.mlx_device_config_compare_response:type_name -> mlx_device.MlxDeviceConfigCompareResponse
+	1090, // 1061: forge.ScoutStreamApiBoundMessage.mlx_device_lockdown_response:type_name -> mlx_device.MlxDeviceLockdownResponse
+	1091, // 1062: forge.ScoutStreamApiBoundMessage.mlx_device_profile_sync_response:type_name -> mlx_device.MlxDeviceProfileSyncResponse
+	1092, // 1063: forge.ScoutStreamApiBoundMessage.mlx_device_profile_compare_response:type_name -> mlx_device.MlxDeviceProfileCompareResponse
+	1093, // 1064: forge.ScoutStreamApiBoundMessage.mlx_device_info_device_response:type_name -> mlx_device.MlxDeviceInfoDeviceResponse
+	1094, // 1065: forge.ScoutStreamApiBoundMessage.mlx_device_info_report_response:type_name -> mlx_device.MlxDeviceInfoReportResponse
+	1095, // 1066: forge.ScoutStreamApiBoundMessage.mlx_device_registry_list_response:type_name -> mlx_device.MlxDeviceRegistryListResponse
+	1096, // 1067: forge.ScoutStreamApiBoundMessage.mlx_device_registry_show_response:type_name -> mlx_device.MlxDeviceRegistryShowResponse
+	1097, // 1068: forge.ScoutStreamApiBoundMessage.mlx_device_config_query_response:type_name -> mlx_device.MlxDeviceConfigQueryResponse
+	1098, // 1069: forge.ScoutStreamApiBoundMessage.mlx_device_config_set_response:type_name -> mlx_device.MlxDeviceConfigSetResponse
+	1099, // 1070: forge.ScoutStreamApiBoundMessage.mlx_device_config_sync_response:type_name -> mlx_device.MlxDeviceConfigSyncResponse
+	1100, // 1071: forge.ScoutStreamApiBoundMessage.mlx_device_config_compare_response:type_name -> mlx_device.MlxDeviceConfigCompareResponse
 	907,  // 1072: forge.ScoutStreamApiBoundMessage.scout_stream_agent_ping_response:type_name -> forge.ScoutStreamAgentPingResponse
-	1065, // 1073: forge.ScoutStreamScoutBoundMessage.flow_uuid:type_name -> common.UUID
-	1100, // 1074: forge.ScoutStreamScoutBoundMessage.mlx_device_lockdown_lock_request:type_name -> mlx_device.MlxDeviceLockdownLockRequest
-	1101, // 1075: forge.ScoutStreamScoutBoundMessage.mlx_device_lockdown_unlock_request:type_name -> mlx_device.MlxDeviceLockdownUnlockRequest
-	1102, // 1076: forge.ScoutStreamScoutBoundMessage.mlx_device_lockdown_status_request:type_name -> mlx_device.MlxDeviceLockdownStatusRequest
-	1103, // 1077: forge.ScoutStreamScoutBoundMessage.mlx_device_profile_sync_request:type_name -> mlx_device.MlxDeviceProfileSyncRequest
-	1104, // 1078: forge.ScoutStreamScoutBoundMessage.mlx_device_profile_compare_request:type_name -> mlx_device.MlxDeviceProfileCompareRequest
-	1105, // 1079: forge.ScoutStreamScoutBoundMessage.mlx_device_info_device_request:type_name -> mlx_device.MlxDeviceInfoDeviceRequest
-	1106, // 1080: forge.ScoutStreamScoutBoundMessage.mlx_device_info_report_request:type_name -> mlx_device.MlxDeviceInfoReportRequest
-	1107, // 1081: forge.ScoutStreamScoutBoundMessage.mlx_device_registry_list_request:type_name -> mlx_device.MlxDeviceRegistryListRequest
-	1108, // 1082: forge.ScoutStreamScoutBoundMessage.mlx_device_registry_show_request:type_name -> mlx_device.MlxDeviceRegistryShowRequest
-	1109, // 1083: forge.ScoutStreamScoutBoundMessage.mlx_device_config_query_request:type_name -> mlx_device.MlxDeviceConfigQueryRequest
-	1110, // 1084: forge.ScoutStreamScoutBoundMessage.mlx_device_config_set_request:type_name -> mlx_device.MlxDeviceConfigSetRequest
-	1111, // 1085: forge.ScoutStreamScoutBoundMessage.mlx_device_config_sync_request:type_name -> mlx_device.MlxDeviceConfigSyncRequest
-	1112, // 1086: forge.ScoutStreamScoutBoundMessage.mlx_device_config_compare_request:type_name -> mlx_device.MlxDeviceConfigCompareRequest
+	1066, // 1073: forge.ScoutStreamScoutBoundMessage.flow_uuid:type_name -> common.UUID
+	1101, // 1074: forge.ScoutStreamScoutBoundMessage.mlx_device_lockdown_lock_request:type_name -> mlx_device.MlxDeviceLockdownLockRequest
+	1102, // 1075: forge.ScoutStreamScoutBoundMessage.mlx_device_lockdown_unlock_request:type_name -> mlx_device.MlxDeviceLockdownUnlockRequest
+	1103, // 1076: forge.ScoutStreamScoutBoundMessage.mlx_device_lockdown_status_request:type_name -> mlx_device.MlxDeviceLockdownStatusRequest
+	1104, // 1077: forge.ScoutStreamScoutBoundMessage.mlx_device_profile_sync_request:type_name -> mlx_device.MlxDeviceProfileSyncRequest
+	1105, // 1078: forge.ScoutStreamScoutBoundMessage.mlx_device_profile_compare_request:type_name -> mlx_device.MlxDeviceProfileCompareRequest
+	1106, // 1079: forge.ScoutStreamScoutBoundMessage.mlx_device_info_device_request:type_name -> mlx_device.MlxDeviceInfoDeviceRequest
+	1107, // 1080: forge.ScoutStreamScoutBoundMessage.mlx_device_info_report_request:type_name -> mlx_device.MlxDeviceInfoReportRequest
+	1108, // 1081: forge.ScoutStreamScoutBoundMessage.mlx_device_registry_list_request:type_name -> mlx_device.MlxDeviceRegistryListRequest
+	1109, // 1082: forge.ScoutStreamScoutBoundMessage.mlx_device_registry_show_request:type_name -> mlx_device.MlxDeviceRegistryShowRequest
+	1110, // 1083: forge.ScoutStreamScoutBoundMessage.mlx_device_config_query_request:type_name -> mlx_device.MlxDeviceConfigQueryRequest
+	1111, // 1084: forge.ScoutStreamScoutBoundMessage.mlx_device_config_set_request:type_name -> mlx_device.MlxDeviceConfigSetRequest
+	1112, // 1085: forge.ScoutStreamScoutBoundMessage.mlx_device_config_sync_request:type_name -> mlx_device.MlxDeviceConfigSyncRequest
+	1113, // 1086: forge.ScoutStreamScoutBoundMessage.mlx_device_config_compare_request:type_name -> mlx_device.MlxDeviceConfigCompareRequest
 	906,  // 1087: forge.ScoutStreamScoutBoundMessage.scout_stream_agent_ping_request:type_name -> forge.ScoutStreamAgentPingRequest
-	1052, // 1088: forge.ScoutStreamInitRequest.machine_id:type_name -> common.MachineId
+	1053, // 1088: forge.ScoutStreamInitRequest.machine_id:type_name -> common.MachineId
 	908,  // 1089: forge.ScoutStreamShowConnectionsResponse.scout_stream_connections:type_name -> forge.ScoutStreamConnectionInfo
-	1052, // 1090: forge.ScoutStreamDisconnectRequest.machine_id:type_name -> common.MachineId
-	1052, // 1091: forge.ScoutStreamDisconnectResponse.machine_id:type_name -> common.MachineId
-	1052, // 1092: forge.ScoutStreamAdminPingRequest.machine_id:type_name -> common.MachineId
+	1053, // 1090: forge.ScoutStreamDisconnectRequest.machine_id:type_name -> common.MachineId
+	1053, // 1091: forge.ScoutStreamDisconnectResponse.machine_id:type_name -> common.MachineId
+	1053, // 1092: forge.ScoutStreamAdminPingRequest.machine_id:type_name -> common.MachineId
 	909,  // 1093: forge.ScoutStreamAgentPingResponse.error:type_name -> forge.ScoutStreamError
-	1052, // 1094: forge.ScoutStreamConnectionInfo.machine_id:type_name -> common.MachineId
+	1053, // 1094: forge.ScoutStreamConnectionInfo.machine_id:type_name -> common.MachineId
 	77,   // 1095: forge.ScoutStreamError.status:type_name -> forge.ScoutStreamErrorStatus
-	1056, // 1096: forge.RoutingProfile.route_target_imports:type_name -> common.RouteTarget
-	1056, // 1097: forge.RoutingProfile.route_targets_on_exports:type_name -> common.RouteTarget
+	1057, // 1096: forge.RoutingProfile.route_target_imports:type_name -> common.RouteTarget
+	1057, // 1097: forge.RoutingProfile.route_targets_on_exports:type_name -> common.RouteTarget
 	910,  // 1098: forge.RoutingProfile.accepted_leaks_from_underlay:type_name -> forge.PrefixFilterPolicyEntry
 	910,  // 1099: forge.RoutingProfile.allowed_anycast_prefixes:type_name -> forge.PrefixFilterPolicyEntry
-	1069, // 1100: forge.DomainLegacy.id:type_name -> common.DomainId
-	1053, // 1101: forge.DomainLegacy.created:type_name -> google.protobuf.Timestamp
-	1053, // 1102: forge.DomainLegacy.updated:type_name -> google.protobuf.Timestamp
-	1053, // 1103: forge.DomainLegacy.deleted:type_name -> google.protobuf.Timestamp
+	1070, // 1100: forge.DomainLegacy.id:type_name -> common.DomainId
+	1054, // 1101: forge.DomainLegacy.created:type_name -> google.protobuf.Timestamp
+	1054, // 1102: forge.DomainLegacy.updated:type_name -> google.protobuf.Timestamp
+	1054, // 1103: forge.DomainLegacy.deleted:type_name -> google.protobuf.Timestamp
 	912,  // 1104: forge.DomainListLegacy.domains:type_name -> forge.DomainLegacy
-	1069, // 1105: forge.DomainDeletionLegacy.id:type_name -> common.DomainId
-	1069, // 1106: forge.DomainSearchQueryLegacy.id:type_name -> common.DomainId
-	1113, // 1107: forge.PxeDomain.new_domain:type_name -> dns.Domain
+	1070, // 1105: forge.DomainDeletionLegacy.id:type_name -> common.DomainId
+	1070, // 1106: forge.DomainSearchQueryLegacy.id:type_name -> common.DomainId
+	1114, // 1107: forge.PxeDomain.new_domain:type_name -> dns.Domain
 	912,  // 1108: forge.PxeDomain.legacy_domain:type_name -> forge.DomainLegacy
-	1052, // 1109: forge.MachinePositionQuery.machine_ids:type_name -> common.MachineId
+	1053, // 1109: forge.MachinePositionQuery.machine_ids:type_name -> common.MachineId
 	920,  // 1110: forge.MachinePositionInfoList.machine_position_info:type_name -> forge.MachinePositionInfo
-	1052, // 1111: forge.MachinePositionInfo.machine_id:type_name -> common.MachineId
-	1066, // 1112: forge.MachinePositionInfo.switch_id:type_name -> common.SwitchId
-	1063, // 1113: forge.MachinePositionInfo.power_shelf_id:type_name -> common.PowerShelfId
-	1052, // 1114: forge.ModifyDPFStateRequest.machine_id:type_name -> common.MachineId
-	1050, // 1115: forge.DPFStateResponse.dpf_states:type_name -> forge.DPFStateResponse.DPFState
-	1052, // 1116: forge.GetDPFStateRequest.machine_ids:type_name -> common.MachineId
-	1052, // 1117: forge.GetDPFHostSnapshotRequest.host_machine_id:type_name -> common.MachineId
+	1053, // 1111: forge.MachinePositionInfo.machine_id:type_name -> common.MachineId
+	1067, // 1112: forge.MachinePositionInfo.switch_id:type_name -> common.SwitchId
+	1064, // 1113: forge.MachinePositionInfo.power_shelf_id:type_name -> common.PowerShelfId
+	1053, // 1114: forge.ModifyDPFStateRequest.machine_id:type_name -> common.MachineId
+	1051, // 1115: forge.DPFStateResponse.dpf_states:type_name -> forge.DPFStateResponse.DPFState
+	1053, // 1116: forge.GetDPFStateRequest.machine_ids:type_name -> common.MachineId
+	1053, // 1117: forge.GetDPFHostSnapshotRequest.host_machine_id:type_name -> common.MachineId
 	927,  // 1118: forge.DPFServiceVersionsResponse.services:type_name -> forge.DPFServiceVersion
-	1114, // 1119: forge.ReleaseDPUServiceSyncHoldRequest.machine_ids:type_name -> common.MachineIdList
+	1115, // 1119: forge.ReleaseDPUServiceSyncHoldRequest.machine_ids:type_name -> common.MachineIdList
 	288,  // 1120: forge.ReleaseDPUServiceSyncHoldRequest.instance_ids:type_name -> forge.InstanceIdList
-	1052, // 1121: forge.DPUServiceSyncReleaseResult.machine_id:type_name -> common.MachineId
+	1053, // 1121: forge.DPUServiceSyncReleaseResult.machine_id:type_name -> common.MachineId
 	78,   // 1122: forge.DPUServiceSyncReleaseResult.status:type_name -> forge.DPUServiceSyncReleaseStatus
 	930,  // 1123: forge.ReleaseDPUServiceSyncHoldResponse.results:type_name -> forge.DPUServiceSyncReleaseResult
-	1052, // 1124: forge.FindPendingDPUServiceSyncsByIdsRequest.machine_ids:type_name -> common.MachineId
-	1052, // 1125: forge.ListDPUServiceSyncHistoryRequest.machine_id:type_name -> common.MachineId
-	1052, // 1126: forge.PendingDPUServiceSync.machine_id:type_name -> common.MachineId
-	1053, // 1127: forge.PendingDPUServiceSync.requested_at:type_name -> google.protobuf.Timestamp
-	1072, // 1128: forge.PendingDPUServiceSync.instance_id:type_name -> common.InstanceId
-	1053, // 1129: forge.PendingDPUServiceSync.completed_at:type_name -> google.protobuf.Timestamp
+	1053, // 1124: forge.FindPendingDPUServiceSyncsByIdsRequest.machine_ids:type_name -> common.MachineId
+	1053, // 1125: forge.ListDPUServiceSyncHistoryRequest.machine_id:type_name -> common.MachineId
+	1053, // 1126: forge.PendingDPUServiceSync.machine_id:type_name -> common.MachineId
+	1054, // 1127: forge.PendingDPUServiceSync.requested_at:type_name -> google.protobuf.Timestamp
+	1073, // 1128: forge.PendingDPUServiceSync.instance_id:type_name -> common.InstanceId
+	1054, // 1129: forge.PendingDPUServiceSync.completed_at:type_name -> google.protobuf.Timestamp
 	48,   // 1130: forge.PendingDPUServiceSync.completed_by:type_name -> forge.UpdateInitiator
 	935,  // 1131: forge.ListPendingDPUServiceSyncsResponse.pending:type_name -> forge.PendingDPUServiceSync
 	79,   // 1132: forge.ComponentResult.status:type_name -> forge.ComponentManagerStatusCode
-	1066, // 1133: forge.SwitchIdList.ids:type_name -> common.SwitchId
-	1063, // 1134: forge.PowerShelfIdList.ids:type_name -> common.PowerShelfId
-	1114, // 1135: forge.GetComponentInventoryRequest.machine_ids:type_name -> common.MachineIdList
+	1067, // 1133: forge.SwitchIdList.ids:type_name -> common.SwitchId
+	1064, // 1134: forge.PowerShelfIdList.ids:type_name -> common.PowerShelfId
+	1115, // 1135: forge.GetComponentInventoryRequest.machine_ids:type_name -> common.MachineIdList
 	938,  // 1136: forge.GetComponentInventoryRequest.switch_ids:type_name -> forge.SwitchIdList
 	939,  // 1137: forge.GetComponentInventoryRequest.power_shelf_ids:type_name -> forge.PowerShelfIdList
+<<<<<<< HEAD
 	937,  // 1138: forge.ComponentInventoryEntry.result:type_name -> forge.ComponentResult
 	1115, // 1139: forge.ComponentInventoryEntry.report:type_name -> site_explorer.EndpointExplorationReport
 	941,  // 1140: forge.GetComponentInventoryResponse.entries:type_name -> forge.ComponentInventoryEntry
@@ -81877,11 +84005,972 @@ var file_nico_nico_proto_depIdxs = []int32{
 	662,  // 2093: forge.Forge.MachineValidationTestEnableDisableTest:output_type -> forge.MachineValidationTestEnableDisableTestResponse
 	658,  // 2094: forge.Forge.MachineValidationTestApproveFullHost:output_type -> forge.MachineValidationTestFullHostApprovalResponse
 	664,  // 2095: forge.Forge.UpdateMachineValidationRun:output_type -> forge.MachineValidationRunResponse
+=======
+	940,  // 1138: forge.GetComponentInventoryRequest.compute_bmc_macs:type_name -> forge.MacAddressList
+	937,  // 1139: forge.ComponentInventoryEntry.result:type_name -> forge.ComponentResult
+	1116, // 1140: forge.ComponentInventoryEntry.report:type_name -> site_explorer.EndpointExplorationReport
+	942,  // 1141: forge.GetComponentInventoryResponse.entries:type_name -> forge.ComponentInventoryEntry
+	1115, // 1142: forge.ComponentPowerControlRequest.machine_ids:type_name -> common.MachineIdList
+	938,  // 1143: forge.ComponentPowerControlRequest.switch_ids:type_name -> forge.SwitchIdList
+	939,  // 1144: forge.ComponentPowerControlRequest.power_shelf_ids:type_name -> forge.PowerShelfIdList
+	940,  // 1145: forge.ComponentPowerControlRequest.compute_bmc_macs:type_name -> forge.MacAddressList
+	1117, // 1146: forge.ComponentPowerControlRequest.action:type_name -> common.SystemPowerControl
+	937,  // 1147: forge.ComponentPowerControlResponse.results:type_name -> forge.ComponentResult
+	938,  // 1148: forge.ComponentConfigureSwitchCertificateRequest.switch_ids:type_name -> forge.SwitchIdList
+	937,  // 1149: forge.ComponentConfigureSwitchCertificateResponse.results:type_name -> forge.ComponentResult
+	937,  // 1150: forge.FirmwareUpdateStatus.result:type_name -> forge.ComponentResult
+	80,   // 1151: forge.FirmwareUpdateStatus.state:type_name -> forge.FirmwareUpdateState
+	1054, // 1152: forge.FirmwareUpdateStatus.updated_at:type_name -> google.protobuf.Timestamp
+	1115, // 1153: forge.UpdateComputeTrayFirmwareTarget.machine_ids:type_name -> common.MachineIdList
+	83,   // 1154: forge.UpdateComputeTrayFirmwareTarget.components:type_name -> forge.ComputeTrayComponent
+	940,  // 1155: forge.UpdateComputeTrayFirmwareTarget.bmc_macs:type_name -> forge.MacAddressList
+	938,  // 1156: forge.UpdateSwitchFirmwareTarget.switch_ids:type_name -> forge.SwitchIdList
+	81,   // 1157: forge.UpdateSwitchFirmwareTarget.components:type_name -> forge.NvSwitchComponent
+	939,  // 1158: forge.UpdatePowerShelfFirmwareTarget.power_shelf_ids:type_name -> forge.PowerShelfIdList
+	82,   // 1159: forge.UpdatePowerShelfFirmwareTarget.components:type_name -> forge.PowerShelfComponent
+	775,  // 1160: forge.UpdateFirmwareObjectTarget.rack_ids:type_name -> forge.RackIdList
+	949,  // 1161: forge.UpdateComponentFirmwareRequest.compute_trays:type_name -> forge.UpdateComputeTrayFirmwareTarget
+	950,  // 1162: forge.UpdateComponentFirmwareRequest.switches:type_name -> forge.UpdateSwitchFirmwareTarget
+	951,  // 1163: forge.UpdateComponentFirmwareRequest.power_shelves:type_name -> forge.UpdatePowerShelfFirmwareTarget
+	952,  // 1164: forge.UpdateComponentFirmwareRequest.racks:type_name -> forge.UpdateFirmwareObjectTarget
+	937,  // 1165: forge.UpdateComponentFirmwareResponse.results:type_name -> forge.ComponentResult
+	1115, // 1166: forge.GetComponentFirmwareStatusRequest.machine_ids:type_name -> common.MachineIdList
+	938,  // 1167: forge.GetComponentFirmwareStatusRequest.switch_ids:type_name -> forge.SwitchIdList
+	939,  // 1168: forge.GetComponentFirmwareStatusRequest.power_shelf_ids:type_name -> forge.PowerShelfIdList
+	775,  // 1169: forge.GetComponentFirmwareStatusRequest.rack_ids:type_name -> forge.RackIdList
+	940,  // 1170: forge.GetComponentFirmwareStatusRequest.compute_bmc_macs:type_name -> forge.MacAddressList
+	948,  // 1171: forge.GetComponentFirmwareStatusResponse.statuses:type_name -> forge.FirmwareUpdateStatus
+	1115, // 1172: forge.ListComponentFirmwareVersionsRequest.machine_ids:type_name -> common.MachineIdList
+	938,  // 1173: forge.ListComponentFirmwareVersionsRequest.switch_ids:type_name -> forge.SwitchIdList
+	939,  // 1174: forge.ListComponentFirmwareVersionsRequest.power_shelf_ids:type_name -> forge.PowerShelfIdList
+	775,  // 1175: forge.ListComponentFirmwareVersionsRequest.rack_ids:type_name -> forge.RackIdList
+	940,  // 1176: forge.ListComponentFirmwareVersionsRequest.compute_bmc_macs:type_name -> forge.MacAddressList
+	83,   // 1177: forge.ComputeTrayFirmwareVersions.component:type_name -> forge.ComputeTrayComponent
+	937,  // 1178: forge.DeviceFirmwareVersions.result:type_name -> forge.ComponentResult
+	958,  // 1179: forge.DeviceFirmwareVersions.compute_fw_versions:type_name -> forge.ComputeTrayFirmwareVersions
+	959,  // 1180: forge.ListComponentFirmwareVersionsResponse.devices:type_name -> forge.DeviceFirmwareVersions
+	286,  // 1181: forge.SpxPartitionCreationRequest.metadata:type_name -> forge.Metadata
+	1076, // 1182: forge.SpxPartitionCreationRequest.id:type_name -> common.SpxPartitionId
+	286,  // 1183: forge.SpxPartition.metadata:type_name -> forge.Metadata
+	1076, // 1184: forge.SpxPartition.id:type_name -> common.SpxPartitionId
+	1076, // 1185: forge.SpxPartitionIdList.spx_partition_ids:type_name -> common.SpxPartitionId
+	1076, // 1186: forge.SpxPartitionDeletionRequest.id:type_name -> common.SpxPartitionId
+	285,  // 1187: forge.SpxPartitionSearchFilter.label:type_name -> forge.Label
+	962,  // 1188: forge.SpxPartitionList.spx_partitions:type_name -> forge.SpxPartition
+	1076, // 1189: forge.SpxPartitionsByIdsRequest.spx_partition_ids:type_name -> common.SpxPartitionId
+	1067, // 1190: forge.AdminForceDeleteSwitchRequest.switch_id:type_name -> common.SwitchId
+	1064, // 1191: forge.AdminForceDeletePowerShelfRequest.power_shelf_id:type_name -> common.PowerShelfId
+	1075, // 1192: forge.OperatingSystem.id:type_name -> common.OperatingSystemId
+	84,   // 1193: forge.OperatingSystem.type:type_name -> forge.OperatingSystemType
+	9,    // 1194: forge.OperatingSystem.status:type_name -> forge.TenantState
+	1074, // 1195: forge.OperatingSystem.ipxe_template_id:type_name -> common.IpxeTemplateId
+	293,  // 1196: forge.OperatingSystem.ipxe_template_parameters:type_name -> forge.IpxeTemplateParameter
+	294,  // 1197: forge.OperatingSystem.ipxe_template_artifacts:type_name -> forge.IpxeTemplateArtifact
+	1075, // 1198: forge.CreateOperatingSystemRequest.id:type_name -> common.OperatingSystemId
+	1074, // 1199: forge.CreateOperatingSystemRequest.ipxe_template_id:type_name -> common.IpxeTemplateId
+	293,  // 1200: forge.CreateOperatingSystemRequest.ipxe_template_parameters:type_name -> forge.IpxeTemplateParameter
+	294,  // 1201: forge.CreateOperatingSystemRequest.ipxe_template_artifacts:type_name -> forge.IpxeTemplateArtifact
+	293,  // 1202: forge.IpxeTemplateParameters.items:type_name -> forge.IpxeTemplateParameter
+	294,  // 1203: forge.IpxeTemplateArtifacts.items:type_name -> forge.IpxeTemplateArtifact
+	1075, // 1204: forge.UpdateOperatingSystemRequest.id:type_name -> common.OperatingSystemId
+	1074, // 1205: forge.UpdateOperatingSystemRequest.ipxe_template_id:type_name -> common.IpxeTemplateId
+	975,  // 1206: forge.UpdateOperatingSystemRequest.ipxe_template_parameters:type_name -> forge.IpxeTemplateParameters
+	976,  // 1207: forge.UpdateOperatingSystemRequest.ipxe_template_artifacts:type_name -> forge.IpxeTemplateArtifacts
+	1075, // 1208: forge.DeleteOperatingSystemRequest.id:type_name -> common.OperatingSystemId
+	1075, // 1209: forge.OperatingSystemIdList.ids:type_name -> common.OperatingSystemId
+	1075, // 1210: forge.OperatingSystemsByIdsRequest.ids:type_name -> common.OperatingSystemId
+	973,  // 1211: forge.OperatingSystemList.operating_systems:type_name -> forge.OperatingSystem
+	1075, // 1212: forge.GetOperatingSystemCachableIpxeTemplateArtifactsRequest.id:type_name -> common.OperatingSystemId
+	294,  // 1213: forge.IpxeTemplateArtifactList.artifacts:type_name -> forge.IpxeTemplateArtifact
+	1075, // 1214: forge.UpdateOperatingSystemIpxeTemplateArtifactRequest.id:type_name -> common.OperatingSystemId
+	986,  // 1215: forge.UpdateOperatingSystemIpxeTemplateArtifactRequest.updates:type_name -> forge.IpxeTemplateArtifactUpdateRequest
+	1053, // 1216: forge.GetMachineBootInterfacesRequest.machine_id:type_name -> common.MachineId
+	1077, // 1217: forge.MachineInterfaceBootInterface.interface_id:type_name -> common.MachineInterfaceId
+	1054, // 1218: forge.RetainedBootInterface.recorded_at:type_name -> google.protobuf.Timestamp
+	1053, // 1219: forge.GetMachineBootInterfacesResponse.machine_id:type_name -> common.MachineId
+	992,  // 1220: forge.GetMachineBootInterfacesResponse.machine_interfaces:type_name -> forge.MachineInterfaceBootInterface
+	993,  // 1221: forge.GetMachineBootInterfacesResponse.predicted_interfaces:type_name -> forge.PredictedBootInterface
+	994,  // 1222: forge.GetMachineBootInterfacesResponse.explored_endpoints:type_name -> forge.ExploredBootInterface
+	995,  // 1223: forge.GetMachineBootInterfacesResponse.retained_interfaces:type_name -> forge.RetainedBootInterface
+	991,  // 1224: forge.GetMachineBootInterfacesResponse.default_boot_interface:type_name -> forge.MachineBootInterface
+	991,  // 1225: forge.GetMachineBootInterfacesResponse.predicted_boot_interface:type_name -> forge.MachineBootInterface
+	1052, // 1226: forge.GetMachineBootInterfacesResponse.reconciliation:type_name -> forge.GetMachineBootInterfacesResponse.Reconciliation
+	1060, // 1227: forge.SitePrefix.id:type_name -> common.SitePrefixId
+	1001, // 1228: forge.SitePrefix.config:type_name -> forge.SitePrefixConfig
+	1002, // 1229: forge.SitePrefix.status:type_name -> forge.SitePrefixStatus
+	286,  // 1230: forge.SitePrefix.metadata:type_name -> forge.Metadata
+	1054, // 1231: forge.SitePrefix.created_at:type_name -> google.protobuf.Timestamp
+	1054, // 1232: forge.SitePrefix.updated_at:type_name -> google.protobuf.Timestamp
+	89,   // 1233: forge.SitePrefixConfig.routing_scope:type_name -> forge.SitePrefixRoutingScope
+	88,   // 1234: forge.SitePrefixStatus.authority:type_name -> forge.SitePrefixAuthority
+	90,   // 1235: forge.SitePrefixStatus.lifecycle_state:type_name -> forge.SitePrefixLifecycleState
+	1003, // 1236: forge.SitePrefixStatus.quota:type_name -> forge.SitePrefixQuotaUsage
+	1060, // 1237: forge.SitePrefixCreationRequest.id:type_name -> common.SitePrefixId
+	286,  // 1238: forge.SitePrefixCreationRequest.metadata:type_name -> forge.Metadata
+	1060, // 1239: forge.SitePrefixUpdateRequest.id:type_name -> common.SitePrefixId
+	286,  // 1240: forge.SitePrefixUpdateRequest.metadata:type_name -> forge.Metadata
+	1060, // 1241: forge.SitePrefixDeletionRequest.id:type_name -> common.SitePrefixId
+	1000, // 1242: forge.SitePrefixDeletionResult.site_prefix:type_name -> forge.SitePrefix
+	1060, // 1243: forge.SitePrefixStateHistoriesRequest.site_prefix_ids:type_name -> common.SitePrefixId
+	88,   // 1244: forge.SitePrefixSearchFilter.authority:type_name -> forge.SitePrefixAuthority
+	89,   // 1245: forge.SitePrefixSearchFilter.routing_scope:type_name -> forge.SitePrefixRoutingScope
+	90,   // 1246: forge.SitePrefixSearchFilter.lifecycle_state:type_name -> forge.SitePrefixLifecycleState
+	8,    // 1247: forge.SitePrefixSearchFilter.prefix_match_type:type_name -> forge.PrefixMatchType
+	1060, // 1248: forge.SitePrefixesByIdsRequest.site_prefix_ids:type_name -> common.SitePrefixId
+	1060, // 1249: forge.SitePrefixIdList.site_prefix_ids:type_name -> common.SitePrefixId
+	1000, // 1250: forge.SitePrefixList.site_prefixes:type_name -> forge.SitePrefix
+	29,   // 1251: forge.InterfaceAddressConfig.address_family:type_name -> forge.AddressFamily
+	1017, // 1252: forge.DNSMessage.DNSResponse.rrs:type_name -> forge.DNSMessage.DNSResponse.DNSRR
+	250,  // 1253: forge.StateHistories.HistoriesEntry.value:type_name -> forge.StateHistoryRecords
+	342,  // 1254: forge.MachineStateHistories.HistoriesEntry.value:type_name -> forge.MachineStateHistoryRecords
+	345,  // 1255: forge.HealthHistories.HistoriesEntry.value:type_name -> forge.HealthHistoryRecords
+	95,   // 1256: forge.MachineCredentialsUpdateRequest.Credentials.credential_purpose:type_name -> forge.MachineCredentialsUpdateRequest.CredentialPurpose
+	1041, // 1257: forge.ForgeAgentControlResponse.ForgeAgentControlExtraInfo.pair:type_name -> forge.ForgeAgentControlResponse.ForgeAgentControlExtraInfo.KeyValuePair
+	1083, // 1258: forge.ForgeAgentControlResponse.MachineValidation.validation_id:type_name -> common.MachineValidationId
+	1032, // 1259: forge.ForgeAgentControlResponse.MachineValidation.filter:type_name -> forge.ForgeAgentControlResponse.MachineValidationFilter
+	1080, // 1260: forge.ForgeAgentControlResponse.MachineValidationFilter.contexts:type_name -> common.StringList
+	1034, // 1261: forge.ForgeAgentControlResponse.MlxAction.device_actions:type_name -> forge.ForgeAgentControlResponse.MlxDeviceAction
+	1035, // 1262: forge.ForgeAgentControlResponse.MlxDeviceAction.noop:type_name -> forge.ForgeAgentControlResponse.MlxDeviceNoop
+	1036, // 1263: forge.ForgeAgentControlResponse.MlxDeviceAction.lock:type_name -> forge.ForgeAgentControlResponse.MlxDeviceLock
+	1037, // 1264: forge.ForgeAgentControlResponse.MlxDeviceAction.unlock:type_name -> forge.ForgeAgentControlResponse.MlxDeviceUnlock
+	1038, // 1265: forge.ForgeAgentControlResponse.MlxDeviceAction.apply_profile:type_name -> forge.ForgeAgentControlResponse.MlxDeviceApplyProfile
+	1039, // 1266: forge.ForgeAgentControlResponse.MlxDeviceAction.apply_firmware:type_name -> forge.ForgeAgentControlResponse.MlxDeviceApplyFirmware
+	1118, // 1267: forge.ForgeAgentControlResponse.MlxDeviceApplyProfile.serialized_profile:type_name -> mlx_device.SerializableMlxConfigProfile
+	1119, // 1268: forge.ForgeAgentControlResponse.MlxDeviceApplyFirmware.profile:type_name -> mlx_device.FirmwareFlasherProfile
+	1120, // 1269: forge.ForgeAgentControlResponse.FirmwareUpgrade.task:type_name -> scout_firmware_upgrade.ScoutFirmwareUpgradeTask
+	97,   // 1270: forge.MachineCleanupInfo.CleanupStepResult.result:type_name -> forge.MachineCleanupInfo.CleanupResult
+	1053, // 1271: forge.DpuReprovisioningListResponse.DpuReprovisioningListItem.id:type_name -> common.MachineId
+	1054, // 1272: forge.DpuReprovisioningListResponse.DpuReprovisioningListItem.requested_at:type_name -> google.protobuf.Timestamp
+	1054, // 1273: forge.DpuReprovisioningListResponse.DpuReprovisioningListItem.initiated_at:type_name -> google.protobuf.Timestamp
+	1053, // 1274: forge.HostReprovisioningListResponse.HostReprovisioningListItem.id:type_name -> common.MachineId
+	1054, // 1275: forge.HostReprovisioningListResponse.HostReprovisioningListItem.requested_at:type_name -> google.protobuf.Timestamp
+	1054, // 1276: forge.HostReprovisioningListResponse.HostReprovisioningListItem.initiated_at:type_name -> google.protobuf.Timestamp
+	1053, // 1277: forge.DPFStateResponse.DPFState.machine_id:type_name -> common.MachineId
+	991,  // 1278: forge.GetMachineBootInterfacesResponse.Reconciliation.desired_boot_interface:type_name -> forge.MachineBootInterface
+	1054, // 1279: forge.GetMachineBootInterfacesResponse.Reconciliation.observed_at:type_name -> google.protobuf.Timestamp
+	107,  // 1280: forge.GetMachineBootInterfacesResponse.Reconciliation.reconciliation_state:type_name -> forge.GetMachineBootInterfacesResponse.Reconciliation.State
+	87,   // 1281: forge.GetMachineBootInterfacesResponse.Reconciliation.selection_source:type_name -> forge.BootInterfaceSelectionSource
+	1054, // 1282: forge.GetMachineBootInterfacesResponse.Reconciliation.selection_updated_at:type_name -> google.protobuf.Timestamp
+	156,  // 1283: forge.Forge.Version:input_type -> forge.VersionRequest
+	1121, // 1284: forge.Forge.CreateDomain:input_type -> dns.CreateDomainRequest
+	1122, // 1285: forge.Forge.UpdateDomain:input_type -> dns.UpdateDomainRequest
+	1123, // 1286: forge.Forge.DeleteDomain:input_type -> dns.DomainDeletionRequest
+	1124, // 1287: forge.Forge.FindDomain:input_type -> dns.DomainSearchQuery
+	912,  // 1288: forge.Forge.CreateDomainLegacy:input_type -> forge.DomainLegacy
+	912,  // 1289: forge.Forge.UpdateDomainLegacy:input_type -> forge.DomainLegacy
+	914,  // 1290: forge.Forge.DeleteDomainLegacy:input_type -> forge.DomainDeletionLegacy
+	916,  // 1291: forge.Forge.FindDomainLegacy:input_type -> forge.DomainSearchQueryLegacy
+	178,  // 1292: forge.Forge.CreateVpc:input_type -> forge.VpcCreationRequest
+	179,  // 1293: forge.Forge.UpdateVpc:input_type -> forge.VpcUpdateRequest
+	181,  // 1294: forge.Forge.UpdateVpcVirtualization:input_type -> forge.VpcUpdateVirtualizationRequest
+	183,  // 1295: forge.Forge.DeleteVpc:input_type -> forge.VpcDeletionRequest
+	168,  // 1296: forge.Forge.FindVpcIds:input_type -> forge.VpcSearchFilter
+	170,  // 1297: forge.Forge.FindVpcsByIds:input_type -> forge.VpcsByIdsRequest
+	961,  // 1298: forge.Forge.CreateSpxPartition:input_type -> forge.SpxPartitionCreationRequest
+	964,  // 1299: forge.Forge.DeleteSpxPartition:input_type -> forge.SpxPartitionDeletionRequest
+	966,  // 1300: forge.Forge.FindSpxPartitionIds:input_type -> forge.SpxPartitionSearchFilter
+	968,  // 1301: forge.Forge.FindSpxPartitionsByIds:input_type -> forge.SpxPartitionsByIdsRequest
+	189,  // 1302: forge.Forge.CreateVpcPrefix:input_type -> forge.VpcPrefixCreationRequest
+	190,  // 1303: forge.Forge.SearchVpcPrefixes:input_type -> forge.VpcPrefixSearchQuery
+	191,  // 1304: forge.Forge.GetVpcPrefixes:input_type -> forge.VpcPrefixGetRequest
+	194,  // 1305: forge.Forge.UpdateVpcPrefix:input_type -> forge.VpcPrefixUpdateRequest
+	195,  // 1306: forge.Forge.DeleteVpcPrefix:input_type -> forge.VpcPrefixDeletionRequest
+	1004, // 1307: forge.Forge.CreateSitePrefix:input_type -> forge.SitePrefixCreationRequest
+	1005, // 1308: forge.Forge.UpdateSitePrefix:input_type -> forge.SitePrefixUpdateRequest
+	1006, // 1309: forge.Forge.DeleteSitePrefix:input_type -> forge.SitePrefixDeletionRequest
+	1009, // 1310: forge.Forge.FindSitePrefixIds:input_type -> forge.SitePrefixSearchFilter
+	1010, // 1311: forge.Forge.FindSitePrefixesByIds:input_type -> forge.SitePrefixesByIdsRequest
+	201,  // 1312: forge.Forge.CreateVpcPeering:input_type -> forge.VpcPeeringCreationRequest
+	202,  // 1313: forge.Forge.FindVpcPeeringIds:input_type -> forge.VpcPeeringSearchFilter
+	203,  // 1314: forge.Forge.FindVpcPeeringsByIds:input_type -> forge.VpcPeeringsByIdsRequest
+	204,  // 1315: forge.Forge.DeleteVpcPeering:input_type -> forge.VpcPeeringDeletionRequest
+	277,  // 1316: forge.Forge.FindNetworkSegmentIds:input_type -> forge.NetworkSegmentSearchFilter
+	279,  // 1317: forge.Forge.FindNetworkSegmentsByIds:input_type -> forge.NetworkSegmentsByIdsRequest
+	271,  // 1318: forge.Forge.CreateNetworkSegment:input_type -> forge.NetworkSegmentCreationRequest
+	273,  // 1319: forge.Forge.AttachNetworkSegmentToVpc:input_type -> forge.AttachNetworkSegmentToVpcRequest
+	272,  // 1320: forge.Forge.DeleteNetworkSegment:input_type -> forge.NetworkSegmentDeletionRequest
+	167,  // 1321: forge.Forge.NetworkSegmentsForVpc:input_type -> forge.VpcSearchQuery
+	214,  // 1322: forge.Forge.FindIBPartitionIds:input_type -> forge.IBPartitionSearchFilter
+	215,  // 1323: forge.Forge.FindIBPartitionsByIds:input_type -> forge.IBPartitionsByIdsRequest
+	210,  // 1324: forge.Forge.CreateIBPartition:input_type -> forge.IBPartitionCreationRequest
+	211,  // 1325: forge.Forge.UpdateIBPartition:input_type -> forge.IBPartitionUpdateRequest
+	212,  // 1326: forge.Forge.DeleteIBPartition:input_type -> forge.IBPartitionDeletionRequest
+	171,  // 1327: forge.Forge.IBPartitionsForTenant:input_type -> forge.TenantSearchQuery
+	229,  // 1328: forge.Forge.FindPowerShelves:input_type -> forge.PowerShelfQuery
+	230,  // 1329: forge.Forge.FindPowerShelfIds:input_type -> forge.PowerShelfSearchFilter
+	231,  // 1330: forge.Forge.FindPowerShelvesByIds:input_type -> forge.PowerShelvesByIdsRequest
+	222,  // 1331: forge.Forge.DecommissionPowerShelf:input_type -> forge.DecommissionPowerShelfRequest
+	224,  // 1332: forge.Forge.DeletePowerShelf:input_type -> forge.PowerShelfDeletionRequest
+	971,  // 1333: forge.Forge.AdminForceDeletePowerShelf:input_type -> forge.AdminForceDeletePowerShelfRequest
+	226,  // 1334: forge.Forge.SetPowerShelfMaintenance:input_type -> forge.PowerShelfMaintenanceRequest
+	254,  // 1335: forge.Forge.FindSwitches:input_type -> forge.SwitchQuery
+	255,  // 1336: forge.Forge.FindSwitchIds:input_type -> forge.SwitchSearchFilter
+	256,  // 1337: forge.Forge.FindSwitchesByIds:input_type -> forge.SwitchesByIdsRequest
+	245,  // 1338: forge.Forge.DeleteSwitch:input_type -> forge.SwitchDeletionRequest
+	247,  // 1339: forge.Forge.DecommissionSwitch:input_type -> forge.DecommissionSwitchRequest
+	969,  // 1340: forge.Forge.AdminForceDeleteSwitch:input_type -> forge.AdminForceDeleteSwitchRequest
+	265,  // 1341: forge.Forge.FindIBFabricIds:input_type -> forge.IBFabricSearchFilter
+	290,  // 1342: forge.Forge.AllocateInstance:input_type -> forge.InstanceAllocationRequest
+	291,  // 1343: forge.Forge.AllocateInstances:input_type -> forge.BatchInstanceAllocationRequest
+	336,  // 1344: forge.Forge.ReleaseInstance:input_type -> forge.InstanceReleaseRequest
+	308,  // 1345: forge.Forge.UpdateInstanceOperatingSystem:input_type -> forge.InstanceOperatingSystemUpdateRequest
+	309,  // 1346: forge.Forge.UpdateInstanceConfig:input_type -> forge.InstanceConfigUpdateRequest
+	287,  // 1347: forge.Forge.FindInstanceIds:input_type -> forge.InstanceSearchFilter
+	289,  // 1348: forge.Forge.FindInstancesByIds:input_type -> forge.InstancesByIdsRequest
+	1053, // 1349: forge.Forge.FindInstanceByMachineID:input_type -> common.MachineId
+	409,  // 1350: forge.Forge.GetManagedHostNetworkConfig:input_type -> forge.ManagedHostNetworkConfigRequest
+	474,  // 1351: forge.Forge.RecordDpuNetworkStatus:input_type -> forge.DpuNetworkStatus
+	1053, // 1352: forge.Forge.ListMachineHealthReports:input_type -> common.MachineId
+	480,  // 1353: forge.Forge.InsertMachineHealthReport:input_type -> forge.InsertMachineHealthReportRequest
+	491,  // 1354: forge.Forge.RemoveMachineHealthReport:input_type -> forge.RemoveMachineHealthReportRequest
+	483,  // 1355: forge.Forge.ListRackHealthReports:input_type -> forge.ListRackHealthReportsRequest
+	481,  // 1356: forge.Forge.InsertRackHealthReport:input_type -> forge.InsertRackHealthReportRequest
+	482,  // 1357: forge.Forge.RemoveRackHealthReport:input_type -> forge.RemoveRackHealthReportRequest
+	486,  // 1358: forge.Forge.ListSwitchHealthReports:input_type -> forge.ListSwitchHealthReportsRequest
+	484,  // 1359: forge.Forge.InsertSwitchHealthReport:input_type -> forge.InsertSwitchHealthReportRequest
+	485,  // 1360: forge.Forge.RemoveSwitchHealthReport:input_type -> forge.RemoveSwitchHealthReportRequest
+	489,  // 1361: forge.Forge.ListPowerShelfHealthReports:input_type -> forge.ListPowerShelfHealthReportsRequest
+	487,  // 1362: forge.Forge.InsertPowerShelfHealthReport:input_type -> forge.InsertPowerShelfHealthReportRequest
+	488,  // 1363: forge.Forge.RemovePowerShelfHealthReport:input_type -> forge.RemovePowerShelfHealthReportRequest
+	492,  // 1364: forge.Forge.ListNVLinkDomainHealthReports:input_type -> forge.ListNVLinkDomainHealthReportsRequest
+	493,  // 1365: forge.Forge.InsertNVLinkDomainHealthReport:input_type -> forge.InsertNVLinkDomainHealthReportRequest
+	494,  // 1366: forge.Forge.RemoveNVLinkDomainHealthReport:input_type -> forge.RemoveNVLinkDomainHealthReportRequest
+	1053, // 1367: forge.Forge.ListHealthReportOverrides:input_type -> common.MachineId
+	480,  // 1368: forge.Forge.InsertHealthReportOverride:input_type -> forge.InsertMachineHealthReportRequest
+	491,  // 1369: forge.Forge.RemoveHealthReportOverride:input_type -> forge.RemoveMachineHealthReportRequest
+	426,  // 1370: forge.Forge.DpuAgentUpgradeCheck:input_type -> forge.DpuAgentUpgradeCheckRequest
+	428,  // 1371: forge.Forge.DpuAgentUpgradePolicyAction:input_type -> forge.DpuAgentUpgradePolicyRequest
+	1125, // 1372: forge.Forge.LookupRecord:input_type -> dns.DnsResourceRecordLookupRequest
+	1126, // 1373: forge.Forge.GetAllDomains:input_type -> dns.GetAllDomainsRequest
+	1127, // 1374: forge.Forge.GetAllDomainMetadata:input_type -> dns.DomainMetadataRequest
+	282,  // 1375: forge.Forge.InvokeInstancePower:input_type -> forge.InstancePowerRequest
+	455,  // 1376: forge.Forge.ForgeAgentControl:input_type -> forge.ForgeAgentControlRequest
+	457,  // 1377: forge.Forge.DiscoverMachine:input_type -> forge.MachineDiscoveryInfo
+	461,  // 1378: forge.Forge.RenewMachineCertificate:input_type -> forge.MachineCertificateRenewRequest
+	458,  // 1379: forge.Forge.DiscoveryCompleted:input_type -> forge.MachineDiscoveryCompletedRequest
+	459,  // 1380: forge.Forge.CleanupMachineCompleted:input_type -> forge.MachineCleanupInfo
+	466,  // 1381: forge.Forge.ReportForgeScoutError:input_type -> forge.ForgeScoutErrorReport
+	385,  // 1382: forge.Forge.DiscoverDhcp:input_type -> forge.DhcpDiscovery
+	386,  // 1383: forge.Forge.ExpireDhcpLease:input_type -> forge.ExpireDhcpLeaseRequest
+	355,  // 1384: forge.Forge.AssignStaticAddress:input_type -> forge.AssignStaticAddressRequest
+	357,  // 1385: forge.Forge.RemoveStaticAddress:input_type -> forge.RemoveStaticAddressRequest
+	359,  // 1386: forge.Forge.FindInterfaceAddresses:input_type -> forge.FindInterfaceAddressesRequest
+	354,  // 1387: forge.Forge.FindInterfaces:input_type -> forge.InterfaceSearchQuery
+	353,  // 1388: forge.Forge.DeleteInterface:input_type -> forge.InterfaceDeleteQuery
+	530,  // 1389: forge.Forge.FindIpAddress:input_type -> forge.FindIpAddressRequest
+	339,  // 1390: forge.Forge.FindMachineIds:input_type -> forge.MachineSearchConfig
+	338,  // 1391: forge.Forge.FindMachinesByIds:input_type -> forge.MachinesByIdsRequest
+	340,  // 1392: forge.Forge.FindMachineStateHistories:input_type -> forge.MachineStateHistoriesRequest
+	343,  // 1393: forge.Forge.FindMachineHealthHistories:input_type -> forge.MachineHealthHistoriesRequest
+	227,  // 1394: forge.Forge.FindPowerShelfStateHistories:input_type -> forge.PowerShelfStateHistoriesRequest
+	228,  // 1395: forge.Forge.FindPowerShelfHealthHistories:input_type -> forge.PowerShelfHealthHistoriesRequest
+	780,  // 1396: forge.Forge.FindRackStateHistories:input_type -> forge.RackStateHistoriesRequest
+	781,  // 1397: forge.Forge.FindRackHealthHistories:input_type -> forge.RackHealthHistoriesRequest
+	251,  // 1398: forge.Forge.FindSwitchStateHistories:input_type -> forge.SwitchStateHistoriesRequest
+	252,  // 1399: forge.Forge.FindSwitchHealthHistories:input_type -> forge.SwitchHealthHistoriesRequest
+	275,  // 1400: forge.Forge.FindNetworkSegmentStateHistories:input_type -> forge.NetworkSegmentStateHistoriesRequest
+	197,  // 1401: forge.Forge.FindVpcPrefixStateHistories:input_type -> forge.VpcPrefixStateHistoriesRequest
+	1008, // 1402: forge.Forge.FindSitePrefixStateHistories:input_type -> forge.SitePrefixStateHistoriesRequest
+	348,  // 1403: forge.Forge.FindTenantOrganizationIds:input_type -> forge.TenantSearchFilter
+	347,  // 1404: forge.Forge.FindTenantsByOrganizationIds:input_type -> forge.TenantByOrganizationIdsRequest
+	1115, // 1405: forge.Forge.FindConnectedDevicesByDpuMachineIds:input_type -> common.MachineIdList
+	558,  // 1406: forge.Forge.FindMachineIdsByBmcIps:input_type -> forge.BmcIpList
+	559,  // 1407: forge.Forge.FindMacAddressByBmcIp:input_type -> forge.BmcIp
+	534,  // 1408: forge.Forge.FindBmcIps:input_type -> forge.FindBmcIpsRequest
+	532,  // 1409: forge.Forge.IdentifyUuid:input_type -> forge.IdentifyUuidRequest
+	535,  // 1410: forge.Forge.IdentifyMac:input_type -> forge.IdentifyMacRequest
+	537,  // 1411: forge.Forge.IdentifySerial:input_type -> forge.IdentifySerialRequest
+	451,  // 1412: forge.Forge.GetBMCMetaData:input_type -> forge.BMCMetaDataGetRequest
+	453,  // 1413: forge.Forge.UpdateMachineCredentials:input_type -> forge.MachineCredentialsUpdateRequest
+	468,  // 1414: forge.Forge.GetPxeInstructions:input_type -> forge.PxeInstructionRequest
+	472,  // 1415: forge.Forge.GetCloudInitInstructions:input_type -> forge.CloudInitInstructionsRequest
+	159,  // 1416: forge.Forge.Echo:input_type -> forge.EchoRequest
+	499,  // 1417: forge.Forge.CreateTenant:input_type -> forge.CreateTenantRequest
+	503,  // 1418: forge.Forge.FindTenant:input_type -> forge.FindTenantRequest
+	501,  // 1419: forge.Forge.UpdateTenant:input_type -> forge.UpdateTenantRequest
+	509,  // 1420: forge.Forge.CreateTenantKeyset:input_type -> forge.CreateTenantKeysetRequest
+	516,  // 1421: forge.Forge.FindTenantKeysetIds:input_type -> forge.TenantKeysetSearchFilter
+	518,  // 1422: forge.Forge.FindTenantKeysetsByIds:input_type -> forge.TenantKeysetsByIdsRequest
+	512,  // 1423: forge.Forge.UpdateTenantKeyset:input_type -> forge.UpdateTenantKeysetRequest
+	514,  // 1424: forge.Forge.DeleteTenantKeyset:input_type -> forge.DeleteTenantKeysetRequest
+	519,  // 1425: forge.Forge.ValidateTenantPublicKey:input_type -> forge.ValidateTenantPublicKeyRequest
+	392,  // 1426: forge.Forge.GetBmcCredentials:input_type -> forge.GetBmcCredentialsRequest
+	393,  // 1427: forge.Forge.GetSwitchNvosCredentials:input_type -> forge.GetSwitchNvosCredentialsRequest
+	424,  // 1428: forge.Forge.GetAllManagedHostNetworkStatus:input_type -> forge.ManagedHostNetworkStatusRequest
+	396,  // 1429: forge.Forge.GetSiteExplorationReport:input_type -> forge.GetSiteExplorationRequest
+	1128, // 1430: forge.Forge.GetSiteExplorerLastRun:input_type -> google.protobuf.Empty
+	397,  // 1431: forge.Forge.ClearSiteExplorationError:input_type -> forge.ClearSiteExplorationErrorRequest
+	403,  // 1432: forge.Forge.IsBmcInManagedHost:input_type -> forge.BmcEndpointRequest
+	403,  // 1433: forge.Forge.BmcCredentialStatus:input_type -> forge.BmcEndpointRequest
+	403,  // 1434: forge.Forge.Explore:input_type -> forge.BmcEndpointRequest
+	398,  // 1435: forge.Forge.ReExploreEndpoint:input_type -> forge.ReExploreEndpointRequest
+	399,  // 1436: forge.Forge.RefreshEndpointReport:input_type -> forge.RefreshEndpointReportRequest
+	400,  // 1437: forge.Forge.DeleteExploredEndpoint:input_type -> forge.DeleteExploredEndpointRequest
+	401,  // 1438: forge.Forge.PauseExploredEndpointRemediation:input_type -> forge.PauseExploredEndpointRemediationRequest
+	1129, // 1439: forge.Forge.FindExploredEndpointIds:input_type -> site_explorer.ExploredEndpointSearchFilter
+	1130, // 1440: forge.Forge.FindExploredEndpointsByIds:input_type -> site_explorer.ExploredEndpointsByIdsRequest
+	1131, // 1441: forge.Forge.FindExploredManagedHostIds:input_type -> site_explorer.ExploredManagedHostSearchFilter
+	1132, // 1442: forge.Forge.FindExploredManagedHostsByIds:input_type -> site_explorer.ExploredManagedHostsByIdsRequest
+	1133, // 1443: forge.Forge.FindExploredMlxDeviceHostIds:input_type -> site_explorer.ExploredMlxDeviceHostSearchFilter
+	1134, // 1444: forge.Forge.FindExploredMlxDevicesByIds:input_type -> site_explorer.ExploredMlxDevicesByIdsRequest
+	407,  // 1445: forge.Forge.UpdateMachineHardwareInfo:input_type -> forge.UpdateMachineHardwareInfoRequest
+	430,  // 1446: forge.Forge.AdminForceDeleteMachine:input_type -> forge.AdminForceDeleteMachineRequest
+	431,  // 1447: forge.Forge.DecommissionManagedHost:input_type -> forge.DecommissionManagedHostRequest
+	521,  // 1448: forge.Forge.AdminListResourcePools:input_type -> forge.ListResourcePoolsRequest
+	524,  // 1449: forge.Forge.AdminGrowResourcePool:input_type -> forge.GrowResourcePoolRequest
+	369,  // 1450: forge.Forge.UpdateMachineMetadata:input_type -> forge.MachineMetadataUpdateRequest
+	370,  // 1451: forge.Forge.UpdateRackMetadata:input_type -> forge.RackMetadataUpdateRequest
+	371,  // 1452: forge.Forge.UpdateSwitchMetadata:input_type -> forge.SwitchMetadataUpdateRequest
+	372,  // 1453: forge.Forge.UpdatePowerShelfMetadata:input_type -> forge.PowerShelfMetadataUpdateRequest
+	797,  // 1454: forge.Forge.UpdateMachineNvLinkInfo:input_type -> forge.UpdateMachineNvLinkInfoRequest
+	528,  // 1455: forge.Forge.SetMaintenance:input_type -> forge.MaintenanceRequest
+	529,  // 1456: forge.Forge.SetDynamicConfig:input_type -> forge.SetDynamicConfigRequest
+	539,  // 1457: forge.Forge.TriggerDpuReprovisioning:input_type -> forge.DpuReprovisioningRequest
+	540,  // 1458: forge.Forge.ListDpuWaitingForReprovisioning:input_type -> forge.DpuReprovisioningListRequest
+	542,  // 1459: forge.Forge.TriggerHostReprovisioning:input_type -> forge.HostReprovisioningRequest
+	546,  // 1460: forge.Forge.ListHostsWaitingForReprovisioning:input_type -> forge.HostReprovisioningListRequest
+	543,  // 1461: forge.Forge.TriggerBmcCredentialRotation:input_type -> forge.BmcCredentialRotationRequest
+	544,  // 1462: forge.Forge.TriggerUefiCredentialRotation:input_type -> forge.UefiCredentialRotationRequest
+	545,  // 1463: forge.Forge.TriggerNicLockdownCredentialRotation:input_type -> forge.NicLockdownCredentialRotationRequest
+	1053, // 1464: forge.Forge.MarkManualFirmwareUpgradeComplete:input_type -> common.MachineId
+	599,  // 1465: forge.Forge.ReportScoutFirmwareUpgradeStatus:input_type -> forge.ScoutFirmwareUpgradeStatusRequest
+	552,  // 1466: forge.Forge.GetDpuInfoList:input_type -> forge.GetDpuInfoListRequest
+	1077, // 1467: forge.Forge.GetMachineBootOverride:input_type -> common.MachineInterfaceId
+	555,  // 1468: forge.Forge.SetMachineBootOverride:input_type -> forge.MachineBootOverride
+	1077, // 1469: forge.Forge.ClearMachineBootOverride:input_type -> common.MachineInterfaceId
+	990,  // 1470: forge.Forge.GetMachineBootInterfaces:input_type -> forge.GetMachineBootInterfacesRequest
+	564,  // 1471: forge.Forge.GetNetworkTopology:input_type -> forge.NetworkTopologyRequest
+	565,  // 1472: forge.Forge.FindNetworkDevicesByDeviceIds:input_type -> forge.NetworkDeviceIdList
+	147,  // 1473: forge.Forge.CreateCredential:input_type -> forge.CredentialCreationRequest
+	148,  // 1474: forge.Forge.DeleteCredential:input_type -> forge.CredentialDeletionRequest
+	151,  // 1475: forge.Forge.RotateCredential:input_type -> forge.RotateCredentialRequest
+	153,  // 1476: forge.Forge.GetCredentialRotationStatus:input_type -> forge.CredentialRotationStatusRequest
+	997,  // 1477: forge.Forge.GetContainerRegistryCredential:input_type -> forge.GetContainerRegistryCredentialRequest
+	999,  // 1478: forge.Forge.SetContainerRegistryCredential:input_type -> forge.SetContainerRegistryCredentialRequest
+	1128, // 1479: forge.Forge.GetRouteServers:input_type -> google.protobuf.Empty
+	567,  // 1480: forge.Forge.AddRouteServers:input_type -> forge.RouteServers
+	567,  // 1481: forge.Forge.RemoveRouteServers:input_type -> forge.RouteServers
+	567,  // 1482: forge.Forge.ReplaceRouteServers:input_type -> forge.RouteServers
+	373,  // 1483: forge.Forge.UpdateAgentReportedInventory:input_type -> forge.DpuAgentInventoryReport
+	331,  // 1484: forge.Forge.UpdateInstancePhoneHomeLastContact:input_type -> forge.InstancePhoneHomeLastContactRequest
+	570,  // 1485: forge.Forge.SetHostUefiPassword:input_type -> forge.SetHostUefiPasswordRequest
+	572,  // 1486: forge.Forge.ClearHostUefiPassword:input_type -> forge.ClearHostUefiPasswordRequest
+	574,  // 1487: forge.Forge.SetDpuUefiPassword:input_type -> forge.SetDpuUefiPasswordRequest
+	587,  // 1488: forge.Forge.AddExpectedMachine:input_type -> forge.ExpectedMachine
+	588,  // 1489: forge.Forge.DeleteExpectedMachine:input_type -> forge.ExpectedMachineRequest
+	587,  // 1490: forge.Forge.UpdateExpectedMachine:input_type -> forge.ExpectedMachine
+	588,  // 1491: forge.Forge.GetExpectedMachine:input_type -> forge.ExpectedMachineRequest
+	1128, // 1492: forge.Forge.GetAllExpectedMachines:input_type -> google.protobuf.Empty
+	589,  // 1493: forge.Forge.ReplaceAllExpectedMachines:input_type -> forge.ExpectedMachineList
+	1128, // 1494: forge.Forge.DeleteAllExpectedMachines:input_type -> google.protobuf.Empty
+	1128, // 1495: forge.Forge.GetAllExpectedMachinesLinked:input_type -> google.protobuf.Empty
+	1128, // 1496: forge.Forge.GetAllUnexpectedMachines:input_type -> google.protobuf.Empty
+	594,  // 1497: forge.Forge.CreateExpectedMachines:input_type -> forge.BatchExpectedMachineOperationRequest
+	594,  // 1498: forge.Forge.UpdateExpectedMachines:input_type -> forge.BatchExpectedMachineOperationRequest
+	232,  // 1499: forge.Forge.AddExpectedPowerShelf:input_type -> forge.ExpectedPowerShelf
+	233,  // 1500: forge.Forge.DeleteExpectedPowerShelf:input_type -> forge.ExpectedPowerShelfRequest
+	232,  // 1501: forge.Forge.UpdateExpectedPowerShelf:input_type -> forge.ExpectedPowerShelf
+	233,  // 1502: forge.Forge.GetExpectedPowerShelf:input_type -> forge.ExpectedPowerShelfRequest
+	1128, // 1503: forge.Forge.GetAllExpectedPowerShelves:input_type -> google.protobuf.Empty
+	234,  // 1504: forge.Forge.ReplaceAllExpectedPowerShelves:input_type -> forge.ExpectedPowerShelfList
+	1128, // 1505: forge.Forge.DeleteAllExpectedPowerShelves:input_type -> google.protobuf.Empty
+	1128, // 1506: forge.Forge.GetAllExpectedPowerShelvesLinked:input_type -> google.protobuf.Empty
+	257,  // 1507: forge.Forge.AddExpectedSwitch:input_type -> forge.ExpectedSwitch
+	258,  // 1508: forge.Forge.DeleteExpectedSwitch:input_type -> forge.ExpectedSwitchRequest
+	257,  // 1509: forge.Forge.UpdateExpectedSwitch:input_type -> forge.ExpectedSwitch
+	258,  // 1510: forge.Forge.GetExpectedSwitch:input_type -> forge.ExpectedSwitchRequest
+	1128, // 1511: forge.Forge.GetAllExpectedSwitches:input_type -> google.protobuf.Empty
+	259,  // 1512: forge.Forge.ReplaceAllExpectedSwitches:input_type -> forge.ExpectedSwitchList
+	1128, // 1513: forge.Forge.DeleteAllExpectedSwitches:input_type -> google.protobuf.Empty
+	1128, // 1514: forge.Forge.GetAllExpectedSwitchesLinked:input_type -> google.protobuf.Empty
+	262,  // 1515: forge.Forge.AddExpectedRack:input_type -> forge.ExpectedRack
+	263,  // 1516: forge.Forge.DeleteExpectedRack:input_type -> forge.ExpectedRackRequest
+	262,  // 1517: forge.Forge.UpdateExpectedRack:input_type -> forge.ExpectedRack
+	263,  // 1518: forge.Forge.GetExpectedRack:input_type -> forge.ExpectedRackRequest
+	1128, // 1519: forge.Forge.GetAllExpectedRacks:input_type -> google.protobuf.Empty
+	264,  // 1520: forge.Forge.ReplaceAllExpectedRacks:input_type -> forge.ExpectedRackList
+	1128, // 1521: forge.Forge.DeleteAllExpectedRacks:input_type -> google.protobuf.Empty
+	145,  // 1522: forge.Forge.AttestQuote:input_type -> forge.AttestQuoteRequest
+	673,  // 1523: forge.Forge.CreateInstanceType:input_type -> forge.CreateInstanceTypeRequest
+	675,  // 1524: forge.Forge.FindInstanceTypeIds:input_type -> forge.FindInstanceTypeIdsRequest
+	677,  // 1525: forge.Forge.FindInstanceTypesByIds:input_type -> forge.FindInstanceTypesByIdsRequest
+	682,  // 1526: forge.Forge.UpdateInstanceType:input_type -> forge.UpdateInstanceTypeRequest
+	679,  // 1527: forge.Forge.DeleteInstanceType:input_type -> forge.DeleteInstanceTypeRequest
+	683,  // 1528: forge.Forge.AssociateMachinesWithInstanceType:input_type -> forge.AssociateMachinesWithInstanceTypeRequest
+	685,  // 1529: forge.Forge.RemoveMachineInstanceTypeAssociation:input_type -> forge.RemoveMachineInstanceTypeAssociationRequest
+	1135, // 1530: forge.Forge.CreateMeasurementBundle:input_type -> measured_boot.CreateMeasurementBundleRequest
+	1136, // 1531: forge.Forge.DeleteMeasurementBundle:input_type -> measured_boot.DeleteMeasurementBundleRequest
+	1137, // 1532: forge.Forge.RenameMeasurementBundle:input_type -> measured_boot.RenameMeasurementBundleRequest
+	1138, // 1533: forge.Forge.UpdateMeasurementBundle:input_type -> measured_boot.UpdateMeasurementBundleRequest
+	1139, // 1534: forge.Forge.ShowMeasurementBundle:input_type -> measured_boot.ShowMeasurementBundleRequest
+	1140, // 1535: forge.Forge.ShowMeasurementBundles:input_type -> measured_boot.ShowMeasurementBundlesRequest
+	1141, // 1536: forge.Forge.ListMeasurementBundles:input_type -> measured_boot.ListMeasurementBundlesRequest
+	1142, // 1537: forge.Forge.ListMeasurementBundleMachines:input_type -> measured_boot.ListMeasurementBundleMachinesRequest
+	1143, // 1538: forge.Forge.FindClosestBundleMatch:input_type -> measured_boot.FindClosestBundleMatchRequest
+	1144, // 1539: forge.Forge.DeleteMeasurementJournal:input_type -> measured_boot.DeleteMeasurementJournalRequest
+	1145, // 1540: forge.Forge.ShowMeasurementJournal:input_type -> measured_boot.ShowMeasurementJournalRequest
+	1146, // 1541: forge.Forge.ShowMeasurementJournals:input_type -> measured_boot.ShowMeasurementJournalsRequest
+	1147, // 1542: forge.Forge.ListMeasurementJournal:input_type -> measured_boot.ListMeasurementJournalRequest
+	1148, // 1543: forge.Forge.AttestCandidateMachine:input_type -> measured_boot.AttestCandidateMachineRequest
+	1149, // 1544: forge.Forge.ShowCandidateMachine:input_type -> measured_boot.ShowCandidateMachineRequest
+	1150, // 1545: forge.Forge.ShowCandidateMachines:input_type -> measured_boot.ShowCandidateMachinesRequest
+	1151, // 1546: forge.Forge.ListCandidateMachines:input_type -> measured_boot.ListCandidateMachinesRequest
+	1152, // 1547: forge.Forge.CreateMeasurementSystemProfile:input_type -> measured_boot.CreateMeasurementSystemProfileRequest
+	1153, // 1548: forge.Forge.DeleteMeasurementSystemProfile:input_type -> measured_boot.DeleteMeasurementSystemProfileRequest
+	1154, // 1549: forge.Forge.RenameMeasurementSystemProfile:input_type -> measured_boot.RenameMeasurementSystemProfileRequest
+	1155, // 1550: forge.Forge.ShowMeasurementSystemProfile:input_type -> measured_boot.ShowMeasurementSystemProfileRequest
+	1156, // 1551: forge.Forge.ShowMeasurementSystemProfiles:input_type -> measured_boot.ShowMeasurementSystemProfilesRequest
+	1157, // 1552: forge.Forge.ListMeasurementSystemProfiles:input_type -> measured_boot.ListMeasurementSystemProfilesRequest
+	1158, // 1553: forge.Forge.ListMeasurementSystemProfileBundles:input_type -> measured_boot.ListMeasurementSystemProfileBundlesRequest
+	1159, // 1554: forge.Forge.ListMeasurementSystemProfileMachines:input_type -> measured_boot.ListMeasurementSystemProfileMachinesRequest
+	1160, // 1555: forge.Forge.CreateMeasurementReport:input_type -> measured_boot.CreateMeasurementReportRequest
+	1161, // 1556: forge.Forge.DeleteMeasurementReport:input_type -> measured_boot.DeleteMeasurementReportRequest
+	1162, // 1557: forge.Forge.PromoteMeasurementReport:input_type -> measured_boot.PromoteMeasurementReportRequest
+	1163, // 1558: forge.Forge.RevokeMeasurementReport:input_type -> measured_boot.RevokeMeasurementReportRequest
+	1164, // 1559: forge.Forge.ShowMeasurementReportForId:input_type -> measured_boot.ShowMeasurementReportForIdRequest
+	1165, // 1560: forge.Forge.ShowMeasurementReportsForMachine:input_type -> measured_boot.ShowMeasurementReportsForMachineRequest
+	1166, // 1561: forge.Forge.ShowMeasurementReports:input_type -> measured_boot.ShowMeasurementReportsRequest
+	1167, // 1562: forge.Forge.ListMeasurementReport:input_type -> measured_boot.ListMeasurementReportRequest
+	1168, // 1563: forge.Forge.MatchMeasurementReport:input_type -> measured_boot.MatchMeasurementReportRequest
+	1169, // 1564: forge.Forge.ImportSiteMeasurements:input_type -> measured_boot.ImportSiteMeasurementsRequest
+	1170, // 1565: forge.Forge.ExportSiteMeasurements:input_type -> measured_boot.ExportSiteMeasurementsRequest
+	1171, // 1566: forge.Forge.AddMeasurementTrustedMachine:input_type -> measured_boot.AddMeasurementTrustedMachineRequest
+	1172, // 1567: forge.Forge.RemoveMeasurementTrustedMachine:input_type -> measured_boot.RemoveMeasurementTrustedMachineRequest
+	1173, // 1568: forge.Forge.AddMeasurementTrustedProfile:input_type -> measured_boot.AddMeasurementTrustedProfileRequest
+	1174, // 1569: forge.Forge.RemoveMeasurementTrustedProfile:input_type -> measured_boot.RemoveMeasurementTrustedProfileRequest
+	1175, // 1570: forge.Forge.ListMeasurementTrustedMachines:input_type -> measured_boot.ListMeasurementTrustedMachinesRequest
+	1176, // 1571: forge.Forge.ListMeasurementTrustedProfiles:input_type -> measured_boot.ListMeasurementTrustedProfilesRequest
+	1177, // 1572: forge.Forge.ListAttestationSummary:input_type -> measured_boot.ListAttestationSummaryRequest
+	704,  // 1573: forge.Forge.CreateNetworkSecurityGroup:input_type -> forge.CreateNetworkSecurityGroupRequest
+	706,  // 1574: forge.Forge.FindNetworkSecurityGroupIds:input_type -> forge.FindNetworkSecurityGroupIdsRequest
+	708,  // 1575: forge.Forge.FindNetworkSecurityGroupsByIds:input_type -> forge.FindNetworkSecurityGroupsByIdsRequest
+	711,  // 1576: forge.Forge.UpdateNetworkSecurityGroup:input_type -> forge.UpdateNetworkSecurityGroupRequest
+	712,  // 1577: forge.Forge.DeleteNetworkSecurityGroup:input_type -> forge.DeleteNetworkSecurityGroupRequest
+	718,  // 1578: forge.Forge.GetNetworkSecurityGroupPropagationStatus:input_type -> forge.GetNetworkSecurityGroupPropagationStatusRequest
+	721,  // 1579: forge.Forge.GetNetworkSecurityGroupAttachments:input_type -> forge.GetNetworkSecurityGroupAttachmentsRequest
+	576,  // 1580: forge.Forge.CreateOsImage:input_type -> forge.OsImageAttributes
+	580,  // 1581: forge.Forge.DeleteOsImage:input_type -> forge.DeleteOsImageRequest
+	578,  // 1582: forge.Forge.ListOsImage:input_type -> forge.ListOsImageRequest
+	1066, // 1583: forge.Forge.GetOsImage:input_type -> common.UUID
+	576,  // 1584: forge.Forge.UpdateOsImage:input_type -> forge.OsImageAttributes
+	582,  // 1585: forge.Forge.GetIpxeTemplate:input_type -> forge.GetIpxeTemplateRequest
+	583,  // 1586: forge.Forge.ListIpxeTemplates:input_type -> forge.ListIpxeTemplatesRequest
+	598,  // 1587: forge.Forge.RebootCompleted:input_type -> forge.MachineRebootCompletedRequest
+	603,  // 1588: forge.Forge.PersistValidationResult:input_type -> forge.MachineValidationResultPostRequest
+	605,  // 1589: forge.Forge.GetMachineValidationResults:input_type -> forge.MachineValidationGetRequest
+	600,  // 1590: forge.Forge.MachineValidationCompleted:input_type -> forge.MachineValidationCompletedRequest
+	608,  // 1591: forge.Forge.MachineSetAutoUpdate:input_type -> forge.MachineSetAutoUpdateRequest
+	610,  // 1592: forge.Forge.GetMachineValidationExternalConfig:input_type -> forge.GetMachineValidationExternalConfigRequest
+	613,  // 1593: forge.Forge.GetMachineValidationExternalConfigs:input_type -> forge.GetMachineValidationExternalConfigsRequest
+	615,  // 1594: forge.Forge.AddUpdateMachineValidationExternalConfig:input_type -> forge.AddUpdateMachineValidationExternalConfigRequest
+	636,  // 1595: forge.Forge.GetMachineValidationRuns:input_type -> forge.MachineValidationRunListGetRequest
+	637,  // 1596: forge.Forge.FindMachineValidationRunItemIds:input_type -> forge.MachineValidationRunItemSearchFilter
+	639,  // 1597: forge.Forge.FindMachineValidationRunItemsByIds:input_type -> forge.MachineValidationRunItemsByIdsRequest
+	642,  // 1598: forge.Forge.GetMachineValidationAttempt:input_type -> forge.MachineValidationAttemptGetRequest
+	644,  // 1599: forge.Forge.HeartbeatMachineValidationRun:input_type -> forge.MachineValidationHeartbeatRequest
+	616,  // 1600: forge.Forge.RemoveMachineValidationExternalConfig:input_type -> forge.RemoveMachineValidationExternalConfigRequest
+	648,  // 1601: forge.Forge.GetMachineValidationTests:input_type -> forge.MachineValidationTestsGetRequest
+	650,  // 1602: forge.Forge.AddMachineValidationTest:input_type -> forge.MachineValidationTestAddRequest
+	649,  // 1603: forge.Forge.UpdateMachineValidationTest:input_type -> forge.MachineValidationTestUpdateRequest
+	653,  // 1604: forge.Forge.MachineValidationTestVerfied:input_type -> forge.MachineValidationTestVerfiedRequest
+	657,  // 1605: forge.Forge.MachineValidationTestNextVersion:input_type -> forge.MachineValidationTestNextVersionRequest
+	658,  // 1606: forge.Forge.MachineValidationTestEnableDisableTest:input_type -> forge.MachineValidationTestEnableDisableTestRequest
+	660,  // 1607: forge.Forge.UpdateMachineValidationRun:input_type -> forge.MachineValidationRunRequest
+	445,  // 1608: forge.Forge.AdminBmcReset:input_type -> forge.AdminBmcResetRequest
+	629,  // 1609: forge.Forge.AdminPowerControl:input_type -> forge.AdminPowerControlRequest
+	631,  // 1610: forge.Forge.AdminGpuReset:input_type -> forge.AdminGpuResetRequest
+	403,  // 1611: forge.Forge.DisableSecureBoot:input_type -> forge.BmcEndpointRequest
+	435,  // 1612: forge.Forge.Lockdown:input_type -> forge.LockdownRequest
+	437,  // 1613: forge.Forge.LockdownStatus:input_type -> forge.LockdownStatusRequest
+	439,  // 1614: forge.Forge.MachineSetup:input_type -> forge.MachineSetupRequest
+	441,  // 1615: forge.Forge.SetDpuFirstBootOrder:input_type -> forge.SetDpuFirstBootOrderRequest
+	830,  // 1616: forge.Forge.CreateBmcUser:input_type -> forge.CreateBmcUserRequest
+	832,  // 1617: forge.Forge.DeleteBmcUser:input_type -> forge.DeleteBmcUserRequest
+	834,  // 1618: forge.Forge.SetBmcRootPassword:input_type -> forge.SetBmcRootPasswordRequest
+	836,  // 1619: forge.Forge.ProbeBmcVendor:input_type -> forge.ProbeBmcVendorRequest
+	447,  // 1620: forge.Forge.EnableInfiniteBoot:input_type -> forge.EnableInfiniteBootRequest
+	449,  // 1621: forge.Forge.IsInfiniteBootEnabled:input_type -> forge.IsInfiniteBootEnabledRequest
+	617,  // 1622: forge.Forge.OnDemandMachineValidation:input_type -> forge.MachineValidationOnDemandRequest
+	625,  // 1623: forge.Forge.OnDemandRackMaintenance:input_type -> forge.RackMaintenanceOnDemandRequest
+	627,  // 1624: forge.Forge.TerminateRackMaintenance:input_type -> forge.RackMaintenanceTerminateRequest
+	141,  // 1625: forge.Forge.TpmAddCaCert:input_type -> forge.TpmCaCert
+	1128, // 1626: forge.Forge.TpmShowCaCerts:input_type -> google.protobuf.Empty
+	1128, // 1627: forge.Forge.TpmShowUnmatchedEkCerts:input_type -> google.protobuf.Empty
+	138,  // 1628: forge.Forge.TpmDeleteCaCert:input_type -> forge.TpmCaCertId
+	687,  // 1629: forge.Forge.RedfishBrowse:input_type -> forge.RedfishBrowseRequest
+	689,  // 1630: forge.Forge.RedfishListActions:input_type -> forge.RedfishListActionsRequest
+	694,  // 1631: forge.Forge.RedfishCreateAction:input_type -> forge.RedfishCreateActionRequest
+	696,  // 1632: forge.Forge.RedfishApproveAction:input_type -> forge.RedfishActionID
+	696,  // 1633: forge.Forge.RedfishApplyAction:input_type -> forge.RedfishActionID
+	696,  // 1634: forge.Forge.RedfishCancelAction:input_type -> forge.RedfishActionID
+	700,  // 1635: forge.Forge.UfmBrowse:input_type -> forge.UfmBrowseRequest
+	724,  // 1636: forge.Forge.GetDesiredFirmwareVersions:input_type -> forge.GetDesiredFirmwareVersionsRequest
+	840,  // 1637: forge.Forge.UpsertHostFirmwareConfig:input_type -> forge.UpsertHostFirmwareConfigRequest
+	841,  // 1638: forge.Forge.DeleteHostFirmwareConfig:input_type -> forge.DeleteHostFirmwareConfigRequest
+	740,  // 1639: forge.Forge.CreateSku:input_type -> forge.SkuList
+	1053, // 1640: forge.Forge.GenerateSkuFromMachine:input_type -> common.MachineId
+	1053, // 1641: forge.Forge.VerifySkuForMachine:input_type -> common.MachineId
+	738,  // 1642: forge.Forge.AssignSkuToMachine:input_type -> forge.SkuMachinePair
+	739,  // 1643: forge.Forge.RemoveSkuAssociation:input_type -> forge.RemoveSkuRequest
+	741,  // 1644: forge.Forge.DeleteSku:input_type -> forge.SkuIdList
+	1128, // 1645: forge.Forge.GetAllSkuIds:input_type -> google.protobuf.Empty
+	743,  // 1646: forge.Forge.FindSkusByIds:input_type -> forge.SkusByIdsRequest
+	753,  // 1647: forge.Forge.UpdateSkuMetadata:input_type -> forge.SkuUpdateMetadataRequest
+	737,  // 1648: forge.Forge.ReplaceSku:input_type -> forge.Sku
+	413,  // 1649: forge.Forge.GetManagedHostQuarantineState:input_type -> forge.GetManagedHostQuarantineStateRequest
+	415,  // 1650: forge.Forge.SetManagedHostQuarantineState:input_type -> forge.SetManagedHostQuarantineStateRequest
+	417,  // 1651: forge.Forge.ClearManagedHostQuarantineState:input_type -> forge.ClearManagedHostQuarantineStateRequest
+	1053, // 1652: forge.Forge.ResetHostReprovisioning:input_type -> common.MachineId
+	406,  // 1653: forge.Forge.CopyBfbToDpuRshim:input_type -> forge.CopyBfbToDpuRshimRequest
+	1128, // 1654: forge.Forge.GetAllDpaInterfaceIds:input_type -> google.protobuf.Empty
+	748,  // 1655: forge.Forge.FindDpaInterfacesByIds:input_type -> forge.DpaInterfacesByIdsRequest
+	746,  // 1656: forge.Forge.CreateDpaInterface:input_type -> forge.DpaInterfaceCreationRequest
+	746,  // 1657: forge.Forge.EnsureDpaInterface:input_type -> forge.DpaInterfaceCreationRequest
+	751,  // 1658: forge.Forge.DeleteDpaInterface:input_type -> forge.DpaInterfaceDeletionRequest
+	754,  // 1659: forge.Forge.GetPowerOptions:input_type -> forge.PowerOptionRequest
+	755,  // 1660: forge.Forge.UpdatePowerOption:input_type -> forge.PowerOptionUpdateRequest
+	403,  // 1661: forge.Forge.AllowIngestionAndPowerOn:input_type -> forge.BmcEndpointRequest
+	403,  // 1662: forge.Forge.DetermineMachineIngestionState:input_type -> forge.BmcEndpointRequest
+	774,  // 1663: forge.Forge.FindRackIds:input_type -> forge.RackSearchFilter
+	776,  // 1664: forge.Forge.FindRacksByIds:input_type -> forge.RacksByIdsRequest
+	771,  // 1665: forge.Forge.GetRack:input_type -> forge.GetRackRequest
+	782,  // 1666: forge.Forge.DeleteRack:input_type -> forge.DeleteRackRequest
+	783,  // 1667: forge.Forge.AdminForceDeleteRack:input_type -> forge.AdminForceDeleteRackRequest
+	790,  // 1668: forge.Forge.GetRackProfile:input_type -> forge.GetRackProfileRequest
+	1128, // 1669: forge.Forge.ListRackProfiles:input_type -> google.protobuf.Empty
+	760,  // 1670: forge.Forge.CreateComputeAllocation:input_type -> forge.CreateComputeAllocationRequest
+	762,  // 1671: forge.Forge.FindComputeAllocationIds:input_type -> forge.FindComputeAllocationIdsRequest
+	764,  // 1672: forge.Forge.FindComputeAllocationsByIds:input_type -> forge.FindComputeAllocationsByIdsRequest
+	767,  // 1673: forge.Forge.UpdateComputeAllocation:input_type -> forge.UpdateComputeAllocationRequest
+	768,  // 1674: forge.Forge.DeleteComputeAllocation:input_type -> forge.DeleteComputeAllocationRequest
+	838,  // 1675: forge.Forge.SetFirmwareUpdateTimeWindow:input_type -> forge.SetFirmwareUpdateTimeWindowRequest
+	847,  // 1676: forge.Forge.ListHostFirmware:input_type -> forge.ListHostFirmwareRequest
+	1178, // 1677: forge.Forge.PublishMlxDeviceReport:input_type -> mlx_device.PublishMlxDeviceReportRequest
+	1179, // 1678: forge.Forge.PublishMlxObservationReport:input_type -> mlx_device.PublishMlxObservationReportRequest
+	850,  // 1679: forge.Forge.TrimTable:input_type -> forge.TrimTableRequest
+	1128, // 1680: forge.Forge.ListNvlinkNmxcEndpoints:input_type -> google.protobuf.Empty
+	852,  // 1681: forge.Forge.CreateNvlinkNmxcEndpoint:input_type -> forge.NvlinkNmxcEndpoint
+	852,  // 1682: forge.Forge.UpdateNvlinkNmxcEndpoint:input_type -> forge.NvlinkNmxcEndpoint
+	854,  // 1683: forge.Forge.DeleteNvlinkNmxcEndpoint:input_type -> forge.DeleteNvlinkNmxcEndpointRequest
+	855,  // 1684: forge.Forge.CreateRemediation:input_type -> forge.CreateRemediationRequest
+	860,  // 1685: forge.Forge.ApproveRemediation:input_type -> forge.ApproveRemediationRequest
+	861,  // 1686: forge.Forge.RevokeRemediation:input_type -> forge.RevokeRemediationRequest
+	862,  // 1687: forge.Forge.EnableRemediation:input_type -> forge.EnableRemediationRequest
+	863,  // 1688: forge.Forge.DisableRemediation:input_type -> forge.DisableRemediationRequest
+	1128, // 1689: forge.Forge.FindRemediationIds:input_type -> google.protobuf.Empty
+	857,  // 1690: forge.Forge.FindRemediationsByIds:input_type -> forge.RemediationIdList
+	864,  // 1691: forge.Forge.FindAppliedRemediationIds:input_type -> forge.FindAppliedRemediationIdsRequest
+	866,  // 1692: forge.Forge.FindAppliedRemediations:input_type -> forge.FindAppliedRemediationsRequest
+	869,  // 1693: forge.Forge.GetNextRemediationForMachine:input_type -> forge.GetNextRemediationForMachineRequest
+	871,  // 1694: forge.Forge.RemediationApplied:input_type -> forge.RemediationAppliedRequest
+	873,  // 1695: forge.Forge.SetPrimaryDpu:input_type -> forge.SetPrimaryDpuRequest
+	874,  // 1696: forge.Forge.SetPrimaryInterface:input_type -> forge.SetPrimaryInterfaceRequest
+	880,  // 1697: forge.Forge.CreateDpuExtensionService:input_type -> forge.CreateDpuExtensionServiceRequest
+	881,  // 1698: forge.Forge.UpdateDpuExtensionService:input_type -> forge.UpdateDpuExtensionServiceRequest
+	882,  // 1699: forge.Forge.DeleteDpuExtensionService:input_type -> forge.DeleteDpuExtensionServiceRequest
+	884,  // 1700: forge.Forge.FindDpuExtensionServiceIds:input_type -> forge.DpuExtensionServiceSearchFilter
+	886,  // 1701: forge.Forge.FindDpuExtensionServicesByIds:input_type -> forge.DpuExtensionServicesByIdsRequest
+	888,  // 1702: forge.Forge.GetDpuExtensionServiceVersionsInfo:input_type -> forge.GetDpuExtensionServiceVersionsInfoRequest
+	890,  // 1703: forge.Forge.FindInstancesByDpuExtensionService:input_type -> forge.FindInstancesByDpuExtensionServiceRequest
+	113,  // 1704: forge.Forge.TriggerMachineAttestation:input_type -> forge.SpdmMachineAttestationTriggerRequest
+	1053, // 1705: forge.Forge.CancelMachineAttestation:input_type -> common.MachineId
+	114,  // 1706: forge.Forge.ListAttestationMachines:input_type -> forge.SpdmListAttestationMachinesRequest
+	1053, // 1707: forge.Forge.GetAttestationMachine:input_type -> common.MachineId
+	116,  // 1708: forge.Forge.SignMachineIdentity:input_type -> forge.MachineIdentityRequest
+	118,  // 1709: forge.Forge.GetTenantIdentityConfiguration:input_type -> forge.GetTenantIdentityConfigRequest
+	121,  // 1710: forge.Forge.SetTenantIdentityConfiguration:input_type -> forge.SetTenantIdentityConfigRequest
+	118,  // 1711: forge.Forge.DeleteTenantIdentityConfiguration:input_type -> forge.GetTenantIdentityConfigRequest
+	126,  // 1712: forge.Forge.GetTokenDelegation:input_type -> forge.GetTokenDelegationRequest
+	128,  // 1713: forge.Forge.SetTokenDelegation:input_type -> forge.TokenDelegationRequest
+	126,  // 1714: forge.Forge.DeleteTokenDelegation:input_type -> forge.GetTokenDelegationRequest
+	129,  // 1715: forge.Forge.ReencryptTenantIdentitySecrets:input_type -> forge.ReencryptTenantIdentitySecretsRequest
+	134,  // 1716: forge.Forge.GetJWKS:input_type -> forge.JwksRequest
+	135,  // 1717: forge.Forge.GetOpenIDConfiguration:input_type -> forge.OpenIdConfigRequest
+	897,  // 1718: forge.Forge.ScoutStream:input_type -> forge.ScoutStreamApiBoundMessage
+	900,  // 1719: forge.Forge.ScoutStreamShowConnections:input_type -> forge.ScoutStreamShowConnectionsRequest
+	902,  // 1720: forge.Forge.ScoutStreamDisconnect:input_type -> forge.ScoutStreamDisconnectRequest
+	904,  // 1721: forge.Forge.ScoutStreamPing:input_type -> forge.ScoutStreamAdminPingRequest
+	1180, // 1722: forge.Forge.MlxAdminProfileSync:input_type -> mlx_device.MlxAdminProfileSyncRequest
+	1181, // 1723: forge.Forge.MlxAdminProfileShow:input_type -> mlx_device.MlxAdminProfileShowRequest
+	1182, // 1724: forge.Forge.MlxAdminProfileCompare:input_type -> mlx_device.MlxAdminProfileCompareRequest
+	1183, // 1725: forge.Forge.MlxAdminProfileList:input_type -> mlx_device.MlxAdminProfileListRequest
+	1184, // 1726: forge.Forge.MlxAdminLockdownLock:input_type -> mlx_device.MlxAdminLockdownLockRequest
+	1185, // 1727: forge.Forge.MlxAdminLockdownUnlock:input_type -> mlx_device.MlxAdminLockdownUnlockRequest
+	1186, // 1728: forge.Forge.MlxAdminLockdownStatus:input_type -> mlx_device.MlxAdminLockdownStatusRequest
+	1187, // 1729: forge.Forge.MlxAdminShowDevice:input_type -> mlx_device.MlxAdminDeviceInfoRequest
+	1188, // 1730: forge.Forge.MlxAdminShowMachine:input_type -> mlx_device.MlxAdminDeviceReportRequest
+	1189, // 1731: forge.Forge.MlxAdminRegistryList:input_type -> mlx_device.MlxAdminRegistryListRequest
+	1190, // 1732: forge.Forge.MlxAdminRegistryShow:input_type -> mlx_device.MlxAdminRegistryShowRequest
+	1191, // 1733: forge.Forge.MlxAdminConfigQuery:input_type -> mlx_device.MlxAdminConfigQueryRequest
+	1192, // 1734: forge.Forge.MlxAdminConfigSet:input_type -> mlx_device.MlxAdminConfigSetRequest
+	1193, // 1735: forge.Forge.MlxAdminConfigSync:input_type -> mlx_device.MlxAdminConfigSyncRequest
+	1194, // 1736: forge.Forge.MlxAdminConfigCompare:input_type -> mlx_device.MlxAdminConfigCompareRequest
+	814,  // 1737: forge.Forge.FindNVLinkPartitionIds:input_type -> forge.NVLinkPartitionSearchFilter
+	815,  // 1738: forge.Forge.FindNVLinkPartitionsByIds:input_type -> forge.NVLinkPartitionsByIdsRequest
+	171,  // 1739: forge.Forge.NVLinkPartitionsForTenant:input_type -> forge.TenantSearchQuery
+	825,  // 1740: forge.Forge.FindNVLinkLogicalPartitionIds:input_type -> forge.NVLinkLogicalPartitionSearchFilter
+	826,  // 1741: forge.Forge.FindNVLinkLogicalPartitionsByIds:input_type -> forge.NVLinkLogicalPartitionsByIdsRequest
+	822,  // 1742: forge.Forge.CreateNVLinkLogicalPartition:input_type -> forge.NVLinkLogicalPartitionCreationRequest
+	828,  // 1743: forge.Forge.UpdateNVLinkLogicalPartition:input_type -> forge.NVLinkLogicalPartitionUpdateRequest
+	823,  // 1744: forge.Forge.DeleteNVLinkLogicalPartition:input_type -> forge.NVLinkLogicalPartitionDeletionRequest
+	171,  // 1745: forge.Forge.NVLinkLogicalPartitionsForTenant:input_type -> forge.TenantSearchQuery
+	918,  // 1746: forge.Forge.GetMachinePositionInfo:input_type -> forge.MachinePositionQuery
+	808,  // 1747: forge.Forge.NmxcBrowse:input_type -> forge.NmxcBrowseRequest
+	921,  // 1748: forge.Forge.ModifyDPFState:input_type -> forge.ModifyDPFStateRequest
+	923,  // 1749: forge.Forge.GetDPFState:input_type -> forge.GetDPFStateRequest
+	924,  // 1750: forge.Forge.GetDPFHostSnapshot:input_type -> forge.GetDPFHostSnapshotRequest
+	926,  // 1751: forge.Forge.GetDPFServiceVersions:input_type -> forge.GetDPFServiceVersionsRequest
+	932,  // 1752: forge.Forge.FindPendingDPUServiceSyncIds:input_type -> forge.FindPendingDPUServiceSyncIdsRequest
+	933,  // 1753: forge.Forge.FindPendingDPUServiceSyncsByIds:input_type -> forge.FindPendingDPUServiceSyncsByIdsRequest
+	934,  // 1754: forge.Forge.ListDPUServiceSyncHistory:input_type -> forge.ListDPUServiceSyncHistoryRequest
+	929,  // 1755: forge.Forge.ReleaseDPUServiceSyncHold:input_type -> forge.ReleaseDPUServiceSyncHoldRequest
+	944,  // 1756: forge.Forge.ComponentPowerControl:input_type -> forge.ComponentPowerControlRequest
+	946,  // 1757: forge.Forge.ComponentConfigureSwitchCertificate:input_type -> forge.ComponentConfigureSwitchCertificateRequest
+	941,  // 1758: forge.Forge.GetComponentInventory:input_type -> forge.GetComponentInventoryRequest
+	953,  // 1759: forge.Forge.UpdateComponentFirmware:input_type -> forge.UpdateComponentFirmwareRequest
+	955,  // 1760: forge.Forge.GetComponentFirmwareStatus:input_type -> forge.GetComponentFirmwareStatusRequest
+	957,  // 1761: forge.Forge.ListComponentFirmwareVersions:input_type -> forge.ListComponentFirmwareVersionsRequest
+	974,  // 1762: forge.Forge.CreateOperatingSystem:input_type -> forge.CreateOperatingSystemRequest
+	1075, // 1763: forge.Forge.GetOperatingSystem:input_type -> common.OperatingSystemId
+	977,  // 1764: forge.Forge.UpdateOperatingSystem:input_type -> forge.UpdateOperatingSystemRequest
+	978,  // 1765: forge.Forge.DeleteOperatingSystem:input_type -> forge.DeleteOperatingSystemRequest
+	980,  // 1766: forge.Forge.FindOperatingSystemIds:input_type -> forge.OperatingSystemSearchFilter
+	982,  // 1767: forge.Forge.FindOperatingSystemsByIds:input_type -> forge.OperatingSystemsByIdsRequest
+	984,  // 1768: forge.Forge.GetOperatingSystemCachableIpxeTemplateArtifacts:input_type -> forge.GetOperatingSystemCachableIpxeTemplateArtifactsRequest
+	987,  // 1769: forge.Forge.UpdateOperatingSystemCachableIpxeTemplateArtifacts:input_type -> forge.UpdateOperatingSystemIpxeTemplateArtifactRequest
+	988,  // 1770: forge.Forge.ReWrapSecrets:input_type -> forge.ReWrapSecretsRequest
+	157,  // 1771: forge.Forge.Version:output_type -> forge.BuildInfo
+	1114, // 1772: forge.Forge.CreateDomain:output_type -> dns.Domain
+	1114, // 1773: forge.Forge.UpdateDomain:output_type -> dns.Domain
+	1195, // 1774: forge.Forge.DeleteDomain:output_type -> dns.DomainDeletionResult
+	1196, // 1775: forge.Forge.FindDomain:output_type -> dns.DomainList
+	912,  // 1776: forge.Forge.CreateDomainLegacy:output_type -> forge.DomainLegacy
+	912,  // 1777: forge.Forge.UpdateDomainLegacy:output_type -> forge.DomainLegacy
+	915,  // 1778: forge.Forge.DeleteDomainLegacy:output_type -> forge.DomainDeletionResultLegacy
+	913,  // 1779: forge.Forge.FindDomainLegacy:output_type -> forge.DomainListLegacy
+	177,  // 1780: forge.Forge.CreateVpc:output_type -> forge.Vpc
+	180,  // 1781: forge.Forge.UpdateVpc:output_type -> forge.VpcUpdateResult
+	182,  // 1782: forge.Forge.UpdateVpcVirtualization:output_type -> forge.VpcUpdateVirtualizationResult
+	184,  // 1783: forge.Forge.DeleteVpc:output_type -> forge.VpcDeletionResult
+	169,  // 1784: forge.Forge.FindVpcIds:output_type -> forge.VpcIdList
+	185,  // 1785: forge.Forge.FindVpcsByIds:output_type -> forge.VpcList
+	962,  // 1786: forge.Forge.CreateSpxPartition:output_type -> forge.SpxPartition
+	965,  // 1787: forge.Forge.DeleteSpxPartition:output_type -> forge.SpxPartitionDeletionResult
+	963,  // 1788: forge.Forge.FindSpxPartitionIds:output_type -> forge.SpxPartitionIdList
+	967,  // 1789: forge.Forge.FindSpxPartitionsByIds:output_type -> forge.SpxPartitionList
+	186,  // 1790: forge.Forge.CreateVpcPrefix:output_type -> forge.VpcPrefix
+	192,  // 1791: forge.Forge.SearchVpcPrefixes:output_type -> forge.VpcPrefixIdList
+	193,  // 1792: forge.Forge.GetVpcPrefixes:output_type -> forge.VpcPrefixList
+	186,  // 1793: forge.Forge.UpdateVpcPrefix:output_type -> forge.VpcPrefix
+	196,  // 1794: forge.Forge.DeleteVpcPrefix:output_type -> forge.VpcPrefixDeletionResult
+	1000, // 1795: forge.Forge.CreateSitePrefix:output_type -> forge.SitePrefix
+	1000, // 1796: forge.Forge.UpdateSitePrefix:output_type -> forge.SitePrefix
+	1007, // 1797: forge.Forge.DeleteSitePrefix:output_type -> forge.SitePrefixDeletionResult
+	1011, // 1798: forge.Forge.FindSitePrefixIds:output_type -> forge.SitePrefixIdList
+	1012, // 1799: forge.Forge.FindSitePrefixesByIds:output_type -> forge.SitePrefixList
+	198,  // 1800: forge.Forge.CreateVpcPeering:output_type -> forge.VpcPeering
+	199,  // 1801: forge.Forge.FindVpcPeeringIds:output_type -> forge.VpcPeeringIdList
+	200,  // 1802: forge.Forge.FindVpcPeeringsByIds:output_type -> forge.VpcPeeringList
+	205,  // 1803: forge.Forge.DeleteVpcPeering:output_type -> forge.VpcPeeringDeletionResult
+	278,  // 1804: forge.Forge.FindNetworkSegmentIds:output_type -> forge.NetworkSegmentIdList
+	389,  // 1805: forge.Forge.FindNetworkSegmentsByIds:output_type -> forge.NetworkSegmentList
+	270,  // 1806: forge.Forge.CreateNetworkSegment:output_type -> forge.NetworkSegment
+	270,  // 1807: forge.Forge.AttachNetworkSegmentToVpc:output_type -> forge.NetworkSegment
+	274,  // 1808: forge.Forge.DeleteNetworkSegment:output_type -> forge.NetworkSegmentDeletionResult
+	389,  // 1809: forge.Forge.NetworkSegmentsForVpc:output_type -> forge.NetworkSegmentList
+	216,  // 1810: forge.Forge.FindIBPartitionIds:output_type -> forge.IBPartitionIdList
+	209,  // 1811: forge.Forge.FindIBPartitionsByIds:output_type -> forge.IBPartitionList
+	208,  // 1812: forge.Forge.CreateIBPartition:output_type -> forge.IBPartition
+	208,  // 1813: forge.Forge.UpdateIBPartition:output_type -> forge.IBPartition
+	213,  // 1814: forge.Forge.DeleteIBPartition:output_type -> forge.IBPartitionDeletionResult
+	209,  // 1815: forge.Forge.IBPartitionsForTenant:output_type -> forge.IBPartitionList
+	220,  // 1816: forge.Forge.FindPowerShelves:output_type -> forge.PowerShelfList
+	939,  // 1817: forge.Forge.FindPowerShelfIds:output_type -> forge.PowerShelfIdList
+	220,  // 1818: forge.Forge.FindPowerShelvesByIds:output_type -> forge.PowerShelfList
+	223,  // 1819: forge.Forge.DecommissionPowerShelf:output_type -> forge.DecommissionPowerShelfResponse
+	225,  // 1820: forge.Forge.DeletePowerShelf:output_type -> forge.PowerShelfDeletionResult
+	972,  // 1821: forge.Forge.AdminForceDeletePowerShelf:output_type -> forge.AdminForceDeletePowerShelfResponse
+	1128, // 1822: forge.Forge.SetPowerShelfMaintenance:output_type -> google.protobuf.Empty
+	243,  // 1823: forge.Forge.FindSwitches:output_type -> forge.SwitchList
+	938,  // 1824: forge.Forge.FindSwitchIds:output_type -> forge.SwitchIdList
+	243,  // 1825: forge.Forge.FindSwitchesByIds:output_type -> forge.SwitchList
+	246,  // 1826: forge.Forge.DeleteSwitch:output_type -> forge.SwitchDeletionResult
+	248,  // 1827: forge.Forge.DecommissionSwitch:output_type -> forge.DecommissionSwitchResponse
+	970,  // 1828: forge.Forge.AdminForceDeleteSwitch:output_type -> forge.AdminForceDeleteSwitchResponse
+	266,  // 1829: forge.Forge.FindIBFabricIds:output_type -> forge.IBFabricIdList
+	319,  // 1830: forge.Forge.AllocateInstance:output_type -> forge.Instance
+	292,  // 1831: forge.Forge.AllocateInstances:output_type -> forge.BatchInstanceAllocationResponse
+	337,  // 1832: forge.Forge.ReleaseInstance:output_type -> forge.InstanceReleaseResult
+	319,  // 1833: forge.Forge.UpdateInstanceOperatingSystem:output_type -> forge.Instance
+	319,  // 1834: forge.Forge.UpdateInstanceConfig:output_type -> forge.Instance
+	288,  // 1835: forge.Forge.FindInstanceIds:output_type -> forge.InstanceIdList
+	284,  // 1836: forge.Forge.FindInstancesByIds:output_type -> forge.InstanceList
+	284,  // 1837: forge.Forge.FindInstanceByMachineID:output_type -> forge.InstanceList
+	410,  // 1838: forge.Forge.GetManagedHostNetworkConfig:output_type -> forge.ManagedHostNetworkConfigResponse
+	1128, // 1839: forge.Forge.RecordDpuNetworkStatus:output_type -> google.protobuf.Empty
+	490,  // 1840: forge.Forge.ListMachineHealthReports:output_type -> forge.ListHealthReportResponse
+	1128, // 1841: forge.Forge.InsertMachineHealthReport:output_type -> google.protobuf.Empty
+	1128, // 1842: forge.Forge.RemoveMachineHealthReport:output_type -> google.protobuf.Empty
+	490,  // 1843: forge.Forge.ListRackHealthReports:output_type -> forge.ListHealthReportResponse
+	1128, // 1844: forge.Forge.InsertRackHealthReport:output_type -> google.protobuf.Empty
+	1128, // 1845: forge.Forge.RemoveRackHealthReport:output_type -> google.protobuf.Empty
+	490,  // 1846: forge.Forge.ListSwitchHealthReports:output_type -> forge.ListHealthReportResponse
+	1128, // 1847: forge.Forge.InsertSwitchHealthReport:output_type -> google.protobuf.Empty
+	1128, // 1848: forge.Forge.RemoveSwitchHealthReport:output_type -> google.protobuf.Empty
+	490,  // 1849: forge.Forge.ListPowerShelfHealthReports:output_type -> forge.ListHealthReportResponse
+	1128, // 1850: forge.Forge.InsertPowerShelfHealthReport:output_type -> google.protobuf.Empty
+	1128, // 1851: forge.Forge.RemovePowerShelfHealthReport:output_type -> google.protobuf.Empty
+	490,  // 1852: forge.Forge.ListNVLinkDomainHealthReports:output_type -> forge.ListHealthReportResponse
+	1128, // 1853: forge.Forge.InsertNVLinkDomainHealthReport:output_type -> google.protobuf.Empty
+	1128, // 1854: forge.Forge.RemoveNVLinkDomainHealthReport:output_type -> google.protobuf.Empty
+	490,  // 1855: forge.Forge.ListHealthReportOverrides:output_type -> forge.ListHealthReportResponse
+	1128, // 1856: forge.Forge.InsertHealthReportOverride:output_type -> google.protobuf.Empty
+	1128, // 1857: forge.Forge.RemoveHealthReportOverride:output_type -> google.protobuf.Empty
+	427,  // 1858: forge.Forge.DpuAgentUpgradeCheck:output_type -> forge.DpuAgentUpgradeCheckResponse
+	429,  // 1859: forge.Forge.DpuAgentUpgradePolicyAction:output_type -> forge.DpuAgentUpgradePolicyResponse
+	1197, // 1860: forge.Forge.LookupRecord:output_type -> dns.DnsResourceRecordLookupResponse
+	1198, // 1861: forge.Forge.GetAllDomains:output_type -> dns.GetAllDomainsResponse
+	1199, // 1862: forge.Forge.GetAllDomainMetadata:output_type -> dns.DomainMetadataResponse
+	283,  // 1863: forge.Forge.InvokeInstancePower:output_type -> forge.InstancePowerResult
+	456,  // 1864: forge.Forge.ForgeAgentControl:output_type -> forge.ForgeAgentControlResponse
+	463,  // 1865: forge.Forge.DiscoverMachine:output_type -> forge.MachineDiscoveryResult
+	462,  // 1866: forge.Forge.RenewMachineCertificate:output_type -> forge.MachineCertificateResult
+	464,  // 1867: forge.Forge.DiscoveryCompleted:output_type -> forge.MachineDiscoveryCompletedResponse
+	465,  // 1868: forge.Forge.CleanupMachineCompleted:output_type -> forge.MachineCleanupResult
+	467,  // 1869: forge.Forge.ReportForgeScoutError:output_type -> forge.ForgeScoutErrorReportResult
+	388,  // 1870: forge.Forge.DiscoverDhcp:output_type -> forge.DhcpRecord
+	387,  // 1871: forge.Forge.ExpireDhcpLease:output_type -> forge.ExpireDhcpLeaseResponse
+	356,  // 1872: forge.Forge.AssignStaticAddress:output_type -> forge.AssignStaticAddressResponse
+	358,  // 1873: forge.Forge.RemoveStaticAddress:output_type -> forge.RemoveStaticAddressResponse
+	361,  // 1874: forge.Forge.FindInterfaceAddresses:output_type -> forge.FindInterfaceAddressesResponse
+	351,  // 1875: forge.Forge.FindInterfaces:output_type -> forge.InterfaceList
+	1128, // 1876: forge.Forge.DeleteInterface:output_type -> google.protobuf.Empty
+	531,  // 1877: forge.Forge.FindIpAddress:output_type -> forge.FindIpAddressResponse
+	1115, // 1878: forge.Forge.FindMachineIds:output_type -> common.MachineIdList
+	352,  // 1879: forge.Forge.FindMachinesByIds:output_type -> forge.MachineList
+	341,  // 1880: forge.Forge.FindMachineStateHistories:output_type -> forge.MachineStateHistories
+	344,  // 1881: forge.Forge.FindMachineHealthHistories:output_type -> forge.HealthHistories
+	253,  // 1882: forge.Forge.FindPowerShelfStateHistories:output_type -> forge.StateHistories
+	344,  // 1883: forge.Forge.FindPowerShelfHealthHistories:output_type -> forge.HealthHistories
+	253,  // 1884: forge.Forge.FindRackStateHistories:output_type -> forge.StateHistories
+	344,  // 1885: forge.Forge.FindRackHealthHistories:output_type -> forge.HealthHistories
+	253,  // 1886: forge.Forge.FindSwitchStateHistories:output_type -> forge.StateHistories
+	344,  // 1887: forge.Forge.FindSwitchHealthHistories:output_type -> forge.HealthHistories
+	253,  // 1888: forge.Forge.FindNetworkSegmentStateHistories:output_type -> forge.StateHistories
+	253,  // 1889: forge.Forge.FindVpcPrefixStateHistories:output_type -> forge.StateHistories
+	253,  // 1890: forge.Forge.FindSitePrefixStateHistories:output_type -> forge.StateHistories
+	350,  // 1891: forge.Forge.FindTenantOrganizationIds:output_type -> forge.TenantOrganizationIdList
+	349,  // 1892: forge.Forge.FindTenantsByOrganizationIds:output_type -> forge.TenantList
+	557,  // 1893: forge.Forge.FindConnectedDevicesByDpuMachineIds:output_type -> forge.ConnectedDeviceList
+	561,  // 1894: forge.Forge.FindMachineIdsByBmcIps:output_type -> forge.MachineIdBmcIpPairs
+	560,  // 1895: forge.Forge.FindMacAddressByBmcIp:output_type -> forge.MacAddressBmcIp
+	558,  // 1896: forge.Forge.FindBmcIps:output_type -> forge.BmcIpList
+	533,  // 1897: forge.Forge.IdentifyUuid:output_type -> forge.IdentifyUuidResponse
+	536,  // 1898: forge.Forge.IdentifyMac:output_type -> forge.IdentifyMacResponse
+	538,  // 1899: forge.Forge.IdentifySerial:output_type -> forge.IdentifySerialResponse
+	452,  // 1900: forge.Forge.GetBMCMetaData:output_type -> forge.BMCMetaDataGetResponse
+	454,  // 1901: forge.Forge.UpdateMachineCredentials:output_type -> forge.MachineCredentialsUpdateResponse
+	469,  // 1902: forge.Forge.GetPxeInstructions:output_type -> forge.PxeInstructions
+	473,  // 1903: forge.Forge.GetCloudInitInstructions:output_type -> forge.CloudInitInstructions
+	160,  // 1904: forge.Forge.Echo:output_type -> forge.EchoResponse
+	500,  // 1905: forge.Forge.CreateTenant:output_type -> forge.CreateTenantResponse
+	504,  // 1906: forge.Forge.FindTenant:output_type -> forge.FindTenantResponse
+	502,  // 1907: forge.Forge.UpdateTenant:output_type -> forge.UpdateTenantResponse
+	510,  // 1908: forge.Forge.CreateTenantKeyset:output_type -> forge.CreateTenantKeysetResponse
+	517,  // 1909: forge.Forge.FindTenantKeysetIds:output_type -> forge.TenantKeysetIdList
+	511,  // 1910: forge.Forge.FindTenantKeysetsByIds:output_type -> forge.TenantKeySetList
+	513,  // 1911: forge.Forge.UpdateTenantKeyset:output_type -> forge.UpdateTenantKeysetResponse
+	515,  // 1912: forge.Forge.DeleteTenantKeyset:output_type -> forge.DeleteTenantKeysetResponse
+	520,  // 1913: forge.Forge.ValidateTenantPublicKey:output_type -> forge.ValidateTenantPublicKeyResponse
+	394,  // 1914: forge.Forge.GetBmcCredentials:output_type -> forge.GetBmcCredentialsResponse
+	394,  // 1915: forge.Forge.GetSwitchNvosCredentials:output_type -> forge.GetBmcCredentialsResponse
+	425,  // 1916: forge.Forge.GetAllManagedHostNetworkStatus:output_type -> forge.ManagedHostNetworkStatusResponse
+	1200, // 1917: forge.Forge.GetSiteExplorationReport:output_type -> site_explorer.SiteExplorationReport
+	1201, // 1918: forge.Forge.GetSiteExplorerLastRun:output_type -> site_explorer.SiteExplorerLastRunResponse
+	1128, // 1919: forge.Forge.ClearSiteExplorationError:output_type -> google.protobuf.Empty
+	646,  // 1920: forge.Forge.IsBmcInManagedHost:output_type -> forge.IsBmcInManagedHostResponse
+	647,  // 1921: forge.Forge.BmcCredentialStatus:output_type -> forge.BmcCredentialStatusResponse
+	1116, // 1922: forge.Forge.Explore:output_type -> site_explorer.EndpointExplorationReport
+	1128, // 1923: forge.Forge.ReExploreEndpoint:output_type -> google.protobuf.Empty
+	1202, // 1924: forge.Forge.RefreshEndpointReport:output_type -> site_explorer.ExploredEndpoint
+	402,  // 1925: forge.Forge.DeleteExploredEndpoint:output_type -> forge.DeleteExploredEndpointResponse
+	1128, // 1926: forge.Forge.PauseExploredEndpointRemediation:output_type -> google.protobuf.Empty
+	1203, // 1927: forge.Forge.FindExploredEndpointIds:output_type -> site_explorer.ExploredEndpointIdList
+	1204, // 1928: forge.Forge.FindExploredEndpointsByIds:output_type -> site_explorer.ExploredEndpointList
+	1205, // 1929: forge.Forge.FindExploredManagedHostIds:output_type -> site_explorer.ExploredManagedHostIdList
+	1206, // 1930: forge.Forge.FindExploredManagedHostsByIds:output_type -> site_explorer.ExploredManagedHostList
+	1207, // 1931: forge.Forge.FindExploredMlxDeviceHostIds:output_type -> site_explorer.ExploredMlxDeviceHostIdList
+	1208, // 1932: forge.Forge.FindExploredMlxDevicesByIds:output_type -> site_explorer.ExploredMlxDeviceList
+	1128, // 1933: forge.Forge.UpdateMachineHardwareInfo:output_type -> google.protobuf.Empty
+	433,  // 1934: forge.Forge.AdminForceDeleteMachine:output_type -> forge.AdminForceDeleteMachineResponse
+	432,  // 1935: forge.Forge.DecommissionManagedHost:output_type -> forge.DecommissionManagedHostResponse
+	522,  // 1936: forge.Forge.AdminListResourcePools:output_type -> forge.ResourcePools
+	525,  // 1937: forge.Forge.AdminGrowResourcePool:output_type -> forge.GrowResourcePoolResponse
+	1128, // 1938: forge.Forge.UpdateMachineMetadata:output_type -> google.protobuf.Empty
+	1128, // 1939: forge.Forge.UpdateRackMetadata:output_type -> google.protobuf.Empty
+	1128, // 1940: forge.Forge.UpdateSwitchMetadata:output_type -> google.protobuf.Empty
+	1128, // 1941: forge.Forge.UpdatePowerShelfMetadata:output_type -> google.protobuf.Empty
+	1128, // 1942: forge.Forge.UpdateMachineNvLinkInfo:output_type -> google.protobuf.Empty
+	1128, // 1943: forge.Forge.SetMaintenance:output_type -> google.protobuf.Empty
+	1128, // 1944: forge.Forge.SetDynamicConfig:output_type -> google.protobuf.Empty
+	1128, // 1945: forge.Forge.TriggerDpuReprovisioning:output_type -> google.protobuf.Empty
+	541,  // 1946: forge.Forge.ListDpuWaitingForReprovisioning:output_type -> forge.DpuReprovisioningListResponse
+	1128, // 1947: forge.Forge.TriggerHostReprovisioning:output_type -> google.protobuf.Empty
+	547,  // 1948: forge.Forge.ListHostsWaitingForReprovisioning:output_type -> forge.HostReprovisioningListResponse
+	1128, // 1949: forge.Forge.TriggerBmcCredentialRotation:output_type -> google.protobuf.Empty
+	1128, // 1950: forge.Forge.TriggerUefiCredentialRotation:output_type -> google.protobuf.Empty
+	1128, // 1951: forge.Forge.TriggerNicLockdownCredentialRotation:output_type -> google.protobuf.Empty
+	1128, // 1952: forge.Forge.MarkManualFirmwareUpgradeComplete:output_type -> google.protobuf.Empty
+	1128, // 1953: forge.Forge.ReportScoutFirmwareUpgradeStatus:output_type -> google.protobuf.Empty
+	553,  // 1954: forge.Forge.GetDpuInfoList:output_type -> forge.GetDpuInfoListResponse
+	555,  // 1955: forge.Forge.GetMachineBootOverride:output_type -> forge.MachineBootOverride
+	1128, // 1956: forge.Forge.SetMachineBootOverride:output_type -> google.protobuf.Empty
+	1128, // 1957: forge.Forge.ClearMachineBootOverride:output_type -> google.protobuf.Empty
+	996,  // 1958: forge.Forge.GetMachineBootInterfaces:output_type -> forge.GetMachineBootInterfacesResponse
+	566,  // 1959: forge.Forge.GetNetworkTopology:output_type -> forge.NetworkTopologyData
+	566,  // 1960: forge.Forge.FindNetworkDevicesByDeviceIds:output_type -> forge.NetworkTopologyData
+	149,  // 1961: forge.Forge.CreateCredential:output_type -> forge.CredentialCreationResult
+	150,  // 1962: forge.Forge.DeleteCredential:output_type -> forge.CredentialDeletionResult
+	152,  // 1963: forge.Forge.RotateCredential:output_type -> forge.RotateCredentialResult
+	155,  // 1964: forge.Forge.GetCredentialRotationStatus:output_type -> forge.CredentialRotationStatusResult
+	998,  // 1965: forge.Forge.GetContainerRegistryCredential:output_type -> forge.GetContainerRegistryCredentialResponse
+	1128, // 1966: forge.Forge.SetContainerRegistryCredential:output_type -> google.protobuf.Empty
+	568,  // 1967: forge.Forge.GetRouteServers:output_type -> forge.RouteServerEntries
+	1128, // 1968: forge.Forge.AddRouteServers:output_type -> google.protobuf.Empty
+	1128, // 1969: forge.Forge.RemoveRouteServers:output_type -> google.protobuf.Empty
+	1128, // 1970: forge.Forge.ReplaceRouteServers:output_type -> google.protobuf.Empty
+	1128, // 1971: forge.Forge.UpdateAgentReportedInventory:output_type -> google.protobuf.Empty
+	332,  // 1972: forge.Forge.UpdateInstancePhoneHomeLastContact:output_type -> forge.InstancePhoneHomeLastContactResponse
+	571,  // 1973: forge.Forge.SetHostUefiPassword:output_type -> forge.SetHostUefiPasswordResponse
+	573,  // 1974: forge.Forge.ClearHostUefiPassword:output_type -> forge.ClearHostUefiPasswordResponse
+	575,  // 1975: forge.Forge.SetDpuUefiPassword:output_type -> forge.SetDpuUefiPasswordResponse
+	1128, // 1976: forge.Forge.AddExpectedMachine:output_type -> google.protobuf.Empty
+	1128, // 1977: forge.Forge.DeleteExpectedMachine:output_type -> google.protobuf.Empty
+	1128, // 1978: forge.Forge.UpdateExpectedMachine:output_type -> google.protobuf.Empty
+	587,  // 1979: forge.Forge.GetExpectedMachine:output_type -> forge.ExpectedMachine
+	589,  // 1980: forge.Forge.GetAllExpectedMachines:output_type -> forge.ExpectedMachineList
+	1128, // 1981: forge.Forge.ReplaceAllExpectedMachines:output_type -> google.protobuf.Empty
+	1128, // 1982: forge.Forge.DeleteAllExpectedMachines:output_type -> google.protobuf.Empty
+	590,  // 1983: forge.Forge.GetAllExpectedMachinesLinked:output_type -> forge.LinkedExpectedMachineList
+	592,  // 1984: forge.Forge.GetAllUnexpectedMachines:output_type -> forge.UnexpectedMachineList
+	596,  // 1985: forge.Forge.CreateExpectedMachines:output_type -> forge.BatchExpectedMachineOperationResponse
+	596,  // 1986: forge.Forge.UpdateExpectedMachines:output_type -> forge.BatchExpectedMachineOperationResponse
+	1128, // 1987: forge.Forge.AddExpectedPowerShelf:output_type -> google.protobuf.Empty
+	1128, // 1988: forge.Forge.DeleteExpectedPowerShelf:output_type -> google.protobuf.Empty
+	1128, // 1989: forge.Forge.UpdateExpectedPowerShelf:output_type -> google.protobuf.Empty
+	232,  // 1990: forge.Forge.GetExpectedPowerShelf:output_type -> forge.ExpectedPowerShelf
+	234,  // 1991: forge.Forge.GetAllExpectedPowerShelves:output_type -> forge.ExpectedPowerShelfList
+	1128, // 1992: forge.Forge.ReplaceAllExpectedPowerShelves:output_type -> google.protobuf.Empty
+	1128, // 1993: forge.Forge.DeleteAllExpectedPowerShelves:output_type -> google.protobuf.Empty
+	235,  // 1994: forge.Forge.GetAllExpectedPowerShelvesLinked:output_type -> forge.LinkedExpectedPowerShelfList
+	1128, // 1995: forge.Forge.AddExpectedSwitch:output_type -> google.protobuf.Empty
+	1128, // 1996: forge.Forge.DeleteExpectedSwitch:output_type -> google.protobuf.Empty
+	1128, // 1997: forge.Forge.UpdateExpectedSwitch:output_type -> google.protobuf.Empty
+	257,  // 1998: forge.Forge.GetExpectedSwitch:output_type -> forge.ExpectedSwitch
+	259,  // 1999: forge.Forge.GetAllExpectedSwitches:output_type -> forge.ExpectedSwitchList
+	1128, // 2000: forge.Forge.ReplaceAllExpectedSwitches:output_type -> google.protobuf.Empty
+	1128, // 2001: forge.Forge.DeleteAllExpectedSwitches:output_type -> google.protobuf.Empty
+	260,  // 2002: forge.Forge.GetAllExpectedSwitchesLinked:output_type -> forge.LinkedExpectedSwitchList
+	1128, // 2003: forge.Forge.AddExpectedRack:output_type -> google.protobuf.Empty
+	1128, // 2004: forge.Forge.DeleteExpectedRack:output_type -> google.protobuf.Empty
+	1128, // 2005: forge.Forge.UpdateExpectedRack:output_type -> google.protobuf.Empty
+	262,  // 2006: forge.Forge.GetExpectedRack:output_type -> forge.ExpectedRack
+	264,  // 2007: forge.Forge.GetAllExpectedRacks:output_type -> forge.ExpectedRackList
+	1128, // 2008: forge.Forge.ReplaceAllExpectedRacks:output_type -> google.protobuf.Empty
+	1128, // 2009: forge.Forge.DeleteAllExpectedRacks:output_type -> google.protobuf.Empty
+	146,  // 2010: forge.Forge.AttestQuote:output_type -> forge.AttestQuoteResponse
+	674,  // 2011: forge.Forge.CreateInstanceType:output_type -> forge.CreateInstanceTypeResponse
+	676,  // 2012: forge.Forge.FindInstanceTypeIds:output_type -> forge.FindInstanceTypeIdsResponse
+	678,  // 2013: forge.Forge.FindInstanceTypesByIds:output_type -> forge.FindInstanceTypesByIdsResponse
+	681,  // 2014: forge.Forge.UpdateInstanceType:output_type -> forge.UpdateInstanceTypeResponse
+	680,  // 2015: forge.Forge.DeleteInstanceType:output_type -> forge.DeleteInstanceTypeResponse
+	684,  // 2016: forge.Forge.AssociateMachinesWithInstanceType:output_type -> forge.AssociateMachinesWithInstanceTypeResponse
+	686,  // 2017: forge.Forge.RemoveMachineInstanceTypeAssociation:output_type -> forge.RemoveMachineInstanceTypeAssociationResponse
+	1209, // 2018: forge.Forge.CreateMeasurementBundle:output_type -> measured_boot.CreateMeasurementBundleResponse
+	1210, // 2019: forge.Forge.DeleteMeasurementBundle:output_type -> measured_boot.DeleteMeasurementBundleResponse
+	1211, // 2020: forge.Forge.RenameMeasurementBundle:output_type -> measured_boot.RenameMeasurementBundleResponse
+	1212, // 2021: forge.Forge.UpdateMeasurementBundle:output_type -> measured_boot.UpdateMeasurementBundleResponse
+	1213, // 2022: forge.Forge.ShowMeasurementBundle:output_type -> measured_boot.ShowMeasurementBundleResponse
+	1214, // 2023: forge.Forge.ShowMeasurementBundles:output_type -> measured_boot.ShowMeasurementBundlesResponse
+	1215, // 2024: forge.Forge.ListMeasurementBundles:output_type -> measured_boot.ListMeasurementBundlesResponse
+	1216, // 2025: forge.Forge.ListMeasurementBundleMachines:output_type -> measured_boot.ListMeasurementBundleMachinesResponse
+	1213, // 2026: forge.Forge.FindClosestBundleMatch:output_type -> measured_boot.ShowMeasurementBundleResponse
+	1217, // 2027: forge.Forge.DeleteMeasurementJournal:output_type -> measured_boot.DeleteMeasurementJournalResponse
+	1218, // 2028: forge.Forge.ShowMeasurementJournal:output_type -> measured_boot.ShowMeasurementJournalResponse
+	1219, // 2029: forge.Forge.ShowMeasurementJournals:output_type -> measured_boot.ShowMeasurementJournalsResponse
+	1220, // 2030: forge.Forge.ListMeasurementJournal:output_type -> measured_boot.ListMeasurementJournalResponse
+	1221, // 2031: forge.Forge.AttestCandidateMachine:output_type -> measured_boot.AttestCandidateMachineResponse
+	1222, // 2032: forge.Forge.ShowCandidateMachine:output_type -> measured_boot.ShowCandidateMachineResponse
+	1223, // 2033: forge.Forge.ShowCandidateMachines:output_type -> measured_boot.ShowCandidateMachinesResponse
+	1224, // 2034: forge.Forge.ListCandidateMachines:output_type -> measured_boot.ListCandidateMachinesResponse
+	1225, // 2035: forge.Forge.CreateMeasurementSystemProfile:output_type -> measured_boot.CreateMeasurementSystemProfileResponse
+	1226, // 2036: forge.Forge.DeleteMeasurementSystemProfile:output_type -> measured_boot.DeleteMeasurementSystemProfileResponse
+	1227, // 2037: forge.Forge.RenameMeasurementSystemProfile:output_type -> measured_boot.RenameMeasurementSystemProfileResponse
+	1228, // 2038: forge.Forge.ShowMeasurementSystemProfile:output_type -> measured_boot.ShowMeasurementSystemProfileResponse
+	1229, // 2039: forge.Forge.ShowMeasurementSystemProfiles:output_type -> measured_boot.ShowMeasurementSystemProfilesResponse
+	1230, // 2040: forge.Forge.ListMeasurementSystemProfiles:output_type -> measured_boot.ListMeasurementSystemProfilesResponse
+	1231, // 2041: forge.Forge.ListMeasurementSystemProfileBundles:output_type -> measured_boot.ListMeasurementSystemProfileBundlesResponse
+	1232, // 2042: forge.Forge.ListMeasurementSystemProfileMachines:output_type -> measured_boot.ListMeasurementSystemProfileMachinesResponse
+	1233, // 2043: forge.Forge.CreateMeasurementReport:output_type -> measured_boot.CreateMeasurementReportResponse
+	1234, // 2044: forge.Forge.DeleteMeasurementReport:output_type -> measured_boot.DeleteMeasurementReportResponse
+	1235, // 2045: forge.Forge.PromoteMeasurementReport:output_type -> measured_boot.PromoteMeasurementReportResponse
+	1236, // 2046: forge.Forge.RevokeMeasurementReport:output_type -> measured_boot.RevokeMeasurementReportResponse
+	1237, // 2047: forge.Forge.ShowMeasurementReportForId:output_type -> measured_boot.ShowMeasurementReportForIdResponse
+	1238, // 2048: forge.Forge.ShowMeasurementReportsForMachine:output_type -> measured_boot.ShowMeasurementReportsForMachineResponse
+	1239, // 2049: forge.Forge.ShowMeasurementReports:output_type -> measured_boot.ShowMeasurementReportsResponse
+	1240, // 2050: forge.Forge.ListMeasurementReport:output_type -> measured_boot.ListMeasurementReportResponse
+	1241, // 2051: forge.Forge.MatchMeasurementReport:output_type -> measured_boot.MatchMeasurementReportResponse
+	1242, // 2052: forge.Forge.ImportSiteMeasurements:output_type -> measured_boot.ImportSiteMeasurementsResponse
+	1243, // 2053: forge.Forge.ExportSiteMeasurements:output_type -> measured_boot.ExportSiteMeasurementsResponse
+	1244, // 2054: forge.Forge.AddMeasurementTrustedMachine:output_type -> measured_boot.AddMeasurementTrustedMachineResponse
+	1245, // 2055: forge.Forge.RemoveMeasurementTrustedMachine:output_type -> measured_boot.RemoveMeasurementTrustedMachineResponse
+	1246, // 2056: forge.Forge.AddMeasurementTrustedProfile:output_type -> measured_boot.AddMeasurementTrustedProfileResponse
+	1247, // 2057: forge.Forge.RemoveMeasurementTrustedProfile:output_type -> measured_boot.RemoveMeasurementTrustedProfileResponse
+	1248, // 2058: forge.Forge.ListMeasurementTrustedMachines:output_type -> measured_boot.ListMeasurementTrustedMachinesResponse
+	1249, // 2059: forge.Forge.ListMeasurementTrustedProfiles:output_type -> measured_boot.ListMeasurementTrustedProfilesResponse
+	1250, // 2060: forge.Forge.ListAttestationSummary:output_type -> measured_boot.ListAttestationSummaryResponse
+	705,  // 2061: forge.Forge.CreateNetworkSecurityGroup:output_type -> forge.CreateNetworkSecurityGroupResponse
+	707,  // 2062: forge.Forge.FindNetworkSecurityGroupIds:output_type -> forge.FindNetworkSecurityGroupIdsResponse
+	709,  // 2063: forge.Forge.FindNetworkSecurityGroupsByIds:output_type -> forge.FindNetworkSecurityGroupsByIdsResponse
+	710,  // 2064: forge.Forge.UpdateNetworkSecurityGroup:output_type -> forge.UpdateNetworkSecurityGroupResponse
+	713,  // 2065: forge.Forge.DeleteNetworkSecurityGroup:output_type -> forge.DeleteNetworkSecurityGroupResponse
+	716,  // 2066: forge.Forge.GetNetworkSecurityGroupPropagationStatus:output_type -> forge.GetNetworkSecurityGroupPropagationStatusResponse
+	723,  // 2067: forge.Forge.GetNetworkSecurityGroupAttachments:output_type -> forge.GetNetworkSecurityGroupAttachmentsResponse
+	577,  // 2068: forge.Forge.CreateOsImage:output_type -> forge.OsImage
+	581,  // 2069: forge.Forge.DeleteOsImage:output_type -> forge.DeleteOsImageResponse
+	579,  // 2070: forge.Forge.ListOsImage:output_type -> forge.ListOsImageResponse
+	577,  // 2071: forge.Forge.GetOsImage:output_type -> forge.OsImage
+	577,  // 2072: forge.Forge.UpdateOsImage:output_type -> forge.OsImage
+	295,  // 2073: forge.Forge.GetIpxeTemplate:output_type -> forge.IpxeTemplate
+	584,  // 2074: forge.Forge.ListIpxeTemplates:output_type -> forge.IpxeTemplateList
+	597,  // 2075: forge.Forge.RebootCompleted:output_type -> forge.MachineRebootCompletedResponse
+	1128, // 2076: forge.Forge.PersistValidationResult:output_type -> google.protobuf.Empty
+	604,  // 2077: forge.Forge.GetMachineValidationResults:output_type -> forge.MachineValidationResultList
+	601,  // 2078: forge.Forge.MachineValidationCompleted:output_type -> forge.MachineValidationCompletedResponse
+	609,  // 2079: forge.Forge.MachineSetAutoUpdate:output_type -> forge.MachineSetAutoUpdateResponse
+	612,  // 2080: forge.Forge.GetMachineValidationExternalConfig:output_type -> forge.GetMachineValidationExternalConfigResponse
+	614,  // 2081: forge.Forge.GetMachineValidationExternalConfigs:output_type -> forge.GetMachineValidationExternalConfigsResponse
+	1128, // 2082: forge.Forge.AddUpdateMachineValidationExternalConfig:output_type -> google.protobuf.Empty
+	635,  // 2083: forge.Forge.GetMachineValidationRuns:output_type -> forge.MachineValidationRunList
+	638,  // 2084: forge.Forge.FindMachineValidationRunItemIds:output_type -> forge.MachineValidationRunItemIdList
+	640,  // 2085: forge.Forge.FindMachineValidationRunItemsByIds:output_type -> forge.MachineValidationRunItemList
+	643,  // 2086: forge.Forge.GetMachineValidationAttempt:output_type -> forge.MachineValidationAttempt
+	645,  // 2087: forge.Forge.HeartbeatMachineValidationRun:output_type -> forge.MachineValidationHeartbeatResponse
+	1128, // 2088: forge.Forge.RemoveMachineValidationExternalConfig:output_type -> google.protobuf.Empty
+	652,  // 2089: forge.Forge.GetMachineValidationTests:output_type -> forge.MachineValidationTestsGetResponse
+	651,  // 2090: forge.Forge.AddMachineValidationTest:output_type -> forge.MachineValidationTestAddUpdateResponse
+	651,  // 2091: forge.Forge.UpdateMachineValidationTest:output_type -> forge.MachineValidationTestAddUpdateResponse
+	654,  // 2092: forge.Forge.MachineValidationTestVerfied:output_type -> forge.MachineValidationTestVerfiedResponse
+	656,  // 2093: forge.Forge.MachineValidationTestNextVersion:output_type -> forge.MachineValidationTestNextVersionResponse
+	659,  // 2094: forge.Forge.MachineValidationTestEnableDisableTest:output_type -> forge.MachineValidationTestEnableDisableTestResponse
+	661,  // 2095: forge.Forge.UpdateMachineValidationRun:output_type -> forge.MachineValidationRunResponse
+>>>>>>> fab90f1e2 (review)
 	446,  // 2096: forge.Forge.AdminBmcReset:output_type -> forge.AdminBmcResetResponse
 	630,  // 2097: forge.Forge.AdminPowerControl:output_type -> forge.AdminPowerControlResponse
 	632,  // 2098: forge.Forge.AdminGpuReset:output_type -> forge.AdminGpuResetResponse
 	434,  // 2099: forge.Forge.DisableSecureBoot:output_type -> forge.DisableSecureBootResponse
 	436,  // 2100: forge.Forge.Lockdown:output_type -> forge.LockdownResponse
+<<<<<<< HEAD
 	1253, // 2101: forge.Forge.LockdownStatus:output_type -> site_explorer.LockdownStatus
 	440,  // 2102: forge.Forge.MachineSetup:output_type -> forge.MachineSetupResponse
 	442,  // 2103: forge.Forge.SetDpuFirstBootOrder:output_type -> forge.SetDpuFirstBootOrderResponse
@@ -81889,6 +84978,15 @@ var file_nico_nico_proto_depIdxs = []int32{
 	836,  // 2105: forge.Forge.DeleteBmcUser:output_type -> forge.DeleteBmcUserResponse
 	838,  // 2106: forge.Forge.SetBmcRootPassword:output_type -> forge.SetBmcRootPasswordResponse
 	840,  // 2107: forge.Forge.ProbeBmcVendor:output_type -> forge.ProbeBmcVendorResponse
+=======
+	1251, // 2101: forge.Forge.LockdownStatus:output_type -> site_explorer.LockdownStatus
+	440,  // 2102: forge.Forge.MachineSetup:output_type -> forge.MachineSetupResponse
+	442,  // 2103: forge.Forge.SetDpuFirstBootOrder:output_type -> forge.SetDpuFirstBootOrderResponse
+	831,  // 2104: forge.Forge.CreateBmcUser:output_type -> forge.CreateBmcUserResponse
+	833,  // 2105: forge.Forge.DeleteBmcUser:output_type -> forge.DeleteBmcUserResponse
+	835,  // 2106: forge.Forge.SetBmcRootPassword:output_type -> forge.SetBmcRootPasswordResponse
+	837,  // 2107: forge.Forge.ProbeBmcVendor:output_type -> forge.ProbeBmcVendorResponse
+>>>>>>> fab90f1e2 (review)
 	448,  // 2108: forge.Forge.EnableInfiniteBoot:output_type -> forge.EnableInfiniteBootResponse
 	450,  // 2109: forge.Forge.IsInfiniteBootEnabled:output_type -> forge.IsInfiniteBootEnabledResponse
 	618,  // 2110: forge.Forge.OnDemandMachineValidation:output_type -> forge.MachineValidationOnDemandResponse
@@ -81897,6 +84995,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	137,  // 2113: forge.Forge.TpmAddCaCert:output_type -> forge.TpmCaAddedCaStatus
 	143,  // 2114: forge.Forge.TpmShowCaCerts:output_type -> forge.TpmCaCertDetailCollection
 	140,  // 2115: forge.Forge.TpmShowUnmatchedEkCerts:output_type -> forge.TpmEkCertStatusCollection
+<<<<<<< HEAD
 	1130, // 2116: forge.Forge.TpmDeleteCaCert:output_type -> google.protobuf.Empty
 	691,  // 2117: forge.Forge.RedfishBrowse:output_type -> forge.RedfishBrowseResponse
 	693,  // 2118: forge.Forge.RedfishListActions:output_type -> forge.RedfishListActionsResponse
@@ -81975,11 +85074,92 @@ var file_nico_nico_proto_depIdxs = []int32{
 	894,  // 2191: forge.Forge.FindInstancesByDpuExtensionService:output_type -> forge.FindInstancesByDpuExtensionServiceResponse
 	110,  // 2192: forge.Forge.TriggerMachineAttestation:output_type -> forge.SpdmMachineAttestationTriggerResponse
 	1130, // 2193: forge.Forge.CancelMachineAttestation:output_type -> google.protobuf.Empty
+=======
+	1128, // 2116: forge.Forge.TpmDeleteCaCert:output_type -> google.protobuf.Empty
+	688,  // 2117: forge.Forge.RedfishBrowse:output_type -> forge.RedfishBrowseResponse
+	690,  // 2118: forge.Forge.RedfishListActions:output_type -> forge.RedfishListActionsResponse
+	695,  // 2119: forge.Forge.RedfishCreateAction:output_type -> forge.RedfishCreateActionResponse
+	697,  // 2120: forge.Forge.RedfishApproveAction:output_type -> forge.RedfishApproveActionResponse
+	698,  // 2121: forge.Forge.RedfishApplyAction:output_type -> forge.RedfishApplyActionResponse
+	699,  // 2122: forge.Forge.RedfishCancelAction:output_type -> forge.RedfishCancelActionResponse
+	701,  // 2123: forge.Forge.UfmBrowse:output_type -> forge.UfmBrowseResponse
+	725,  // 2124: forge.Forge.GetDesiredFirmwareVersions:output_type -> forge.GetDesiredFirmwareVersionsResponse
+	846,  // 2125: forge.Forge.UpsertHostFirmwareConfig:output_type -> forge.HostFirmwareConfigResponse
+	1128, // 2126: forge.Forge.DeleteHostFirmwareConfig:output_type -> google.protobuf.Empty
+	741,  // 2127: forge.Forge.CreateSku:output_type -> forge.SkuIdList
+	737,  // 2128: forge.Forge.GenerateSkuFromMachine:output_type -> forge.Sku
+	1128, // 2129: forge.Forge.VerifySkuForMachine:output_type -> google.protobuf.Empty
+	1128, // 2130: forge.Forge.AssignSkuToMachine:output_type -> google.protobuf.Empty
+	1128, // 2131: forge.Forge.RemoveSkuAssociation:output_type -> google.protobuf.Empty
+	1128, // 2132: forge.Forge.DeleteSku:output_type -> google.protobuf.Empty
+	741,  // 2133: forge.Forge.GetAllSkuIds:output_type -> forge.SkuIdList
+	740,  // 2134: forge.Forge.FindSkusByIds:output_type -> forge.SkuList
+	1128, // 2135: forge.Forge.UpdateSkuMetadata:output_type -> google.protobuf.Empty
+	737,  // 2136: forge.Forge.ReplaceSku:output_type -> forge.Sku
+	414,  // 2137: forge.Forge.GetManagedHostQuarantineState:output_type -> forge.GetManagedHostQuarantineStateResponse
+	416,  // 2138: forge.Forge.SetManagedHostQuarantineState:output_type -> forge.SetManagedHostQuarantineStateResponse
+	418,  // 2139: forge.Forge.ClearManagedHostQuarantineState:output_type -> forge.ClearManagedHostQuarantineStateResponse
+	1128, // 2140: forge.Forge.ResetHostReprovisioning:output_type -> google.protobuf.Empty
+	1128, // 2141: forge.Forge.CopyBfbToDpuRshim:output_type -> google.protobuf.Empty
+	747,  // 2142: forge.Forge.GetAllDpaInterfaceIds:output_type -> forge.DpaInterfaceIdList
+	749,  // 2143: forge.Forge.FindDpaInterfacesByIds:output_type -> forge.DpaInterfaceList
+	745,  // 2144: forge.Forge.CreateDpaInterface:output_type -> forge.DpaInterface
+	745,  // 2145: forge.Forge.EnsureDpaInterface:output_type -> forge.DpaInterface
+	752,  // 2146: forge.Forge.DeleteDpaInterface:output_type -> forge.DpaInterfaceDeletionResult
+	757,  // 2147: forge.Forge.GetPowerOptions:output_type -> forge.PowerOptionResponse
+	757,  // 2148: forge.Forge.UpdatePowerOption:output_type -> forge.PowerOptionResponse
+	1128, // 2149: forge.Forge.AllowIngestionAndPowerOn:output_type -> google.protobuf.Empty
+	136,  // 2150: forge.Forge.DetermineMachineIngestionState:output_type -> forge.MachineIngestionStateResponse
+	775,  // 2151: forge.Forge.FindRackIds:output_type -> forge.RackIdList
+	773,  // 2152: forge.Forge.FindRacksByIds:output_type -> forge.RackList
+	772,  // 2153: forge.Forge.GetRack:output_type -> forge.GetRackResponse
+	1128, // 2154: forge.Forge.DeleteRack:output_type -> google.protobuf.Empty
+	784,  // 2155: forge.Forge.AdminForceDeleteRack:output_type -> forge.AdminForceDeleteRackResponse
+	791,  // 2156: forge.Forge.GetRackProfile:output_type -> forge.GetRackProfileResponse
+	793,  // 2157: forge.Forge.ListRackProfiles:output_type -> forge.ListRackProfilesResponse
+	761,  // 2158: forge.Forge.CreateComputeAllocation:output_type -> forge.CreateComputeAllocationResponse
+	763,  // 2159: forge.Forge.FindComputeAllocationIds:output_type -> forge.FindComputeAllocationIdsResponse
+	765,  // 2160: forge.Forge.FindComputeAllocationsByIds:output_type -> forge.FindComputeAllocationsByIdsResponse
+	766,  // 2161: forge.Forge.UpdateComputeAllocation:output_type -> forge.UpdateComputeAllocationResponse
+	769,  // 2162: forge.Forge.DeleteComputeAllocation:output_type -> forge.DeleteComputeAllocationResponse
+	839,  // 2163: forge.Forge.SetFirmwareUpdateTimeWindow:output_type -> forge.SetFirmwareUpdateTimeWindowResponse
+	848,  // 2164: forge.Forge.ListHostFirmware:output_type -> forge.ListHostFirmwareResponse
+	1252, // 2165: forge.Forge.PublishMlxDeviceReport:output_type -> mlx_device.PublishMlxDeviceReportResponse
+	1253, // 2166: forge.Forge.PublishMlxObservationReport:output_type -> mlx_device.PublishMlxObservationReportResponse
+	851,  // 2167: forge.Forge.TrimTable:output_type -> forge.TrimTableResponse
+	853,  // 2168: forge.Forge.ListNvlinkNmxcEndpoints:output_type -> forge.NvlinkNmxcEndpointList
+	852,  // 2169: forge.Forge.CreateNvlinkNmxcEndpoint:output_type -> forge.NvlinkNmxcEndpoint
+	852,  // 2170: forge.Forge.UpdateNvlinkNmxcEndpoint:output_type -> forge.NvlinkNmxcEndpoint
+	1128, // 2171: forge.Forge.DeleteNvlinkNmxcEndpoint:output_type -> google.protobuf.Empty
+	856,  // 2172: forge.Forge.CreateRemediation:output_type -> forge.CreateRemediationResponse
+	1128, // 2173: forge.Forge.ApproveRemediation:output_type -> google.protobuf.Empty
+	1128, // 2174: forge.Forge.RevokeRemediation:output_type -> google.protobuf.Empty
+	1128, // 2175: forge.Forge.EnableRemediation:output_type -> google.protobuf.Empty
+	1128, // 2176: forge.Forge.DisableRemediation:output_type -> google.protobuf.Empty
+	857,  // 2177: forge.Forge.FindRemediationIds:output_type -> forge.RemediationIdList
+	858,  // 2178: forge.Forge.FindRemediationsByIds:output_type -> forge.RemediationList
+	865,  // 2179: forge.Forge.FindAppliedRemediationIds:output_type -> forge.AppliedRemediationIdList
+	868,  // 2180: forge.Forge.FindAppliedRemediations:output_type -> forge.AppliedRemediationList
+	870,  // 2181: forge.Forge.GetNextRemediationForMachine:output_type -> forge.GetNextRemediationForMachineResponse
+	1128, // 2182: forge.Forge.RemediationApplied:output_type -> google.protobuf.Empty
+	1128, // 2183: forge.Forge.SetPrimaryDpu:output_type -> google.protobuf.Empty
+	1128, // 2184: forge.Forge.SetPrimaryInterface:output_type -> google.protobuf.Empty
+	879,  // 2185: forge.Forge.CreateDpuExtensionService:output_type -> forge.DpuExtensionService
+	879,  // 2186: forge.Forge.UpdateDpuExtensionService:output_type -> forge.DpuExtensionService
+	883,  // 2187: forge.Forge.DeleteDpuExtensionService:output_type -> forge.DeleteDpuExtensionServiceResponse
+	885,  // 2188: forge.Forge.FindDpuExtensionServiceIds:output_type -> forge.DpuExtensionServiceIdList
+	887,  // 2189: forge.Forge.FindDpuExtensionServicesByIds:output_type -> forge.DpuExtensionServiceList
+	889,  // 2190: forge.Forge.GetDpuExtensionServiceVersionsInfo:output_type -> forge.DpuExtensionServiceVersionInfoList
+	891,  // 2191: forge.Forge.FindInstancesByDpuExtensionService:output_type -> forge.FindInstancesByDpuExtensionServiceResponse
+	110,  // 2192: forge.Forge.TriggerMachineAttestation:output_type -> forge.SpdmMachineAttestationTriggerResponse
+	1128, // 2193: forge.Forge.CancelMachineAttestation:output_type -> google.protobuf.Empty
+>>>>>>> fab90f1e2 (review)
 	115,  // 2194: forge.Forge.ListAttestationMachines:output_type -> forge.SpdmListAttestationMachinesResponse
 	112,  // 2195: forge.Forge.GetAttestationMachine:output_type -> forge.SpdmGetAttestationMachineResponse
 	117,  // 2196: forge.Forge.SignMachineIdentity:output_type -> forge.MachineIdentityResponse
 	122,  // 2197: forge.Forge.GetTenantIdentityConfiguration:output_type -> forge.TenantIdentityConfigResponse
 	122,  // 2198: forge.Forge.SetTenantIdentityConfiguration:output_type -> forge.TenantIdentityConfigResponse
+<<<<<<< HEAD
 	1130, // 2199: forge.Forge.DeleteTenantIdentityConfiguration:output_type -> google.protobuf.Empty
 	125,  // 2200: forge.Forge.GetTokenDelegation:output_type -> forge.TokenDelegationResponse
 	125,  // 2201: forge.Forge.SetTokenDelegation:output_type -> forge.TokenDelegationResponse
@@ -82715,6 +85895,73 @@ var file_nico_nico_proto_depIdxs = []int32{
 	0,    // [0:1281] is the sub-list for field type_name
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	1128, // 2199: forge.Forge.DeleteTenantIdentityConfiguration:output_type -> google.protobuf.Empty
+	125,  // 2200: forge.Forge.GetTokenDelegation:output_type -> forge.TokenDelegationResponse
+	125,  // 2201: forge.Forge.SetTokenDelegation:output_type -> forge.TokenDelegationResponse
+	1128, // 2202: forge.Forge.DeleteTokenDelegation:output_type -> google.protobuf.Empty
+	131,  // 2203: forge.Forge.ReencryptTenantIdentitySecrets:output_type -> forge.ReencryptTenantIdentitySecretsResponse
+	132,  // 2204: forge.Forge.GetJWKS:output_type -> forge.Jwks
+	133,  // 2205: forge.Forge.GetOpenIDConfiguration:output_type -> forge.OpenIdConfiguration
+	898,  // 2206: forge.Forge.ScoutStream:output_type -> forge.ScoutStreamScoutBoundMessage
+	901,  // 2207: forge.Forge.ScoutStreamShowConnections:output_type -> forge.ScoutStreamShowConnectionsResponse
+	903,  // 2208: forge.Forge.ScoutStreamDisconnect:output_type -> forge.ScoutStreamDisconnectResponse
+	905,  // 2209: forge.Forge.ScoutStreamPing:output_type -> forge.ScoutStreamAdminPingResponse
+	1254, // 2210: forge.Forge.MlxAdminProfileSync:output_type -> mlx_device.MlxAdminProfileSyncResponse
+	1255, // 2211: forge.Forge.MlxAdminProfileShow:output_type -> mlx_device.MlxAdminProfileShowResponse
+	1256, // 2212: forge.Forge.MlxAdminProfileCompare:output_type -> mlx_device.MlxAdminProfileCompareResponse
+	1257, // 2213: forge.Forge.MlxAdminProfileList:output_type -> mlx_device.MlxAdminProfileListResponse
+	1258, // 2214: forge.Forge.MlxAdminLockdownLock:output_type -> mlx_device.MlxAdminLockdownLockResponse
+	1259, // 2215: forge.Forge.MlxAdminLockdownUnlock:output_type -> mlx_device.MlxAdminLockdownUnlockResponse
+	1260, // 2216: forge.Forge.MlxAdminLockdownStatus:output_type -> mlx_device.MlxAdminLockdownStatusResponse
+	1261, // 2217: forge.Forge.MlxAdminShowDevice:output_type -> mlx_device.MlxAdminDeviceInfoResponse
+	1262, // 2218: forge.Forge.MlxAdminShowMachine:output_type -> mlx_device.MlxAdminDeviceReportResponse
+	1263, // 2219: forge.Forge.MlxAdminRegistryList:output_type -> mlx_device.MlxAdminRegistryListResponse
+	1264, // 2220: forge.Forge.MlxAdminRegistryShow:output_type -> mlx_device.MlxAdminRegistryShowResponse
+	1265, // 2221: forge.Forge.MlxAdminConfigQuery:output_type -> mlx_device.MlxAdminConfigQueryResponse
+	1266, // 2222: forge.Forge.MlxAdminConfigSet:output_type -> mlx_device.MlxAdminConfigSetResponse
+	1267, // 2223: forge.Forge.MlxAdminConfigSync:output_type -> mlx_device.MlxAdminConfigSyncResponse
+	1268, // 2224: forge.Forge.MlxAdminConfigCompare:output_type -> mlx_device.MlxAdminConfigCompareResponse
+	816,  // 2225: forge.Forge.FindNVLinkPartitionIds:output_type -> forge.NVLinkPartitionIdList
+	811,  // 2226: forge.Forge.FindNVLinkPartitionsByIds:output_type -> forge.NVLinkPartitionList
+	811,  // 2227: forge.Forge.NVLinkPartitionsForTenant:output_type -> forge.NVLinkPartitionList
+	827,  // 2228: forge.Forge.FindNVLinkLogicalPartitionIds:output_type -> forge.NVLinkLogicalPartitionIdList
+	821,  // 2229: forge.Forge.FindNVLinkLogicalPartitionsByIds:output_type -> forge.NVLinkLogicalPartitionList
+	820,  // 2230: forge.Forge.CreateNVLinkLogicalPartition:output_type -> forge.NVLinkLogicalPartition
+	829,  // 2231: forge.Forge.UpdateNVLinkLogicalPartition:output_type -> forge.NVLinkLogicalPartitionUpdateResult
+	824,  // 2232: forge.Forge.DeleteNVLinkLogicalPartition:output_type -> forge.NVLinkLogicalPartitionDeletionResult
+	821,  // 2233: forge.Forge.NVLinkLogicalPartitionsForTenant:output_type -> forge.NVLinkLogicalPartitionList
+	919,  // 2234: forge.Forge.GetMachinePositionInfo:output_type -> forge.MachinePositionInfoList
+	809,  // 2235: forge.Forge.NmxcBrowse:output_type -> forge.NmxcBrowseResponse
+	1128, // 2236: forge.Forge.ModifyDPFState:output_type -> google.protobuf.Empty
+	922,  // 2237: forge.Forge.GetDPFState:output_type -> forge.DPFStateResponse
+	925,  // 2238: forge.Forge.GetDPFHostSnapshot:output_type -> forge.DPFHostSnapshotResponse
+	928,  // 2239: forge.Forge.GetDPFServiceVersions:output_type -> forge.DPFServiceVersionsResponse
+	1115, // 2240: forge.Forge.FindPendingDPUServiceSyncIds:output_type -> common.MachineIdList
+	936,  // 2241: forge.Forge.FindPendingDPUServiceSyncsByIds:output_type -> forge.ListPendingDPUServiceSyncsResponse
+	936,  // 2242: forge.Forge.ListDPUServiceSyncHistory:output_type -> forge.ListPendingDPUServiceSyncsResponse
+	931,  // 2243: forge.Forge.ReleaseDPUServiceSyncHold:output_type -> forge.ReleaseDPUServiceSyncHoldResponse
+	945,  // 2244: forge.Forge.ComponentPowerControl:output_type -> forge.ComponentPowerControlResponse
+	947,  // 2245: forge.Forge.ComponentConfigureSwitchCertificate:output_type -> forge.ComponentConfigureSwitchCertificateResponse
+	943,  // 2246: forge.Forge.GetComponentInventory:output_type -> forge.GetComponentInventoryResponse
+	954,  // 2247: forge.Forge.UpdateComponentFirmware:output_type -> forge.UpdateComponentFirmwareResponse
+	956,  // 2248: forge.Forge.GetComponentFirmwareStatus:output_type -> forge.GetComponentFirmwareStatusResponse
+	960,  // 2249: forge.Forge.ListComponentFirmwareVersions:output_type -> forge.ListComponentFirmwareVersionsResponse
+	973,  // 2250: forge.Forge.CreateOperatingSystem:output_type -> forge.OperatingSystem
+	973,  // 2251: forge.Forge.GetOperatingSystem:output_type -> forge.OperatingSystem
+	973,  // 2252: forge.Forge.UpdateOperatingSystem:output_type -> forge.OperatingSystem
+	979,  // 2253: forge.Forge.DeleteOperatingSystem:output_type -> forge.DeleteOperatingSystemResponse
+	981,  // 2254: forge.Forge.FindOperatingSystemIds:output_type -> forge.OperatingSystemIdList
+	983,  // 2255: forge.Forge.FindOperatingSystemsByIds:output_type -> forge.OperatingSystemList
+	985,  // 2256: forge.Forge.GetOperatingSystemCachableIpxeTemplateArtifacts:output_type -> forge.IpxeTemplateArtifactList
+	985,  // 2257: forge.Forge.UpdateOperatingSystemCachableIpxeTemplateArtifacts:output_type -> forge.IpxeTemplateArtifactList
+	989,  // 2258: forge.Forge.ReWrapSecrets:output_type -> forge.ReWrapSecretsResponse
+	1771, // [1771:2259] is the sub-list for method output_type
+	1283, // [1283:1771] is the sub-list for method input_type
+	1283, // [1283:1283] is the sub-list for extension type_name
+	1283, // [1283:1283] is the sub-list for extension extendee
+	0,    // [0:1283] is the sub-list for field type_name
+>>>>>>> fab90f1e2 (review)
 }
 
 func init() { file_nico_nico_proto_init() }
@@ -83114,6 +86361,7 @@ func file_nico_nico_proto_init() {
 		(*ReleaseDPUServiceSyncHoldRequest_InstanceIds)(nil),
 	}
 <<<<<<< HEAD
+<<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[830].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[835].OneofWrappers = []any{
 =======
@@ -83126,11 +86374,17 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[831].OneofWrappers = []any{
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[827].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[829].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[833].OneofWrappers = []any{
+>>>>>>> fab90f1e2 (review)
 		(*GetComponentInventoryRequest_MachineIds)(nil),
 		(*GetComponentInventoryRequest_SwitchIds)(nil),
 		(*GetComponentInventoryRequest_PowerShelfIds)(nil),
 		(*GetComponentInventoryRequest_ComputeBmcMacs)(nil),
 	}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[836].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[838].OneofWrappers = []any{
@@ -83143,11 +86397,16 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[834].OneofWrappers = []any{
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[834].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[836].OneofWrappers = []any{
+>>>>>>> fab90f1e2 (review)
 		(*ComponentPowerControlRequest_MachineIds)(nil),
 		(*ComponentPowerControlRequest_SwitchIds)(nil),
 		(*ComponentPowerControlRequest_PowerShelfIds)(nil),
 		(*ComponentPowerControlRequest_ComputeBmcMacs)(nil),
 	}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[840].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[847].OneofWrappers = []any{
@@ -83164,11 +86423,16 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[843].OneofWrappers = []any{
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[838].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[845].OneofWrappers = []any{
+>>>>>>> fab90f1e2 (review)
 		(*UpdateComponentFirmwareRequest_ComputeTrays)(nil),
 		(*UpdateComponentFirmwareRequest_Switches)(nil),
 		(*UpdateComponentFirmwareRequest_PowerShelves)(nil),
 		(*UpdateComponentFirmwareRequest_Racks)(nil),
 	}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[849].OneofWrappers = []any{
 =======
@@ -83178,12 +86442,16 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[845].OneofWrappers = []any{
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[847].OneofWrappers = []any{
+>>>>>>> fab90f1e2 (review)
 		(*GetComponentFirmwareStatusRequest_MachineIds)(nil),
 		(*GetComponentFirmwareStatusRequest_SwitchIds)(nil),
 		(*GetComponentFirmwareStatusRequest_PowerShelfIds)(nil),
 		(*GetComponentFirmwareStatusRequest_RackIds)(nil),
 		(*GetComponentFirmwareStatusRequest_ComputeBmcMacs)(nil),
 	}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[851].OneofWrappers = []any{
 =======
@@ -83193,12 +86461,16 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[847].OneofWrappers = []any{
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[849].OneofWrappers = []any{
+>>>>>>> fab90f1e2 (review)
 		(*ListComponentFirmwareVersionsRequest_MachineIds)(nil),
 		(*ListComponentFirmwareVersionsRequest_SwitchIds)(nil),
 		(*ListComponentFirmwareVersionsRequest_PowerShelfIds)(nil),
 		(*ListComponentFirmwareVersionsRequest_RackIds)(nil),
 		(*ListComponentFirmwareVersionsRequest_ComputeBmcMacs)(nil),
 	}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[855].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[860].OneofWrappers = []any{}
@@ -83250,24 +86522,44 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[882].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[883].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[884].OneofWrappers = []any{}
+=======
+	file_nico_nico_proto_msgTypes[853].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[858].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[865].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[866].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[869].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[872].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[878].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[880].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[883].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[884].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[885].OneofWrappers = []any{}
+>>>>>>> fab90f1e2 (review)
 	file_nico_nico_proto_msgTypes[886].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[891].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[892].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[895].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[899].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[903].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[888].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[893].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[894].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[897].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[901].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[905].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[907].OneofWrappers = []any{}
+<<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[922].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[924].OneofWrappers = []any{
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[909].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[924].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[926].OneofWrappers = []any{
+>>>>>>> fab90f1e2 (review)
 		(*ForgeAgentControlResponse_MlxDeviceAction_Noop)(nil),
 		(*ForgeAgentControlResponse_MlxDeviceAction_Lock)(nil),
 		(*ForgeAgentControlResponse_MlxDeviceAction_Unlock)(nil),
 		(*ForgeAgentControlResponse_MlxDeviceAction_ApplyProfile)(nil),
 		(*ForgeAgentControlResponse_MlxDeviceAction_ApplyFirmware)(nil),
 	}
+<<<<<<< HEAD
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[932].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[933].OneofWrappers = []any{}
@@ -83278,10 +86570,13 @@ func file_nico_nico_proto_init() {
 =======
 <<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[929].OneofWrappers = []any{}
+=======
+>>>>>>> fab90f1e2 (review)
 	file_nico_nico_proto_msgTypes[930].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[934].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[931].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[935].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[936].OneofWrappers = []any{}
+<<<<<<< HEAD
 	file_nico_nico_proto_msgTypes[943].OneofWrappers = []any{}
 =======
 	file_nico_nico_proto_msgTypes[928].OneofWrappers = []any{}
@@ -83292,12 +86587,17 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[942].OneofWrappers = []any{}
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+	file_nico_nico_proto_msgTypes[937].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[944].OneofWrappers = []any{}
+>>>>>>> fab90f1e2 (review)
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nico_nico_proto_rawDesc), len(file_nico_nico_proto_rawDesc)),
 			NumEnums:      108,
+<<<<<<< HEAD
 <<<<<<< HEAD
 			NumMessages:   947,
 =======
@@ -83307,6 +86607,9 @@ func file_nico_nico_proto_init() {
 			NumMessages:   943,
 >>>>>>> 43b191a50 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
 >>>>>>> 075833d84 (feat: expand the component manager API to support identifying compute trays by BMC MAC address)
+=======
+			NumMessages:   945,
+>>>>>>> fab90f1e2 (review)
 			NumExtensions: 0,
 			NumServices:   1,
 		},

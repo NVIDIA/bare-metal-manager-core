@@ -58,6 +58,7 @@ pub enum ComputeTrayModel {
 #[derive(Debug, Clone)]
 pub struct ComputeTrayResult {
     pub bmc_ip: IpAddr,
+    pub bmc_mac: MacAddress,
     pub success: bool,
     pub error: Option<String>,
 }
@@ -65,6 +66,7 @@ pub struct ComputeTrayResult {
 #[derive(Debug, Clone)]
 pub struct ComputeTrayFirmwareUpdateStatus {
     pub bmc_ip: IpAddr,
+    pub bmc_mac: MacAddress,
     pub state: FirmwareState,
     pub target_version: String,
     pub error: Option<String>,
@@ -92,8 +94,10 @@ impl std::fmt::Display for Backend {
 /// Backend trait for compute tray management operations.
 ///
 /// Implementations receive physical endpoint information (BMC IP/MAC + vendor)
-/// and handle registration with the backend service internally. Results are
-/// keyed by `bmc_ip`.
+/// and handle registration with the backend service internally. Each result
+/// echoes the endpoint's `bmc_ip` and `bmc_mac` so callers can correlate an
+/// outcome back to the target they supplied without a side lookup (the BMC IP
+/// is not a stable correlation key before ingestion, where leases churn).
 #[async_trait::async_trait]
 pub trait ComputeTrayManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;

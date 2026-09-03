@@ -330,7 +330,7 @@ fn component_failure_detail(result: Option<&rpc::forge::ComponentResult>) -> Str
         return "unknown=missing-result".to_string();
     };
 
-    let component_id = display_or_dash(result.component_id.as_deref().unwrap_or_default());
+    let component_id = display_or_dash(component_result_identifier(result));
     let status = component_result_status_name(result.status);
     if result.error.is_empty() {
         format!("{component_id}={status}({})", result.status)
@@ -347,7 +347,7 @@ pub(super) fn component_result_fields(
 ) -> (String, String, String) {
     match result {
         Some(result) => (
-            display_or_dash(result.component_id.as_deref().unwrap_or_default()),
+            display_or_dash(component_result_identifier(result)),
             component_result_status_name(result.status).to_string(),
             display_or_dash(&result.error),
         ),
@@ -365,6 +365,7 @@ pub(super) fn component_result_json(
     match result {
         Some(result) => serde_json::json!({
             "component_id": result.component_id,
+            "mac_address": result.mac_address,
             "status": component_result_status_name(result.status),
             "status_code": result.status,
             "error": result.error,
@@ -403,6 +404,19 @@ pub(super) fn display_or_dash(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+/// The identifier to display for a component result: the component ID for an
+/// ingested component, or the echoed BMC/PMC MAC address for a MAC-targeted
+/// (possibly pre-ingestion) request, which carries no component ID. Empty when
+/// neither is known, so callers still render a dash.
+fn component_result_identifier(result: &rpc::forge::ComponentResult) -> &str {
+    result
+        .component_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .or(result.mac_address.as_deref())
+        .unwrap_or_default()
 }
 
 pub(super) fn join_or_dash(values: &[String]) -> String {

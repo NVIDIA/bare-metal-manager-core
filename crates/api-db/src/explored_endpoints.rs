@@ -841,12 +841,21 @@ pub async fn save_backend_firmware_object_job_id_by_ip(
 ) -> Result<(), DatabaseError> {
     let sql =
         "UPDATE explored_endpoints SET backend_firmware_object_job_id = $1 WHERE address = $2";
-    sqlx::query(sql)
+    let result = sqlx::query(sql)
         .bind(job_id)
         .bind(address)
         .execute(db)
         .await
         .map_err(|e| DatabaseError::new(sql, e))?;
+    // No explored_endpoints row for this BMC IP means the job id was not
+    // persisted; report it rather than silently succeeding, or the job becomes
+    // untrackable after a nico-api restart drops the in-memory job map.
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "ExploredEndpoint",
+            id: address.to_string(),
+        });
+    }
     Ok(())
 }
 

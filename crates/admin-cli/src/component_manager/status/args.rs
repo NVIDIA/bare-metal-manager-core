@@ -31,6 +31,10 @@ Get status for several compute trays at once:
     $ nico-admin-cli component-manager get-firmware-update-status compute-tray \
     --machine-id 12345678-1234-5678-90ab-cdef01234567,abcdef01-2345-6789-abcd-ef0123456789
 
+Get status for a compute tray by BMC MAC (targets the tray before ingestion):
+    $ nico-admin-cli component-manager get-firmware-update-status compute-tray \
+    --mac-address 00:11:22:33:44:55
+
 Get status for an entire rack:
     $ nico-admin-cli component-manager get-firmware-update-status rack \
     --rack-id 12345678-1234-5678-90ab-cdef01234567

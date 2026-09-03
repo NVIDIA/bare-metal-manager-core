@@ -3130,6 +3130,7 @@ impl RmsBackend {
             Err(error) => {
                 return ComputeTrayResult {
                     bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
                     success: false,
                     error: Some(error),
                 };
@@ -3149,6 +3150,7 @@ impl RmsBackend {
             Err(e) => {
                 return ComputeTrayResult {
                     bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
                     success: false,
                     error: Some(e.to_string()),
                 };
@@ -3207,6 +3209,7 @@ impl RmsBackend {
 
                 ComputeTrayResult {
                     bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
                     success,
                     error,
                 }
@@ -3219,6 +3222,7 @@ impl RmsBackend {
                 );
                 ComputeTrayResult {
                     bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
                     success: false,
                     error: Some(e.to_string()),
                 }
@@ -3273,6 +3277,7 @@ impl ComputeTrayManager for RmsBackend {
                 None => {
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success: false,
                         error: Some(
                             "could not resolve RMS identity from database or expected inventory"
@@ -3288,6 +3293,7 @@ impl ComputeTrayManager for RmsBackend {
                 Err(error) => {
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success: false,
                         error: Some(error),
                     });
@@ -3316,6 +3322,7 @@ impl ComputeTrayManager for RmsBackend {
                         summarize_power_batch(response.response.unwrap_or_default());
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success,
                         error,
                     });
@@ -3328,6 +3335,7 @@ impl ComputeTrayManager for RmsBackend {
                     );
                     results.push(ComputeTrayResult {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         success: false,
                         error: Some(e.to_string()),
                     });
@@ -3378,6 +3386,7 @@ impl ComputeTrayManager for RmsBackend {
                     None => {
                         results.push(ComputeTrayResult {
                             bmc_ip: ep.bmc_ip,
+                            bmc_mac: ep.bmc_mac,
                             success: false,
                             error: Some(
                                 "could not resolve RMS identity from database or expected inventory"
@@ -3493,6 +3502,7 @@ impl ComputeTrayManager for RmsBackend {
             let Some(job_id) = resolved_job_id else {
                 statuses.push(ComputeTrayFirmwareUpdateStatus {
                     bmc_ip: ep.bmc_ip,
+                    bmc_mac: ep.bmc_mac,
                     state: FirmwareState::Unknown,
                     target_version: String::new(),
                     error: Some("no firmware job tracked for this compute tray".into()),
@@ -3529,6 +3539,7 @@ impl ComputeTrayManager for RmsBackend {
 
                     statuses.push(ComputeTrayFirmwareUpdateStatus {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         state,
                         target_version: String::new(),
                         error,
@@ -3543,6 +3554,7 @@ impl ComputeTrayManager for RmsBackend {
                     );
                     statuses.push(ComputeTrayFirmwareUpdateStatus {
                         bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
                         state: FirmwareState::Unknown,
                         target_version: String::new(),
                         error: Some(e.to_string()),

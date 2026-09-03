@@ -9557,11 +9557,13 @@ enum ComputeTrayComponent {
 }
 
 message UpdateComputeTrayFirmwareTarget {
-  oneof selector {
-    common.MachineIdList machine_ids = 1;
-    MacAddressList bmc_macs = 3;
-  }
+  // Exactly one of machine_ids or bmc_macs must be set (the server rejects
+  // neither/both). machine_ids targets ingested trays; bmc_macs targets by BMC
+  // MAC, including pre-ingestion. These are plain fields rather than a oneof so
+  // field 1 stays wire-compatible with earlier releases that predate bmc_macs.
+  common.MachineIdList machine_ids = 1;
   repeated ComputeTrayComponent components = 2;
+  MacAddressList bmc_macs = 3;
 }
 
 message UpdateSwitchFirmwareTarget {

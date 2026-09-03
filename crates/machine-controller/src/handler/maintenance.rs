@@ -154,6 +154,7 @@ async fn invoke_power_operation(
         Ok(results) => {
             let result = results.into_iter().next().unwrap_or(ComputeTrayResult {
                 bmc_ip: endpoint.bmc_ip,
+                bmc_mac: endpoint.bmc_mac,
                 success: false,
                 error: Some("component manager returned no result".into()),
             });

@@ -43,6 +43,11 @@ Queue firmware on compute trays from an RMS SOT JSON file:
     --machine-id 12345678-1234-5678-90ab-cdef01234567 --sot-json-file ./sot.json \
     --access-token mytoken
 
+Queue firmware on a compute tray by BMC MAC (targets the tray before ingestion):
+    $ nico-admin-cli component-manager update-firmware compute-tray \
+    --mac-address 00:11:22:33:44:55 --sot-json-file ./sot.json \
+    --access-token mytoken
+
 Queue firmware on power shelves:
     $ nico-admin-cli component-manager update-firmware power-shelf \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --target-version fw-1.2.3
@@ -280,16 +285,14 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                     force_update: target.force_update,
                     bypass_state_controller: target.bypass_state_controller,
                     target: Some(
-                        rpc::forge::update_component_firmware_request::Target::ComputeTrays(
+                        rpc::forge::update_component_firmware_request::Target::ComputeTrays({
+                            let (machine_ids, bmc_macs) = match target.ids.into_selection() {
+                                ComputeTraySelection::MachineIds(list) => (Some(list), None),
+                                ComputeTraySelection::Macs(macs) => (None, Some(macs)),
+                            };
                             rpc::forge::UpdateComputeTrayFirmwareTarget {
-                                selector: Some(match target.ids.into_selection() {
-                                    ComputeTraySelection::MachineIds(list) => {
-                                        rpc::forge::update_compute_tray_firmware_target::Selector::MachineIds(list)
-                                    }
-                                    ComputeTraySelection::Macs(macs) => {
-                                        rpc::forge::update_compute_tray_firmware_target::Selector::BmcMacs(macs)
-                                    }
-                                }),
+                                machine_ids,
+                                bmc_macs,
                                 components: target
                                     .components
                                     .into_iter()
@@ -297,8 +300,8 @@ impl TryFrom<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                                         rpc::forge::ComputeTrayComponent::from(component) as i32
                                     })
                                     .collect(),
-                            },
-                        ),
+                            }
+                        }),
                     ),
                 })
             }
@@ -530,12 +533,13 @@ mod tests {
             panic!("compute-tray command should build a compute-tray target");
         };
 
-        let Some(rpc::forge::update_compute_tray_firmware_target::Selector::MachineIds(
-            machine_ids,
-        )) = target.selector
-        else {
-            panic!("compute-tray command should build a machine-id selector");
+        let Some(machine_ids) = target.machine_ids else {
+            panic!("compute-tray command should build a machine-id target");
         };
+        assert!(
+            target.bmc_macs.is_none(),
+            "machine-id target must not also set bmc_macs",
+        );
 
         assert_eq!(machine_ids.machine_ids.len(), 1);
         assert_eq!(machine_ids.machine_ids[0].to_string(), MACHINE_ID);

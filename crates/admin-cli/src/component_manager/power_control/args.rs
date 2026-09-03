@@ -33,6 +33,10 @@ Force off a compute tray:
     $ nico-admin-cli component-manager component-power-control compute-tray \
     --machine-id 12345678-1234-5678-90ab-cdef01234567 --action force-off
 
+Force off a compute tray by BMC MAC (targets the tray before ingestion):
+    $ nico-admin-cli component-manager component-power-control compute-tray \
+    --mac-address 00:11:22:33:44:55 --action force-off
+
 AC power-cycle a power shelf:
     $ nico-admin-cli component-manager component-power-control power-shelf \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567 --action ac-powercycle

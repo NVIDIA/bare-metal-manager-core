@@ -27,6 +27,10 @@ List available firmware versions for switches:
     $ nico-admin-cli component-manager get-firmware-versions switch \
     --switch-id 12345678-1234-5678-90ab-cdef01234567
 
+List versions for a compute tray by BMC MAC (targets the tray before ingestion):
+    $ nico-admin-cli component-manager get-firmware-versions compute-tray \
+    --mac-address 00:11:22:33:44:55
+
 List versions for power shelves:
     $ nico-admin-cli component-manager get-firmware-versions power-shelf \
     --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
