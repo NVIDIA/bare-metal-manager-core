@@ -564,7 +564,7 @@ impl BmcEndpointExplorer {
 }
 
 impl AuthenticatedBmcClient {
-    pub async fn get_bmc_root_credentials(
+    async fn get_bmc_root_credentials(
         &self,
         bmc_mac_address: MacAddress,
     ) -> Result<Credentials, EndpointExplorationError> {
@@ -573,7 +573,7 @@ impl AuthenticatedBmcClient {
             .await
     }
 
-    pub async fn set_bmc_root_password(
+    async fn set_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
         vendor: RedfishVendor,
@@ -597,162 +597,6 @@ impl AuthenticatedBmcClient {
             username: user,
             password: new_password,
         })
-    }
-
-    pub async fn redfish_reset_bmc(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        reset_type: Option<libredfish::ManagerResetType>,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .reset_bmc(bmc_ip_address, credentials, reset_type)
-            .await
-    }
-
-    pub async fn redfish_power_control(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        action: libredfish::SystemPowerControl,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .power(bmc_ip_address, credentials, action)
-            .await
-    }
-
-    pub async fn machine_setup(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        boot_interface: Option<&BootInterfaceTarget>,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .machine_setup(bmc_ip_address, credentials, boot_interface)
-            .await
-    }
-
-    pub async fn set_boot_order_dpu_first(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        boot_interface: &BootInterfaceTarget,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface)
-            .await
-    }
-
-    pub async fn set_nic_mode(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        mode: BlueFieldOperatingMode,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .set_nic_mode(bmc_ip_address, credentials, mode.into_libredfish())
-            .await
-    }
-
-    async fn is_viking(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<bool, EndpointExplorationError> {
-        self.redfish_client
-            .is_viking(bmc_ip_address, credentials)
-            .await
-    }
-
-    pub async fn clear_nvram(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .clear_nvram(bmc_ip_address, credentials)
-            .await
-    }
-
-    pub async fn disable_secure_boot(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .disable_secure_boot(bmc_ip_address, credentials)
-            .await
-    }
-
-    pub async fn lockdown(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        action: libredfish::EnabledDisabled,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .lockdown(bmc_ip_address, credentials, action)
-            .await
-    }
-
-    pub async fn lockdown_status(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<LockdownStatus, EndpointExplorationError> {
-        self.redfish_client
-            .lockdown_status(bmc_ip_address, credentials)
-            .await
-    }
-
-    pub async fn enable_infinite_boot(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .enable_infinite_boot(bmc_ip_address, credentials)
-            .await
-    }
-
-    pub async fn is_infinite_boot_enabled(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<Option<bool>, EndpointExplorationError> {
-        self.redfish_client
-            .is_infinite_boot_enabled(bmc_ip_address, credentials)
-            .await
-    }
-
-    async fn create_bmc_user(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        new_username: &str,
-        new_password: &str,
-        role_id: libredfish::RoleId,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .create_bmc_user(
-                bmc_ip_address,
-                credentials,
-                new_username,
-                new_password,
-                role_id,
-            )
-            .await
-    }
-
-    async fn delete_bmc_user(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        delete_username: &str,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .delete_bmc_user(bmc_ip_address, credentials, delete_username)
-            .await
     }
 }
 
@@ -1119,7 +963,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.redfish_reset_bmc(bmc_ip_address, credentials, reset_type)
+                self.redfish_client
+                    .reset_bmc(bmc_ip_address, credentials, reset_type)
                     .await
             }
             Err(e) => {
@@ -1187,7 +1032,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.redfish_power_control(bmc_ip_address, credentials, action)
+                self.redfish_client
+                    .power(bmc_ip_address, credentials, action)
                     .await
             }
             Err(e) => {
@@ -1223,7 +1069,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.disable_secure_boot(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .disable_secure_boot(bmc_ip_address, credentials)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1245,7 +1095,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.lockdown(bmc_ip_address, credentials, action).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .lockdown(bmc_ip_address, credentials, action)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1266,7 +1120,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.lockdown_status(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .lockdown_status(bmc_ip_address, credentials)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1287,7 +1145,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.enable_infinite_boot(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .enable_infinite_boot(bmc_ip_address, credentials)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1309,7 +1171,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.is_infinite_boot_enabled(bmc_ip_address, credentials)
+                self.redfish_client
+                    .is_infinite_boot_enabled(bmc_ip_address, credentials)
                     .await
             }
             Err(e) => {
@@ -1334,7 +1197,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.machine_setup(bmc_ip_address, credentials, boot_interface)
+                self.redfish_client
+                    .machine_setup(bmc_ip_address, credentials, boot_interface)
                     .await
             }
             Err(e) => {
@@ -1359,7 +1223,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface)
+                self.redfish_client
+                    .set_boot_order_dpu_first(bmc_ip_address, credentials, boot_interface)
                     .await
             }
             Err(e) => {
@@ -1383,7 +1248,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.set_nic_mode(bmc_ip_address, credentials, mode).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .set_nic_mode(bmc_ip_address, credentials, mode.into_libredfish())
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1404,7 +1273,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.is_viking(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .is_viking(bmc_ip_address, credentials)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1425,7 +1298,11 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => self.clear_nvram(bmc_ip_address, credentials).await,
+            Ok(credentials) => {
+                self.redfish_client
+                    .clear_nvram(bmc_ip_address, credentials)
+                    .await
+            }
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
@@ -1450,7 +1327,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.create_bmc_user(bmc_ip_address, credentials, username, password, role_id)
+                self.redfish_client
+                    .create_bmc_user(bmc_ip_address, credentials, username, password, role_id)
                     .await
             }
             Err(e) => {
@@ -1475,7 +1353,8 @@ impl AuthenticatedBmc for AuthenticatedBmcClient {
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.delete_bmc_user(bmc_ip_address, credentials, username)
+                self.redfish_client
+                    .delete_bmc_user(bmc_ip_address, credentials, username)
                     .await
             }
             Err(e) => {
