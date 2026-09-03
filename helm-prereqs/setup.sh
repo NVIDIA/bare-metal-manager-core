@@ -1807,8 +1807,8 @@ echo "NICo REST postgres ready"
 # Dev OIDC IdP, pre-loaded with the configured NICo development realm + test users.
 # nico-rest-api talks to it at http://keycloak.nico-rest:8082
 _SETUP_PHASE="[7d/7] Keycloak"
-_KC_ENABLED="$(grep -A5 'keycloak:' "${SCRIPT_DIR}/values/nico-rest.yaml" \
-    | grep 'enabled:' | head -1 | awk '{print $2}' || echo "false")"
+_KC_ENABLED="$(_yaml_toplevel_value "${SCRIPT_DIR}/values/nico-rest.yaml" keycloak enabled)"
+[[ "${_KC_ENABLED}" == "true" ]] || _KC_ENABLED="false"
 
 if [[ "${_KC_ENABLED}" == "true" ]]; then
     echo "=== [7d/7] Keycloak ==="
@@ -1819,9 +1819,14 @@ if [[ "${_KC_ENABLED}" == "true" ]]; then
     [[ "${_KC_DB_CONSOLIDATED}" == "true" ]] || _KC_DB_CONSOLIDATED="false"
     # keycloak.namespace — must match what eso-external-secrets.yaml's
     # nico-keycloak-db-eso targets, so KEYCLOAK_NS (read by keycloak/setup.sh)
-    # agrees with it.
-    export KEYCLOAK_NS="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" keycloak namespace)"
-    export KEYCLOAK_NS="${KEYCLOAK_NS:-nico-rest}"
+    # agrees with it. An operator-supplied KEYCLOAK_NS env var still wins, same
+    # as every other script in this feature (keycloak/setup.sh, clean.sh,
+    # migrate-temporal-keycloak-db.sh) — don't clobber it with the values.yaml
+    # default.
+    if [[ -z "${KEYCLOAK_NS:-}" ]]; then
+        export KEYCLOAK_NS="$(_yaml_toplevel_value "${SCRIPT_DIR}/values.yaml" keycloak namespace)"
+        export KEYCLOAK_NS="${KEYCLOAK_NS:-nico-rest}"
+    fi
 
     if [[ "${_KC_DB_CONSOLIDATED}" == "true" ]]; then
         echo "Waiting for Keycloak DB credentials to be synced by ESO (nico-keycloak-pg-creds in ${KEYCLOAK_NS})..."

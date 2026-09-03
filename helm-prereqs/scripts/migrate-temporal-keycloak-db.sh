@@ -79,20 +79,26 @@ _run() {
     fi
 }
 
-# Reads a scalar field nested directly under a top-level YAML key. Scans
-# until the next top-level key rather than a fixed line count, so it doesn't
-# break if a comment block above the field grows. Mirrors preflight.sh's
+# Reads a scalar field nested directly under a YAML key, at any indentation
+# depth. Scans until the next line at the same or shallower indentation as
+# the matched key, rather than a fixed line count, so it doesn't break if a
+# comment block above the field grows. Mirrors preflight.sh's
 # _yaml_toplevel_value (duplicated here since this script runs standalone).
 _yaml_toplevel_value() {
     local _file="$1" _key="$2" _field="$3"
     awk -v key="${_key}" -v field="${_field}" '
-        $0 == key ":" { in_block = 1; next }
-        in_block && /^[^[:space:]#]/ { exit }
-        in_block && $0 ~ "^[[:space:]]*" field ":[[:space:]]*" {
-            sub("^[[:space:]]*" field ":[[:space:]]*", "")
-            sub(/[[:space:]]+#.*/, "")
-            gsub(/"/, "")
-            print
+        {
+            indent = match($0, /[^ ]/) - 1
+            trimmed = $0
+            sub(/^[[:space:]]*/, "", trimmed)
+        }
+        !in_block && trimmed == key ":" { in_block = 1; key_indent = indent; next }
+        in_block && trimmed != "" && trimmed !~ /^#/ && indent <= key_indent { exit }
+        in_block && trimmed ~ "^" field ":[[:space:]]*" {
+            sub("^" field ":[[:space:]]*", "", trimmed)
+            sub(/[[:space:]]+#.*/, "", trimmed)
+            gsub(/"/, "", trimmed)
+            print trimmed
             exit
         }
     ' "${_file}"
@@ -130,7 +136,7 @@ echo "nico-pg-cluster master pod: ${NICO_PG_POD}"
 
 # ---------------------------------------------------------------------------
 # Preflight: target database/user already provisioned by the postgres
-# operator (i.e. the corresponding *.enabled toggle was applied before this
+# operator (i.e. the corresponding useHaPostgres toggle was applied before this
 # script ran). Checked for every database up front, before any Deployment is
 # scaled down, so a missing target aborts cleanly with nothing stopped.
 # ---------------------------------------------------------------------------
@@ -139,7 +145,7 @@ _require_target_db() {
     if ! kubectl exec -n postgres "${NICO_PG_POD}" -- \
         psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${_db}'" 2>/dev/null | grep -q 1; then
         echo "ERROR: database '${_db}' does not exist on nico-pg-cluster yet." >&2
-        echo "  Set the matching *.enabled toggle in ${PREREQS_DIR}/values.yaml and run 'helmfile sync' (or setup.sh) first." >&2
+        echo "  Set the matching useHaPostgres toggle in ${PREREQS_DIR}/values.yaml and run 'helmfile sync' (or setup.sh) first." >&2
         exit 1
     fi
 }
@@ -186,9 +192,28 @@ _scale_down() {
     shift
     local _deployments=("$@")
     local _dep _cur
+
+    # Read every replica count BEFORE registering the group or scaling
+    # anything down. No `|| echo 0` fallback: a transient kubectl failure
+    # must not get cached as "was 0 replicas" — if a later step fails, the
+    # EXIT trap would "restore" a genuinely-running workload to zero, a real
+    # outage the trap exists to prevent, not cause. Reading everything first
+    # (instead of read-then-scale per deployment) also means a failure here
+    # never leaves _SCALED_GROUPS registered with entries _scale_up can't
+    # find a saved count for.
+    local -A _pending_replicas=()
+    for _dep in "${_deployments[@]}"; do
+        if ! _cur="$(kubectl get deploy "${_dep}" -n "${_ns}" -o jsonpath='{.spec.replicas}' 2>/dev/null)" \
+            || [[ ! "${_cur}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: could not read the current replica count for ${_ns}/${_dep} — refusing to guess it was 0" >&2
+            exit 1
+        fi
+        _pending_replicas["${_dep}"]="${_cur}"
+    done
+
     _SCALED_GROUPS["${_ns}"]="${_ns} ${_deployments[*]}"
     for _dep in "${_deployments[@]}"; do
-        _cur="$(kubectl get deploy "${_dep}" -n "${_ns}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+        _cur="${_pending_replicas["${_dep}"]}"
         _SAVED_REPLICAS["${_ns}/${_dep}"]="${_cur}"
         echo "Scaling down ${_ns}/${_dep} (was ${_cur} replicas)..."
         _run kubectl scale deploy "${_dep}" -n "${_ns}" --replicas=0

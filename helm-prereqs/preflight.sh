@@ -30,9 +30,10 @@
 #   5. Node resources           — at least 3 schedulable (Ready + untainted) nodes
 #   6. MetalLB BGPPeer nodes    — hostnames in config exist in the cluster
 #   7. Per-node checks          — kernel params (sysctl) and DNS on every node
-#   8. Registry/image access    — registry host and rendered NICo image refs
+#   8. Temporal/Keycloak DB     — opt-in nico-pg-cluster migration wasn't skipped
+#   9. Registry/image access    — registry host and rendered NICo image refs
 #                                  are reachable with the supplied credentials
-#   9. NICo REST source/charts   — in-tree rest-api/ and helm/rest/ are present
+#   10. NICo REST source/charts  — in-tree rest-api/ and helm/rest/ are present
 #
 # Configurable:
 #   PREFLIGHT_CHECK_IMAGE — image used for per-node pod checks (default: busybox:1.36)
@@ -644,22 +645,29 @@ done
 # Comment lines + inline `# …` comments are stripped first.
 _strip_comments() { sed -E 's/[[:space:]]+#.*$//; /^[[:space:]]*#/d' "$1"; }
 
-# Reads a scalar field nested directly under a top-level YAML key (e.g. the
-# `enabled` under `temporal:`). Unlike `grep -A<n> key: | grep field:`, this
-# isn't a fixed-line-count window — it scans until the next top-level key, so
-# it doesn't silently break (falling through to a caller's default) when a
-# comment block above the field grows. Shared with setup.sh, which sources
-# this file, and reimplemented standalone in scripts/migrate-temporal-keycloak-db.sh.
+# Reads a scalar field nested directly under a YAML key, at any indentation
+# depth (top-level or nested, e.g. the `enabled` under `nico-rest-api.config.
+# keycloak:`). Unlike `grep -A<n> key: | grep field:`, this isn't a
+# fixed-line-count window — it scans until the next line at the same or
+# shallower indentation as the matched key, so it doesn't silently break
+# (falling through to a caller's default) when a comment block above the
+# field grows. Shared with setup.sh, which sources this file, and
+# reimplemented standalone in scripts/migrate-temporal-keycloak-db.sh.
 _yaml_toplevel_value() {
     local _file="$1" _key="$2" _field="$3"
     awk -v key="${_key}" -v field="${_field}" '
-        $0 == key ":" { in_block = 1; next }
-        in_block && /^[^[:space:]#]/ { exit }
-        in_block && $0 ~ "^[[:space:]]*" field ":[[:space:]]*" {
-            sub("^[[:space:]]*" field ":[[:space:]]*", "")
-            sub(/[[:space:]]+#.*/, "")
-            gsub(/"/, "")
-            print
+        {
+            indent = match($0, /[^ ]/) - 1
+            trimmed = $0
+            sub(/^[[:space:]]*/, "", trimmed)
+        }
+        !in_block && trimmed == key ":" { in_block = 1; key_indent = indent; next }
+        in_block && trimmed != "" && trimmed !~ /^#/ && indent <= key_indent { exit }
+        in_block && trimmed ~ "^" field ":[[:space:]]*" {
+            sub("^" field ":[[:space:]]*", "", trimmed)
+            sub(/[[:space:]]+#.*/, "", trimmed)
+            gsub(/"/, "", trimmed)
+            print trimmed
             exit
         }
     ' "${_file}"
@@ -1072,7 +1080,16 @@ EOF
         _check_db_migration_needed() {
             local _label="$1" _db="$2" _count_query="$3" _script_hint="$4"
 
-            [[ -n "${_LEGACY_PG_POD}" && -n "${_NICO_PG_POD}" ]] || return 0
+            # No legacy pod at all: genuinely nothing to protect (fresh
+            # cluster, postgres.postgres was never deployed). But a legacy
+            # pod WITH no nico-pg-cluster pod is exactly the direct
+            # opt-in-then-run-setup.sh-without-syncing-first case this check
+            # exists to catch — fail closed here too, not just skip.
+            [[ -n "${_LEGACY_PG_POD}" ]] || return 0
+            if [[ -z "${_NICO_PG_POD}" ]]; then
+                ERRORS+=("${_label}: nico-pg-cluster is not reachable, so this can't confirm postgres.postgres/${_db} has already been migrated — ensure postgresql.enabled=true and the nico-prereqs release has synced ('helmfile sync -l name=nico-prereqs') before proceeding")
+                return 0
+            fi
 
             local _legacy_count
             if ! _legacy_count="$(kubectl exec -n postgres "${_LEGACY_PG_POD}" -- \
@@ -1140,7 +1157,7 @@ EOF
 fi  # _CLUSTER_REACHABLE
 
 # ---------------------------------------------------------------------------
-# 8. Registry/image access - validate the exact image refs setup.sh will use.
+# 9. Registry/image access - validate the exact image refs setup.sh will use.
 #    The host check stays a warning for air-gapped/preloaded environments, but
 #    invalid provided credentials or missing rendered Core tags are hard errors.
 # ---------------------------------------------------------------------------
@@ -1166,7 +1183,7 @@ elif [[ "${SKIP_CORE:-false}" != "true" && -n "${NICO_IMAGE_REGISTRY:-}" && -n "
 fi
 
 # ---------------------------------------------------------------------------
-# 9. NICo REST source tree and Helm charts (in-tree)
+# 10. NICo REST source tree and Helm charts (in-tree)
 #
 # The REST stack lives in this repo under rest-api/. No separate clone is
 # supported any more; the legacy NICO_REST_REPO / NICO_REPO env vars and the
