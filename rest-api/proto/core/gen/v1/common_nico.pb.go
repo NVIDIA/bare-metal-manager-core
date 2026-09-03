@@ -91,7 +91,6 @@ func (SystemPowerControl) EnumDescriptor() ([]byte, []int) {
 	return file_common_nico_proto_rawDescGZIP(), []int{0}
 }
 
-// Identifies any machine (fm100h, fm100p, fm100d).
 type MachineId struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -136,186 +135,6 @@ func (x *MachineId) GetId() string {
 	return ""
 }
 
-// Identifies a DPU machine (fm100d).
-type DpuMachineId struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DpuMachineId) Reset() {
-	*x = DpuMachineId{}
-	mi := &file_common_nico_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DpuMachineId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DpuMachineId) ProtoMessage() {}
-
-func (x *DpuMachineId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DpuMachineId.ProtoReflect.Descriptor instead.
-func (*DpuMachineId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *DpuMachineId) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-// Identifies either a stable or predicted host machine (fm100h or fm100p).
-type HostMachineId struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *HostMachineId) Reset() {
-	*x = HostMachineId{}
-	mi := &file_common_nico_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *HostMachineId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*HostMachineId) ProtoMessage() {}
-
-func (x *HostMachineId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use HostMachineId.ProtoReflect.Descriptor instead.
-func (*HostMachineId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *HostMachineId) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-// Identifies a stable host machine (fm100h).
-type StableHostMachineId struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StableHostMachineId) Reset() {
-	*x = StableHostMachineId{}
-	mi := &file_common_nico_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StableHostMachineId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StableHostMachineId) ProtoMessage() {}
-
-func (x *StableHostMachineId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StableHostMachineId.ProtoReflect.Descriptor instead.
-func (*StableHostMachineId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *StableHostMachineId) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-// Identifies a predicted host machine (fm100p).
-type PredictedHostMachineId struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PredictedHostMachineId) Reset() {
-	*x = PredictedHostMachineId{}
-	mi := &file_common_nico_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PredictedHostMachineId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PredictedHostMachineId) ProtoMessage() {}
-
-func (x *PredictedHostMachineId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PredictedHostMachineId.ProtoReflect.Descriptor instead.
-func (*PredictedHostMachineId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *PredictedHostMachineId) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
 type MachineIdList struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MachineIds    []*MachineId           `protobuf:"bytes,1,rep,name=machine_ids,json=machineIds,proto3" json:"machine_ids,omitempty"`
@@ -325,7 +144,7 @@ type MachineIdList struct {
 
 func (x *MachineIdList) Reset() {
 	*x = MachineIdList{}
-	mi := &file_common_nico_proto_msgTypes[5]
+	mi := &file_common_nico_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -337,7 +156,7 @@ func (x *MachineIdList) String() string {
 func (*MachineIdList) ProtoMessage() {}
 
 func (x *MachineIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[5]
+	mi := &file_common_nico_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -350,142 +169,10 @@ func (x *MachineIdList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineIdList.ProtoReflect.Descriptor instead.
 func (*MachineIdList) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{5}
+	return file_common_nico_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *MachineIdList) GetMachineIds() []*MachineId {
-	if x != nil {
-		return x.MachineIds
-	}
-	return nil
-}
-
-type HostMachineIdList struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MachineIds    []*HostMachineId       `protobuf:"bytes,1,rep,name=machine_ids,json=machineIds,proto3" json:"machine_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *HostMachineIdList) Reset() {
-	*x = HostMachineIdList{}
-	mi := &file_common_nico_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *HostMachineIdList) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*HostMachineIdList) ProtoMessage() {}
-
-func (x *HostMachineIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use HostMachineIdList.ProtoReflect.Descriptor instead.
-func (*HostMachineIdList) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *HostMachineIdList) GetMachineIds() []*HostMachineId {
-	if x != nil {
-		return x.MachineIds
-	}
-	return nil
-}
-
-type DpuMachineIdList struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MachineIds    []*DpuMachineId        `protobuf:"bytes,1,rep,name=machine_ids,json=machineIds,proto3" json:"machine_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DpuMachineIdList) Reset() {
-	*x = DpuMachineIdList{}
-	mi := &file_common_nico_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DpuMachineIdList) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DpuMachineIdList) ProtoMessage() {}
-
-func (x *DpuMachineIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DpuMachineIdList.ProtoReflect.Descriptor instead.
-func (*DpuMachineIdList) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *DpuMachineIdList) GetMachineIds() []*DpuMachineId {
-	if x != nil {
-		return x.MachineIds
-	}
-	return nil
-}
-
-type StableHostMachineIdList struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MachineIds    []*StableHostMachineId `protobuf:"bytes,1,rep,name=machine_ids,json=machineIds,proto3" json:"machine_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StableHostMachineIdList) Reset() {
-	*x = StableHostMachineIdList{}
-	mi := &file_common_nico_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StableHostMachineIdList) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StableHostMachineIdList) ProtoMessage() {}
-
-func (x *StableHostMachineIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StableHostMachineIdList.ProtoReflect.Descriptor instead.
-func (*StableHostMachineIdList) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *StableHostMachineIdList) GetMachineIds() []*StableHostMachineId {
 	if x != nil {
 		return x.MachineIds
 	}
@@ -504,7 +191,7 @@ type StringList struct {
 
 func (x *StringList) Reset() {
 	*x = StringList{}
-	mi := &file_common_nico_proto_msgTypes[9]
+	mi := &file_common_nico_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -516,7 +203,7 @@ func (x *StringList) String() string {
 func (*StringList) ProtoMessage() {}
 
 func (x *StringList) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[9]
+	mi := &file_common_nico_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -529,7 +216,7 @@ func (x *StringList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringList.ProtoReflect.Descriptor instead.
 func (*StringList) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{9}
+	return file_common_nico_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StringList) GetItems() []string {
@@ -548,7 +235,7 @@ type UUID struct {
 
 func (x *UUID) Reset() {
 	*x = UUID{}
-	mi := &file_common_nico_proto_msgTypes[10]
+	mi := &file_common_nico_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +247,7 @@ func (x *UUID) String() string {
 func (*UUID) ProtoMessage() {}
 
 func (x *UUID) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[10]
+	mi := &file_common_nico_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,7 +260,7 @@ func (x *UUID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UUID.ProtoReflect.Descriptor instead.
 func (*UUID) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{10}
+	return file_common_nico_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UUID) GetValue() string {
@@ -592,7 +279,7 @@ type PowerShelfId struct {
 
 func (x *PowerShelfId) Reset() {
 	*x = PowerShelfId{}
-	mi := &file_common_nico_proto_msgTypes[11]
+	mi := &file_common_nico_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -604,7 +291,7 @@ func (x *PowerShelfId) String() string {
 func (*PowerShelfId) ProtoMessage() {}
 
 func (x *PowerShelfId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[11]
+	mi := &file_common_nico_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -617,7 +304,7 @@ func (x *PowerShelfId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PowerShelfId.ProtoReflect.Descriptor instead.
 func (*PowerShelfId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{11}
+	return file_common_nico_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *PowerShelfId) GetId() string {
@@ -636,7 +323,7 @@ type RackId struct {
 
 func (x *RackId) Reset() {
 	*x = RackId{}
-	mi := &file_common_nico_proto_msgTypes[12]
+	mi := &file_common_nico_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -648,7 +335,7 @@ func (x *RackId) String() string {
 func (*RackId) ProtoMessage() {}
 
 func (x *RackId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[12]
+	mi := &file_common_nico_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -661,7 +348,7 @@ func (x *RackId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RackId.ProtoReflect.Descriptor instead.
 func (*RackId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{12}
+	return file_common_nico_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RackId) GetId() string {
@@ -680,7 +367,7 @@ type RackProfileId struct {
 
 func (x *RackProfileId) Reset() {
 	*x = RackProfileId{}
-	mi := &file_common_nico_proto_msgTypes[13]
+	mi := &file_common_nico_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -692,7 +379,7 @@ func (x *RackProfileId) String() string {
 func (*RackProfileId) ProtoMessage() {}
 
 func (x *RackProfileId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[13]
+	mi := &file_common_nico_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -705,7 +392,7 @@ func (x *RackProfileId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RackProfileId.ProtoReflect.Descriptor instead.
 func (*RackProfileId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{13}
+	return file_common_nico_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RackProfileId) GetId() string {
@@ -724,7 +411,7 @@ type SwitchId struct {
 
 func (x *SwitchId) Reset() {
 	*x = SwitchId{}
-	mi := &file_common_nico_proto_msgTypes[14]
+	mi := &file_common_nico_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -736,7 +423,7 @@ func (x *SwitchId) String() string {
 func (*SwitchId) ProtoMessage() {}
 
 func (x *SwitchId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[14]
+	mi := &file_common_nico_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -749,7 +436,7 @@ func (x *SwitchId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchId.ProtoReflect.Descriptor instead.
 func (*SwitchId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{14}
+	return file_common_nico_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SwitchId) GetId() string {
@@ -768,7 +455,7 @@ type Uint32List struct {
 
 func (x *Uint32List) Reset() {
 	*x = Uint32List{}
-	mi := &file_common_nico_proto_msgTypes[15]
+	mi := &file_common_nico_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +467,7 @@ func (x *Uint32List) String() string {
 func (*Uint32List) ProtoMessage() {}
 
 func (x *Uint32List) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[15]
+	mi := &file_common_nico_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +480,7 @@ func (x *Uint32List) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Uint32List.ProtoReflect.Descriptor instead.
 func (*Uint32List) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{15}
+	return file_common_nico_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Uint32List) GetItems() []uint32 {
@@ -813,7 +500,7 @@ type RouteTarget struct {
 
 func (x *RouteTarget) Reset() {
 	*x = RouteTarget{}
-	mi := &file_common_nico_proto_msgTypes[16]
+	mi := &file_common_nico_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -825,7 +512,7 @@ func (x *RouteTarget) String() string {
 func (*RouteTarget) ProtoMessage() {}
 
 func (x *RouteTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[16]
+	mi := &file_common_nico_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -838,7 +525,7 @@ func (x *RouteTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteTarget.ProtoReflect.Descriptor instead.
 func (*RouteTarget) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{16}
+	return file_common_nico_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RouteTarget) GetAsn() uint32 {
@@ -866,7 +553,7 @@ type RouteTargets struct {
 
 func (x *RouteTargets) Reset() {
 	*x = RouteTargets{}
-	mi := &file_common_nico_proto_msgTypes[17]
+	mi := &file_common_nico_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -878,7 +565,7 @@ func (x *RouteTargets) String() string {
 func (*RouteTargets) ProtoMessage() {}
 
 func (x *RouteTargets) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[17]
+	mi := &file_common_nico_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -891,7 +578,7 @@ func (x *RouteTargets) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteTargets.ProtoReflect.Descriptor instead.
 func (*RouteTargets) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{17}
+	return file_common_nico_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RouteTargets) GetValues() []*RouteTarget {
@@ -912,7 +599,7 @@ type DomainId struct {
 
 func (x *DomainId) Reset() {
 	*x = DomainId{}
-	mi := &file_common_nico_proto_msgTypes[18]
+	mi := &file_common_nico_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -924,7 +611,7 @@ func (x *DomainId) String() string {
 func (*DomainId) ProtoMessage() {}
 
 func (x *DomainId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[18]
+	mi := &file_common_nico_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -937,7 +624,7 @@ func (x *DomainId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DomainId.ProtoReflect.Descriptor instead.
 func (*DomainId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{18}
+	return file_common_nico_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DomainId) GetValue() string {
@@ -956,7 +643,7 @@ type MachineInterfaceId struct {
 
 func (x *MachineInterfaceId) Reset() {
 	*x = MachineInterfaceId{}
-	mi := &file_common_nico_proto_msgTypes[19]
+	mi := &file_common_nico_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -968,7 +655,7 @@ func (x *MachineInterfaceId) String() string {
 func (*MachineInterfaceId) ProtoMessage() {}
 
 func (x *MachineInterfaceId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[19]
+	mi := &file_common_nico_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -981,7 +668,7 @@ func (x *MachineInterfaceId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineInterfaceId.ProtoReflect.Descriptor instead.
 func (*MachineInterfaceId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{19}
+	return file_common_nico_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *MachineInterfaceId) GetValue() string {
@@ -1000,7 +687,7 @@ type VpcId struct {
 
 func (x *VpcId) Reset() {
 	*x = VpcId{}
-	mi := &file_common_nico_proto_msgTypes[20]
+	mi := &file_common_nico_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +699,7 @@ func (x *VpcId) String() string {
 func (*VpcId) ProtoMessage() {}
 
 func (x *VpcId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[20]
+	mi := &file_common_nico_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +712,7 @@ func (x *VpcId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VpcId.ProtoReflect.Descriptor instead.
 func (*VpcId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{20}
+	return file_common_nico_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *VpcId) GetValue() string {
@@ -1044,7 +731,7 @@ type VpcPrefixId struct {
 
 func (x *VpcPrefixId) Reset() {
 	*x = VpcPrefixId{}
-	mi := &file_common_nico_proto_msgTypes[21]
+	mi := &file_common_nico_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +743,7 @@ func (x *VpcPrefixId) String() string {
 func (*VpcPrefixId) ProtoMessage() {}
 
 func (x *VpcPrefixId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[21]
+	mi := &file_common_nico_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +756,7 @@ func (x *VpcPrefixId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VpcPrefixId.ProtoReflect.Descriptor instead.
 func (*VpcPrefixId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{21}
+	return file_common_nico_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *VpcPrefixId) GetValue() string {
@@ -1088,7 +775,7 @@ type SitePrefixId struct {
 
 func (x *SitePrefixId) Reset() {
 	*x = SitePrefixId{}
-	mi := &file_common_nico_proto_msgTypes[22]
+	mi := &file_common_nico_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1100,7 +787,7 @@ func (x *SitePrefixId) String() string {
 func (*SitePrefixId) ProtoMessage() {}
 
 func (x *SitePrefixId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[22]
+	mi := &file_common_nico_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1113,7 +800,7 @@ func (x *SitePrefixId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SitePrefixId.ProtoReflect.Descriptor instead.
 func (*SitePrefixId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{22}
+	return file_common_nico_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SitePrefixId) GetValue() string {
@@ -1132,7 +819,7 @@ type VpcPeeringId struct {
 
 func (x *VpcPeeringId) Reset() {
 	*x = VpcPeeringId{}
-	mi := &file_common_nico_proto_msgTypes[23]
+	mi := &file_common_nico_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1144,7 +831,7 @@ func (x *VpcPeeringId) String() string {
 func (*VpcPeeringId) ProtoMessage() {}
 
 func (x *VpcPeeringId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[23]
+	mi := &file_common_nico_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1157,7 +844,7 @@ func (x *VpcPeeringId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VpcPeeringId.ProtoReflect.Descriptor instead.
 func (*VpcPeeringId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{23}
+	return file_common_nico_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *VpcPeeringId) GetValue() string {
@@ -1176,7 +863,7 @@ type IBPartitionId struct {
 
 func (x *IBPartitionId) Reset() {
 	*x = IBPartitionId{}
-	mi := &file_common_nico_proto_msgTypes[24]
+	mi := &file_common_nico_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +875,7 @@ func (x *IBPartitionId) String() string {
 func (*IBPartitionId) ProtoMessage() {}
 
 func (x *IBPartitionId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[24]
+	mi := &file_common_nico_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +888,7 @@ func (x *IBPartitionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IBPartitionId.ProtoReflect.Descriptor instead.
 func (*IBPartitionId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{24}
+	return file_common_nico_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *IBPartitionId) GetValue() string {
@@ -1220,7 +907,7 @@ type InstanceId struct {
 
 func (x *InstanceId) Reset() {
 	*x = InstanceId{}
-	mi := &file_common_nico_proto_msgTypes[25]
+	mi := &file_common_nico_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1232,7 +919,7 @@ func (x *InstanceId) String() string {
 func (*InstanceId) ProtoMessage() {}
 
 func (x *InstanceId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[25]
+	mi := &file_common_nico_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +932,7 @@ func (x *InstanceId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceId.ProtoReflect.Descriptor instead.
 func (*InstanceId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{25}
+	return file_common_nico_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *InstanceId) GetValue() string {
@@ -1264,7 +951,7 @@ type NetworkSegmentId struct {
 
 func (x *NetworkSegmentId) Reset() {
 	*x = NetworkSegmentId{}
-	mi := &file_common_nico_proto_msgTypes[26]
+	mi := &file_common_nico_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1276,7 +963,7 @@ func (x *NetworkSegmentId) String() string {
 func (*NetworkSegmentId) ProtoMessage() {}
 
 func (x *NetworkSegmentId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[26]
+	mi := &file_common_nico_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1289,7 +976,7 @@ func (x *NetworkSegmentId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkSegmentId.ProtoReflect.Descriptor instead.
 func (*NetworkSegmentId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{26}
+	return file_common_nico_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *NetworkSegmentId) GetValue() string {
@@ -1308,7 +995,7 @@ type DpaInterfaceId struct {
 
 func (x *DpaInterfaceId) Reset() {
 	*x = DpaInterfaceId{}
-	mi := &file_common_nico_proto_msgTypes[27]
+	mi := &file_common_nico_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1007,7 @@ func (x *DpaInterfaceId) String() string {
 func (*DpaInterfaceId) ProtoMessage() {}
 
 func (x *DpaInterfaceId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[27]
+	mi := &file_common_nico_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1020,7 @@ func (x *DpaInterfaceId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DpaInterfaceId.ProtoReflect.Descriptor instead.
 func (*DpaInterfaceId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{27}
+	return file_common_nico_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DpaInterfaceId) GetValue() string {
@@ -1352,7 +1039,7 @@ type NetworkPrefixId struct {
 
 func (x *NetworkPrefixId) Reset() {
 	*x = NetworkPrefixId{}
-	mi := &file_common_nico_proto_msgTypes[28]
+	mi := &file_common_nico_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1364,7 +1051,7 @@ func (x *NetworkPrefixId) String() string {
 func (*NetworkPrefixId) ProtoMessage() {}
 
 func (x *NetworkPrefixId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[28]
+	mi := &file_common_nico_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1377,7 +1064,7 @@ func (x *NetworkPrefixId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkPrefixId.ProtoReflect.Descriptor instead.
 func (*NetworkPrefixId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{28}
+	return file_common_nico_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *NetworkPrefixId) GetValue() string {
@@ -1396,7 +1083,7 @@ type RemediationId struct {
 
 func (x *RemediationId) Reset() {
 	*x = RemediationId{}
-	mi := &file_common_nico_proto_msgTypes[29]
+	mi := &file_common_nico_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1408,7 +1095,7 @@ func (x *RemediationId) String() string {
 func (*RemediationId) ProtoMessage() {}
 
 func (x *RemediationId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[29]
+	mi := &file_common_nico_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1421,7 +1108,7 @@ func (x *RemediationId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemediationId.ProtoReflect.Descriptor instead.
 func (*RemediationId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{29}
+	return file_common_nico_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RemediationId) GetValue() string {
@@ -1440,7 +1127,7 @@ type NVLinkPartitionId struct {
 
 func (x *NVLinkPartitionId) Reset() {
 	*x = NVLinkPartitionId{}
-	mi := &file_common_nico_proto_msgTypes[30]
+	mi := &file_common_nico_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +1139,7 @@ func (x *NVLinkPartitionId) String() string {
 func (*NVLinkPartitionId) ProtoMessage() {}
 
 func (x *NVLinkPartitionId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[30]
+	mi := &file_common_nico_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1152,7 @@ func (x *NVLinkPartitionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NVLinkPartitionId.ProtoReflect.Descriptor instead.
 func (*NVLinkPartitionId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{30}
+	return file_common_nico_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *NVLinkPartitionId) GetValue() string {
@@ -1484,7 +1171,7 @@ type NVLinkLogicalPartitionId struct {
 
 func (x *NVLinkLogicalPartitionId) Reset() {
 	*x = NVLinkLogicalPartitionId{}
-	mi := &file_common_nico_proto_msgTypes[31]
+	mi := &file_common_nico_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1496,7 +1183,7 @@ func (x *NVLinkLogicalPartitionId) String() string {
 func (*NVLinkLogicalPartitionId) ProtoMessage() {}
 
 func (x *NVLinkLogicalPartitionId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[31]
+	mi := &file_common_nico_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1509,7 +1196,7 @@ func (x *NVLinkLogicalPartitionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NVLinkLogicalPartitionId.ProtoReflect.Descriptor instead.
 func (*NVLinkLogicalPartitionId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{31}
+	return file_common_nico_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *NVLinkLogicalPartitionId) GetValue() string {
@@ -1528,7 +1215,7 @@ type NVLinkDomainId struct {
 
 func (x *NVLinkDomainId) Reset() {
 	*x = NVLinkDomainId{}
-	mi := &file_common_nico_proto_msgTypes[32]
+	mi := &file_common_nico_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1540,7 +1227,7 @@ func (x *NVLinkDomainId) String() string {
 func (*NVLinkDomainId) ProtoMessage() {}
 
 func (x *NVLinkDomainId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[32]
+	mi := &file_common_nico_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1553,7 +1240,7 @@ func (x *NVLinkDomainId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NVLinkDomainId.ProtoReflect.Descriptor instead.
 func (*NVLinkDomainId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{32}
+	return file_common_nico_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *NVLinkDomainId) GetValue() string {
@@ -1572,7 +1259,7 @@ type ComputeAllocationId struct {
 
 func (x *ComputeAllocationId) Reset() {
 	*x = ComputeAllocationId{}
-	mi := &file_common_nico_proto_msgTypes[33]
+	mi := &file_common_nico_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1584,7 +1271,7 @@ func (x *ComputeAllocationId) String() string {
 func (*ComputeAllocationId) ProtoMessage() {}
 
 func (x *ComputeAllocationId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[33]
+	mi := &file_common_nico_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1597,7 +1284,7 @@ func (x *ComputeAllocationId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputeAllocationId.ProtoReflect.Descriptor instead.
 func (*ComputeAllocationId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{33}
+	return file_common_nico_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ComputeAllocationId) GetValue() string {
@@ -1616,7 +1303,7 @@ type SpxPartitionId struct {
 
 func (x *SpxPartitionId) Reset() {
 	*x = SpxPartitionId{}
-	mi := &file_common_nico_proto_msgTypes[34]
+	mi := &file_common_nico_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1628,7 +1315,7 @@ func (x *SpxPartitionId) String() string {
 func (*SpxPartitionId) ProtoMessage() {}
 
 func (x *SpxPartitionId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[34]
+	mi := &file_common_nico_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1641,7 +1328,7 @@ func (x *SpxPartitionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpxPartitionId.ProtoReflect.Descriptor instead.
 func (*SpxPartitionId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{34}
+	return file_common_nico_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SpxPartitionId) GetValue() string {
@@ -1660,7 +1347,7 @@ type OperatingSystemId struct {
 
 func (x *OperatingSystemId) Reset() {
 	*x = OperatingSystemId{}
-	mi := &file_common_nico_proto_msgTypes[35]
+	mi := &file_common_nico_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1672,7 +1359,7 @@ func (x *OperatingSystemId) String() string {
 func (*OperatingSystemId) ProtoMessage() {}
 
 func (x *OperatingSystemId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[35]
+	mi := &file_common_nico_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1685,7 +1372,7 @@ func (x *OperatingSystemId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatingSystemId.ProtoReflect.Descriptor instead.
 func (*OperatingSystemId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{35}
+	return file_common_nico_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *OperatingSystemId) GetValue() string {
@@ -1704,7 +1391,7 @@ type IpxeTemplateId struct {
 
 func (x *IpxeTemplateId) Reset() {
 	*x = IpxeTemplateId{}
-	mi := &file_common_nico_proto_msgTypes[36]
+	mi := &file_common_nico_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1716,7 +1403,7 @@ func (x *IpxeTemplateId) String() string {
 func (*IpxeTemplateId) ProtoMessage() {}
 
 func (x *IpxeTemplateId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[36]
+	mi := &file_common_nico_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1729,7 +1416,7 @@ func (x *IpxeTemplateId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IpxeTemplateId.ProtoReflect.Descriptor instead.
 func (*IpxeTemplateId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{36}
+	return file_common_nico_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *IpxeTemplateId) GetValue() string {
@@ -1748,7 +1435,7 @@ type RackHardwareType struct {
 
 func (x *RackHardwareType) Reset() {
 	*x = RackHardwareType{}
-	mi := &file_common_nico_proto_msgTypes[37]
+	mi := &file_common_nico_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1760,7 +1447,7 @@ func (x *RackHardwareType) String() string {
 func (*RackHardwareType) ProtoMessage() {}
 
 func (x *RackHardwareType) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[37]
+	mi := &file_common_nico_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1773,7 +1460,7 @@ func (x *RackHardwareType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RackHardwareType.ProtoReflect.Descriptor instead.
 func (*RackHardwareType) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{37}
+	return file_common_nico_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RackHardwareType) GetValue() string {
@@ -1792,7 +1479,7 @@ type MachineValidationId struct {
 
 func (x *MachineValidationId) Reset() {
 	*x = MachineValidationId{}
-	mi := &file_common_nico_proto_msgTypes[38]
+	mi := &file_common_nico_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +1491,7 @@ func (x *MachineValidationId) String() string {
 func (*MachineValidationId) ProtoMessage() {}
 
 func (x *MachineValidationId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[38]
+	mi := &file_common_nico_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +1504,7 @@ func (x *MachineValidationId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineValidationId.ProtoReflect.Descriptor instead.
 func (*MachineValidationId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{38}
+	return file_common_nico_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *MachineValidationId) GetValue() string {
@@ -1843,7 +1530,7 @@ type DeviceId struct {
 
 func (x *DeviceId) Reset() {
 	*x = DeviceId{}
-	mi := &file_common_nico_proto_msgTypes[39]
+	mi := &file_common_nico_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1855,7 +1542,7 @@ func (x *DeviceId) String() string {
 func (*DeviceId) ProtoMessage() {}
 
 func (x *DeviceId) ProtoReflect() protoreflect.Message {
-	mi := &file_common_nico_proto_msgTypes[39]
+	mi := &file_common_nico_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1868,7 +1555,7 @@ func (x *DeviceId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceId.ProtoReflect.Descriptor instead.
 func (*DeviceId) Descriptor() ([]byte, []int) {
-	return file_common_nico_proto_rawDescGZIP(), []int{39}
+	return file_common_nico_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DeviceId) GetValue() isDeviceId_Value {
@@ -1933,26 +1620,9 @@ const file_common_nico_proto_rawDesc = "" +
 	"\n" +
 	"\x11common_nico.proto\x12\x06common\"\x1b\n" +
 	"\tMachineId\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x1e\n" +
-	"\fDpuMachineId\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\x1f\n" +
-	"\rHostMachineId\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"%\n" +
-	"\x13StableHostMachineId\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"(\n" +
-	"\x16PredictedHostMachineId\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"C\n" +
 	"\rMachineIdList\x122\n" +
 	"\vmachine_ids\x18\x01 \x03(\v2\x11.common.MachineIdR\n" +
-	"machineIds\"K\n" +
-	"\x11HostMachineIdList\x126\n" +
-	"\vmachine_ids\x18\x01 \x03(\v2\x15.common.HostMachineIdR\n" +
-	"machineIds\"I\n" +
-	"\x10DpuMachineIdList\x125\n" +
-	"\vmachine_ids\x18\x01 \x03(\v2\x14.common.DpuMachineIdR\n" +
-	"machineIds\"W\n" +
-	"\x17StableHostMachineIdList\x12<\n" +
-	"\vmachine_ids\x18\x01 \x03(\v2\x1b.common.StableHostMachineIdR\n" +
 	"machineIds\"\"\n" +
 	"\n" +
 	"StringList\x12\x14\n" +
@@ -2046,64 +1716,54 @@ func file_common_nico_proto_rawDescGZIP() []byte {
 }
 
 var file_common_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_common_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_common_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_common_nico_proto_goTypes = []any{
 	(SystemPowerControl)(0),          // 0: common.SystemPowerControl
 	(*MachineId)(nil),                // 1: common.MachineId
-	(*DpuMachineId)(nil),             // 2: common.DpuMachineId
-	(*HostMachineId)(nil),            // 3: common.HostMachineId
-	(*StableHostMachineId)(nil),      // 4: common.StableHostMachineId
-	(*PredictedHostMachineId)(nil),   // 5: common.PredictedHostMachineId
-	(*MachineIdList)(nil),            // 6: common.MachineIdList
-	(*HostMachineIdList)(nil),        // 7: common.HostMachineIdList
-	(*DpuMachineIdList)(nil),         // 8: common.DpuMachineIdList
-	(*StableHostMachineIdList)(nil),  // 9: common.StableHostMachineIdList
-	(*StringList)(nil),               // 10: common.StringList
-	(*UUID)(nil),                     // 11: common.UUID
-	(*PowerShelfId)(nil),             // 12: common.PowerShelfId
-	(*RackId)(nil),                   // 13: common.RackId
-	(*RackProfileId)(nil),            // 14: common.RackProfileId
-	(*SwitchId)(nil),                 // 15: common.SwitchId
-	(*Uint32List)(nil),               // 16: common.Uint32List
-	(*RouteTarget)(nil),              // 17: common.RouteTarget
-	(*RouteTargets)(nil),             // 18: common.RouteTargets
-	(*DomainId)(nil),                 // 19: common.DomainId
-	(*MachineInterfaceId)(nil),       // 20: common.MachineInterfaceId
-	(*VpcId)(nil),                    // 21: common.VpcId
-	(*VpcPrefixId)(nil),              // 22: common.VpcPrefixId
-	(*SitePrefixId)(nil),             // 23: common.SitePrefixId
-	(*VpcPeeringId)(nil),             // 24: common.VpcPeeringId
-	(*IBPartitionId)(nil),            // 25: common.IBPartitionId
-	(*InstanceId)(nil),               // 26: common.InstanceId
-	(*NetworkSegmentId)(nil),         // 27: common.NetworkSegmentId
-	(*DpaInterfaceId)(nil),           // 28: common.DpaInterfaceId
-	(*NetworkPrefixId)(nil),          // 29: common.NetworkPrefixId
-	(*RemediationId)(nil),            // 30: common.RemediationId
-	(*NVLinkPartitionId)(nil),        // 31: common.NVLinkPartitionId
-	(*NVLinkLogicalPartitionId)(nil), // 32: common.NVLinkLogicalPartitionId
-	(*NVLinkDomainId)(nil),           // 33: common.NVLinkDomainId
-	(*ComputeAllocationId)(nil),      // 34: common.ComputeAllocationId
-	(*SpxPartitionId)(nil),           // 35: common.SpxPartitionId
-	(*OperatingSystemId)(nil),        // 36: common.OperatingSystemId
-	(*IpxeTemplateId)(nil),           // 37: common.IpxeTemplateId
-	(*RackHardwareType)(nil),         // 38: common.RackHardwareType
-	(*MachineValidationId)(nil),      // 39: common.MachineValidationId
-	(*DeviceId)(nil),                 // 40: common.DeviceId
+	(*MachineIdList)(nil),            // 2: common.MachineIdList
+	(*StringList)(nil),               // 3: common.StringList
+	(*UUID)(nil),                     // 4: common.UUID
+	(*PowerShelfId)(nil),             // 5: common.PowerShelfId
+	(*RackId)(nil),                   // 6: common.RackId
+	(*RackProfileId)(nil),            // 7: common.RackProfileId
+	(*SwitchId)(nil),                 // 8: common.SwitchId
+	(*Uint32List)(nil),               // 9: common.Uint32List
+	(*RouteTarget)(nil),              // 10: common.RouteTarget
+	(*RouteTargets)(nil),             // 11: common.RouteTargets
+	(*DomainId)(nil),                 // 12: common.DomainId
+	(*MachineInterfaceId)(nil),       // 13: common.MachineInterfaceId
+	(*VpcId)(nil),                    // 14: common.VpcId
+	(*VpcPrefixId)(nil),              // 15: common.VpcPrefixId
+	(*SitePrefixId)(nil),             // 16: common.SitePrefixId
+	(*VpcPeeringId)(nil),             // 17: common.VpcPeeringId
+	(*IBPartitionId)(nil),            // 18: common.IBPartitionId
+	(*InstanceId)(nil),               // 19: common.InstanceId
+	(*NetworkSegmentId)(nil),         // 20: common.NetworkSegmentId
+	(*DpaInterfaceId)(nil),           // 21: common.DpaInterfaceId
+	(*NetworkPrefixId)(nil),          // 22: common.NetworkPrefixId
+	(*RemediationId)(nil),            // 23: common.RemediationId
+	(*NVLinkPartitionId)(nil),        // 24: common.NVLinkPartitionId
+	(*NVLinkLogicalPartitionId)(nil), // 25: common.NVLinkLogicalPartitionId
+	(*NVLinkDomainId)(nil),           // 26: common.NVLinkDomainId
+	(*ComputeAllocationId)(nil),      // 27: common.ComputeAllocationId
+	(*SpxPartitionId)(nil),           // 28: common.SpxPartitionId
+	(*OperatingSystemId)(nil),        // 29: common.OperatingSystemId
+	(*IpxeTemplateId)(nil),           // 30: common.IpxeTemplateId
+	(*RackHardwareType)(nil),         // 31: common.RackHardwareType
+	(*MachineValidationId)(nil),      // 32: common.MachineValidationId
+	(*DeviceId)(nil),                 // 33: common.DeviceId
 }
 var file_common_nico_proto_depIdxs = []int32{
 	1,  // 0: common.MachineIdList.machine_ids:type_name -> common.MachineId
-	3,  // 1: common.HostMachineIdList.machine_ids:type_name -> common.HostMachineId
-	2,  // 2: common.DpuMachineIdList.machine_ids:type_name -> common.DpuMachineId
-	4,  // 3: common.StableHostMachineIdList.machine_ids:type_name -> common.StableHostMachineId
-	17, // 4: common.RouteTargets.values:type_name -> common.RouteTarget
-	1,  // 5: common.DeviceId.machine_id:type_name -> common.MachineId
-	15, // 6: common.DeviceId.switch_id:type_name -> common.SwitchId
-	12, // 7: common.DeviceId.power_shelf_id:type_name -> common.PowerShelfId
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	10, // 1: common.RouteTargets.values:type_name -> common.RouteTarget
+	1,  // 2: common.DeviceId.machine_id:type_name -> common.MachineId
+	8,  // 3: common.DeviceId.switch_id:type_name -> common.SwitchId
+	5,  // 4: common.DeviceId.power_shelf_id:type_name -> common.PowerShelfId
+	5,  // [5:5] is the sub-list for method output_type
+	5,  // [5:5] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_common_nico_proto_init() }
@@ -2111,7 +1771,7 @@ func file_common_nico_proto_init() {
 	if File_common_nico_proto != nil {
 		return
 	}
-	file_common_nico_proto_msgTypes[39].OneofWrappers = []any{
+	file_common_nico_proto_msgTypes[32].OneofWrappers = []any{
 		(*DeviceId_MachineId)(nil),
 		(*DeviceId_SwitchId)(nil),
 		(*DeviceId_PowerShelfId)(nil),
@@ -2122,7 +1782,7 @@ func file_common_nico_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_nico_proto_rawDesc), len(file_common_nico_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   40,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

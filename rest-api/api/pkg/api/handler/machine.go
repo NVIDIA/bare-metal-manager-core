@@ -2246,7 +2246,7 @@ func (h DecommissionMachineHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("machine_id", machineID).Str("site_id", machine.Site.ID.String()).Msg("Starting Machine decommissioning via Core gRPC proxy")
 	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_DecommissionManagedHost_FullMethodName, &corev1.DecommissionManagedHostRequest{
-		MachineId: &corev1.StableHostMachineId{Id: machineID},
+		MachineId: &corev1.MachineId{Id: machineID},
 	}, nil, machine.Site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to start Machine decommissioning via Core gRPC proxy")

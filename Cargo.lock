@@ -3282,6 +3282,7 @@ name = "carbide-ssh-console-mock-api-server"
 version = "0.0.1"
 dependencies = [
  "carbide-api-test-helper",
+ "carbide-proto-compiler",
  "carbide-rpc",
  "carbide-uuid",
  "carbide-version",

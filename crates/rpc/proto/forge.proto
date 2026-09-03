@@ -4,6 +4,7 @@ package forge;
 
 import "codegen/v1/derive.proto";
 import "codegen/v1/extern_path.proto";
+import "codegen/v1/rust_type.proto";
 
 import "common.proto";
 import "dns.proto";
@@ -262,7 +263,9 @@ service Forge {
   rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
-  rpc FindConnectedDevicesByDpuMachineIds(common.DpuMachineIdList) returns (ConnectedDeviceList);
+  rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList) {
+    option (carbide.codegen.v1.method_rust_input_type) = ".common.DpuMachineIdList";
+  }
   rpc FindMachineIdsByBmcIps(BmcIpList) returns (MachineIdBmcIpPairs);
   rpc FindMacAddressByBmcIp(BmcIp) returns (MacAddressBmcIp);
   rpc FindBmcIps(FindBmcIpsRequest) returns (BmcIpList);
@@ -812,7 +815,9 @@ service Forge {
   rpc SetManagedHostQuarantineState(SetManagedHostQuarantineStateRequest) returns (SetManagedHostQuarantineStateResponse);
   rpc ClearManagedHostQuarantineState(ClearManagedHostQuarantineStateRequest) returns (ClearManagedHostQuarantineStateResponse);
 
-  rpc ResetHostReprovisioning(common.StableHostMachineId) returns (google.protobuf.Empty);
+  rpc ResetHostReprovisioning(common.MachineId) returns (google.protobuf.Empty) {
+    option (carbide.codegen.v1.method_rust_input_type) = ".common.StableHostMachineId";
+  }
   // Copy BFB to DPU's RSHIM
   rpc CopyBfbToDpuRshim(CopyBfbToDpuRshimRequest) returns (google.protobuf.Empty);
 
@@ -1050,7 +1055,9 @@ service Forge {
   // this is the only way to discover which machines to name. Split ids-then-
   // details because a fleet-wide rollout can leave every host waiting at once,
   // and the worklist must not become one unbounded response.
-  rpc FindPendingDPUServiceSyncIds(FindPendingDPUServiceSyncIdsRequest) returns (common.StableHostMachineIdList);
+  rpc FindPendingDPUServiceSyncIds(FindPendingDPUServiceSyncIdsRequest) returns (common.MachineIdList) {
+    option (carbide.codegen.v1.method_rust_output_type) = ".common.StableHostMachineIdList";
+  }
   rpc FindPendingDPUServiceSyncsByIds(FindPendingDPUServiceSyncsByIdsRequest) returns (ListPendingDPUServiceSyncsResponse);
   // One machine's recorded sync history, newest first. Needs no paging: the
   // database caps retained history per machine.
@@ -3064,7 +3071,7 @@ message InstanceAllocationRequest {
   // The Machine on top of which we create an Instance
   // If we go towards "we already have instances model", this would become more of a
   // AssignInstanceToTenant request, and the ID would be the instance_id
-  common.StableHostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
 
 
   // Desired configuration for the allocated instance
@@ -3525,7 +3532,7 @@ message InstanceInfinibandStatus {
 message DpuExtensionServiceStatus {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
-  common.DpuMachineId dpu_machine_id = 1;
+  common.MachineId dpu_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   DpuExtensionServiceDeploymentStatus status = 2;
   optional string error_message = 3;
   repeated DpuExtensionServiceComponent components = 4;
@@ -3560,7 +3567,7 @@ message Instance {
   // Instance ID
   common.InstanceId id = 1;
   // The ID of the host machine which is utilized for this Instance (host_machine_id)
-  common.StableHostMachineId machine_id = 2;
+  common.MachineId machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
   Metadata metadata = 3;
 
   // The InstanceTypeId associated with the Instance.
@@ -4116,8 +4123,8 @@ message MachineStatus {
   optional machine_discovery.DiscoveryInfo discovery_info = 2;
   google.protobuf.Timestamp last_reboot_time = 3;
   google.protobuf.Timestamp last_observation_time = 4;
-  optional common.HostMachineId associated_host_machine_id = 5;
-  repeated common.DpuMachineId associated_dpu_machine_ids = 6;
+  optional common.MachineId associated_host_machine_id = 5 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
+  repeated common.MachineId associated_dpu_machine_ids = 6 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   optional google.protobuf.Timestamp last_reboot_requested_time = 7;
   optional string last_reboot_requested_mode = 8;
   optional string dpu_agent_version = 9;
@@ -4200,7 +4207,7 @@ message Machine {
   // Other machine ids associated with this machine
   // Deprecated: use status.associated_host_machine_id
   // TODO: change to reserved once rest-api uses MachineStatus
-  optional common.HostMachineId associated_host_machine_id = 19 [deprecated = true];
+  optional common.MachineId associated_host_machine_id = 19 [deprecated = true, (carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   reserved 20; /* previously: optional common.MachineId associated_dpu_machine_id = 20; */
 
   // Hardware inventory (NIC firmware, etc.). Discovered at ingestion time; not operator-mutable.
@@ -4219,7 +4226,7 @@ message Machine {
   // Fields are not ordered numerically, check the whole message for max field number
   // Deprecated: use status.associated_dpu_machine_ids
   // TODO: change to reserved once rest-api uses MachineStatus
-  repeated common.DpuMachineId associated_dpu_machine_ids = 26 [deprecated = true];
+  repeated common.MachineId associated_dpu_machine_ids = 26 [deprecated = true, (carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
 
   // For Host Machines returns the aggregate health of the host
   // For DPUs, it returns the individual DPU health
@@ -4405,7 +4412,7 @@ message PowerShelfMetadataUpdateRequest {
 }
 
 message DpuAgentInventoryReport {
-  common.DpuMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   MachineInventory inventory = 2;
 }
 
@@ -4521,7 +4528,7 @@ enum InterfaceType {
 message MachineInterface {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.MachineInterfaceId id = 1;
-  optional common.DpuMachineId attached_dpu_machine_id = 2;
+  optional common.MachineId attached_dpu_machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   common.MachineId machine_id = 3;
   common.NetworkSegmentId segment_id = 4;
 
@@ -4837,7 +4844,7 @@ enum MachineHardwareInfoUpdateType {
 }
 
 message ManagedHostNetworkConfigRequest {
-  common.DpuMachineId dpu_machine_id = 1;
+  common.MachineId dpu_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
 }
 
 message ManagedHostNetworkConfigResponse {
@@ -5035,7 +5042,7 @@ enum VpcIsolationBehaviorType {
 }
 
 message GetManagedHostQuarantineStateRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
 }
 
 message GetManagedHostQuarantineStateResponse {
@@ -5043,7 +5050,7 @@ message GetManagedHostQuarantineStateResponse {
 }
 
 message SetManagedHostQuarantineStateRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   ManagedHostQuarantineState quarantine_state = 2;
 }
 
@@ -5052,7 +5059,7 @@ message SetManagedHostQuarantineStateResponse {
 }
 
 message ClearManagedHostQuarantineStateRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
 }
 
 message ClearManagedHostQuarantineStateResponse {
@@ -5294,7 +5301,7 @@ message AdminForceDeleteMachineRequest {
 }
 
 message DecommissionManagedHostRequest {
-  common.StableHostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
 }
 
 message DecommissionManagedHostResponse {
@@ -5805,7 +5812,7 @@ enum InterfaceFunctionType {
 // What forge-dpu-agent reports. Will grow over time.
 message DpuNetworkStatus {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
-  common.DpuMachineId dpu_machine_id = 1;
+  common.MachineId dpu_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   google.protobuf.Timestamp observed_at = 2;
   // Legacy mechanism to indicate DPU health.
   reserved 3; // Was NetworkHealth health = 3; - // Replaced by the `dpu_health` field
@@ -6339,7 +6346,7 @@ message DpuReprovisioningListRequest {
 
 message DpuReprovisioningListResponse {
   message DpuReprovisioningListItem {
-    common.DpuMachineId id = 1; // Dpu Machine ID
+    common.MachineId id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"]; // Dpu Machine ID
     string state = 2; // ManagedHost state
     string initiator = 3; // Who requested this reprovisioning.
     google.protobuf.Timestamp requested_at = 4; // When reprovisioning was requested.
@@ -6355,7 +6362,7 @@ message HostReprovisioningRequest {
     Set = 0;
     Clear = 1;
   }
-  common.StableHostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
   Mode mode = 2;
   UpdateInitiator initiator = 3;
 }
@@ -6413,7 +6420,7 @@ message NicLockdownCredentialRotationRequest {
     Clear = 2;
   }
   Mode mode = 1;
-  common.HostMachineId machine_id = 2;
+  common.MachineId machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
 }
 
 message HostReprovisioningListRequest {
@@ -6637,7 +6644,7 @@ message ClearHostUefiPasswordResponse {
 
 message SetDpuUefiPasswordRequest {
   // The DPU machine to set the UEFI password on.
-  common.DpuMachineId dpu_id = 1;
+  common.MachineId dpu_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   // UUID, IP address, hostname or MAC address resolving to the DPU machine
   // (preferred over dpu_id).
   optional string machine_query = 2;
@@ -6950,7 +6957,7 @@ message MachineRebootCompletedRequest {
 }
 
 message ScoutFirmwareUpgradeStatusRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   bool success = 2;
   int32 exit_code = 3;
   string stdout = 4;
@@ -8210,7 +8217,7 @@ message SkuSearchFilter {
 message DpaInterface {
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.DpaInterfaceId id = 1;
-  common.HostMachineId machine_id = 2;
+  common.MachineId machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   string mac_addr = 3;
 
   google.protobuf.Timestamp created = 4;
@@ -8258,7 +8265,7 @@ enum DpaInterfaceType {
 }
 
 message DpaInterfaceCreationRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   string mac_addr = 2;
   string device_type = 3;
   string pci_name = 4;
@@ -8298,7 +8305,7 @@ message SkuUpdateMetadataRequest {
 }
 
 message PowerOptionRequest {
-  repeated common.HostMachineId machine_id = 1;
+  repeated common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
 }
 
 enum PowerState {
@@ -8308,7 +8315,7 @@ enum PowerState {
 }
 
 message PowerOptionUpdateRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   PowerState power_state = 2;
 }
 
@@ -8319,7 +8326,7 @@ message PowerOptions {
   google.protobuf.Timestamp desired_state_updated_at = 2;
   PowerState actual_state = 3;
   google.protobuf.Timestamp actual_state_updated_at = 4;
-  common.HostMachineId host_id = 5;
+  common.MachineId host_id = 5 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   string desired_power_state_version = 6;
   google.protobuf.Timestamp next_power_state_fetch_at = 7;
   int32 off_counter = 8;
@@ -9114,23 +9121,23 @@ message DisableRemediationRequest {
 /// and the api server will give you back the other one(s).
 message FindAppliedRemediationIdsRequest {
   optional common.RemediationId remediation_id = 1;
-  optional common.DpuMachineId dpu_machine_id = 2;
+  optional common.MachineId dpu_machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
 }
 message AppliedRemediationIdList {
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   repeated common.RemediationId remediation_ids = 1;
-  repeated common.DpuMachineId dpu_machine_ids = 2;
+  repeated common.MachineId dpu_machine_ids = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
 }
 message FindAppliedRemediationsRequest {
   common.RemediationId remediation_id = 1;
-  common.DpuMachineId dpu_machine_id = 2;
+  common.MachineId dpu_machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
 }
 message AppliedRemediation {
   option (carbide.codegen.v1.message_derive) = "serde::Deserialize";
   option (carbide.codegen.v1.message_derive) = "serde::Serialize";
   common.RemediationId remediation_id = 1;
-  common.DpuMachineId dpu_machine_id = 2;
+  common.MachineId dpu_machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   int32 attempt = 3;
   bool succeeded = 4;
   google.protobuf.Timestamp applied_time = 5;
@@ -9143,7 +9150,7 @@ message AppliedRemediationList {
 }
 
 message GetNextRemediationForMachineRequest {
-  common.DpuMachineId dpu_machine_id = 1;
+  common.MachineId dpu_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
 }
 message GetNextRemediationForMachineResponse {
   optional common.RemediationId remediation_id = 1;
@@ -9151,7 +9158,7 @@ message GetNextRemediationForMachineResponse {
 }
 message RemediationAppliedRequest {
   common.RemediationId remediation_id = 1;
-  common.DpuMachineId dpu_machine_id = 2;
+  common.MachineId dpu_machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   RemediationApplicationStatus status = 3;
 }
 message RemediationApplicationStatus {
@@ -9161,8 +9168,8 @@ message RemediationApplicationStatus {
 // end DPU remediation models
 
 message SetPrimaryDpuRequest {
-  common.StableHostMachineId host_machine_id = 1;
-  common.DpuMachineId dpu_machine_id = 2;
+  common.MachineId host_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
+  common.MachineId dpu_machine_id = 2 [(carbide.codegen.v1.field_rust_type) = ".common.DpuMachineId"];
   // Deprecated compatibility alias for `force_reconcile`.
   bool reboot = 3 [deprecated = true];
   // Request another controller reconciliation even when the selected DPU is
@@ -9171,7 +9178,7 @@ message SetPrimaryDpuRequest {
 }
 
 message SetPrimaryInterfaceRequest {
-  common.StableHostMachineId host_machine_id = 1;
+  common.MachineId host_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
   common.MachineInterfaceId interface_id = 2;
   // Deprecated compatibility alias for `force_reconcile`.
   bool reboot = 3 [deprecated = true];
@@ -9656,13 +9663,13 @@ message MachinePositionInfo {
 }
 
 message ModifyDPFStateRequest {
-  common.HostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
   bool dpf_enabled = 2;
 }
 
 message DPFStateResponse {
   message DPFState {
-    common.HostMachineId machine_id = 1;
+    common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
     bool enabled = 2;
     bool used_for_ingestion = 3;
   }
@@ -9670,13 +9677,13 @@ message DPFStateResponse {
 }
 
 message GetDPFStateRequest {
-  repeated common.HostMachineId machine_ids = 1;
+  repeated common.MachineId machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
 }
 
 // --- DPF host snapshot ---
 
 message GetDPFHostSnapshotRequest {
-  common.HostMachineId host_machine_id = 1;
+  common.MachineId host_machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"];
 }
 
 // Returns the snapshot as a JSON string. The server-side curates the field
@@ -9725,7 +9732,7 @@ message ReleaseDPUServiceSyncHoldRequest {
     // node, so accepting one would silently widen the request from a single DPU
     // to every DPU on its host. Assigned hosts are declined -- name the instance
     // instead.
-    common.StableHostMachineIdList machine_ids = 1;
+    common.MachineIdList machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineIdList"];
     // Release the hosts currently holding these instances, even though they are
     // assigned. Naming an instance is the acknowledgement that its tenant will
     // be disrupted, and each consent covers only the instance named: if a host
@@ -9757,7 +9764,7 @@ enum DPUServiceSyncReleaseStatus {
 }
 
 message DPUServiceSyncReleaseResult {
-  common.StableHostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
   DPUServiceSyncReleaseStatus status = 2;
   // Names the DPU or instance responsible on the deferred statuses, and the
   // error on FAILED. Empty otherwise.
@@ -9775,17 +9782,17 @@ message FindPendingDPUServiceSyncIdsRequest {
 
 message FindPendingDPUServiceSyncsByIdsRequest {
   // Bounded by the server's `max_find_by_ids`, like every other by-ids call.
-  repeated common.StableHostMachineId machine_ids = 1;
+  repeated common.MachineId machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
 }
 
 message ListDPUServiceSyncHistoryRequest {
-  common.StableHostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
 }
 
 // One recorded DPU service sync. Completed entries appear only in the history
 // form.
 message PendingDPUServiceSync {
-  common.StableHostMachineId machine_id = 1;
+  common.MachineId machine_id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.StableHostMachineId"];
   // First time DPF was seen waiting on this machine. Survives repeat requests,
   // so it measures the whole wait rather than the last observation.
   google.protobuf.Timestamp requested_at = 2;
@@ -9845,7 +9852,7 @@ message MacAddressList {
 
 message GetComponentInventoryRequest {
   oneof target {
-    common.HostMachineIdList machine_ids = 1;
+    common.MachineIdList machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineIdList"];
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     MacAddressList compute_bmc_macs = 4;
@@ -9865,7 +9872,7 @@ message GetComponentInventoryResponse {
 
 message ComponentPowerControlRequest {
   oneof target {
-    common.HostMachineIdList machine_ids = 1;
+    common.MachineIdList machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineIdList"];
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     MacAddressList compute_bmc_macs = 6;
@@ -9945,7 +9952,7 @@ message UpdateComputeTrayFirmwareTarget {
   // neither/both). machine_ids targets ingested trays; bmc_macs targets by BMC
   // MAC, including pre-ingestion. These are plain fields rather than a oneof so
   // field 1 stays wire-compatible with earlier releases that predate bmc_macs.
-  common.HostMachineIdList machine_ids = 1;
+  common.MachineIdList machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineIdList"];
   repeated ComputeTrayComponent components = 2;
   MacAddressList bmc_macs = 3;
 }
@@ -9995,7 +10002,7 @@ message UpdateComponentFirmwareResponse {
 
 message GetComponentFirmwareStatusRequest {
   oneof target {
-    common.HostMachineIdList machine_ids = 1;
+    common.MachineIdList machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineIdList"];
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
@@ -10009,7 +10016,7 @@ message GetComponentFirmwareStatusResponse {
 
 message ListComponentFirmwareVersionsRequest {
   oneof target {
-    common.HostMachineIdList machine_ids = 1;
+    common.MachineIdList machine_ids = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineIdList"];
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
