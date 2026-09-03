@@ -43,10 +43,11 @@ Queue firmware on compute trays from an RMS SOT JSON file:
     --machine-id 12345678-1234-5678-90ab-cdef01234567 --sot-json-file ./sot.json \
     --access-token mytoken
 
-Queue firmware on a compute tray by BMC MAC (targets the tray before ingestion):
+Queue firmware on a compute tray by BMC MAC (targets the tray before ingestion; \
+this dispatches directly to RMS with NOAUTH artifact downloads, so --access-token \
+is not accepted here):
     $ nico-admin-cli component-manager update-firmware compute-tray \
-    --mac-address 00:11:22:33:44:55 --sot-json-file ./sot.json \
-    --access-token mytoken
+    --mac-address 00:11:22:33:44:55 --sot-json-file ./sot.json
 
 Queue firmware on power shelves:
     $ nico-admin-cli component-manager update-firmware power-shelf \

@@ -2825,6 +2825,10 @@ pub(crate) async fn update_component_firmware(
                     ));
                 }
                 (None, Some(macs)) => {
+                    if macs.mac_addresses.is_empty() {
+                        return Err(Status::invalid_argument("bmc_macs must not be empty"));
+                    }
+
                     return update_compute_tray_firmware_by_mac(
                         api,
                         &macs.mac_addresses,
@@ -3014,12 +3018,6 @@ pub(crate) async fn update_component_firmware(
     }))
 }
 
-/// Firmware update for compute trays targeted by BMC MAC. Ingested MACs reuse
-/// the machine-id firmware path (rack-scale vs standalone routing, state
-/// controller honored) with the caller's MAC echoed onto each result. MACs with
-/// no machine row are reported per-MAC: firmware update has no pre-ingestion
-/// dispatch path (the Redfish compute backend supports only power control, and
-/// RMS requires a rack-registered device).
 /// Return the subset of `macs` whose expected record declares a `rack_id`.
 ///
 /// A declared `rack_id` is the same signal site-explorer uses to build an RMS
@@ -3308,12 +3306,16 @@ enum FirmwareStatusRouting {
 }
 
 /// Partition `machine_ids` into those that have a persisted backend
-/// firmware-object job ID and those that do not.
+/// firmware-object job ID on their machine row and those that do not.
 ///
 /// Returns `(persisted_ids, fallback_ids)`:
 /// - `persisted_ids` — IDs where the loaded machine has a non-null
 ///   `backend_firmware_object_job_id`; route to `compute_tray`.
 /// - `fallback_ids` — remaining IDs; route to `machine_firmware_statuses`.
+///
+/// A tray flashed before ingestion persists its job to `explored_endpoints`
+/// rather than the machine row, so the caller augments the split with
+/// [`reclassify_preingestion_jobs_from_explored_endpoints`] before routing.
 fn partition_by_backend_job_id(
     machine_ids: &[MachineId],
     machines_by_id: &HashMap<MachineId, Machine>,
@@ -3345,6 +3347,48 @@ fn select_firmware_status_routing(
             fallback,
         }
     }
+}
+
+/// Move `fallback` machines whose BMC IP still carries a pre-ingestion firmware
+/// job in `explored_endpoints` into `persisted`, so they poll the live backend.
+///
+/// A tray flashed before ingestion persists its job id to `explored_endpoints`
+/// (keyed by BMC IP), not the machine row. Once ingestion creates the row its
+/// `backend_firmware_object_job_id` stays NULL, so the machine-row partition
+/// alone would misroute it to the DB-only path and lose live status. One batched
+/// query over the fallback set's BMC IPs reclassifies those still tracked.
+async fn reclassify_preingestion_jobs_from_explored_endpoints(
+    api: &Api,
+    persisted: &mut Vec<MachineId>,
+    fallback: &mut Vec<MachineId>,
+    machines_by_id: &HashMap<MachineId, Machine>,
+) -> Result<(), Status> {
+    let fallback_ips: Vec<IpAddr> = fallback
+        .iter()
+        .filter_map(|id| machines_by_id.get(id).and_then(|m| m.status.bmc_info.ip))
+        .collect();
+    let ips_with_job = db::explored_endpoints::find_ips_with_backend_firmware_object_job_id(
+        api.pg_pool(),
+        &fallback_ips,
+    )
+    .await
+    .map_err(|e| Status::internal(format!("db error: {e}")))?;
+
+    if ips_with_job.is_empty() {
+        return Ok(());
+    }
+
+    fallback.retain(|id| {
+        let has_explored_job = machines_by_id
+            .get(id)
+            .and_then(|m| m.status.bmc_info.ip)
+            .is_some_and(|ip| ips_with_job.contains(&ip));
+        if has_explored_job {
+            persisted.push(*id);
+        }
+        !has_explored_job
+    });
+    Ok(())
 }
 
 pub(crate) async fn get_component_firmware_status(
@@ -3453,9 +3497,20 @@ pub(crate) async fn get_component_firmware_status(
                             .await?
                     }
                     FirmwareStatusRouting::Partitioned {
-                        persisted,
-                        fallback,
+                        mut persisted,
+                        mut fallback,
                     } => {
+                        // A tray flashed before ingestion keeps its job on
+                        // explored_endpoints, not the machine row, so reclassify
+                        // those still tracked there back onto the live-poll path.
+                        reclassify_preingestion_jobs_from_explored_endpoints(
+                            api,
+                            &mut persisted,
+                            &mut fallback,
+                            &machines_by_id,
+                        )
+                        .await?;
+
                         let mut statuses = Vec::with_capacity(list.machine_ids.len());
                         if !persisted.is_empty() {
                             statuses.extend(
@@ -3823,20 +3878,43 @@ pub(crate) async fn list_component_firmware_versions(
             }
 
             if !resolution.ingested.is_empty() {
-                let sub_devices = compute_tray_firmware_versions_by_machine_ids(
+                match compute_tray_firmware_versions_by_machine_ids(
                     api,
                     &resolution.ingested_machine_ids(),
                 )
-                .await?;
-                devices.extend(sub_devices.into_iter().map(|mut device| {
-                    if let Some(result) = device.result.as_mut()
-                        && let Some(mac) =
-                            resolution.mac_for_component_id(result.component_id.as_deref())
-                    {
-                        result.mac_address = Some(mac.to_string());
+                .await
+                {
+                    Ok(sub_devices) => {
+                        devices.extend(sub_devices.into_iter().map(|mut device| {
+                            if let Some(result) = device.result.as_mut()
+                                && let Some(mac) =
+                                    resolution.mac_for_component_id(result.component_id.as_deref())
+                            {
+                                result.mac_address = Some(mac.to_string());
+                            }
+                            device
+                        }));
                     }
-                    device
-                }));
+                    // Listing versions for ingested trays is unsupported (no
+                    // component manager, or firmware is state-controller managed —
+                    // the Helm default). Turn that into one per-MAC result instead
+                    // of propagating, so the pre-ingestion catalog and error entries
+                    // already in `devices` survive. Genuine DB/backend failures use
+                    // other codes and still abort the request.
+                    Err(status) if status.code() == tonic::Code::Unimplemented => {
+                        devices.extend(resolution.ingested.values().map(|mac| {
+                            rpc::DeviceFirmwareVersions {
+                                result: Some(mac_result(
+                                    mac,
+                                    rpc::ComponentManagerStatusCode::InvalidArgument,
+                                    Some(status.message().to_owned()),
+                                )),
+                                ..Default::default()
+                            }
+                        }));
+                    }
+                    Err(status) => return Err(status),
+                }
             }
 
             Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
