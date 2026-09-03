@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 
 	cli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/vpcprefix"
 )
 
 // Command represents a registered interactive command.
@@ -2454,7 +2455,23 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	prefixLenText, err := PromptText("Prefix length (8-31)", true)
+	ipBlock, err := promptVPCPrefixIPBlock(context.Background(), s)
+	if err != nil {
+		return err
+	}
+	family := vpcprefix.IPFamily(strings.TrimSpace(ipBlock.Extra["protocolVersion"]))
+	slaacEnabled, err := vpcPrefixSlaacEnabled(family, vpc)
+	if err != nil {
+		return err
+	}
+	maximumLength, knownFamily := family.MaximumPrefixLength(slaacEnabled)
+	var promptLabel string
+	if knownFamily {
+		promptLabel = fmt.Sprintf("%s prefix length (%d-%d)", family, vpcprefix.PrefixLengthMinimum, maximumLength)
+	} else {
+		promptLabel = fmt.Sprintf("Prefix length (%d-%d; API validates the IP block and VPC limit)", vpcprefix.PrefixLengthMinimum, maximumLength)
+	}
+	prefixLenText, err := PromptText(promptLabel, true)
 	if err != nil {
 		return err
 	}
@@ -2462,23 +2479,18 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("prefix length must be an integer: %w", err)
 	}
-	if prefixLen < 8 || prefixLen > 31 {
-		return fmt.Errorf("prefix length must be between 8 and 31")
-	}
-	ipBlockID, err := promptVPCPrefixIPBlockID(s, context.Background())
+	err = validateVPCPrefixLength(maximumLength, prefixLen)
 	if err != nil {
 		return err
 	}
 
-	// ipBlockID is already trimmed by promptVPCPrefixIPBlockID (picker IDs are
-	// clean; the manual-entry path trims), so no extra TrimSpace here.
 	body := map[string]interface{}{
 		"name":         name,
 		"vpcId":        vpc.ID,
-		"ipBlockId":    ipBlockID,
+		"ipBlockId":    ipBlock.ID,
 		"prefixLength": prefixLen,
 	}
-	LogCmd(s, "vpc-prefix", "create", "--name", name, "--vpc-id", vpc.ID, "--ip-block-id", ipBlockID, "--prefix-length", prefixLenText)
+	LogCmd(s, "vpc-prefix", "create", "--name", name, "--vpc-id", vpc.ID, "--ip-block-id", ipBlock.ID, "--prefix-length", prefixLenText)
 	bodyJSON, _ := json.Marshal(body)
 	resp, _, err := s.Client.Do("POST", apiPath(s, "vpc-prefix"), nil, nil, bodyJSON)
 	if err != nil {
@@ -2498,48 +2510,78 @@ func cmdVPCPrefixCreate(s *Session, _ []string) error {
 // manually" option in the IP block picker, mirroring tenantManualEntrySentinel.
 const ipBlockManualEntrySentinel = "__manual__"
 
-// promptVPCPrefixIPBlockID picks the IP block for a new VPC prefix. ipBlockId
-// is required by the API (APIVpcPrefixCreateRequest.Validate), so rather than
-// make the operator paste a raw UUID, list the IP blocks already scoped to the
-// VPC's site and let them choose one. Falls back to manual entry when no IP
-// blocks are visible, when listing fails, or when the operator opts out via
-// the trailing sentinel (NVBug 6105076).
-func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
+// validateVPCPrefixLength checks the shared minimum and the maximum resolved
+// from the selected IP Block family and VPC address mode.
+func validateVPCPrefixLength(maximumLength, prefixLength int) error {
+	if prefixLength < vpcprefix.PrefixLengthMinimum || prefixLength > maximumLength {
+		return fmt.Errorf("prefix length must be between %d and %d", vpcprefix.PrefixLengthMinimum, maximumLength)
+	}
+	return nil
+}
+
+// vpcPrefixSlaacEnabled reads the selected VPC's address mode when it affects
+// an IPv6 VPC Prefix. IPv4 and manual block selection do not depend on it.
+func vpcPrefixSlaacEnabled(family vpcprefix.IPFamily, vpc *NamedItem) (bool, error) {
+	if family != vpcprefix.IPFamilyIPv6 {
+		return false, nil
+	}
+	raw, ok := vpc.Raw.(map[string]interface{})
+	if !ok {
+		return false, fmt.Errorf("could not determine whether VPC %q uses SLAAC", vpc.Name)
+	}
+	enabled, ok := raw["slaacEnabled"].(bool)
+	if !ok {
+		return false, fmt.Errorf("could not determine whether VPC %q uses SLAAC", vpc.Name)
+	}
+	return enabled, nil
+}
+
+// promptVPCPrefixIPBlock picks the IP block for a new VPC prefix. `ipBlockId`
+// is required by the API, so list the Ready tenant blocks already scoped to
+// the VPC's Site instead of requiring a raw UUID. The selected protocol lets
+// the next prompt show the relevant prefix range. Manual entry remains
+// available when listing fails, no blocks are visible, or the operator chooses
+// the trailing option (NVBug 6105076).
+func promptVPCPrefixIPBlock(ctx context.Context, s *Session) (SelectItem, error) {
 	blocks, tenantID, err := s.fetchTenantIPBlocks(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s could not list current tenant IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
-		return promptIPBlockIDRaw()
+		return promptVPCPrefixIPBlockRaw()
 	}
 	items := buildIPBlockSelectItems(blocks, tenantID)
 	if len(items) == 1 {
 		// Only the manual-entry sentinel: no usable tenant IP blocks for this site.
 		fmt.Fprintf(os.Stderr, "%s no Ready tenant IP blocks found for this site; create an allocation or enter an IP block ID manually\n", Dim("note:"))
-		return promptIPBlockIDRaw()
+		return promptVPCPrefixIPBlockRaw()
 	}
 	selected, err := Select("IP block:", items)
 	if err != nil {
-		return "", err
+		return SelectItem{}, err
 	}
 	if selected.ID == ipBlockManualEntrySentinel {
-		return promptIPBlockIDRaw()
+		return promptVPCPrefixIPBlockRaw()
 	}
-	return selected.ID, nil
+	return *selected, nil
 }
 
-func promptIPBlockIDRaw() (string, error) {
+// promptVPCPrefixIPBlockRaw returns a manually entered block without a known
+// protocol. The server resolves its family before allocating the prefix.
+func promptVPCPrefixIPBlockRaw() (SelectItem, error) {
 	raw, err := PromptText("IP block ID", true)
 	if err != nil {
-		return "", err
+		return SelectItem{}, err
 	}
-	return strings.TrimSpace(raw), nil
+	return SelectItem{ID: strings.TrimSpace(raw)}, nil
 }
 
 // buildIPBlockSelectItems turns the resolver's Ready tenant IP blocks into
 // picker options whose ID is the IP block UUID and whose label surfaces the
-// block name (falling back to the UUID when unnamed) plus status. Provider IP
-// blocks and tenant IP blocks that are not Ready cannot back a VPC prefix and
-// are skipped. A trailing manual-entry sentinel is always appended so the
-// operator can still type a raw UUID for a block that isn't listed.
+// block name (falling back to the UUID when unnamed), protocol version, and
+// status. It also preserves the protocol version for the prefix prompt for
+// that family. Provider IP blocks and tenant IP blocks that are not Ready
+// cannot back a VPC prefix and are skipped. A trailing sentinel for manual
+// entry is always appended so the operator can still type a raw UUID for a
+// block that isn't listed.
 func buildIPBlockSelectItems(blocks []NamedItem, tenantID string) []SelectItem {
 	tenantID = strings.TrimSpace(tenantID)
 	items := make([]SelectItem, 0, len(blocks)+1)
@@ -2555,10 +2597,18 @@ func buildIPBlockSelectItems(blocks []NamedItem, tenantID string) []SelectItem {
 		if label == "" {
 			label = id
 		}
+		protocolVersion := strings.TrimSpace(b.Extra["protocolVersion"])
+		if protocolVersion != "" {
+			label += "  " + Dim(protocolVersion)
+		}
 		if strings.TrimSpace(b.Status) != "" {
 			label += "  " + Dim(b.Status)
 		}
-		items = append(items, SelectItem{Label: label, ID: id})
+		items = append(items, SelectItem{
+			Label: label,
+			ID:    id,
+			Extra: map[string]string{"protocolVersion": protocolVersion},
+		})
 	}
 	items = append(items, SelectItem{Label: "Enter IP block ID manually...", ID: ipBlockManualEntrySentinel})
 	return items

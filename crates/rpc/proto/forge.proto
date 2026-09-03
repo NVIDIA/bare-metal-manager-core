@@ -9819,9 +9819,13 @@ enum ComponentManagerStatusCode {
 }
 
 message ComponentResult {
-  string component_id = 1;
+  // Absent when the target was a MAC with no ingested component row yet.
+  optional string component_id = 1;
   ComponentManagerStatusCode status = 2;
   string error = 3;
+  // Echoed for MAC-targeted requests so callers can correlate results when
+  // component_id is absent. Populated for ID targets too when known.
+  optional string mac_address = 4;
 }
 
 message SwitchIdList {
@@ -9832,6 +9836,11 @@ message PowerShelfIdList {
   repeated common.PowerShelfId ids = 1;
 }
 
+// A list of device MAC addresses used to target component operations (BMC MAC for compute/switch, PMC MAC for power shelf).
+message MacAddressList {
+  repeated string mac_addresses = 1;
+}
+
 // --- Component inventory ---
 
 message GetComponentInventoryRequest {
@@ -9839,6 +9848,7 @@ message GetComponentInventoryRequest {
     common.MachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
+    MacAddressList compute_bmc_macs = 4;
   }
 }
 
@@ -9858,6 +9868,7 @@ message ComponentPowerControlRequest {
     common.MachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
+    MacAddressList compute_bmc_macs = 6;
   }
   common.SystemPowerControl action = 4;
   // When true, bypass the state controller and dispatch directly to the
@@ -9930,8 +9941,13 @@ enum ComputeTrayComponent {
 }
 
 message UpdateComputeTrayFirmwareTarget {
+  // Exactly one of machine_ids or bmc_macs must be set (the server rejects
+  // neither/both). machine_ids targets ingested trays; bmc_macs targets by BMC
+  // MAC, including pre-ingestion. These are plain fields rather than a oneof so
+  // field 1 stays wire-compatible with earlier releases that predate bmc_macs.
   common.MachineIdList machine_ids = 1;
   repeated ComputeTrayComponent components = 2;
+  MacAddressList bmc_macs = 3;
 }
 
 message UpdateSwitchFirmwareTarget {
@@ -9983,6 +9999,7 @@ message GetComponentFirmwareStatusRequest {
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
+    MacAddressList compute_bmc_macs = 5;
   }
 }
 
@@ -9996,6 +10013,7 @@ message ListComponentFirmwareVersionsRequest {
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
+    MacAddressList compute_bmc_macs = 5;
   }
 }
 
