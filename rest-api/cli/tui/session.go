@@ -433,8 +433,12 @@ func (s *Session) fetchDomains(ctx context.Context) ([]NamedItem, error) {
 	return result, nil
 }
 
-func (s *Session) fetchVPCs(_ context.Context) ([]NamedItem, error) {
-	q := map[string]string{}
+func (s *Session) fetchVPCs(ctx context.Context) ([]NamedItem, error) {
+	tenantID, err := s.getTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q := map[string]string{"tenantId": tenantID}
 	if s.Scope.SiteID != "" {
 		q["siteId"] = s.Scope.SiteID
 	}
@@ -444,6 +448,9 @@ func (s *Session) fetchVPCs(_ context.Context) ([]NamedItem, error) {
 	}
 	result := make([]NamedItem, len(items))
 	for i, m := range items {
+		if str(m, "tenantId") != tenantID {
+			return nil, fmt.Errorf("vpc %q is not owned by the current tenant", str(m, "id"))
+		}
 		result[i] = NamedItem{
 			Name:   str(m, "name"),
 			ID:     str(m, "id"),

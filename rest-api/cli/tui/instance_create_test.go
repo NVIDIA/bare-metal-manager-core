@@ -31,6 +31,7 @@ func TestSession_fetchVPCsPreservesNetworkVirtualizationType(t *testing.T) {
 		"",
 	)
 	session.Scope.SiteID = "site-1"
+	session.Cache.Set("_tenant", []NamedItem{{Name: "acme", ID: "tenant-1"}})
 
 	vpcs, err := session.fetchVPCs(context.Background())
 

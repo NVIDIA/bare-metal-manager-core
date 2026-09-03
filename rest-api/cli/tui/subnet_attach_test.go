@@ -54,7 +54,7 @@ func TestCmdSubnetAttachVPC(t *testing.T) {
 		wantPosts       int
 	}{
 		{
-			name:        "concise command sends only target VPC after confirmation",
+			name:        "concise command explicitly allows replacement after confirmation",
 			input:       "y\n",
 			sourceUsage: 2,
 			response:    `{"id":"subnet-1","name":"tenant-subnet","vpcId":"vpc-target"}`,
@@ -147,7 +147,7 @@ func TestCmdSubnetAttachVPC(t *testing.T) {
 					postCount.Add(1)
 					var body map[string]interface{}
 					require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-					assert.Equal(t, map[string]interface{}{"vpcId": "vpc-target"}, body)
+					assert.Equal(t, map[string]interface{}{"vpcId": "vpc-target", "allowReplace": true}, body)
 					w.Header().Set("Content-Type", "application/json")
 					_, err := io.WriteString(w, test.response)
 					require.NoError(t, err)

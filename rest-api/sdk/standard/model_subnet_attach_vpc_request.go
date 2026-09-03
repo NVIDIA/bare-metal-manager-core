@@ -26,6 +26,8 @@ var _ MappedNullable = &SubnetAttachVpcRequest{}
 type SubnetAttachVpcRequest struct {
 	// ID of the target Ethernet virtualizer VPC at the same Site and owned by the same Tenant
 	VpcId string `json:"vpcId"`
+	// Whether an existing attachment to a different VPC may be replaced
+	AllowReplace *bool `json:"allowReplace,omitempty"`
 }
 
 type _SubnetAttachVpcRequest SubnetAttachVpcRequest
@@ -37,6 +39,8 @@ type _SubnetAttachVpcRequest SubnetAttachVpcRequest
 func NewSubnetAttachVpcRequest(vpcId string) *SubnetAttachVpcRequest {
 	this := SubnetAttachVpcRequest{}
 	this.VpcId = vpcId
+	var allowReplace bool = false
+	this.AllowReplace = &allowReplace
 	return &this
 }
 
@@ -45,6 +49,8 @@ func NewSubnetAttachVpcRequest(vpcId string) *SubnetAttachVpcRequest {
 // but it doesn't guarantee that properties required by API are set
 func NewSubnetAttachVpcRequestWithDefaults() *SubnetAttachVpcRequest {
 	this := SubnetAttachVpcRequest{}
+	var allowReplace bool = false
+	this.AllowReplace = &allowReplace
 	return &this
 }
 
@@ -72,6 +78,38 @@ func (o *SubnetAttachVpcRequest) SetVpcId(v string) {
 	o.VpcId = v
 }
 
+// GetAllowReplace returns the AllowReplace field value if set, zero value otherwise.
+func (o *SubnetAttachVpcRequest) GetAllowReplace() bool {
+	if o == nil || IsNil(o.AllowReplace) {
+		var ret bool
+		return ret
+	}
+	return *o.AllowReplace
+}
+
+// GetAllowReplaceOk returns a tuple with the AllowReplace field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *SubnetAttachVpcRequest) GetAllowReplaceOk() (*bool, bool) {
+	if o == nil || IsNil(o.AllowReplace) {
+		return nil, false
+	}
+	return o.AllowReplace, true
+}
+
+// HasAllowReplace returns a boolean if a field has been set.
+func (o *SubnetAttachVpcRequest) HasAllowReplace() bool {
+	if o != nil && !IsNil(o.AllowReplace) {
+		return true
+	}
+
+	return false
+}
+
+// SetAllowReplace gets a reference to the given bool and assigns it to the AllowReplace field.
+func (o *SubnetAttachVpcRequest) SetAllowReplace(v bool) {
+	o.AllowReplace = &v
+}
+
 func (o SubnetAttachVpcRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -83,6 +121,9 @@ func (o SubnetAttachVpcRequest) MarshalJSON() ([]byte, error) {
 func (o SubnetAttachVpcRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["vpcId"] = o.VpcId
+	if !IsNil(o.AllowReplace) {
+		toSerialize["allowReplace"] = o.AllowReplace
+	}
 	return toSerialize, nil
 }
 

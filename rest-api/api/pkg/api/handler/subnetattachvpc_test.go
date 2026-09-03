@@ -133,9 +133,9 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 		expectProxyRequest bool
 	}{
 		{
-			name: "reassigns an unallocated ETV Subnet",
+			name: "reassigns an unallocated ETV Subnet after explicit acknowledgement",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -144,7 +144,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			expectProxyRequest: true,
 		},
 		{
-			name: "keeps same-target retry idempotent",
+			name: "keeps same-target retry idempotent without replacement acknowledgement",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				fixture.setCoreResponse(subnetAttachVpcCoreResponse(*fixture.subnet.ControllerNetworkSegmentID, *fixture.sourceVpc.ControllerVpcID))
 				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.sourceVpc.ID.String()})
@@ -164,7 +164,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 					})
 					require.NoError(t, err)
 				}
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -182,7 +182,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 					fixture.targetVpc.ID,
 				)
 				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -219,46 +219,49 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			expectedVpc:    "source",
 		},
 		{
-			name: "rejects a Subnet that is not Ready at the Site",
+			name: "delegates stale Subnet lifecycle state to Core",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				_, err := cdbm.NewSubnetDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.SubnetUpdateInput{
 					SubnetId: fixture.subnet.ID, Status: cutil.GetPtr(cdbm.SubnetStatusError), IsMissingOnSite: cutil.GetPtr(true),
 				})
 				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedVpc:    "source",
+			expectedStatus:     http.StatusOK,
+			expectedVpc:        "target",
+			expectProxyRequest: true,
 		},
 		{
-			name: "rejects a source VPC that is not Ready",
+			name: "delegates stale source VPC lifecycle state to Core",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
 					VpcID: fixture.sourceVpc.ID, Status: cutil.GetPtr(cdbm.VpcStatusError),
 				})
 				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedVpc:    "source",
+			expectedStatus:     http.StatusOK,
+			expectedVpc:        "target",
+			expectProxyRequest: true,
 		},
 		{
-			name: "rejects a target VPC that is not Ready",
+			name: "delegates stale target VPC lifecycle state to Core",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				_, err := cdbm.NewVpcDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.VpcUpdateInput{
 					VpcID: fixture.targetVpc.ID, Status: cutil.GetPtr(cdbm.VpcStatusError),
 				})
 				require.NoError(t, err)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedVpc:    "source",
+			expectedStatus:     http.StatusOK,
+			expectedVpc:        "target",
+			expectProxyRequest: true,
 		},
 		{
 			name: "rejects an FNN target before calling Core",
@@ -338,7 +341,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			name:        "leaves REST VPC unchanged when the Core proxy times out",
 			workflowErr: timeoutErr,
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -350,7 +353,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 			name: "leaves REST VPC unchanged for an inconsistent Core response",
 			prepare: func(t *testing.T, fixture *subnetAttachVpcFixture) (string, string, *cdbm.User) {
 				fixture.setCoreResponse(subnetAttachVpcCoreResponse(*fixture.subnet.ControllerNetworkSegmentID, *fixture.sourceVpc.ControllerVpcID))
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -364,7 +367,7 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 				response := subnetAttachVpcCoreResponse(*fixture.subnet.ControllerNetworkSegmentID, *fixture.targetVpc.ControllerVpcID)
 				response.Config.SegmentType = corev1.NetworkSegmentType_HOST_INBAND
 				fixture.setCoreResponse(response)
-				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String()})
+				body, err := json.Marshal(model.APISubnetAttachVpcRequest{VpcID: fixture.targetVpc.ID.String(), AllowReplace: true})
 				require.NoError(t, err)
 				return fixture.subnet.ID.String(), string(body), fixture.user
 			},
@@ -420,7 +423,9 @@ func TestAttachSubnetVpcHandler_Handle(t *testing.T) {
 				}
 				require.NotNil(t, expectedControllerVpcID)
 				assert.Equal(t, expectedControllerVpcID.String(), coreRequest.GetVpcId().GetValue())
-				assert.True(t, coreRequest.GetAllowReplace())
+				var submittedRequest model.APISubnetAttachVpcRequest
+				require.NoError(t, json.Unmarshal([]byte(body), &submittedRequest))
+				assert.Equal(t, submittedRequest.AllowReplace, coreRequest.GetAllowReplace())
 			} else {
 				assert.Empty(t, fixture.proxiedRequest.FullMethod)
 			}

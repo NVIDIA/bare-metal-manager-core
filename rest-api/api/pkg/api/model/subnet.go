@@ -127,6 +127,8 @@ func (scr *APISubnetCreateRequest) ToProto(subnet *cdbm.Subnet, vpc *cdbm.Vpc, r
 type APISubnetAttachVpcRequest struct {
 	// VpcID identifies the target REST VPC.
 	VpcID string `json:"vpcId"`
+	// AllowReplace permits replacing an attachment to a different VPC.
+	AllowReplace bool `json:"allowReplace,omitempty"`
 	// ControllerNetworkSegmentID is the Site-facing Subnet ID resolved by the handler.
 	ControllerNetworkSegmentID uuid.UUID `json:"-"`
 	// ControllerVpcID is the Site-facing target VPC ID resolved by the handler.
@@ -147,7 +149,7 @@ func (savr *APISubnetAttachVpcRequest) ToProto() *corev1.AttachNetworkSegmentToV
 	return &corev1.AttachNetworkSegmentToVpcRequest{
 		NetworkSegmentId: &corev1.NetworkSegmentId{Value: savr.ControllerNetworkSegmentID.String()},
 		VpcId:            &corev1.VpcId{Value: savr.ControllerVpcID.String()},
-		AllowReplace:     true,
+		AllowReplace:     savr.AllowReplace,
 	}
 }
 

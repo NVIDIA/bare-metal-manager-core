@@ -3167,14 +3167,22 @@ paths:
                 type: string
                 example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "CREATED_DESC"}'
               description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-vpc
       description: |-
-        Retrieve all VPCs for the org.
+        Retrieve all VPCs for the org. When `tenantId` is supplied, it must match the org's current Tenant.
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix
       parameters:
+        - schema:
+            type: string
+            format: uuid
+          in: query
+          name: tenantId
+          description: Optional ID of the current Tenant. A different Tenant ID is rejected.
         - schema:
             type: string
             format: uuid
@@ -4423,7 +4431,7 @@ paths:
       summary: Attach Subnet to VPC
       operationId: attach-vpc-to-subnet
       description: |-
-        Attach a Ready, unused tenant Subnet to an Ethernet virtualizer VPC at the same Site. Attaching to the current VPC is idempotent. The operation cannot detach a Subnet or move it across network-virtualization modes.
+        Attach an unused tenant Subnet to an Ethernet virtualizer VPC at the same Site. Set `allowReplace` to `true` to reassign a Subnet that is already attached to a different VPC. Attaching to the current VPC is idempotent. The operation cannot detach a Subnet or move it across network-virtualization modes.
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
       requestBody:
@@ -4436,6 +4444,7 @@ paths:
               example-1:
                 value:
                   vpcId: 5e28ad7c-5fb7-46d6-a28a-fc0ba6fdc4a3
+                  allowReplace: true
       responses:
         '200':
           description: OK
@@ -20322,6 +20331,10 @@ components:
           type: string
           format: uuid
           description: ID of the target Ethernet virtualizer VPC at the same Site and owned by the same Tenant
+        allowReplace:
+          type: boolean
+          default: false
+          description: Whether an existing attachment to a different VPC may be replaced
       required:
         - vpcId
     SubnetUpdateRequest:

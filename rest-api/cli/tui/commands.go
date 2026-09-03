@@ -1106,12 +1106,12 @@ func cmdSubnetAttachVPC(s *Session, args []string) error {
 	if err != nil {
 		return err
 	}
-	confirmed, err := PromptConfirm(fmt.Sprintf("Attach Subnet %s (%s) to VPC %s (%s)?", subnet.Name, subnet.ID, target.Name, target.ID))
+	confirmed, err := PromptConfirm(fmt.Sprintf("Allow replacing Subnet %s (%s) attachment with VPC %s (%s)?", subnet.Name, subnet.ID, target.Name, target.ID))
 	if err != nil || !confirmed {
 		return err
 	}
-	bodyJSON, _ := json.Marshal(map[string]interface{}{"vpcId": target.ID})
-	LogCmd(s, "subnet", "attach-vpc", subnet.ID, "--vpc-id", target.ID)
+	bodyJSON, _ := json.Marshal(map[string]interface{}{"vpcId": target.ID, "allowReplace": true})
+	LogCmd(s, "subnet", "attach-vpc", subnet.ID, "--vpc-id", target.ID, "--allow-replace")
 	resp, _, err := s.Client.Do(
 		"POST",
 		apiPath(s, "subnet/{subnetId}/attach-vpc"),

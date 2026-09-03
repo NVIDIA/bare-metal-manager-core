@@ -195,15 +195,18 @@ func TestAPISubnetAttachVpcRequest_Validate(t *testing.T) {
 func TestAPISubnetAttachVpcRequest_ToProto(t *testing.T) {
 	segmentID := uuid.New()
 	vpcID := uuid.New()
-	request := APISubnetAttachVpcRequest{
-		VpcID:                      uuid.NewString(),
-		ControllerNetworkSegmentID: segmentID,
-		ControllerVpcID:            vpcID,
+	for _, allowReplace := range []bool{false, true} {
+		request := APISubnetAttachVpcRequest{
+			VpcID:                      uuid.NewString(),
+			AllowReplace:               allowReplace,
+			ControllerNetworkSegmentID: segmentID,
+			ControllerVpcID:            vpcID,
+		}
+		protoRequest := request.ToProto()
+		assert.Equal(t, segmentID.String(), protoRequest.GetNetworkSegmentId().GetValue())
+		assert.Equal(t, vpcID.String(), protoRequest.GetVpcId().GetValue())
+		assert.Equal(t, allowReplace, protoRequest.GetAllowReplace())
 	}
-	protoRequest := request.ToProto()
-	assert.Equal(t, segmentID.String(), protoRequest.GetNetworkSegmentId().GetValue())
-	assert.Equal(t, vpcID.String(), protoRequest.GetVpcId().GetValue())
-	assert.True(t, protoRequest.GetAllowReplace())
 }
 
 func TestAPISubnetUpdateRequest_Validate(t *testing.T) {

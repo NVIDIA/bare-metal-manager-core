@@ -187,7 +187,7 @@ func TestSubnetAPIService_AttachVpcToSubnet(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(transport.body, &body))
-	require.Equal(t, map[string]any{"vpcId": "target-vpc-id"}, body)
+	require.Equal(t, map[string]any{"vpcId": "target-vpc-id", "allowReplace": false}, body)
 }
 
 func TestSubnetCreateRequest_MarshalJSON(t *testing.T) {

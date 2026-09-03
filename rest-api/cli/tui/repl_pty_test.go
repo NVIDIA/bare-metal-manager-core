@@ -749,11 +749,11 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/vpc":
 			_, _ = io.WriteString(w, `[
-				{"id":"vpc-1","name":"vpc-one","siteId":"site-1","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"},
-				{"id":"vpc-2","name":"vpc-two","siteId":"site-1","status":"Ready","networkVirtualizationType":"FNN"},
-				{"id":"vpc-flat","name":"flat-vpc","siteId":"site-1","status":"Ready","networkVirtualizationType":"FLAT"},
-				{"id":"vpc-allocated","name":"allocated-vpc","siteId":"site-2","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"}
-			]`)
+					{"id":"vpc-1","name":"vpc-one","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"},
+					{"id":"vpc-2","name":"vpc-two","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"FNN"},
+					{"id":"vpc-flat","name":"flat-vpc","siteId":"site-1","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"FLAT"},
+					{"id":"vpc-allocated","name":"allocated-vpc","siteId":"site-2","tenantId":"tenant-1","status":"Ready","networkVirtualizationType":"ETHERNET_VIRTUALIZER"}
+				]`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/domain":
 			_, _ = io.WriteString(w, `[
