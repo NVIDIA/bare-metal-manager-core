@@ -1,4 +1,4 @@
-# DPU Extension Service Integration with DPF
+# DPU Extension Service Integration with DPF - Stage 1
 
 GitHub Issue: [#3103](https://github.com/NVIDIA/infra-controller/issues/3103)
 
@@ -9,11 +9,10 @@ GitHub Issue: [#3103](https://github.com/NVIDIA/infra-controller/issues/3103)
 |   0.1   | 07/01/2026 | Felicity Xu | Initial version |
 |   0.2   | 08/13/2026 | Felicity Xu | Revised version |
 
-
 ## 2. Summary
 
 NICo currently supports DPU Extension Services of type `KUBERNETES_POD`. When a
-`KUBERNETES_POD` extension service is attached to an instance, it's pod spec is
+`KUBERNETES_POD` extension service is attached to an instance, its pod spec is
 sent to instance's DPUs through `GetManagedHostNetworkConfig`, and deployed
 locally by the DPU agent as a static Kubernetes Pod.
 
@@ -96,7 +95,6 @@ Stage 2 must:
    expose narrowly scoped overrides for those fields when a use case
    establishes their ownership and update.
 
-
 ## 3. Design
 
 ### 3.0 Helm Chart Requirements
@@ -134,13 +132,11 @@ must therefore provide appropriate defaults for every such parameter it relies
 on.
 
 The optional `data.values` object remains available for tenant chart-specific
-configuration. It does not make generic DPUService contract fields tenant
-configurable, and it cannot override NICo's node-selector value. For the
-Stage 1 credential-provisioning contract, it also cannot override the
-top-level `imagePullSecrets` value. A chart that requires a private registry
-must set `imagePullSecrets` in its own `values.yaml` defaults and render it in
-the Pod template; Helm uses that default when NICo leaves the corresponding
-DPUService value unset.
+configuration. It cannot override NICo's node-selector value. Other values,
+including a top-level `imagePullSecrets` value, are passed through to the
+`DPUService` as tenant-provided chart configuration. NICo does not validate
+referenced Secret names or create, update, rotate, or delete those Secrets. A
+chart may instead define `imagePullSecrets` in its own `values.yaml` defaults.
 
 When NICo creates a `DPF_HELM_CHART` extension service, it creates a detached
 `DPUService` and deterministically generates
@@ -169,14 +165,14 @@ and validate the required Kubernetes Secrets. NICo does not accept, store,
 rotate, update, or delete DPF Helm-chart credentials.
 
 - A private Helm-chart repository requires an Argo CD repository Secret in the
-  namespace in which Argo CD runs, i.e. `argocd`. 
+  namespace in which Argo CD runs, i.e. `argocd`.
 - A private image registry requires a Secret
   in `dpf-operator-system`, labeled `dpu.nvidia.com/image-pull-secret` so DPF
   mirrors it to the target DPU clusters.
-- A chart that needs a private image registry must declare the approved pull
-  Secret name in the chart's `values.yaml` default and render that value as the
-  Pod template's `imagePullSecrets`. NICo leaves that value unset in the
-  DPUService and tenants cannot override it in `data.values`.
+- A chart that needs a private image registry must render `imagePullSecrets`
+  in its Pod template. The Secret name can come from the chart's `values.yaml`
+  default or tenant-provided `data.values`; in either case, provisioning and
+  ownership of the Secret remain external to NICo.
 
 Credential availability is a launch/admin prerequisite, rather than an
 eventually consistent setup step. DPF can create a DPUService and its Argo CD
@@ -212,39 +208,51 @@ ALTER TABLE extension_services
     ADD COLUMN controller_state_outcome JSONB DEFAULT NULL;
 ```
 
-The migration should also creates the extension-service state-history, controller-iteration-ID,
-and queued-object tables which are required for the controller framework. Existing `KUBERNETES_POD` services are backfilled to `Active`.
+The migration also creates the extension-service state-history,
+controller-iteration-ID, and queued-object tables required by the controller
+framework. Existing live `KUBERNETES_POD` services are backfilled to `Ready`;
+existing deleted services are backfilled to `Deleted`.
 
 For `DPF_HELM_CHART` extension services,
 
-- The controller states are `Creating`, `Active`,
+- The controller states are `Creating`, `Ready`,
   `Updating`, `Deleting`, `Deleted`, and `Failed`;
 - `controller_state_version` is independent of API-visible `version_ctr` and provides protection against
   stale controller iterations;
 - `controller_state_outcome` stores the latest safe
   diagnostic; it is not desired service state.
 
-The API exposes lifecycle state through additive `DpuExtensionService.lifecycle_state`.
+The Core API exposes the lifecycle through the additive generic
+`DpuExtensionService.lifecycle_status` field. The dedicated enum defines the
+valid state names encoded in `LifecycleStatus.state`.
 
 ```proto
 enum DpuExtensionServiceLifecycleState {
-  DPU_EXTENSION_SERVICE_LIFECYCLE_UNKNOWN = 0;
-  DPU_EXTENSION_SERVICE_LIFECYCLE_CREATING = 1;
-  DPU_EXTENSION_SERVICE_LIFECYCLE_ACTIVE = 2;
-  DPU_EXTENSION_SERVICE_LIFECYCLE_UPDATING = 3;
-  DPU_EXTENSION_SERVICE_LIFECYCLE_DELETING = 4;
-  DPU_EXTENSION_SERVICE_LIFECYCLE_FAILED = 5;
-  DPU_EXTENSION_SERVICE_LIFECYCLE_DELETED = 6;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_CREATING = 0;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_READY = 1;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_UPDATING = 2;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETING = 3;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_DELETED = 4;
+  DPU_EXTENSION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
 }
 
 message DpuExtensionService {
   // Existing fields 1 through 10.
-  optional DpuExtensionServiceLifecycleState lifecycle_state = 11;
+  LifecycleStatus lifecycle_status = 11;
 }
 ```
 
-- `KUBERNETES_POD` services leaves this lifecycle_state as None.
-- `DPF_HELM_CHART` services report their controller state.
+`LifecycleStatus.state` contains a JSON envelope such as
+`{"state":"creating"}` or `{"state":"ready"}`. Both service types expose a
+lifecycle status: a `KUBERNETES_POD` service is synchronously `Ready`, while a
+`DPF_HELM_CHART` service reports its asynchronous controller state.
+
+The REST API projects Core lifecycle state to its existing status model:
+`Creating` becomes `Pending`, `Ready` remains `Ready`, `Updating` remains
+`Updating`, `Deleting` and `Deleted` become `Deleting`, and `Failed` becomes
+`Error`. After Core reaches `Deleted`, the service is omitted from inventory,
+so REST clients normally observe it disappear rather than observe a terminal
+`Deleted` status.
 
 ### 3.3 Create `DPF_HELM_CHART` Extension Service
 
@@ -257,11 +265,11 @@ database transaction and commits it. The handler does not create DPF resources.
 intent with DPF. After it observes the committed `Creating` state, it reads the
 desired service, creates or verifies the detached DPF `DPUService`, and records
 the reconciliation outcome. Successful reconciliation transitions the service
-from `Creating` to `Active`.
+from `Creating` to `Ready`.
 
 The create response therefore means that NICo accepted the requested service;
 it does not mean that DPF accepted the CR or that the Helm workload is healthy.
-`Active` means only that the desired DPUService CR has been reconciled.
+`Ready` means only that the desired DPUService CR has been reconciled.
 
 The DPUService remains detached after creation. It is deployed only after a
 later instance attachment causes NICo to apply the matching placement label to
@@ -285,7 +293,7 @@ sequenceDiagram
     Controller->>DB: Read persisted Creating state and desired service
     Controller->>DPF: Create or verify detached DPUService
     DPF-->>Controller: Created or verified owned DPUService
-    Controller->>DB: Compare-and-swap Creating state to Active state
+    Controller->>DB: Compare-and-swap Creating state to Ready state
 ```
 
 #### 3.3.1 API and Validation
@@ -357,14 +365,15 @@ Example input `data`:
 | `security.privileged` | `boolean` | Yes      | Service privilege policy; maps to `spec.security.privileged`.        |
 | `values`              | `object`  | No       | Chart-specific Helm values; maps to `spec.helmChart.values` when present and is omitted from the projected CR when absent. |
 
-The create API rejects a request when required DPF prerequisites are
-unavailable for the site, `data` is invalid, or required chart fields are
-missing. The JSON contract rejects unknown fields. Tenant-provided `values`
-must not set `serviceDaemonSet.nodeSelector` or top-level
-`imagePullSecrets`. The former is reserved for NICo's placement contract; the
-latter is a chart-owned default under the Stage 1 credential-provisioning
-contract. The launch/admin workflow, not this API, verifies that the required
-pre-provisioned Secrets exist before the service is created.
+The create API rejects a request when DPF is disabled for the site, `data` is
+invalid, or required chart fields are missing. The JSON contract rejects
+unknown fields. Tenant-provided `values` must not set
+`serviceDaemonSet.nodeSelector`, which is reserved for NICo's placement
+contract. Other chart values, including `imagePullSecrets`, are passed through.
+The launch/admin workflow, not this API, verifies that any referenced,
+pre-provisioned Secrets exist before the service is created. The API also
+rejects the legacy `credential` field and Stage 2 `observability` configuration
+for this service type.
 
 After validation, the API handler creates or validates the
 `ExtensionServiceId` and opens a database transaction. In that transaction, it
@@ -393,21 +402,23 @@ prerequisite described in [Section 3.1](#31-credential-pre-provisioning).
 The controller calls `DpfOperations::create_dpu_service` outside a database
 transaction. A successful create, or an `AlreadyExists` DPUService with the
 expected NICo ownership and immutable identity, permits a compare-and-swap
-transition from `Creating` to `Active`. The transition succeeds only when
+transition from `Creating` to `Ready`. The transition succeeds only when
 `controller_state_version` still matches the version read by that controller
 iteration.
 
 For example, a delete request may change the service to `Deleting` while a
 create operation is in flight. The stale create iteration cannot overwrite
-`Deleting` with `Active` because its compare-and-swap transition fails. When the
-controller transition loses the compare-and-swap check ,it automatically
+`Deleting` with `Ready` because its compare-and-swap transition fails. When the
+controller transition loses the compare-and-swap check, it automatically
 re-enqueues the service ID. The next iteration observes `Deleting` and performs
 cleanup instead.
 
-Transient DPF failures leave the service in `Creating` for retry. A validation,
-authorization, ownership, or immutable-specification conflict transitions it
-to `Failed` with a diagnostic outcome. Services in `Creating` or `Failed`
-cannot be attached to an instance.
+Transient DPF failures leave the service in `Creating` for retry. A DPF
+configuration error, Kubernetes API `400` or `422` response, ownership
+conflict, or immutable-specification conflict transitions it to `Failed`.
+Other DPF API failures are retried. Exact DPF error details are logged; the
+persisted controller outcome remains non-sensitive. Services in `Creating` or
+`Failed` cannot be attached to an instance.
 
 #### 3.3.3 DPUService Specification
 
@@ -431,24 +442,26 @@ The controller maps persisted and generated values as follows:
 | Stage 1 deployment model                      | `spec.deployInCluster = false` and no `serviceID`, interfaces, or config ports           |
 | Stage 1 DPUCluster model                      | `spec.dpuClusterSelector` is unset; DPF creates an Application in every known DPUCluster |
 
-NOTE: The `DPUService` name and node selector are deterministically derived from the
-extension service UUID rather than from the mutable service name.
+NOTE: The `DPUService` name and node selector are deterministically derived from
+the full, canonical extension-service UUID rather than from the mutable service
+name. The implementation does not hash or truncate the UUID.
 The Kubernetes resource name, Helm release name, and placement-label key are
 therefore stable for the service lifetime.
 
-- DPUService name: `extsvc-<hash>`
-- Node-label key/value: `nico/extsvc-<hash>: enabled`
+- DPUService name: `extsvc-<service-uuid>`
+- Node-label key/value: `nico/extsvc-<service-uuid>: enabled`
 
-For the `data` example in Section 3.3.1, NICo creates the following DPUService:
+For a service with UUID `00000000-0000-0000-0000-000000000001` and the `data`
+example in Section 3.3.1, NICo creates the following DPUService:
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
 kind: DPUService
 metadata:
-  name: extsvc-abc123
+  name: extsvc-00000000-0000-0000-0000-000000000001
   namespace: dpf-operator-system
   labels:
-    nico/extension-service-id: <service-uuid>
+    nico/extension-service-id: 00000000-0000-0000-0000-000000000001
 spec:
   deployInCluster: false
   security:
@@ -458,7 +471,7 @@ spec:
       repoURL: oci://registry.example.com/charts
       chart: tenant-service
       version: 1.2.3
-      releaseName: extsvc-abc123
+      releaseName: extsvc-00000000-0000-0000-0000-000000000001
     values:
       image:
         repository: registry.example.com/tenant/service
@@ -469,7 +482,7 @@ spec:
     nodeSelector:
       nodeSelectorTerms:
         - matchExpressions:
-            - key: nico/extsvc-abc123
+            - key: nico/extsvc-00000000-0000-0000-0000-000000000001
               operator: In
               values: [enabled]
 ```
@@ -505,25 +518,30 @@ message UpdateDpuExtensionServiceRequest {
 
 For `DPF_HELM_CHART`, the update API handler first locks the service row and checks
 `if_version_ctr_match`, when supplied, against the current `version_ctr`. A
-Helm-data update is accepted only while the controller state is `Active`; it is
+Helm-data update is accepted only while the controller state is `Ready`; it is
 rejected while the service is `Creating`, `Updating`, `Deleting`, `Deleted`,
-or `Failed`.
+or `Failed`. The legacy `credential` field and Stage 2 `observability`
+configuration are rejected.
 
 A non-empty `data` value is a **complete** replacement Helm-service
 definition, not a DPUService or Kubernetes merge-patch document. It must
 include every field required at creation, including the chart repository URL,
 chart name, chart version, and security policy. `values` remains optional.
 
-An empty `data` value means it's a metadata-only update, which does not require
-DPF reconciliation and completed immediately after validation.
+An empty `data` value together with a name or description change is a
+metadata-only update. It does not require `Ready`, increment `version_ctr`,
+change the lifecycle, or invoke DPF. It completes immediately after database
+validation. A non-empty definition identical to the current normalized data is
+rejected as a no-op.
 
-The API handler validates and normalizes the complete desired service spec and:
+For a Helm-data update, the API handler validates and normalizes the complete
+desired service spec and:
 
 1. updates the existing `V1` row with the desired normalized `data` and
    requested version-owned metadata;
 2. applies requested service metadata;
 3. increments `version_ctr`; and
-4. transitions the controller state from `Active` to `Updating` with a new
+4. transitions the controller state from `Ready` to `Updating` with a new
    `controller_state_version`.
 
 After committing, the handler returns the service in `Updating` state. The
@@ -555,12 +573,17 @@ This is distinct from supplying `values: {}`, which preserves an explicitly
 empty values object. In particular, an omitted `values` object restores the
 chart-owned `imagePullSecrets` default when the chart defines one.
 
-After DPF accepts the patch, the controller transitions `Updating` to `Active`
+After DPF accepts the patch, the controller transitions `Updating` to `Ready`
 with a `controller_state_version` compare-and-swap transaction. A stale update
 iteration cannot overwrite a later delete or update state; a failed
 compare-and-swap is re-enqueued by the state-controller framework, and the
 next iteration reads the winning state. `active_versions` continues to contain
 only `V1`.
+
+A transient DPF read or patch error leaves the service in `Updating` for retry.
+A missing DPUService, ownership or immutable-specification conflict, DPF
+configuration error, or Kubernetes API `400` or `422` response transitions the
+service to `Failed`. The update path does not recreate a missing DPUService.
 
 Note when DPF accepts an update, it reconciles the existing Argo CD Application in
 each selected DPUCluster rather than creating a new Application for the chart
@@ -580,7 +603,7 @@ sole deployable service; any other version is rejected.
 
 The handler locks the service and rejects deletion while it is referenced by an
 active instance, or by a deleting instance whose extension-service cleanup is
-incomplete. It accepts deletion from `Creating`, `Active`, `Updating`, or
+incomplete. It accepts deletion from `Creating`, `Ready`, `Updating`, or
 `Failed`. A repeat request while the service is `Deleting` is idempotently
 accepted.
 
@@ -592,7 +615,7 @@ intent. The response means NICo accepted cleanup; it does not mean DPF has
 deleted the DPUService.
 
 The soft-deleted display name is reusable only after the state gets transitioned to `DELETED`.
- A newly created service with that display name receives a new UUID, DPUService name, and placement-label key; it cannot refer to the deleted service.
+A newly created service with that display name receives a new UUID, DPUService name, and placement-label key; it cannot refer to the deleted service.
 
 #### 3.5.2 State Controller Delete Reconciliation
 
@@ -656,11 +679,12 @@ attachment version. Helm-data updates are in place and do not create another
 attachable version.
 
 When extension services are present in `InstanceConfig`, the API handler
-validates each requested service. A new `DPF_HELM_CHART` attachment requires
-`dpf.enabled` for the site and an `Active` service. DPF Helm services may
-attach only to DPF-managed hosts; `KUBERNETES_POD` services are not supported
-on DPF-managed hosts. An instance cannot have `DPF_HELM_CHART` and
-`KUBERNETES_POD` extension services at the same time.
+validates each requested service. A `DPF_HELM_CHART` service can be created
+only when DPF is enabled for the site, and a new attachment requires a `Ready`
+service on a DPF-managed host. `KUBERNETES_POD` services are not supported on
+DPF-managed hosts. An instance cannot have `DPF_HELM_CHART` and
+`KUBERNETES_POD` extension services at the same time, and it cannot list the
+same service more than once.
 
 The handler persists the instance extension service config. The actual labeling of `DPUDevice` is performed in instance state lifecycle.
 
@@ -685,7 +709,7 @@ therefore reconcile the detached DPUService and its per-DPUCluster
 Applications while the chart workload remains absent from all DPUs. For every
 physical DPUDevice, the helper merge-patches only the attached service's
 NICo-owned key in `spec.cluster.nodeLabels`: it adds the matching UUID-derived
-node-selector label (for example, `nico/extsvc-<hash>: enabled`) on current
+node-selector label (for example, `nico/extsvc-<service-uuid>: enabled`) on current
 target DPUs, and removes that label from non-target DPUs and services marked
 `removed`. It preserves labels owned by DPF and other controllers and performs
 DPF calls outside database transactions.
@@ -706,16 +730,28 @@ the instance state.
 
 DPF does not currently provide a per-DPU, per-`DPUService` workload-status
 API. Stage 1 therefore reports **placement convergence**, not Helm workload
-health. The machine controller records a DPF Helm service as ready to run only
-after it has successfully applied the generated placement label to every
-required target `DPUDevice`; it records removal only after it has successfully
-removed that label from every required physical `DPUDevice`.
+health. The machine controller merge-patches a DPUDevice and then reads its
+labels back. The resulting per-DPU service status describes that verified
+placement state. For ordinary attachment and detachment, the required DPU set
+is the instance's currently used DPUs. Instance deletion instead requires all
+physical DPUs attached to the host.
 
 | Stage 1 condition | Reported extension-service status | Meaning |
 | --- | --- | --- |
-| All required active `DPUDevice` label patches succeed | `Running` | The service is placement-ready: its selected Nodes can satisfy the generated selector. |
-| Label reconciliation is incomplete or a DPF patch fails | `Pending` | NICo has not yet established the requested placement or removal. |
-| All required removal patches succeed | `Terminated` | The service is placement-detached. |
+| No current observation exists for the instance extension-service config version | `Unknown` | NICo has not yet observed this desired configuration; `configs_synced` is `Pending`. |
+| An active target DPU is observed without the exact generated label and value | `Pending` | NICo has not yet established the requested placement. |
+| An active target DPU is observed with the exact generated label and value | `Running` | The service is placement-ready: its selected Node can satisfy the generated selector. |
+| A removed or untargeted service is observed with the generated label still present | `Terminating` | Label removal has not converged on that DPU. |
+| A removed or untargeted service is observed without the generated label | `Terminated` | The service is placement-detached from that DPU. |
+| A required DPUDevice patch or read fails | `Error` | NICo records the DPF failure for that DPU and retries during later reconciliation. |
+
+The aggregate service status is derived from its required per-DPU statuses.
+`Error` has precedence over `Unknown`, `Pending`, `Running`, `Terminating`, and
+`Terminated`. `configs_synced` means that every required DPU has an observation
+for the current extension-service configuration version; it can therefore be
+`Synced` while a current observation reports `Error`. Initial instance
+readiness additionally requires every active service to be `Running` and every
+removed service to be `Terminated`.
 
 For this Stage 1 contract, `Running` does **not** mean that the Helm workload
 or its Pods are running, and `Terminated` does **not** prove that Pods have
@@ -760,11 +796,11 @@ not be sufficient to infer workload termination.
 
 An `UpdateInstanceConfig` request detaches a `DPF_HELM_CHART` service by
 removing it from the requested active-service list. NICo retains the existing
-service configuration in the persisted instance configuration with
-`removed: true`; it does not remove it immediately.
+service configuration in the persisted instance configuration with its
+`removed` timestamp set; it does not remove it immediately.
 
 The removed entry is the durable detachment intent. The API handler validates
-and persists the configuration change but does not call DPF. 
+and persists the configuration change but does not call DPF.
 
 #### 3.8.2 DPUDevice Label Removal and Recovery
 
@@ -779,18 +815,23 @@ matches the stable DPUService selector, so DPF reconciles removal of the
 service workload. NICo does not delete Argo CD Applications or workload Pods
 during instance detachment.
 
-The removal operation is idempotent. A DPF error or temporarily unavailable
-DPUDevice leaves the `removed: true` entry in place and is retried by later
-Ready execution. It does not move the instance out of `Ready` or block
-unrelated Ready-state work.
+The removal operation is idempotent. For an instance's currently used DPUs, a
+DPF error leaves the timestamped `removed` entry in place, reports `Error`, and
+is retried by later Ready execution. Cleanup is also attempted on other
+physical DPUs on the host, but a failure on one of those non-target DPUs does
+not affect instance status or block detach completion; it is retried only while
+the service entry remains in persisted instance configuration. An absent
+DPUDevice is already clean for removal and is treated as success. These
+failures do not move the instance out of `Ready` or block unrelated Ready-state
+work.
 
 #### 3.8.3 Stage 1 Termination Confirmation and Completion
 
-For Stage 1, successful removal of the generated label from every required
-physical DPUDevice records `Terminated` and completes detachment. NICo then
-removes the `removed: true` entry from persisted instance configuration.
-Until label removal converges, the entry remains visible as pending removal and
-prevents deletion of the referenced extension service.
+For Stage 1, verified removal of the generated label from every currently used
+DPUDevice records `Terminated` and completes ordinary detachment. NICo then
+removes the timestamped `removed` entry from persisted instance configuration.
+Until label removal converges on those required DPUs, the entry remains visible
+as pending removal and prevents deletion of the referenced extension service.
 
 This is deliberately a placement-detached completion contract, not proof that
 the workload has stopped. In Stage 2, NICo will retain the removal entry and
@@ -842,8 +883,9 @@ The following rules apply across the lifecycle described above:
    their secret material through the extension-service API, writes it to Vault
    or PostgreSQL, or manages the corresponding Kubernetes Secrets. A private
    chart repository has one site-provisioned credential per canonical
-   repository URL, and private-image charts use the chart-owned
-   `values.yaml` `imagePullSecrets` default.
+   repository URL. Private-image charts may obtain `imagePullSecrets` from the
+   chart's default values or from tenant-provided `data.values`, but the
+   referenced Secret remains externally provisioned and managed.
 
 ## 4. Compatibility and Rollout
 
@@ -856,10 +898,11 @@ configurations, including removed configurations required for existing
 agent-side termination. It never sends `DPF_HELM_CHART` data, credentials, or
 removal markers to the DPU agent.
 
-The database migration is additive. It backfills existing `KUBERNETES_POD`
-rows with the terminal `Active` lifecycle state; existing instance
-configurations require no change. The `type` column is already a string column
-and requires no database type migration.
+The database migration is additive. It backfills existing live
+`KUBERNETES_POD` rows with the terminal `Ready` lifecycle state and deleted
+rows with `Deleted`; existing instance configurations require no change. The
+`type` column is already a string column and requires no database type
+migration.
 
 NICo must deploy a binary capable of decoding `dpf_helm_chart` before enabling
 the capability gate. Old and new NICo binaries must not run concurrently after
@@ -871,38 +914,41 @@ state controller to clean up existing DPF resources.
 
 Testing must cover:
 
-- creation of `DPF_HELM_CHART` in `Creating` state before DPF is called;
-- extension-service controller create retry after a process restart and
-  verified owned `AlreadyExists` results;
-- migration/backfill of controller-state fields and lifecycle state exposure;
-- Helm data, reserved-value, and qualification validation;
-- rejection of the legacy `credential` field and of tenant
-  `data.values.imagePullSecrets` for `DPF_HELM_CHART`;
-- chart-default `imagePullSecrets` behavior, and verification that create,
-  update, and delete do not manage externally pre-provisioned Secrets;
-- deterministic resource generation and ownership verification;
-- in-place `UpdateDpuExtensionService` patching of the stable DPUService with
-  no `UpdateInstanceConfig` or DPUDevice label change;
-- optimistic-concurrency rejection, controller-state compare-and-swap,
-  idempotent update retry, and ownership/specification conflict handling;
-- delete superseding an in-flight create or update, with stale controller
-  transition rejection and eventual DPUService deletion;
+- Creation of `DPF_HELM_CHART` in `Creating` state before DPF is called
+- Extension-service controller create retry after a process restart and
+  verified owned `AlreadyExists` results
+- Migration/backfill of controller-state fields and lifecycle state exposure
+- Helm data and reserved node-selector validation, plus use of a test chart
+  that has been qualified separately against the DPUService contract
+- Rejection of the legacy `credential` and Stage 2 `observability` fields for
+  `DPF_HELM_CHART`
+- Pass-through and chart-default `imagePullSecrets` behavior, plus verification
+  that create, update, and delete do not manage externally pre-provisioned
+  Secrets
+- Deterministic resource generation and ownership verification
+- In-place `UpdateDpuExtensionService` patching of the stable DPUService with
+  no `UpdateInstanceConfig` or DPUDevice label change
+- Optimistic-concurrency rejection, controller-state compare-and-swap,
+  idempotent update retry, and ownership/specification conflict handling
+- Delete superseding an in-flight create or update, with stale controller
+  transition rejection and eventual DPUService deletion
 - Stage 1 type-keyed extension-service observation persistence and
-  placement-convergence status mapping;
-- detached DPUService creation and deletion;
-- delete acceptance persisting `Deleting` state before any DPF call;
-- controller retry, restart recovery, and DPUService finalizer polling;
-- refusal to mutate or delete a same-name DPUService with a mismatched
-  extension-service ownership label;
-- unmatched initial selector before attachment;
-- attachment only to selected DPUs and label propagation;
-- detach, selected-DPU-set changes, and removal cleanup only after generated
-  label removal converges on every required DPU;
-- instance deletion behavior;
-- type-aware DPU-agent configuration exclusion;
-- per-service target selection when `KUBERNETES_POD` and
-  `DPF_HELM_CHART` coexist;
-- service deletion blocking while attachments remain, including deleting
-  instances whose cleanup is incomplete; and
-- compatibility with existing `KUBERNETES_POD` behavior and capability-gate
-  rollout.
+  placement-convergence status mapping
+- Detached DPUService creation and deletion
+- Delete acceptance persisting `Deleting` state before any DPF call
+- Controller retry, restart recovery, and DPUService finalizer polling
+- Refusal to mutate or delete a same-name DPUService with a mismatched
+  extension-service ownership label
+- Unmatched initial selector before attachment
+- Attachment only to selected DPUs and label propagation
+- Detach, selected-DPU-set changes, and removal cleanup only after generated
+  label removal converges on every required DPU
+- Instance deletion behavior
+- Type-aware DPU-agent configuration exclusion
+- Rejection when `KUBERNETES_POD` and `DPF_HELM_CHART` are attached to the
+  same instance, plus preservation of each type's independent observation and
+  delivery path
+- Service deletion blocking while attachments remain, including deleting
+  instances whose cleanup is incomplete
+- Compatibility with existing `KUBERNETES_POD` behavior and capability-gate
+  rollout
