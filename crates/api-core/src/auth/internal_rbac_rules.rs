@@ -114,7 +114,7 @@ impl InternalRBACRules {
             "CreateNetworkSegment",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
-        x.perm("AttachNetworkSegmentToVpc", vec![ForgeAdminCLI]);
+        x.perm("AttachNetworkSegmentToVpc", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
             "DeleteNetworkSegment",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
@@ -1148,6 +1148,35 @@ mod rbac_rule_tests {
                     std::slice::from_ref(&unrelated_service)
                 ),
                 "{method} should reject unrelated services"
+            );
+        }
+    }
+
+    #[test]
+    fn supported_callers_can_attach_network_segments_to_vpcs() {
+        let method = "AttachNetworkSegmentToVpc";
+        assert!(InternalRBACRules::allowed_from_static(
+            method,
+            &[Principal::ExternalUser(ExternalUserInfo::new(
+                None,
+                "nico-admin-cli".to_string(),
+                None,
+            ))],
+        ));
+        assert!(InternalRBACRules::allowed_from_static(
+            method,
+            &[Principal::SpiffeServiceIdentifier(
+                "elektra-site-agent".to_string()
+            )],
+        ));
+        for unrelated in [
+            Principal::SpiffeServiceIdentifier("nico-dns".to_string()),
+            Principal::SpiffeServiceIdentifier("machine-a-tron".to_string()),
+        ] {
+            assert!(
+                !InternalRBACRules::allowed_from_static(method, std::slice::from_ref(&unrelated)),
+                "{method} should reject {}",
+                unrelated.as_identifier(),
             );
         }
     }
