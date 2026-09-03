@@ -98,15 +98,18 @@ fn resolve_backoff_delay(status: &tonic::Status) -> Option<Duration> {
 /// release call itself. Any other error surfaces immediately so real failures
 /// are not masked.
 ///
-/// Motivation: resolving `--label-key`/`--machine` into a concrete instance
-/// list (`get_all_instances` / `find_instance_by_machine_id`) happens *before*
-/// the batch release call. Without this, a `RESOURCE_EXHAUSTED` rejection on
-/// that single preflight call aborted the whole release command with zero
-/// instances attempted, even though the batch call itself was already
-/// retry-safe -- observed live at ~4,500-instance scale, where under
-/// sustained admission pressure some release invocations failed instantly
-/// with no progress purely because this one lookup call happened to land in a
-/// saturated window.
+/// Motivation: resolving `--machine` into a concrete instance via the single
+/// `find_instance_by_machine_id` lookup happens *before* the batch release
+/// call. Without this, a `RESOURCE_EXHAUSTED` rejection on that single
+/// preflight call aborted the whole release command with zero instances
+/// attempted, even though the batch call itself was already retry-safe --
+/// observed live at ~4,500-instance scale, where under sustained admission
+/// pressure some release invocations failed instantly with no progress purely
+/// because this one lookup call happened to land in a saturated window.
+///
+/// The `--label-key` path deliberately does *not* use this wrapper:
+/// `get_all_instances` retries each of its own internal paged calls, so
+/// wrapping it again would discard already-fetched chunks on a late failure.
 async fn retry_lookup_on_admission_exhaustion<T, F, Fut>(mut attempt: F) -> CarbideCliResult<T>
 where
     F: FnMut() -> Fut,
@@ -214,8 +217,15 @@ pub(super) async fn release(
             instance_ids.push(instance_id);
         }
         (_, _, Some(key)) => {
-            let instances = retry_lookup_on_admission_exhaustion(|| {
-                api_client.get_all_instances(
+            // No outer retry wrap here: `get_all_instances` retries each of its
+            // own internal calls (the id listing and every id-chunk fetch)
+            // individually on `RESOURCE_EXHAUSTED`, so it is already retry-safe
+            // end-to-end. Wrapping the whole call again would re-run it from
+            // scratch on a late failure, discarding every chunk already fetched
+            // and burning a second retry budget -- the exact waste the internal
+            // per-call retry was added to avoid.
+            let instances = api_client
+                .get_all_instances(
                     None,
                     None,
                     Some(key.clone()),
@@ -223,8 +233,7 @@ pub(super) async fn release(
                     None,
                     ctx.config.page_size,
                 )
-            })
-            .await?;
+                .await?;
             if instances.instances.is_empty() {
                 return Err(CarbideCliError::GenericError(
                     "No instances with the passed label.key exist".to_string(),

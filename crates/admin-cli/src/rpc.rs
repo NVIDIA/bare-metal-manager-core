@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use ::rpc::forge::instance_interface_config::NetworkDetails;
 use ::rpc::forge::{
@@ -50,6 +51,7 @@ use futures::{StreamExt, TryStreamExt, stream};
 use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
+use crate::admission_retry::retry_on_admission_exhaustion;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::expected_machines::common::{ExpectedMachineJson, HostDpuPolicy};
 use crate::instance::AllocateInstance;
@@ -188,6 +190,14 @@ fn legacy_bmc_patch_fields(
 
 // Benchmarks showed 4 had better overall performance while still overlapping page fetch latency.
 const PAGED_LIST_FETCH_CONCURRENCY: usize = 4;
+
+/// Attempt cap for retrying a single `RESOURCE_EXHAUSTED`-rejected call inside
+/// [`ApiClient::get_all_instances`]'s paged fetch (the id listing and each id
+/// chunk fetch individually), mirroring the per-instance/preflight caps used
+/// elsewhere in this crate.
+const MAX_PAGED_FETCH_ATTEMPTS: usize = 8;
+/// Cumulative backoff cap for one such retried call.
+const MAX_PAGED_FETCH_BACKOFF: Duration = Duration::from_secs(120);
 
 // Note: You do *not* need to add every gRPC method to this wrapper. Callers can use `.0` to get
 // access to the underlying ForgeApiClient, if they want to simply call the gRPC methods themselves.
@@ -368,6 +378,17 @@ impl ApiClient {
             ))
     }
 
+    /// Resolves the full instance list matching a filter, via one id-listing
+    /// RPC followed by concurrently-chunked `find_instances_by_ids` fetches.
+    ///
+    /// Each of those calls is retried individually on `RESOURCE_EXHAUSTED`
+    /// (see [`retry_on_admission_exhaustion`]), rather than the whole method
+    /// being wrapped by a caller-side retry. A rejection while fetching, say,
+    /// the last of 20 chunks would otherwise burn the whole outer retry
+    /// budget re-fetching all 20 chunks from scratch, discarding the 19 that
+    /// already succeeded -- found via PR review at large-batch (`--label-key`)
+    /// scale, where a late chunk landing in a saturated admission window was
+    /// common.
     pub(crate) async fn get_all_instances(
         &self,
         tenant_org_id: Option<String>,
@@ -395,7 +416,22 @@ impl ApiClient {
                 .instance_ids
                 .chunks(self.effective_chunk_size(page_size).await?),
         )
-        .map(|ids| self.0.find_instances_by_ids(ids.to_vec()))
+        .map(|ids| {
+            let ids = ids.to_vec();
+            retry_on_admission_exhaustion(
+                MAX_PAGED_FETCH_ATTEMPTS,
+                MAX_PAGED_FETCH_BACKOFF,
+                move || {
+                    let ids = ids.clone();
+                    async move {
+                        self.0
+                            .find_instances_by_ids(ids)
+                            .await
+                            .map_err(CarbideCliError::from)
+                    }
+                },
+            )
+        })
         .buffered(PAGED_LIST_FETCH_CONCURRENCY)
         .try_for_each(|list| {
             all_list.instances.extend(list.instances);
@@ -436,7 +472,16 @@ impl ApiClient {
                 })
             },
         };
-        Ok(self.0.find_instance_ids(request).await?)
+        retry_on_admission_exhaustion(MAX_PAGED_FETCH_ATTEMPTS, MAX_PAGED_FETCH_BACKOFF, || {
+            let request = request.clone();
+            async move {
+                self.0
+                    .find_instance_ids(request)
+                    .await
+                    .map_err(CarbideCliError::from)
+            }
+        })
+        .await
     }
 
     pub(crate) async fn get_all_racks(&self, page_size: usize) -> CarbideCliResult<rpc::RackList> {
