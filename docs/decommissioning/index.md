@@ -83,10 +83,10 @@ delete the object. Site Explorer and DHCP suppressions remain until you
 force-delete them, so the same installation does not immediately ingest a
 reset device.
 
-After DHCP is suppressed, the BMCs and OOB interfaces become unreachable
-because the DHCP server ignores requests from those MAC addresses. Redfish
-and RMS reset calls return after the request is accepted, and NICo cannot
-poll the hardware to completion.
+After [DHCP is suppressed](../operations/dhcp-suppression.md), the BMCs and OOB
+interfaces become unreachable because the DHCP server ignores requests from
+those MAC addresses. Redfish and RMS reset calls return after the request is
+accepted, and NICo cannot poll the hardware to completion.
 
 ## Force-delete after decommissioning
 

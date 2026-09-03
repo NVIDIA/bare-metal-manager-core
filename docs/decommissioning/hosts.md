@@ -77,8 +77,9 @@ NICo performs these operations in order:
    waits for each DPU to boot. This image does not contain the NICo DPU agent,
    HBN configuration, DPU-local NICo DHCP service, MDS, Scout, or old NICo root
    CA.
-8. Suppresses DHCP for host and DPU OOB interfaces, performs an AC power cycle,
-   and waits for the DHCP service to acknowledge the suppressions.
+8. [Suppresses DHCP](../operations/dhcp-suppression.md) for host and DPU OOB
+   interfaces, performs an AC power cycle, and waits for the DHCP service to
+   acknowledge the suppressions.
 9. Suppresses DHCP for the host and DPU BMC interfaces.
 10. Factory-resets the host BMC and every DPU BMC, then waits for DHCP
     suppression acknowledgement.

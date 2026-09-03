@@ -1,22 +1,25 @@
-# DHCP Suppression for Decommissioned BMC MAC Addresses
+# DHCP Suppression for Suppressed BMC MAC Addresses
 
 ## Overview
 
-As the final step of rack uningestion/decommissioning, the DHCP server must stop
-leasing IP addresses to BMCs whose MAC addresses are marked as suppressed. This
-document describes the suppression mechanism added to NICo Core's `DiscoverDhcp`
-RPC to support this.
-
-No changes were required to the DHCP server binary itself. Suppression is handled
-entirely within Core.
+NICo Core's `DiscoverDhcp` RPC can stop leasing IP addresses to a BMC whose MAC
+address has been marked as suppressed, without any change to the DHCP server
+binary itself — suppression is handled entirely within Core. The only current
+writer of a `dhcp`-subsystem suppression row is
+[rack decommissioning](../decommissioning/index.md): as the final step of
+rack uningestion, host, switch, and power-shelf decommissioning each request
+DHCP suppression for their BMC MAC. Other features (BMC credential rotation)
+write to the same `bmc_suppressions` table under the separate `site_explorer`
+subsystem and do not go through this DHCP path.
 
 ---
 
 ## Background
 
-When a rack is decommissioned, a row is added for each BMC MAC address in that
-rack to the `bmc_suppressions` table with `subsystem = 'dhcp'`. The existence
-of that row signals that the DHCP server should no longer serve the MAC.
+A row is added for a BMC MAC address to the `bmc_suppressions` table with
+`subsystem = 'dhcp'` — today, this happens as part of rack decommissioning.
+The existence of that row signals that the DHCP server should no longer serve
+the MAC.
 
 The current behavior per DHCP message type:
 
@@ -82,7 +85,7 @@ suppression check, so there is no window between checking and recording.
 
 ## Decommission Workflow Integration
 
-The decommission workflow polls `acknowledged_at` on each BMC's `bmc_suppressions`
+The [decommission workflow](../decommissioning/index.md) polls `acknowledged_at` on each BMC's `bmc_suppressions`
 row (`subsystem = 'dhcp'`) to confirm that Core has observed and refused a DHCP
 request from that BMC. This timestamp is written server-side, inside Core's
 `DiscoverDhcp` handler, at the moment Core receives the request — before any

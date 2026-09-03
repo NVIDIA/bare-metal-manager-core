@@ -54,7 +54,7 @@ NICo performs these operations in order:
 
 1. Creates a Site Explorer suppression for the shelf BMC and waits for Site
    Explorer to acknowledge it.
-2. Creates a DHCP suppression for the shelf BMC.
+2. Creates a [DHCP suppression](../operations/dhcp-suppression.md) for the shelf BMC.
 3. Uses a direct Redfish connection to factory-reset the BMC or PMC. This
    operation does not use RMS.
 4. Waits for the DHCP service to acknowledge the BMC suppression.

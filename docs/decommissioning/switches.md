@@ -58,7 +58,7 @@ NICo performs these operations in order:
 
 1. Creates a Site Explorer suppression for the switch BMC and waits for Site
    Explorer to acknowledge it.
-2. Creates a DHCP suppression for the NVOS interface.
+2. Creates a [DHCP suppression](../operations/dhcp-suppression.md) for the NVOS interface.
 3. Uses the RMS component-manager backend to submit an NVOS factory-reset job.
    The RMS reset wipes NVOS configuration, restarts the switch, and preserves
    the factory-default password.

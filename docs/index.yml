@@ -204,6 +204,8 @@ navigation:
               path: decommissioning/switches.md
             - page: Power Shelves
               path: decommissioning/power-shelves.md
+        - page: DHCP Suppression
+          path: operations/dhcp-suppression.md
         - page: Network Isolation
           path: manuals/network_isolation.md
         - page: Network Security Groups
