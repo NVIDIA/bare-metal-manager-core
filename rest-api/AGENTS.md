@@ -202,6 +202,11 @@ verification expectations.
   send its ID in the list request, and require each returned row to match that
   exact tenant ID. Test a dual-role caller whose response also contains
   provider-owned and other-tenant resources.
+- When a site-wide TUI resource picker must ignore a narrower active scope,
+  clear that scope and invalidate filtered caches before fetching, then restore
+  the scope and invalidate filtered caches again on every return path so
+  site-wide entries cannot be reused under the restored scope. Test the scoped
+  case.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
 - Organize tests by the production function or method under test, not by individual
@@ -249,6 +254,10 @@ verification expectations.
   passwords and other credentials. Keep OpenAPI
   descriptions focused on the REST contract rather than internal gRPC
   implementation details.
+- When an authoritative external create returns a contract-critical value,
+  persist it in the request transaction before returning 2xx and independently
+  assert the response and database state. Do not rely on a best-effort cache or
+  later reconciliation for read-after-create behavior.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
 - When prose names exact API enum values, format the literals as code, for
@@ -278,7 +287,9 @@ verification expectations.
   backslashes, control characters, non-ASCII text, and shell metacharacters.
 - When a mutation success message reads fields from a response object, reject
   malformed JSON, `null`, empty objects, and missing display fields before
-  printing success.
+  printing success. Use the returned resource values rather than echoing
+  request or discovery values that the server may default or normalize, and
+  test a response whose value differs from the pre-request value.
 
 ### REST endpoints through the Core gRPC proxy
 

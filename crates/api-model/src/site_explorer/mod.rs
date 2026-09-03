@@ -23,7 +23,7 @@ use std::sync::Arc;
 use carbide_network::BaseMac;
 use carbide_utils::arch::CpuArchitecture;
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{DpuMachineId, MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use chrono::{DateTime, Utc};
@@ -600,8 +600,8 @@ pub struct ExploredDpu {
 }
 
 impl ExploredDpu {
-    pub fn machine_id_if_valid_report(&self) -> ModelResult<&MachineId> {
-        let Some(machine_id) = self.report.machine_id.as_ref() else {
+    pub fn machine_id_if_valid_report(&self) -> ModelResult<DpuMachineId> {
+        let Some(machine_id) = self.report.machine_id else {
             return Err(ModelError::MissingArgument("Missing Machine ID"));
         };
 
@@ -617,7 +617,7 @@ impl ExploredDpu {
             return Err(ModelError::MissingArgument("Missing Service Info"));
         }
 
-        Ok(machine_id)
+        Ok(machine_id.try_into()?)
     }
 
     pub fn bmc_firmware_version(&self) -> Option<String> {

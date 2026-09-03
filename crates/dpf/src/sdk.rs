@@ -712,6 +712,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
             .intercept_bridging
             .as_ref()
             .map(|_| resolved.interfaces.as_ref()),
+        &config.extra_bfcfg_parameters,
     )?;
     let name = flavor.unique_name(&config.flavor_name)?;
     flavor.metadata.name = Some(name.clone());
@@ -753,8 +754,12 @@ async fn create_dpu_flavor_template<R: DpuFlavorTemplateRepository>(
     config: &InitDpfResourcesConfig,
     resolved: &ResolvedInitialization<'_>,
 ) -> Result<String, DpfError> {
-    let mut template =
-        crate::flavor::flavor_bf4_astra(namespace, &config.proxy, resolved.pf_total_sf)?;
+    let mut template = crate::flavor::flavor_bf4_astra(
+        namespace,
+        &config.proxy,
+        resolved.pf_total_sf,
+        &config.extra_bfcfg_parameters,
+    )?;
     let name = template.unique_name(&config.flavor_name)?;
     template.metadata.name = Some(name.clone());
 
@@ -1514,20 +1519,17 @@ fn build_astra_patch_dpu_interfaces_vec() -> Vec<DpuServiceInterfaceTemplateDefi
         .collect()
 }
 
-/// Calculates BF3 or generic-BF4 SF capacity, preserving the legacy total without topology.
+/// Calculates BF3 or generic-BF4 SF capacity from generated endpoints and additional capacity.
+///
+/// With intercept topology, `additional_managed_sf` increases the returned total. Without
+/// topology, generated endpoints and additional capacity must fit inside `reserved`, which is the
+/// returned legacy total.
 pub fn calculate_pf_total_sf(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     intercept_bridging: Option<&DpfInterceptBridging>,
     reserved: u32,
+    additional_managed_sf: u32,
 ) -> Result<u32, DpfError> {
-    // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): inventory-free deployments must retain the
-    // historical behavior where the configured reserved value is the complete PF_TOTAL_SF pool.
-    // Adding the static endpoints here would change every existing BF3/BF4 flavor hash and force
-    // those DPUs through an unrequested re-ingestion.
-    if intercept_bridging.is_none() {
-        return Ok(reserved);
-    }
-
     // HBN's chart supports at most 32 attached interfaces. Validate the rendered topology rather
     // than relying only on the configured one-PF/VF15 limit so custom public-SDK inventories
     // cannot bypass the service boundary.
@@ -1553,9 +1555,27 @@ pub fn calculate_pf_total_sf(
             DpfError::ConfigError("DPF service endpoint count exceeds u32".to_string())
         })
     })?;
-    managed_endpoints.checked_add(reserved).ok_or_else(|| {
+    let managed_sf_count = managed_endpoints
+        .checked_add(additional_managed_sf)
+        .ok_or_else(|| DpfError::ConfigError("DPF managed SF count exceeds u32".to_string()))?;
+
+    // ROLLOUT COMPATIBILITY (DPU REPROVISIONING): inventory-free deployments must retain the
+    // historical behavior where the configured reserved value is the complete PF_TOTAL_SF pool.
+    // The managed SFs consume that pool rather than changing the flavor, but
+    // must still fit inside it.
+    if intercept_bridging.is_none() {
+        if managed_sf_count > reserved {
+            return Err(DpfError::ConfigError(format!(
+                "configured DPF managed SFs ({managed_sf_count}) exceed the legacy \
+                 dpf.pf_total_sf_reserved pool ({reserved})"
+            )));
+        }
+        return Ok(reserved);
+    }
+
+    managed_sf_count.checked_add(reserved).ok_or_else(|| {
         DpfError::ConfigError(format!(
-            "configured DPF service endpoints ({managed_endpoints}) plus \
+            "configured DPF managed SFs ({managed_sf_count}) plus \
              dpf.pf_total_sf_reserved ({reserved}) exceed u32"
         ))
     })
@@ -1614,6 +1634,13 @@ fn resolve_initialization_inventory<'a>(
     {
         return Err(DpfError::ConfigError(
             "BF4 Astra requires deployment_scoped_service_interfaces=true".to_string(),
+        ));
+    }
+    if matches!(config.deployment_type, DpuDeploymentType::Bf4Astra)
+        && config.additional_managed_sf != 0
+    {
+        return Err(DpfError::ConfigError(
+            "BF4 Astra does not support additional managed SFs".to_string(),
         ));
     }
 
@@ -1698,6 +1725,7 @@ fn resolve_initialization_inventory<'a>(
                 interfaces.as_ref(),
                 config.intercept_bridging.as_ref(),
                 config.pf_total_sf_reserved,
+                config.additional_managed_sf,
             )?
         }
     };
@@ -3697,7 +3725,8 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use async_trait::async_trait;
-    use carbide_test_support::value_scenarios;
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::{scenarios, value_scenarios};
     use kube::Resource;
 
     use super::*;
@@ -3967,27 +3996,62 @@ mod tests {
 
         // The configured cases count every HBN, DHCP, and FMDS endpoint, including fixed uplinks.
         value_scenarios!(
-            run = |(interfaces, intercept_bridging)| {
+            run = |(interfaces, intercept_bridging, additional_managed_sf)| {
                 calculate_pf_total_sf(
                     interfaces,
                     intercept_bridging,
                     DEFAULT_PF_TOTAL_SF_RESERVED,
+                    additional_managed_sf,
                 )
                 .unwrap()
             };
             "legacy static inventory" {
                 // Static endpoints are intentionally not added because doing so would reprovision existing DPUs.
-                (&static_interfaces, None) => 30,
+                (&static_interfaces, None, 0) => 30,
+            }
+
+            "legacy static inventory does not change for an additional managed SF" {
+                (&static_interfaces, None, 1) => 30,
             }
 
             "configured PF and sixteen VF inventory" {
                 // Two fixed HBN, three PF, and two endpoints per VF consume 37 managed SFs.
-                (&configured_interfaces, Some(&configured_topology)) => 67,
+                (&configured_interfaces, Some(&configured_topology), 0) => 67,
+            }
+
+            "configured inventory with an additional managed SF" {
+                (&configured_interfaces, Some(&configured_topology), 1) => 68,
             }
         );
 
         // The maximum supported topology remains below HBN's 32-interface boundary.
         assert_eq!(interface_counts(&configured_interfaces), (0, 19, 19, 17, 1));
+    }
+
+    /// Verifies legacy managed endpoints cannot overcommit the unchanged SF pool.
+    #[test]
+    fn legacy_pf_total_sf_rejects_endpoint_overcommit() {
+        let interfaces = build_effective_dpu_interfaces(16, None);
+
+        scenarios!(
+            run = |additional_managed_sf: u32| {
+                calculate_pf_total_sf(
+                    &interfaces,
+                    None,
+                    DEFAULT_PF_TOTAL_SF_RESERVED,
+                    additional_managed_sf,
+                )
+                .map_err(drop)
+            };
+
+            "generated and additional endpoints fit" {
+                2 => Yields(DEFAULT_PF_TOTAL_SF_RESERVED),
+            }
+
+            "additional endpoints overcommit the pool" {
+                3 => Fails,
+            }
+        );
     }
 
     /// Verifies invalid SF arithmetic is rejected before it can become a wrapped NVConfig value.
@@ -3999,7 +4063,7 @@ mod tests {
 
         // Configuration failure is preferable to emitting an unusable DPUFlavor.
         assert!(matches!(
-            calculate_pf_total_sf(&interfaces, Some(&topology), u32::MAX),
+            calculate_pf_total_sf(&interfaces, Some(&topology), u32::MAX, 0),
             Err(DpfError::ConfigError(_))
         ));
     }
@@ -4028,6 +4092,7 @@ mod tests {
                 &interfaces,
                 Some(&topology),
                 DEFAULT_PF_TOTAL_SF_RESERVED,
+                0,
             ),
             Err(DpfError::ConfigError(message)) if message.contains("exceeding the supported maximum of 32")
         ));
@@ -4927,6 +4992,7 @@ mod tests {
             "astra-ns",
             &None,
             calculate_astra_pf_total_sf(build_astra_dpu_interfaces_vec().as_slice()).unwrap(),
+            &[],
         )
         .unwrap();
         let reference_keys: BTreeSet<_> = template

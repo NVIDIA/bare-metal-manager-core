@@ -29,7 +29,7 @@ use std::time::Duration;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use db::{DatabaseError, ObjectFilter, Transaction};
 use host_firmware::HostFirmwareUpdate;
@@ -162,7 +162,7 @@ impl MachineUpdateManager {
     async fn get_all_snapshots(
         &self,
         txn: &mut PgConnection,
-    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+    ) -> CarbideResult<HashMap<HostMachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
             &mut *txn,
             MachineSearchConfig {
@@ -170,7 +170,11 @@ impl MachineUpdateManager {
                 ..Default::default()
             },
         )
-        .await?;
+        .await?
+        .into_iter()
+        .filter_map(|id| HostMachineId::try_from(id).ok())
+        .collect::<Vec<_>>();
+
         db::managed_host::load_by_machine_ids(
             txn,
             &machine_ids,
@@ -323,7 +327,7 @@ impl MachineUpdateManager {
     ) -> Result<HashSet<MachineId>, DatabaseError> {
         let machines = db::machine::find(
             txn,
-            ObjectFilter::All,
+            ObjectFilter::<MachineId>::All,
             MachineSearchConfig {
                 include_predicted_host: true,
                 ..Default::default()

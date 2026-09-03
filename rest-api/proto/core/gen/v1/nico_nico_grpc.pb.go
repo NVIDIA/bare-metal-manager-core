@@ -348,9 +348,11 @@ const (
 	Forge_MachineValidationTestVerfied_FullMethodName                       = "/forge.Forge/MachineValidationTestVerfied"
 	Forge_MachineValidationTestNextVersion_FullMethodName                   = "/forge.Forge/MachineValidationTestNextVersion"
 	Forge_MachineValidationTestEnableDisableTest_FullMethodName             = "/forge.Forge/MachineValidationTestEnableDisableTest"
+	Forge_MachineValidationTestApproveFullHost_FullMethodName               = "/forge.Forge/MachineValidationTestApproveFullHost"
 	Forge_UpdateMachineValidationRun_FullMethodName                         = "/forge.Forge/UpdateMachineValidationRun"
 	Forge_AdminBmcReset_FullMethodName                                      = "/forge.Forge/AdminBmcReset"
 	Forge_AdminPowerControl_FullMethodName                                  = "/forge.Forge/AdminPowerControl"
+	Forge_AdminGpuReset_FullMethodName                                      = "/forge.Forge/AdminGpuReset"
 	Forge_DisableSecureBoot_FullMethodName                                  = "/forge.Forge/DisableSecureBoot"
 	Forge_Lockdown_FullMethodName                                           = "/forge.Forge/Lockdown"
 	Forge_LockdownStatus_FullMethodName                                     = "/forge.Forge/LockdownStatus"
@@ -977,7 +979,9 @@ type ForgeClient interface {
 	DeleteAllExpectedRacks(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Perform Attestation Procedure for Measured Boot
 	AttestQuote(ctx context.Context, in *AttestQuoteRequest, opts ...grpc.CallOption) (*AttestQuoteResponse, error)
+	//
 	// InstanceType
+	//
 	CreateInstanceType(ctx context.Context, in *CreateInstanceTypeRequest, opts ...grpc.CallOption) (*CreateInstanceTypeResponse, error)
 	FindInstanceTypeIds(ctx context.Context, in *FindInstanceTypeIdsRequest, opts ...grpc.CallOption) (*FindInstanceTypeIdsResponse, error)
 	FindInstanceTypesByIds(ctx context.Context, in *FindInstanceTypesByIdsRequest, opts ...grpc.CallOption) (*FindInstanceTypesByIdsResponse, error)
@@ -1034,7 +1038,9 @@ type ForgeClient interface {
 	ListMeasurementTrustedMachines(ctx context.Context, in *ListMeasurementTrustedMachinesRequest, opts ...grpc.CallOption) (*ListMeasurementTrustedMachinesResponse, error)
 	ListMeasurementTrustedProfiles(ctx context.Context, in *ListMeasurementTrustedProfilesRequest, opts ...grpc.CallOption) (*ListMeasurementTrustedProfilesResponse, error)
 	ListAttestationSummary(ctx context.Context, in *ListAttestationSummaryRequest, opts ...grpc.CallOption) (*ListAttestationSummaryResponse, error)
+	//
 	// NetworkSecurityGroups
+	//
 	CreateNetworkSecurityGroup(ctx context.Context, in *CreateNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*CreateNetworkSecurityGroupResponse, error)
 	FindNetworkSecurityGroupIds(ctx context.Context, in *FindNetworkSecurityGroupIdsRequest, opts ...grpc.CallOption) (*FindNetworkSecurityGroupIdsResponse, error)
 	FindNetworkSecurityGroupsByIds(ctx context.Context, in *FindNetworkSecurityGroupsByIdsRequest, opts ...grpc.CallOption) (*FindNetworkSecurityGroupsByIdsResponse, error)
@@ -1079,17 +1085,27 @@ type ForgeClient interface {
 	RemoveMachineValidationExternalConfig(ctx context.Context, in *RemoveMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Machine-Validation test list
 	GetMachineValidationTests(ctx context.Context, in *MachineValidationTestsGetRequest, opts ...grpc.CallOption) (*MachineValidationTestsGetResponse, error)
+	// A request without plugin creates a legacy test. A plugin creates an immutable
+	// revision that starts unverified and disabled; it must be verified before enablement.
 	AddMachineValidationTest(ctx context.Context, in *MachineValidationTestAddRequest, opts ...grpc.CallOption) (*MachineValidationTestAddUpdateResponse, error)
 	UpdateMachineValidationTest(ctx context.Context, in *MachineValidationTestUpdateRequest, opts ...grpc.CallOption) (*MachineValidationTestAddUpdateResponse, error)
+	// Verifies one immutable plugin revision. Verification is required before enablement.
 	MachineValidationTestVerfied(ctx context.Context, in *MachineValidationTestVerfiedRequest, opts ...grpc.CallOption) (*MachineValidationTestVerfiedResponse, error)
 	MachineValidationTestNextVersion(ctx context.Context, in *MachineValidationTestNextVersionRequest, opts ...grpc.CallOption) (*MachineValidationTestNextVersionResponse, error)
+	// Enables or disables a revision. Plugin enablement requires verification and,
+	// for host_access_full, separate approval of the exact revision.
 	MachineValidationTestEnableDisableTest(ctx context.Context, in *MachineValidationTestEnableDisableTestRequest, opts ...grpc.CallOption) (*MachineValidationTestEnableDisableTestResponse, error)
+	// Approves the writable host-root mount for one verified plugin revision.
+	// The request fails unless that exact immutable revision requests host_access_full.
+	MachineValidationTestApproveFullHost(ctx context.Context, in *MachineValidationTestFullHostApprovalRequest, opts ...grpc.CallOption) (*MachineValidationTestFullHostApprovalResponse, error)
 	UpdateMachineValidationRun(ctx context.Context, in *MachineValidationRunRequest, opts ...grpc.CallOption) (*MachineValidationRunResponse, error)
 	// Bmc Endpoint Explorer Actions
 	// Reset a BMC
 	AdminBmcReset(ctx context.Context, in *AdminBmcResetRequest, opts ...grpc.CallOption) (*AdminBmcResetResponse, error)
 	// Admin Power Control
 	AdminPowerControl(ctx context.Context, in *AdminPowerControlRequest, opts ...grpc.CallOption) (*AdminPowerControlResponse, error)
+	// Reset a GPU baseboard (e.g. HGX) via Redfish Chassis.Reset, resetting all GPUs on it; v1 accepts only ForceRestart and rejects all other actions.
+	AdminGpuReset(ctx context.Context, in *AdminGpuResetRequest, opts ...grpc.CallOption) (*AdminGpuResetResponse, error)
 	// Disable Secure Boot
 	DisableSecureBoot(ctx context.Context, in *BmcEndpointRequest, opts ...grpc.CallOption) (*DisableSecureBootResponse, error)
 	// Set Lockdown (Enable or Disable)
@@ -1121,7 +1137,7 @@ type ForgeClient interface {
 	// Terminate active rack maintenance and transition the rack to Error.
 	TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
-	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
+	//rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error)
 	TpmShowCaCerts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TpmCaCertDetailCollection, error)
 	TpmShowUnmatchedEkCerts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TpmEkCertStatusCollection, error)
@@ -1184,7 +1200,9 @@ type ForgeClient interface {
 	// Lists the rack profiles from the effective runtime configuration.
 	// Rack profiles are configuration, not persisted rack resources.
 	ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error)
+	//
 	// Compute Allocations
+	//
 	CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(ctx context.Context, in *FindComputeAllocationIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationIdsResponse, error)
 	FindComputeAllocationsByIds(ctx context.Context, in *FindComputeAllocationsByIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationsByIdsResponse, error)
@@ -4660,6 +4678,16 @@ func (c *forgeClient) MachineValidationTestEnableDisableTest(ctx context.Context
 	return out, nil
 }
 
+func (c *forgeClient) MachineValidationTestApproveFullHost(ctx context.Context, in *MachineValidationTestFullHostApprovalRequest, opts ...grpc.CallOption) (*MachineValidationTestFullHostApprovalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MachineValidationTestFullHostApprovalResponse)
+	err := c.cc.Invoke(ctx, Forge_MachineValidationTestApproveFullHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) UpdateMachineValidationRun(ctx context.Context, in *MachineValidationRunRequest, opts ...grpc.CallOption) (*MachineValidationRunResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MachineValidationRunResponse)
@@ -4684,6 +4712,16 @@ func (c *forgeClient) AdminPowerControl(ctx context.Context, in *AdminPowerContr
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminPowerControlResponse)
 	err := c.cc.Invoke(ctx, Forge_AdminPowerControl_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) AdminGpuReset(ctx context.Context, in *AdminGpuResetRequest, opts ...grpc.CallOption) (*AdminGpuResetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AdminGpuResetResponse)
+	err := c.cc.Invoke(ctx, Forge_AdminGpuReset_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6757,7 +6795,9 @@ type ForgeServer interface {
 	DeleteAllExpectedRacks(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
 	// Perform Attestation Procedure for Measured Boot
 	AttestQuote(context.Context, *AttestQuoteRequest) (*AttestQuoteResponse, error)
+	//
 	// InstanceType
+	//
 	CreateInstanceType(context.Context, *CreateInstanceTypeRequest) (*CreateInstanceTypeResponse, error)
 	FindInstanceTypeIds(context.Context, *FindInstanceTypeIdsRequest) (*FindInstanceTypeIdsResponse, error)
 	FindInstanceTypesByIds(context.Context, *FindInstanceTypesByIdsRequest) (*FindInstanceTypesByIdsResponse, error)
@@ -6814,7 +6854,9 @@ type ForgeServer interface {
 	ListMeasurementTrustedMachines(context.Context, *ListMeasurementTrustedMachinesRequest) (*ListMeasurementTrustedMachinesResponse, error)
 	ListMeasurementTrustedProfiles(context.Context, *ListMeasurementTrustedProfilesRequest) (*ListMeasurementTrustedProfilesResponse, error)
 	ListAttestationSummary(context.Context, *ListAttestationSummaryRequest) (*ListAttestationSummaryResponse, error)
+	//
 	// NetworkSecurityGroups
+	//
 	CreateNetworkSecurityGroup(context.Context, *CreateNetworkSecurityGroupRequest) (*CreateNetworkSecurityGroupResponse, error)
 	FindNetworkSecurityGroupIds(context.Context, *FindNetworkSecurityGroupIdsRequest) (*FindNetworkSecurityGroupIdsResponse, error)
 	FindNetworkSecurityGroupsByIds(context.Context, *FindNetworkSecurityGroupsByIdsRequest) (*FindNetworkSecurityGroupsByIdsResponse, error)
@@ -6859,17 +6901,27 @@ type ForgeServer interface {
 	RemoveMachineValidationExternalConfig(context.Context, *RemoveMachineValidationExternalConfigRequest) (*emptypb.Empty, error)
 	// Machine-Validation test list
 	GetMachineValidationTests(context.Context, *MachineValidationTestsGetRequest) (*MachineValidationTestsGetResponse, error)
+	// A request without plugin creates a legacy test. A plugin creates an immutable
+	// revision that starts unverified and disabled; it must be verified before enablement.
 	AddMachineValidationTest(context.Context, *MachineValidationTestAddRequest) (*MachineValidationTestAddUpdateResponse, error)
 	UpdateMachineValidationTest(context.Context, *MachineValidationTestUpdateRequest) (*MachineValidationTestAddUpdateResponse, error)
+	// Verifies one immutable plugin revision. Verification is required before enablement.
 	MachineValidationTestVerfied(context.Context, *MachineValidationTestVerfiedRequest) (*MachineValidationTestVerfiedResponse, error)
 	MachineValidationTestNextVersion(context.Context, *MachineValidationTestNextVersionRequest) (*MachineValidationTestNextVersionResponse, error)
+	// Enables or disables a revision. Plugin enablement requires verification and,
+	// for host_access_full, separate approval of the exact revision.
 	MachineValidationTestEnableDisableTest(context.Context, *MachineValidationTestEnableDisableTestRequest) (*MachineValidationTestEnableDisableTestResponse, error)
+	// Approves the writable host-root mount for one verified plugin revision.
+	// The request fails unless that exact immutable revision requests host_access_full.
+	MachineValidationTestApproveFullHost(context.Context, *MachineValidationTestFullHostApprovalRequest) (*MachineValidationTestFullHostApprovalResponse, error)
 	UpdateMachineValidationRun(context.Context, *MachineValidationRunRequest) (*MachineValidationRunResponse, error)
 	// Bmc Endpoint Explorer Actions
 	// Reset a BMC
 	AdminBmcReset(context.Context, *AdminBmcResetRequest) (*AdminBmcResetResponse, error)
 	// Admin Power Control
 	AdminPowerControl(context.Context, *AdminPowerControlRequest) (*AdminPowerControlResponse, error)
+	// Reset a GPU baseboard (e.g. HGX) via Redfish Chassis.Reset, resetting all GPUs on it; v1 accepts only ForceRestart and rejects all other actions.
+	AdminGpuReset(context.Context, *AdminGpuResetRequest) (*AdminGpuResetResponse, error)
 	// Disable Secure Boot
 	DisableSecureBoot(context.Context, *BmcEndpointRequest) (*DisableSecureBootResponse, error)
 	// Set Lockdown (Enable or Disable)
@@ -6901,7 +6953,7 @@ type ForgeServer interface {
 	// Terminate active rack maintenance and transition the rack to Error.
 	TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
-	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
+	//rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error)
 	TpmShowCaCerts(context.Context, *emptypb.Empty) (*TpmCaCertDetailCollection, error)
 	TpmShowUnmatchedEkCerts(context.Context, *emptypb.Empty) (*TpmEkCertStatusCollection, error)
@@ -6964,7 +7016,9 @@ type ForgeServer interface {
 	// Lists the rack profiles from the effective runtime configuration.
 	// Rack profiles are configuration, not persisted rack resources.
 	ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error)
+	//
 	// Compute Allocations
+	//
 	CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(context.Context, *FindComputeAllocationIdsRequest) (*FindComputeAllocationIdsResponse, error)
 	FindComputeAllocationsByIds(context.Context, *FindComputeAllocationsByIdsRequest) (*FindComputeAllocationsByIdsResponse, error)
@@ -8157,6 +8211,9 @@ func (UnimplementedForgeServer) MachineValidationTestNextVersion(context.Context
 func (UnimplementedForgeServer) MachineValidationTestEnableDisableTest(context.Context, *MachineValidationTestEnableDisableTestRequest) (*MachineValidationTestEnableDisableTestResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MachineValidationTestEnableDisableTest not implemented")
 }
+func (UnimplementedForgeServer) MachineValidationTestApproveFullHost(context.Context, *MachineValidationTestFullHostApprovalRequest) (*MachineValidationTestFullHostApprovalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MachineValidationTestApproveFullHost not implemented")
+}
 func (UnimplementedForgeServer) UpdateMachineValidationRun(context.Context, *MachineValidationRunRequest) (*MachineValidationRunResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateMachineValidationRun not implemented")
 }
@@ -8165,6 +8222,9 @@ func (UnimplementedForgeServer) AdminBmcReset(context.Context, *AdminBmcResetReq
 }
 func (UnimplementedForgeServer) AdminPowerControl(context.Context, *AdminPowerControlRequest) (*AdminPowerControlResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminPowerControl not implemented")
+}
+func (UnimplementedForgeServer) AdminGpuReset(context.Context, *AdminGpuResetRequest) (*AdminGpuResetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminGpuReset not implemented")
 }
 func (UnimplementedForgeServer) DisableSecureBoot(context.Context, *BmcEndpointRequest) (*DisableSecureBootResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DisableSecureBoot not implemented")
@@ -14516,6 +14576,24 @@ func _Forge_MachineValidationTestEnableDisableTest_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_MachineValidationTestApproveFullHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MachineValidationTestFullHostApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).MachineValidationTestApproveFullHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_MachineValidationTestApproveFullHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).MachineValidationTestApproveFullHost(ctx, req.(*MachineValidationTestFullHostApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_UpdateMachineValidationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MachineValidationRunRequest)
 	if err := dec(in); err != nil {
@@ -14566,6 +14644,24 @@ func _Forge_AdminPowerControl_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).AdminPowerControl(ctx, req.(*AdminPowerControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_AdminGpuReset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AdminGpuResetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).AdminGpuReset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_AdminGpuReset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).AdminGpuReset(ctx, req.(*AdminGpuResetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -18747,6 +18843,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_MachineValidationTestEnableDisableTest_Handler,
 		},
 		{
+			MethodName: "MachineValidationTestApproveFullHost",
+			Handler:    _Forge_MachineValidationTestApproveFullHost_Handler,
+		},
+		{
 			MethodName: "UpdateMachineValidationRun",
 			Handler:    _Forge_UpdateMachineValidationRun_Handler,
 		},
@@ -18757,6 +18857,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminPowerControl",
 			Handler:    _Forge_AdminPowerControl_Handler,
+		},
+		{
+			MethodName: "AdminGpuReset",
+			Handler:    _Forge_AdminGpuReset_Handler,
 		},
 		{
 			MethodName: "DisableSecureBoot",

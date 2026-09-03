@@ -405,8 +405,10 @@ exit ||
         //
         // The second boot enables HBN.  This is handled here when the DPU is
         // waiting for the network install
-        if machine.is_dpu() {
-            if let Some(reprov_state) = &machine.current_state().as_reprovision_state(&machine_id)
+        if let Ok(dpu_machine_id) = machine.dpu_machine_id() {
+            if let Some(reprov_state) = &machine
+                .current_state()
+                .as_reprovision_state(&dpu_machine_id)
                 && matches!(
                     reprov_state,
                     ReprovisionState::FirmwareUpgrade | ReprovisionState::WaitingForNetworkInstall
@@ -423,7 +425,7 @@ exit ||
 
             match &machine.current_state() {
                 ManagedHostState::DPUInit { dpu_states } => {
-                    let Some(dpu_state) = dpu_states.states.get(&machine_id) else {
+                    let Some(dpu_state) = dpu_states.states.get(&dpu_machine_id) else {
                         return Err(CarbideError::MissingDpu(machine_id));
                     };
 

@@ -34,13 +34,13 @@ use carbide_ib_fabric::ib::IBFabricManager;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_rack::bms_client::BmsDsxExchangeHandle;
-use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::{BmcCredentialOps, RedfishClientPool};
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
 use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer};
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{MachineId, MachineIdSubtypeTrait, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
@@ -69,6 +69,11 @@ pub struct Api {
     pub(crate) credential_manager: Arc<dyn CredentialManager>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
+    /// Credential-lifecycle operations (password set/rotate/clear, candidate
+    /// validation). A sealed trait implemented only by the direct pool, so
+    /// handing these to a wrapper pool is a compile error (a wrong-pool
+    /// guard, not a wire-path guarantee -- see [`BmcCredentialOps`]).
+    pub(crate) bmc_credential_ops: Arc<dyn BmcCredentialOps>,
     pub(crate) bmc_session_manager: Arc<crate::credentials::BmcSessionManager>,
     pub(crate) eth_data: EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,
@@ -1535,6 +1540,13 @@ impl Forge for Api {
         crate::handlers::bmc_endpoint_explorer::admin_bmc_reset(self, request).await
     }
 
+    async fn admin_gpu_reset(
+        &self,
+        request: Request<rpc::AdminGpuResetRequest>,
+    ) -> Result<Response<rpc::AdminGpuResetResponse>, Status> {
+        crate::handlers::gpu_reset::admin_gpu_reset(self, request).await
+    }
+
     async fn disable_secure_boot(
         &self,
         request: Request<rpc::BmcEndpointRequest>,
@@ -2590,6 +2602,16 @@ impl Forge for Api {
         request: Request<rpc::MachineValidationTestEnableDisableTestRequest>,
     ) -> Result<Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
         crate::handlers::machine_validation::machine_validation_test_enable_disable_test(
+            self, request,
+        )
+        .await
+    }
+
+    async fn machine_validation_test_approve_full_host(
+        &self,
+        request: Request<rpc::MachineValidationTestFullHostApprovalRequest>,
+    ) -> Result<Response<rpc::MachineValidationTestFullHostApprovalResponse>, Status> {
+        crate::handlers::machine_validation::machine_validation_test_approve_full_host(
             self, request,
         )
         .await
@@ -3843,11 +3865,11 @@ impl Api {
     #[track_caller]
     pub(crate) fn load_machine(
         &self,
-        machine_id: &MachineId,
+        machine_id: &impl MachineIdSubtypeTrait,
         search_config: MachineSearchConfig,
     ) -> impl Future<Output = CarbideResult<(Machine, db::Transaction<'_>)>> {
         let loc = Location::caller();
-        let machine_id = *machine_id;
+        let machine_id = machine_id.to_machine_id();
         async move {
             let mut txn =
                 db::Transaction::begin_with_location(&self.database_connection, loc).await?;

@@ -40,10 +40,11 @@ func AllCommands() []Command {
 		{Name: "vpc update", Description: "Update a VPC", Run: cmdVPCUpdate},
 		{Name: "vpc virtualization update", Description: "Update VPC virtualization", Run: cmdVPCVirtualizationUpdate},
 		{Name: "vpc delete", Description: "Delete a VPC", Run: cmdVPCDelete},
+		{Name: "vpc-peering create", Description: "Create VPC peerings", Run: cmdVPCPeeringCreate},
 
 		{Name: "subnet list", Description: "List all subnets", Run: cmdSubnetList},
 		{Name: "subnet get", Description: "Get subnet details", Run: cmdSubnetGet},
-		{Name: "subnet create", Description: "Create a subnet", Run: cmdSubnetCreate},
+		{Name: "subnet create", Description: "Create an IPv4 Subnet in an Ethernet virtualizer VPC", Run: cmdSubnetCreate},
 		{Name: "subnet update", Description: "Update a subnet", Run: cmdSubnetUpdate},
 		{Name: "subnet delete", Description: "Delete a subnet", Run: cmdSubnetDelete},
 
@@ -637,7 +638,43 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	if strings.TrimSpace(desc) != "" {
 		body["description"] = desc
 	}
-	LogCmd(s, "vpc", "create", "--name", name, "--site-id", site.ID)
+
+	routingProfile := ""
+	routingProfileOverride := ""
+	siteRaw, _ := site.Raw.(map[string]interface{})
+	siteCapabilities, _ := siteRaw["capabilities"].(map[string]interface{})
+	nativeNetworking, _ := siteCapabilities["nativeNetworking"].(bool)
+	if nativeNetworking {
+		routingProfileResponse, _, requestErr := s.Client.Do("GET", apiPath(s, "tenant/current/routing-profile"), nil, map[string]string{"siteId": site.ID}, nil)
+		if requestErr != nil {
+			return fmt.Errorf("fetching Tenant routing profiles: %w", requestErr)
+		}
+		var tenantRoutingProfile struct {
+			DefaultRoutingProfile    string   `json:"defaultRoutingProfile"`
+			PermittedRoutingProfiles []string `json:"permittedRoutingProfiles"`
+		}
+		if err := json.Unmarshal(routingProfileResponse, &tenantRoutingProfile); err != nil {
+			return fmt.Errorf("parsing Tenant routing profiles: %w", err)
+		}
+		routingProfile, err = PromptChoice(
+			fmt.Sprintf("Routing profile (%s (tenant default))", tenantRoutingProfile.DefaultRoutingProfile),
+			tenantRoutingProfile.PermittedRoutingProfiles,
+			tenantRoutingProfile.DefaultRoutingProfile,
+		)
+		if err != nil {
+			return err
+		}
+		if routingProfile != tenantRoutingProfile.DefaultRoutingProfile {
+			routingProfileOverride = routingProfile
+			body["routingProfile"] = routingProfileOverride
+		}
+	}
+
+	logArgs := []string{"vpc", "create", "--name", name, "--site-id", site.ID}
+	if routingProfileOverride != "" {
+		logArgs = append(logArgs, "--routing-profile", routingProfileOverride)
+	}
+	LogCmd(s, logArgs...)
 	bodyJSON, _ := json.Marshal(body)
 	resp, _, err := s.Client.Do("POST", apiPath(s, "vpc"), nil, nil, bodyJSON)
 	if err != nil {
@@ -648,7 +685,12 @@ func cmdVPCCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
+	resolvedRoutingProfile := str(created, "routingProfile")
+	if resolvedRoutingProfile != "" {
+		fmt.Printf("%s VPC created: %s (%s), routing profile: %s\n", Green("OK"), str(created, "name"), str(created, "id"), resolvedRoutingProfile)
+	} else {
+		fmt.Printf("%s VPC created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
+	}
 	return nil
 }
 
@@ -771,8 +813,70 @@ func cmdSubnetList(s *Session, _ []string) error {
 	return tw.Flush()
 }
 
+// validateIPv4SubnetPrefixLength checks the REST IPv4 Subnet range.
+func validateIPv4SubnetPrefixLength(prefixLength int) error {
+	if prefixLength < 8 || prefixLength > 30 {
+		return fmt.Errorf("prefix length must be between 8 and 30")
+	}
+	return nil
+}
+
+// filterSubnetVPCs keeps Ready Ethernet virtualizer and legacy untyped VPCs
+// that the REST Subnet handler accepts.
+func filterSubnetVPCs(vpcs []NamedItem) []NamedItem {
+	filtered := make([]NamedItem, 0, len(vpcs))
+	for _, vpc := range vpcs {
+		if !strings.EqualFold(strings.TrimSpace(vpc.Status), "Ready") {
+			continue
+		}
+		virtualizationType := strings.TrimSpace(vpc.Extra["networkVirtualizationType"])
+		// An empty type identifies a legacy VPC that the server preserves.
+		if virtualizationType != "" && virtualizationType != "ETHERNET_VIRTUALIZER" {
+			continue
+		}
+		filtered = append(filtered, vpc)
+	}
+	return filtered
+}
+
+// buildSubnetIPBlockSelectItems returns Ready, tenant-owned IPv4 allocation
+// blocks at the selected VPC's Site.
+func buildSubnetIPBlockSelectItems(ipBlocks []NamedItem, siteID, tenantID string) []SelectItem {
+	siteID = strings.TrimSpace(siteID)
+	tenantID = strings.TrimSpace(tenantID)
+	items := make([]SelectItem, 0, len(ipBlocks))
+	for _, block := range ipBlocks {
+		if !strings.EqualFold(strings.TrimSpace(block.Status), "Ready") {
+			continue
+		}
+		if strings.TrimSpace(block.Extra["protocolVersion"]) != "IPv4" {
+			continue
+		}
+		if siteID != "" && strings.TrimSpace(block.Extra["siteId"]) != siteID {
+			continue
+		}
+		if strings.TrimSpace(block.Extra["tenantId"]) != tenantID {
+			continue
+		}
+		blockID := strings.TrimSpace(block.ID)
+		if blockID == "" {
+			continue
+		}
+		label := strings.TrimSpace(block.Name)
+		if label == "" {
+			label = blockID
+		}
+		items = append(items, SelectItem{Label: label, ID: blockID})
+	}
+	return items
+}
+
 func cmdSubnetCreate(s *Session, _ []string) error {
-	vpc, err := s.Resolver.Resolve(context.Background(), "vpc", "VPC")
+	vpcs, err := s.Resolver.Fetch(context.Background(), "vpc")
+	if err != nil {
+		return fmt.Errorf("fetching vpc: %w", err)
+	}
+	vpc, err := s.Resolver.SelectFromItems("Ready Ethernet virtualizer VPC", filterSubnetVPCs(vpcs))
 	if err != nil {
 		return err
 	}
@@ -787,7 +891,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	prefixLenText, err := PromptText("Prefix length (1-32)", true)
+	prefixLenText, err := PromptText("IPv4 prefix length (8-30)", true)
 	if err != nil {
 		return err
 	}
@@ -795,28 +899,23 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("prefix length must be an integer: %w", err)
 	}
-	if prefixLen < 1 || prefixLen > 32 {
-		return fmt.Errorf("prefix length must be between 1 and 32")
+	err = validateIPv4SubnetPrefixLength(prefixLen)
+	if err != nil {
+		return err
 	}
 
-	ipBlocks, err := s.Resolver.Fetch(context.Background(), "ip-block")
+	ipBlocks, tenantID, err := s.fetchTenantIPBlocks(context.Background())
 	if err != nil {
 		return fmt.Errorf("fetching IP blocks: %w", err)
 	}
-	blockItems := make([]SelectItem, 0, len(ipBlocks))
-	for _, block := range ipBlocks {
-		if vpcSiteID != "" && strings.TrimSpace(block.Extra["siteId"]) != vpcSiteID {
-			continue
-		}
-		blockItems = append(blockItems, SelectItem{Label: block.Name, ID: block.ID})
-	}
+	blockItems := buildSubnetIPBlockSelectItems(ipBlocks, vpcSiteID, tenantID)
 	if len(blockItems) == 0 {
 		if vpcSiteID != "" {
-			return fmt.Errorf("no IP blocks available for selected VPC site")
+			return fmt.Errorf("no Ready IPv4 IP blocks available for current tenant at selected VPC site")
 		}
-		return fmt.Errorf("no IP blocks available")
+		return fmt.Errorf("no Ready IPv4 IP blocks available for current tenant")
 	}
-	block, err := Select("IPv4 Block", blockItems)
+	block, err := Select("Tenant IPv4 Block:", blockItems)
 	if err != nil {
 		return err
 	}
@@ -830,7 +929,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if strings.TrimSpace(desc) != "" {
 		body["description"] = strings.TrimSpace(desc)
 	}
-	LogCmd(s, "subnet", "create", "--name", name, "--vpc-id", vpc.ID, "--ipv4-block-id", block.ID, "--prefix-length", prefixLenText)
+	LogCmd(s, "subnet", "create", "--name", name, "--vpc-id", vpc.ID, "--ipv4block-id", block.ID, "--prefix-length", prefixLenText)
 	bodyJSON, _ := json.Marshal(body)
 	resp, _, err := s.Client.Do("POST", apiPath(s, "subnet"), nil, nil, bodyJSON)
 	if err != nil {
@@ -842,7 +941,7 @@ func cmdSubnetCreate(s *Session, _ []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
+	fmt.Printf("%s IPv4 Subnet created: %s (%s)\n", Green("OK"), str(created, "name"), str(created, "id"))
 	return nil
 }
 
@@ -2406,7 +2505,7 @@ const ipBlockManualEntrySentinel = "__manual__"
 // blocks are visible, when listing fails, or when the operator opts out via
 // the trailing sentinel (NVBug 6105076).
 func promptVPCPrefixIPBlockID(s *Session, ctx context.Context) (string, error) {
-	blocks, tenantID, err := s.fetchVPCPrefixIPBlocks(ctx)
+	blocks, tenantID, err := s.fetchTenantIPBlocks(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s could not list current tenant IP blocks (%v); falling back to manual entry\n", Dim("note:"), err)
 		return promptIPBlockIDRaw()

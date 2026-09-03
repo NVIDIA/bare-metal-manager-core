@@ -253,25 +253,19 @@ async fn boot_interface_reconciliation_eligible(
     else {
         return Ok(false);
     };
-    let machine = db::machine::find_one(
-        &mut *txn,
-        machine_id.as_machine_id(),
-        MachineSearchConfig::default(),
-    )
-    .await?
-    .ok_or_else(|| CarbideError::NotFoundError {
-        kind: "machine",
-        id: machine_id.to_string(),
-    })?;
+    let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
+        .await?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        })?;
     if !matches!(machine.current_state(), ManagedHostState::Ready) {
         return Ok(false);
     }
 
-    Ok(
-        db::instance::find_id_by_machine_id(txn, machine_id.as_machine_id())
-            .await?
-            .is_none(),
-    )
+    Ok(db::instance::find_id_by_machine_id(txn, &machine_id)
+        .await?
+        .is_none())
 }
 
 /// Resolves a required declarative target when the endpoint's actual owner is
@@ -1189,7 +1183,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     Ok(Response::new(()))
 }
 
-async fn resolve_bmc_interface(
+pub(super) async fn resolve_bmc_interface(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), Status> {
