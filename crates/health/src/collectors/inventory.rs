@@ -78,6 +78,12 @@ impl GpuIdentity {
     }
 }
 
+/// Strips the trailing slash some BMCs append to an `@odata.id`, so that an
+/// event origin and the resource it names compare equal.
+pub(crate) fn normalize_odata_id(odata_id: &str) -> &str {
+    odata_id.trim_end_matches('/')
+}
+
 pub(crate) enum DiscoveredEntity<B: Bmc> {
     Processor {
         entity: Arc<Processor<B>>,
@@ -238,19 +244,22 @@ impl<B: Bmc> DiscoveredEntity<B> {
         }
     }
 
-    /// Redfish id by which an SSE `origin_of_condition` names this entity.
+    /// Redfish path by which an SSE `origin_of_condition` names this entity.
     ///
     /// A GPU event's origin is either the GPU chassis
     /// (`/redfish/v1/Chassis/HGX_GPU_SXM_1`) or the GPU processor
     /// (`/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_1`), so both
-    /// are matchable. The two id spaces do not overlap for GPUs, because a
-    /// module chassis and the processor it holds are named differently.
-    pub(crate) fn gpu_origin_id(&self) -> Option<String> {
-        match self {
-            DiscoveredEntity::Chassis { entity, .. } => Some(entity.raw().base.id.clone()),
-            DiscoveredEntity::Processor { entity, .. } => Some(entity.raw().base.id.clone()),
-            _ => None,
-        }
+    /// are matchable. The comparison is on the whole path rather than its last
+    /// segment: a platform that reuses one id across the `Processors` and
+    /// `Chassis` collections would otherwise let a chassis origin resolve to a
+    /// processor, which reports no `gpu_chassis_serial`.
+    pub(crate) fn gpu_origin_path(&self) -> Option<String> {
+        let odata_id = match self {
+            DiscoveredEntity::Chassis { entity, .. } => entity.odata_id().to_string(),
+            DiscoveredEntity::Processor { entity, .. } => entity.odata_id().to_string(),
+            _ => return None,
+        };
+        Some(normalize_odata_id(&odata_id).to_string())
     }
 
     pub(crate) fn key(&self) -> String {

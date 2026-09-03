@@ -421,7 +421,9 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
 /// containing `GPU` are not exclusive to GPUs: HGX baseboards expose an
 /// `HGX_ERoT_GPU_SXM_1` root-of-trust device per GPU, carrying its own
 /// unrelated UUID.
-pub(in crate::collectors) fn is_gpu_processor<B: Bmc>(processor: &nv_redfish::computer_system::Processor<B>) -> bool {
+pub(in crate::collectors) fn is_gpu_processor<B: Bmc>(
+    processor: &nv_redfish::computer_system::Processor<B>,
+) -> bool {
     processor
         .raw()
         .processor_type
@@ -459,7 +461,9 @@ pub(in crate::collectors) fn gpu_identity_from_processor<B: Bmc>(
 ///
 /// Keyed by `@odata.id` so a chassis can be matched against its
 /// `Links/Processors` entries without refetching them.
-pub(in crate::collectors) fn gpu_processor_ids<B: Bmc>(entities: &[DiscoveredEntity<B>]) -> HashSet<String> {
+pub(in crate::collectors) fn gpu_processor_ids<B: Bmc>(
+    entities: &[DiscoveredEntity<B>],
+) -> HashSet<String> {
     entities
         .iter()
         .filter_map(|entity| match entity {
@@ -649,7 +653,8 @@ mod bmc_mock_integration_tests {
     /// sensors are attributed to `Processor` entities rather than to the chassis.
     #[tokio::test]
     async fn dgx_h100_resolves_identity_for_every_gpu_processor() {
-        let (identities, gpu_processors) = identities_by_processor(&nvidia_dgx_h100_bmc().await).await;
+        let (identities, gpu_processors) =
+            identities_by_processor(&nvidia_dgx_h100_bmc().await).await;
 
         let gpus: Vec<_> = identities
             .iter()
@@ -660,7 +665,10 @@ mod bmc_mock_integration_tests {
 
         for (processor_id, identity) in &gpus {
             assert!(identity.uuid.is_some(), "{processor_id} must carry a UUID");
-            assert!(identity.serial.is_some(), "{processor_id} must carry a serial");
+            assert!(
+                identity.serial.is_some(),
+                "{processor_id} must carry a serial"
+            );
             assert_eq!(
                 identity.model.as_deref(),
                 Some("H100 80GB HBM3"),
@@ -685,7 +693,10 @@ mod bmc_mock_integration_tests {
 
         for (chassis_id, identity) in &gpus {
             assert!(identity.uuid.is_some(), "{chassis_id} must carry a UUID");
-            assert!(identity.serial.is_some(), "{chassis_id} must carry a serial");
+            assert!(
+                identity.serial.is_some(),
+                "{chassis_id} must carry a serial"
+            );
             assert_eq!(
                 identity.model.as_deref(),
                 Some("H100 80GB HBM3"),

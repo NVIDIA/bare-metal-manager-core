@@ -34,7 +34,7 @@ use super::redfish::{
     nvidia_error_id, redfish_event_type_string, redfish_log_type,
 };
 use crate::HealthError;
-use crate::collectors::inventory::SharedInventory;
+use crate::collectors::inventory::{SharedInventory, normalize_odata_id};
 use crate::collectors::runtime::{
     EventStream, StreamingCollector, StreamingConnectResult, open_sse_stream,
 };
@@ -233,9 +233,7 @@ fn gpu_attributes_for_record<B: Bmc>(
         return Vec::new();
     };
     let odata_id = origin.odata_id.to_string();
-    let Some(origin_id) = odata_id.rsplit('/').find(|part| !part.is_empty()) else {
-        return Vec::new();
-    };
+    let origin_path = normalize_odata_id(&odata_id);
     let Some(snapshot) = shared.load_full() else {
         return Vec::new();
     };
@@ -243,7 +241,7 @@ fn gpu_attributes_for_record<B: Bmc>(
     snapshot
         .entities
         .iter()
-        .find(|entity| entity.gpu_origin_id().as_deref() == Some(origin_id))
+        .find(|entity| entity.gpu_origin_path().as_deref() == Some(origin_path))
         .and_then(|entity| entity.gpu_identity())
         .map(|gpu| gpu.attributes())
         .unwrap_or_default()
@@ -1093,7 +1091,60 @@ mod gpu_enrichment_tests {
             "got {via_processor:?}"
         );
         assert_eq!(via_processor.get("gpu_uuid"), via_chassis.get("gpu_uuid"));
-        assert_eq!(via_processor.get("gpu_serial"), via_chassis.get("gpu_serial"));
+        assert_eq!(
+            via_processor.get("gpu_serial"),
+            via_chassis.get("gpu_serial")
+        );
+    }
+
+    /// The lookup key is the whole `@odata.id` rather than its last segment. A
+    /// bare id would let a chassis origin resolve to a processor on a platform
+    /// that reuses one id across the two collections.
+    #[tokio::test]
+    async fn gpu_origin_keys_are_whole_odata_ids() {
+        let inventory = h100_inventory().await;
+        let snapshot = inventory.load_full().expect("inventory snapshot");
+
+        let keys: Vec<String> = snapshot
+            .entities
+            .iter()
+            .filter(|entity| entity.gpu_identity().is_some())
+            .filter_map(|entity| entity.gpu_origin_path())
+            .collect();
+
+        for expected in [
+            "/redfish/v1/Chassis/HGX_GPU_SXM_1",
+            "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_1",
+        ] {
+            assert!(
+                keys.iter().any(|key| key == expected),
+                "expected {expected} among {keys:?}"
+            );
+        }
+    }
+
+    /// Each origin shape must resolve to its own variant. Only the chassis
+    /// reports the enclosing module's serial, so resolving a chassis origin to a
+    /// processor would silently drop `gpu_chassis_serial`.
+    #[tokio::test]
+    async fn each_origin_shape_resolves_its_own_variant() {
+        let inventory = h100_inventory().await;
+
+        let via_chassis =
+            attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_3"));
+        let via_processor = attributes_of(
+            Some(&inventory),
+            Some("/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_SXM_3"),
+        );
+
+        assert!(
+            via_chassis.contains_key("gpu_chassis_serial"),
+            "a chassis origin must resolve the chassis, got {via_chassis:?}"
+        );
+        assert!(
+            !via_processor.contains_key("gpu_chassis_serial"),
+            "a processor origin must resolve the processor, got {via_processor:?}"
+        );
     }
 
     /// Two slots must not be attributed to the same physical GPU, which is the

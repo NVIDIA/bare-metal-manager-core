@@ -51,6 +51,8 @@ pub struct Config {
 
     pub collectors: CollectorsConfig,
 
+    /// Opt-in attributes attached to emitted telemetry beyond what a collector
+    /// reports on its own.
     pub attributes: AttributesConfig,
 
     pub processors: ProcessorsConfig,
