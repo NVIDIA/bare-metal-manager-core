@@ -34,7 +34,9 @@ use super::redfish::{
     nvidia_error_id, redfish_event_type_string, redfish_log_type,
 };
 use crate::HealthError;
-use crate::collectors::inventory::{SharedInventory, normalize_odata_id};
+use crate::collectors::inventory::{
+    EntityInventory, GpuIdentity, SharedInventory, normalize_odata_id,
+};
 use crate::collectors::runtime::{
     EventStream, StreamingCollector, StreamingConnectResult, open_sse_stream,
 };
@@ -212,12 +214,16 @@ async fn event_to_logs<B: Bmc>(
     .collect()
 }
 
-/// Resolves the GPU occupying the slot named by `origin_of_condition`.
+/// Resolves the GPU an event came from, against the current inventory snapshot.
 ///
-/// `origin_of_condition` is a location (`/redfish/v1/Chassis/HGX_GPU_SXM_1`),
-/// not a device identity: it survives a GPU swap while the silicon behind it
-/// changes. Resolving it against the current inventory snapshot yields the
-/// identity of the device that produced the event.
+/// A GPU event names its GPU by location rather than by identity, and the two
+/// places it can do so need different lookups:
+///
+/// - `origin_of_condition` is a path (`/redfish/v1/Chassis/HGX_GPU_SXM_1`) that
+///   survives a GPU swap while the silicon behind it changes.
+/// - A driver event — the shape an Xid arrives in — reports the *baseboard* as
+///   its origin and names the GPU only in its message arguments, so the origin
+///   alone cannot identify it. See [`gpu_slot_from_message_args`].
 ///
 /// Every step is best-effort. Non-GPU origins are common, and the snapshot is
 /// absent until the first discovery pass completes; both degrade to an
@@ -229,22 +235,61 @@ fn gpu_attributes_for_record<B: Bmc>(
     let Some(shared) = gpu_inventory else {
         return Vec::new();
     };
-    let Some(origin) = record.origin_of_condition.as_ref() else {
-        return Vec::new();
-    };
-    let odata_id = origin.odata_id.to_string();
-    let origin_path = normalize_odata_id(&odata_id);
     let Some(snapshot) = shared.load_full() else {
         return Vec::new();
     };
+
+    gpu_identity_by_origin(&snapshot, record)
+        .or_else(|| gpu_identity_by_message_args(&snapshot, record))
+        .map(|gpu| gpu.attributes())
+        .unwrap_or_default()
+}
+
+/// GPU named by an event's `origin_of_condition`, when that path is a GPU.
+fn gpu_identity_by_origin<'a, B: Bmc>(
+    snapshot: &'a EntityInventory<B>,
+    record: &nv_redfish::schema::event::EventRecord,
+) -> Option<&'a GpuIdentity> {
+    let odata_id = record.origin_of_condition.as_ref()?.odata_id.to_string();
+    let origin_path = normalize_odata_id(&odata_id);
 
     snapshot
         .entities
         .iter()
         .find(|entity| entity.gpu_origin_path().as_deref() == Some(origin_path))
         .and_then(|entity| entity.gpu_identity())
-        .map(|gpu| gpu.attributes())
-        .unwrap_or_default()
+}
+
+/// GPU named in a driver event's message arguments.
+///
+/// Only consulted when the origin did not resolve, which is the case that
+/// matters for Xid errors: they arrive with `MessageId`
+/// `ResourceEvent.1.0.ResourceErrorsDetected` and the HGX baseboard as their
+/// origin, so the GPU appears nowhere but the message.
+fn gpu_identity_by_message_args<'a, B: Bmc>(
+    snapshot: &'a EntityInventory<B>,
+    record: &nv_redfish::schema::event::EventRecord,
+) -> Option<&'a GpuIdentity> {
+    let slot = gpu_slot_from_message_args(record.message_args.as_deref()?)?;
+
+    snapshot
+        .entities
+        .iter()
+        .filter(|entity| entity.gpu_identity().is_some())
+        .find(|entity| entity.gpu_slot_id().as_deref() == Some(slot))
+        .and_then(|entity| entity.gpu_identity())
+}
+
+/// The slot a driver event's first message argument names.
+///
+/// The argument reads `"GPU_SXM_1 Driver Event Message"` on HGX H100 and
+/// `"GPU_1 Driver Event Message"` on GB200-class hardware, so the slot is its
+/// leading word. Matching that word against a slot id by equality rather than
+/// by substring is what keeps `GPU_SXM_1` from also matching `GPU_SXM_10`; the
+/// caller additionally requires the match to be an entity discovery already
+/// classified as a GPU, so a non-GPU subject resolves to nothing.
+fn gpu_slot_from_message_args(args: &[String]) -> Option<&str> {
+    args.first()?.split_whitespace().next()
 }
 
 async fn resolve_event_record<B: Bmc>(
@@ -968,7 +1013,7 @@ mod gpu_enrichment_tests {
     use bmc_mock::test_support::{TestBmc, nvidia_dgx_h100_bmc};
     use serde_json::json;
 
-    use super::gpu_attributes_for_record;
+    use super::{gpu_attributes_for_record, gpu_slot_from_message_args};
     use crate::collectors::discovery::{
         gpu_identity_from_chassis, gpu_identity_from_processor, gpu_processor_ids,
     };
@@ -1050,6 +1095,33 @@ mod gpu_enrichment_tests {
         origin: Option<&str>,
     ) -> HashMap<String, String> {
         gpu_attributes_for_record(inventory, &xid_record(origin))
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect()
+    }
+
+    /// A driver event in the shape HGX firmware reports an Xid: the baseboard
+    /// as origin, with the GPU named only in the message arguments.
+    fn driver_event_record(origin: &str, args: &[&str]) -> nv_redfish::schema::event::EventRecord {
+        serde_json::from_value(json!({
+            "@odata.id": "/redfish/v1/EventService/SSE#/Events/1",
+            "MemberId": "1",
+            "EventType": "Alert",
+            "MessageId": "ResourceEvent.1.0.ResourceErrorsDetected",
+            "Message": "The resource property has detected errors.",
+            "MessageArgs": args,
+            "MessageSeverity": "Critical",
+            "OriginOfCondition": { "@odata.id": origin },
+        }))
+        .expect("valid event record")
+    }
+
+    fn attributes_of_driver_event(
+        inventory: &SharedInventory<TestBmc>,
+        origin: &str,
+        args: &[&str],
+    ) -> HashMap<String, String> {
+        gpu_attributes_for_record(Some(inventory), &driver_event_record(origin, args))
             .into_iter()
             .map(|(key, value)| (key.to_string(), value))
             .collect()
@@ -1181,6 +1253,108 @@ mod gpu_enrichment_tests {
             attributes_of(Some(&inventory), Some("/redfish/v1/Systems/System_0")).is_empty(),
             "an origin outside the chassis collection must not match a chassis id"
         );
+    }
+
+    /// The case the origin lookup alone cannot serve: an Xid names the HGX
+    /// baseboard as its origin, which holds eight GPUs, so the identity has to
+    /// come from the GPU named in the message arguments.
+    #[tokio::test]
+    async fn baseboard_origin_xid_resolves_the_gpu_named_in_message_args() {
+        let inventory = h100_inventory().await;
+
+        let from_xid = attributes_of_driver_event(
+            &inventory,
+            "/redfish/v1/Systems/HGX_Baseboard_0",
+            &[
+                "GPU_SXM_1 Driver Event Message",
+                "[Tue Apr 22 23:22:23 UTC 2025][7][00] XID 95 Uncontained: FBHUB. RST: Yes; D-RST: No",
+            ],
+        );
+
+        assert!(
+            from_xid.contains_key("gpu_uuid"),
+            "an Xid must resolve its GPU, got {from_xid:?}"
+        );
+
+        // Must be the same device the slot's own chassis origin resolves to.
+        let from_chassis =
+            attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_1"));
+        assert_eq!(from_xid.get("gpu_uuid"), from_chassis.get("gpu_uuid"));
+        assert_eq!(from_xid.get("gpu_serial"), from_chassis.get("gpu_serial"));
+    }
+
+    /// Two Xids from different slots must not collapse onto one GPU.
+    #[tokio::test]
+    async fn xids_from_different_slots_resolve_different_gpus() {
+        let inventory = h100_inventory().await;
+        let origin = "/redfish/v1/Systems/HGX_Baseboard_0";
+
+        let first =
+            attributes_of_driver_event(&inventory, origin, &["GPU_SXM_1 Driver Event Message", ""]);
+        let second =
+            attributes_of_driver_event(&inventory, origin, &["GPU_SXM_2 Driver Event Message", ""]);
+
+        assert!(first.contains_key("gpu_uuid"));
+        assert_ne!(first.get("gpu_uuid"), second.get("gpu_uuid"));
+    }
+
+    /// A resolvable origin is the better signal and must not be overridden by
+    /// whatever the message text happens to name.
+    #[tokio::test]
+    async fn origin_takes_precedence_over_message_args() {
+        let inventory = h100_inventory().await;
+
+        let resolved = attributes_of_driver_event(
+            &inventory,
+            "/redfish/v1/Chassis/HGX_GPU_SXM_3",
+            &["GPU_SXM_1 Driver Event Message", ""],
+        );
+        let slot_three = attributes_of(Some(&inventory), Some("/redfish/v1/Chassis/HGX_GPU_SXM_3"));
+
+        assert_eq!(resolved.get("gpu_uuid"), slot_three.get("gpu_uuid"));
+    }
+
+    /// The fallback must not label events whose subject is not a discovered GPU,
+    /// which is why the slot is compared by equality against inventory rather
+    /// than by searching the message for a `GPU` substring.
+    #[tokio::test]
+    async fn message_args_naming_no_discovered_gpu_yield_no_attributes() {
+        let inventory = h100_inventory().await;
+        let origin = "/redfish/v1/Systems/HGX_Baseboard_0";
+
+        for args in [
+            // A sensor threshold event: names a GPU sensor, not a GPU.
+            vec!["HGX_GPU_0_Temp_1", "3.96", "-0.05"],
+            // A slot that does not exist on this baseboard.
+            vec!["GPU_SXM_99 Driver Event Message", ""],
+            // The root-of-trust component, which reports its own unrelated UUID.
+            vec!["HGX_ERoT_GPU_SXM_1 Driver Event Message", ""],
+            vec![],
+        ] {
+            let attributes = attributes_of_driver_event(&inventory, origin, &args);
+            assert!(
+                attributes.is_empty(),
+                "args {args:?} must not resolve a GPU, got {attributes:?}"
+            );
+        }
+    }
+
+    /// The slot is the leading word, and is matched whole: a prefix test would
+    /// let `GPU_SXM_1` also claim events belonging to `GPU_SXM_10`.
+    #[test]
+    fn slot_is_the_leading_word_of_the_first_argument() {
+        let cases = [
+            ("GPU_SXM_1 Driver Event Message", Some("GPU_SXM_1")),
+            ("GPU_1 Driver Event Message", Some("GPU_1")),
+            ("GPU_SXM_10 Driver Event Message", Some("GPU_SXM_10")),
+        ];
+
+        for (arg, expected) in cases {
+            let args = vec![arg.to_string()];
+            assert_eq!(gpu_slot_from_message_args(&args), expected, "{arg}");
+        }
+
+        assert_eq!(gpu_slot_from_message_args(&[]), None);
     }
 
     #[tokio::test]

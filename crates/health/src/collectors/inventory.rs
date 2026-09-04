@@ -253,6 +253,20 @@ impl<B: Bmc> DiscoveredEntity<B> {
     /// segment: a platform that reuses one id across the `Processors` and
     /// `Chassis` collections would otherwise let a chassis origin resolve to a
     /// processor, which reports no `gpu_chassis_serial`.
+    /// Redfish `Id` of the slot this entity describes.
+    ///
+    /// A driver event names its GPU in message text by this id rather than by a
+    /// path, so resolving those records needs a key the text can be compared
+    /// against. Prefer [`Self::gpu_origin_path`] wherever a path is available,
+    /// since an id is only unique within its own collection.
+    pub(crate) fn gpu_slot_id(&self) -> Option<String> {
+        match self {
+            DiscoveredEntity::Chassis { entity, .. } => Some(entity.raw().base.id.clone()),
+            DiscoveredEntity::Processor { entity, .. } => Some(entity.raw().base.id.clone()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn gpu_origin_path(&self) -> Option<String> {
         let odata_id = match self {
             DiscoveredEntity::Chassis { entity, .. } => entity.odata_id().to_string(),
