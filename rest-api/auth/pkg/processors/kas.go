@@ -278,10 +278,10 @@ func normalizeOrgData(orgData cdbm.OrgData) cdbm.OrgData {
 }
 
 type resolver struct {
-	dbSession *cdb.Session
-	ngc       *ngcClient
-	cache     *apiKeyCache
-	flight    singleflight.Group
+	dbSession  *cdb.Session
+	ngc        *ngcClient
+	cache      *apiKeyCache
+	fetchGroup singleflight.Group
 }
 
 func newResolver(dbSession *cdb.Session, baseURL string, metrics kasRecorder) *resolver {
@@ -340,9 +340,9 @@ func (r *resolver) refresh(ctx context.Context, dg [32]byte, raw, urlOrg string)
 	// The digest is a fixed 32 bytes, so appending the org cannot collide with
 	// another key's digest. Two orgs resolve to different grants, so they must not
 	// share a flight
-	flightKey := string(dg[:]) + urlOrg
+	fetchKey := string(dg[:]) + urlOrg
 
-	resolved, err, _ := r.flight.Do(flightKey, func() (interface{}, error) {
+	resolved, err, _ := r.fetchGroup.Do(fetchKey, func() (interface{}, error) {
 		id, err := r.fetchIdentity(fetchCtx, raw, urlOrg)
 		if err != nil {
 			switch {
