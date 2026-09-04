@@ -14,7 +14,6 @@ require (
 	github.com/NVIDIA/infra-controller/rest-api/sdk/standard v0.0.0-00010101000000-000000000000
 	github.com/Nerzal/gocloak/v13 v13.9.0
 	github.com/avast/retry-go/v4 v4.7.0
-	github.com/bufbuild/buf v1.72.0
 	github.com/creack/pty v1.1.24
 	github.com/deckarep/golang-set/v2 v2.8.0
 	github.com/felixge/httpsnoop v1.1.0
