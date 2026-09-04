@@ -16,6 +16,7 @@ import (
 
 func TestEventActionExecutionRoundTrip(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	local := time.FixedZone("PDT", -7*60*60)
 	base, err := eventrule.NewExecution(uuid.New(), "notify", &eventrule.NoopPlan{Reason: "test"}, now)
 	require.NoError(t, err)
 
@@ -61,7 +62,15 @@ func TestEventActionExecutionRoundTrip(t *testing.T) {
 			token := uuid.New()
 
 			if test.claim {
-				require.NoError(t, execution.Claim("scheduler-1", token, now.Add(time.Second)))
+				disposition, err := execution.AcquireClaim(
+					"scheduler-1",
+					token,
+					now.Add(time.Second),
+					now.Add(time.Minute),
+					4,
+				)
+				require.NoError(t, err)
+				require.Equal(t, eventrule.ClaimAcquired, disposition)
 			}
 			if test.result != nil {
 				require.NoError(
@@ -72,6 +81,16 @@ func TestEventActionExecutionRoundTrip(t *testing.T) {
 
 			persisted, err := EventActionExecutionTo(&execution)
 			require.NoError(t, err)
+			persisted.CreatedAt = persisted.CreatedAt.In(local)
+			persisted.UpdatedAt = persisted.UpdatedAt.In(local)
+			if persisted.ClaimExpiresAt != nil {
+				claimExpiresAt := persisted.ClaimExpiresAt.In(local)
+				persisted.ClaimExpiresAt = &claimExpiresAt
+			}
+			if persisted.NextAttemptAt != nil {
+				nextAttemptAt := persisted.NextAttemptAt.In(local)
+				persisted.NextAttemptAt = &nextAttemptAt
+			}
 			if test.activeClaim {
 				require.NotNil(t, persisted.ClaimToken)
 				require.Equal(t, token, *persisted.ClaimToken)

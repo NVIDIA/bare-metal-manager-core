@@ -39,18 +39,11 @@ func TestNew(t *testing.T) {
 			mutate:  func(config *Config) { config.TaskManager = nil },
 			wantErr: "task manager is required",
 		},
-		"rejects missing execution task store": {
-			mutate:  func(config *Config) { config.ExecutionTasks = nil },
-			wantErr: "execution task store is required",
-		},
 	}
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			config := Config{
-				TaskManager:    &recordingTaskManager{},
-				ExecutionTasks: newExecutionTaskStore(),
-			}
+			config := Config{TaskManager: &recordingTaskManager{}}
 			if test.mutate != nil {
 				test.mutate(&config)
 			}

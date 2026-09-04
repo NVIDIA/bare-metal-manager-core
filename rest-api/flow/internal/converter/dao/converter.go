@@ -196,9 +196,19 @@ func NVLDomainFrom(dao *model.NVLDomain) *nvldomain.NVLDomain {
 	}
 }
 
-func TaskFrom(dao *model.Task) *taskdef.Task {
+// TaskFrom converts a persisted task to its domain representation and rejects
+// invalid trigger metadata.
+func TaskFrom(dao *model.Task) (*taskdef.Task, error) {
 	if dao == nil {
-		return nil
+		return nil, nil
+	}
+
+	triggerType, err := operation.TriggerTypeFromString(dao.TriggerType)
+	if err != nil {
+		return nil, fmt.Errorf("invalid persisted task trigger: %w", err)
+	}
+	if err := operation.ValidateTrigger(triggerType, dao.TriggerID); err != nil {
+		return nil, fmt.Errorf("invalid persisted task trigger: %w", err)
 	}
 
 	// Extract operation code from the serialized information
@@ -228,8 +238,10 @@ func TaskFrom(dao *model.Task) *taskdef.Task {
 		StartedAt:      dao.StartedAt,
 		FinishedAt:     dao.FinishedAt,
 		QueueExpiresAt: dao.QueueExpiresAt,
+		TriggerType:    triggerType,
+		TriggerID:      dao.TriggerID,
 		IdempotencyKey: dao.IdempotencyKey,
-	}
+	}, nil
 }
 
 // BMCTypeTo converts BMC type from internal model to DAO model
@@ -367,6 +379,8 @@ func TaskTo(task *taskdef.Task) *model.Task {
 		Report:         task.Report,
 		AppliedRuleID:  task.AppliedRuleID,
 		QueueExpiresAt: task.QueueExpiresAt,
+		TriggerType:    string(task.TriggerType),
+		TriggerID:      task.TriggerID,
 		IdempotencyKey: task.IdempotencyKey,
 	}
 }

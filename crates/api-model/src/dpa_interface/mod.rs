@@ -22,7 +22,7 @@ use std::net::IpAddr;
 use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::HostMachineId;
 use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -55,7 +55,7 @@ pub enum DpaInterfaceControllerState {
     Provisioning,
     /// The dpa interface is ready. It has been configured with a zero VNI
     Ready,
-    /// Unlock the card
+    /// Unlock the card as part of the tenant allocation-flow (applying f/w update if necessary)
     Unlocking,
     /// Apply firmware to the SuperNIC, in which we will send down
     /// a FirmwareFlasherProfile matching the device P/N + PSID,
@@ -70,10 +70,25 @@ pub enum DpaInterfaceControllerState {
     ApplyFirmware,
     /// Apply mlx profile
     ApplyProfile,
-    /// Lock the card
+    /// Lock the card as part of the tenant allocation-flow
     Locking,
     /// The Dpa Interface has been configured with a non-zero VNI
     Assigned,
+    /// Tenant-free NIC lockdown input-key-material (IKM) rotation, phase one:
+    /// unlock the card. Like the assignment `Unlocking`, it unlocks at the IKM
+    /// version the card is currently locked under -- it reuses the same
+    /// `build_unlock_command`, because a card must always be unlocked with the
+    /// key it was locked with. That shared unlock is not what makes this a
+    /// separate state; its gating and continuation are. It is entered only from
+    /// the idle-only `ManagedHostState::RotatingNicLockdown` host state (never
+    /// under active tenancy), and on observed unlock it clears the card's
+    /// convergence bookkeeping (`record_device_unlocked`) and advances to
+    /// `RotateKeyLocking` (relock at the site-wide target) rather than into the
+    /// firmware/profile assignment pipeline.
+    RotateKeyUnlocking,
+    /// Tenant-free NIC lockdown input-key-material (IKM) rotation flow, phase 2: lock the NIC with the most recent
+    /// site-wide target IKM version, completing the rekey and returning the card to `Ready`.
+    RotateKeyLocking,
 }
 
 #[derive(Default)]
@@ -184,13 +199,19 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
             StateSla::with_sla(slas::UNLOCKING, time_in_state)
         }
         DpaInterfaceControllerState::Assigned => StateSla::no_sla(),
+        DpaInterfaceControllerState::RotateKeyUnlocking => {
+            StateSla::with_sla(slas::ROTATE_KEY_UNLOCKING, time_in_state)
+        }
+        DpaInterfaceControllerState::RotateKeyLocking => {
+            StateSla::with_sla(slas::ROTATE_KEY_LOCKING, time_in_state)
+        }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct DpaInterface {
     pub id: DpaInterfaceId,
-    pub machine_id: MachineId,
+    pub machine_id: HostMachineId,
 
     pub mac_address: MacAddress,
     pub pci_name: String,
@@ -240,7 +261,7 @@ pub struct DpaInterface {
 
 #[derive(Clone, Debug)]
 pub struct NewDpaInterface {
-    pub machine_id: MachineId,
+    pub machine_id: HostMachineId,
     pub mac_address: MacAddress,
     pub device_type: String,
     pub pci_name: String,
@@ -259,7 +280,7 @@ impl NewDpaInterface {
     /// what is effectively a (machine_id, mac_address) compound primary key,
     /// it's kind of important to have.
     pub fn from_device_info(
-        machine_id: MachineId,
+        machine_id: HostMachineId,
         base_mac: Option<MacAddress>,
         device_type: String,
         pci_name: String,
@@ -282,7 +303,7 @@ impl DpaInterface {
         self.network_config.use_admin_network.unwrap_or(true)
     }
 
-    pub fn get_machine_id(&self) -> MachineId {
+    pub fn get_machine_id(&self) -> HostMachineId {
         self.machine_id
     }
 
@@ -367,7 +388,7 @@ impl<'r> FromRow<'r, PgRow> for DpaInterface {
 #[derive(Serialize, Deserialize)]
 pub struct DpaInterfaceSnapshotPgJson {
     pub id: DpaInterfaceId,
-    pub machine_id: MachineId,
+    pub machine_id: HostMachineId,
     pub mac_address: MacAddress,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
@@ -446,6 +467,7 @@ mod tests {
 
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
+    use carbide_uuid::machine::HostMachineId as MachineId;
 
     use super::*;
 
@@ -591,6 +613,16 @@ mod tests {
                     input: DpaInterfaceControllerState::Assigned,
                     expect: Yields("{\"state\":\"assigned\"}".to_string()),
                 },
+                Case {
+                    scenario: "rotatekeyunlocking",
+                    input: DpaInterfaceControllerState::RotateKeyUnlocking,
+                    expect: Yields("{\"state\":\"rotatekeyunlocking\"}".to_string()),
+                },
+                Case {
+                    scenario: "rotatekeylocking",
+                    input: DpaInterfaceControllerState::RotateKeyLocking,
+                    expect: Yields("{\"state\":\"rotatekeylocking\"}".to_string()),
+                },
             ],
             |state| -> Result<String, ()> {
                 let serialized = serde_json::to_string(&state).map_err(|_| ())?;
@@ -672,6 +704,14 @@ mod tests {
 
             "assigned" {
                 DpaInterfaceControllerState::Assigned => "Assigned".to_string(),
+            }
+
+            "rotatekeyunlocking" {
+                DpaInterfaceControllerState::RotateKeyUnlocking => "RotateKeyUnlocking".to_string(),
+            }
+
+            "rotatekeylocking" {
+                DpaInterfaceControllerState::RotateKeyLocking => "RotateKeyLocking".to_string(),
             }
         );
     }

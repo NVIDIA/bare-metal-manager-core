@@ -270,6 +270,8 @@ type MachineClearInput struct {
 	NetworkHealthMessage  bool
 	DefaultMacAddress     bool
 	Hostname              bool
+	// Deleted clears the soft-delete timestamp (undelete).
+	Deleted bool
 }
 
 // MachineFilterInput filtering options for GetAll method
@@ -287,8 +289,11 @@ type MachineFilterInput struct {
 	Statuses                  []string
 	SearchQuery               *string
 	MachineIDs                []string
+	Labels                    map[string]string
 	IsMissingOnSite           *bool
 	ExcludeMetadata           bool // When true, excludes the metadata JSONB column from SELECT to improve performance on bulk queries
+	// IncludeDeleted returns soft-deleted rows in addition to active ones.
+	IncludeDeleted bool
 }
 
 type MachineHealth struct {
@@ -684,11 +689,38 @@ func (msd MachineSQLDAO) setQueryWithFilter(filter MachineFilterInput, query *bu
 		query = query.Where("m.id IN (?)", bun.In(filter.MachineIDs))
 	}
 
+	// JSONB containment gives exact key/value AND semantics for the selector
+	// object and can use the machine labels GIN index.
+	if len(filter.Labels) > 0 {
+		labelsJSON, err := json.Marshal(filter.Labels)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode Machine label selector: %w", err)
+		}
+		query = query.Where("m.labels @> ?::jsonb", string(labelsJSON))
+		if machineDAOSpan != nil {
+			msd.tracerSpan.SetAttribute(machineDAOSpan, "machine_label_selector", string(labelsJSON))
+		}
+	}
+
 	if filter.ExcludeMetadata {
 		query = query.ExcludeColumn("metadata")
 	}
 
 	return query, nil
+}
+
+// MatchesLabelSelector reports whether all requested label key/value pairs are
+// present on the Machine. An empty selector matches every Machine.
+func (m *Machine) MatchesLabelSelector(selector map[string]string) bool {
+	if m == nil {
+		return false
+	}
+	for key, value := range selector {
+		if actual, ok := m.Labels[key]; !ok || actual != value {
+			return false
+		}
+	}
+	return true
 }
 
 // GetAll returns all Machines based on the filter and paging
@@ -713,6 +745,9 @@ func (msd MachineSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter MachineFi
 	}
 
 	query := db.GetIDB(tx, msd.dbSession).NewSelect().Model(&machines)
+	if filter.IncludeDeleted {
+		query = query.WhereAllWithDeleted()
+	}
 
 	query, err := msd.setQueryWithFilter(filter, query, machineDAOSpan)
 	if err != nil {
@@ -822,11 +857,20 @@ func (msd MachineSQLDAO) Clear(ctx context.Context, tx *db.Tx, input MachineClea
 		m.Hostname = nil
 		updatedFields = append(updatedFields, "hostname")
 	}
+	if input.Deleted {
+		m.Deleted = nil
+		updatedFields = append(updatedFields, "deleted")
+	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
 
-		_, err := db.GetIDB(tx, msd.dbSession).NewUpdate().Model(m).Column(updatedFields...).Where("id = ?", input.MachineID).Exec(ctx)
+		query := db.GetIDB(tx, msd.dbSession).NewUpdate().Model(m).Column(updatedFields...).Where("id = ?", input.MachineID)
+		// Soft-deleted rows are excluded by default; include them when undeleting.
+		if input.Deleted {
+			query = query.WhereAllWithDeleted()
+		}
+		_, err := query.Exec(ctx)
 		if err != nil {
 			return nil, err
 		}

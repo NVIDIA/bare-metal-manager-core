@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use carbide_dpf::{DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, HostMachineId};
 use model::machine::{DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState};
 use tokio::time::timeout;
 
@@ -42,7 +42,7 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn provisioning_mock_with_labels_valid(labels_valid: Arc<AtomicBool>) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
-    mock.expect_register_dpu_device().returning(|_| Ok(()));
+    mock.expect_register_dpu_device().returning(|_, _| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
@@ -55,7 +55,11 @@ fn provisioning_mock_with_labels_valid(labels_valid: Arc<AtomicBool>) -> MockDpf
     mock
 }
 
-async fn reset_host_to_provisioning(pool: &sqlx::PgPool, host_id: &MachineId, dpu_id: &MachineId) {
+async fn reset_host_to_provisioning(
+    pool: &sqlx::PgPool,
+    host_id: &HostMachineId,
+    dpu_id: &DpuMachineId,
+) {
     let state = ManagedHostState::DPUInit {
         dpu_states: model::machine::DpuInitStates {
             states: HashMap::from([(
@@ -87,8 +91,8 @@ async fn reset_host_to_provisioning(pool: &sqlx::PgPool, host_id: &MachineId, dp
 
 async fn reset_host_to_waiting_for_ready(
     pool: &sqlx::PgPool,
-    host_id: &MachineId,
-    dpu_id: &MachineId,
+    host_id: &HostMachineId,
+    dpu_id: &DpuMachineId,
 ) {
     let state = ManagedHostState::DPUInit {
         dpu_states: model::machine::DpuInitStates {

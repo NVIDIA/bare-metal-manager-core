@@ -278,11 +278,11 @@ async fn test_integration() -> eyre::Result<()> {
         r#"carbide_site_explorer_boot_interface_selections_total{mechanism="redfish_serial_number"}"#,
     )
     .await?;
-    // MaT exercises a host with multiple DPUs whose lowest Scout PCI slot
-    // matches its stored boot interface.
+    // The Wiwynn mock deliberately gives the `RedfishChassisId` selection the higher
+    // scout PCI slot so the integration path exercises automatic reconciliation.
     metrics::wait_for_metric_line(
         &test_env.carbide_metrics_addrs,
-        r#"carbide_scout_pci_evaluations_total{result="agreement"}"#,
+        r#"carbide_scout_pci_evaluations_total{result="differs_from_stored"}"#,
     )
     .await?;
 
@@ -297,7 +297,7 @@ async fn test_integration() -> eyre::Result<()> {
         metric_infos
             .iter()
             .any(|metric| metric.name == "carbide_scout_pci_evaluations_total"),
-        "the MaT Scout path must exercise PCI evaluation observability",
+        "the MaT scout path must exercise PCI comparison observability",
     );
     generate_core_metric_docs(&test_env.carbide_metrics_addrs);
 
@@ -657,11 +657,11 @@ async fn test_machine_a_tron_multidpu(
                 let dpu = machine_handle
                     .host_info()
                     .dpus
-                    .first()
-                    .expect("Wiwynn GB200 host should contain its Slot1 DPU");
+                    .get(1)
+                    .expect("Wiwynn GB200 host should contain its DPU with the lower scout PCI slot");
                 (
                     dpu.host_mac_address,
-                    BootInterfaceSelectionSource::RedfishChassisId,
+                    BootInterfaceSelectionSource::ScoutReportPci,
                 )
             });
             async move {
@@ -682,7 +682,7 @@ async fn test_machine_a_tron_multidpu(
                     .await?;
                     assert_eq!(
                         selection, expected_selection,
-                        "GB200's Slot1 chassis selection must survive the full ingestion handoff",
+                        "the Wiwynn mock must replace its RedfishChassisId selection with the lower scout PCI slot",
                     );
                 }
                 tracing::info!(
@@ -704,7 +704,7 @@ async fn test_machine_a_tron_multidpu(
                     .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
 
-                let instance_json = instance::get_instance_json_by_machine_id(
+                let instances = instance::get_by_machine_id(
                     carbide_api_addrs,
                     machine_handle
                         .observed_machine_id()
@@ -713,22 +713,15 @@ async fn test_machine_a_tron_multidpu(
                         .as_str(),
                 )
                 .await?;
-
-                let serde_json::Value::Object(interface) =
-                    &instance_json["instances"][0]["status"]["network"]["interfaces"][0]
-                else {
-                    panic!("Allocated instance does not have interface configuration")
-                };
-
-                let serde_json::Value::Array(addrs) = &interface["addresses"] else {
-                    panic!("Interface does not have addresses")
-                };
-                assert_eq!(addrs.len(), 1);
-
-                let serde_json::Value::Array(gateways) = &interface["gateways"] else {
-                    panic!("Interface does not have gateways set")
-                };
-                assert_eq!(gateways.len(), 1);
+                let interface = instances
+                    .instances
+                    .first()
+                    .and_then(|instance| instance.status.as_ref())
+                    .and_then(|status| status.network.as_ref())
+                    .and_then(|network| network.interfaces.first())
+                    .context("allocated instance has no network status interface")?;
+                assert_eq!(interface.addresses.len(), 1);
+                assert_eq!(interface.gateways.len(), 1);
 
                 tracing::info!(
                     machine_id = %machine_id,
@@ -895,33 +888,33 @@ async fn assert_nic_mode_host(
     expected_host_mac: &str,
     host_inband_segment_id: &str,
 ) -> eyre::Result<()> {
-    let machine = machine::get_json_by_id(carbide_api_addrs, machine_id).await?;
-    let associated_dpus = machine["associatedDpuMachineIds"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
+    let machine = machine::get_by_id(carbide_api_addrs, machine_id).await?;
+    let status = machine
+        .status
+        .context("NIC-mode host has no machine status")?;
+    let associated_dpus = &status.associated_dpu_machine_ids;
     eyre::ensure!(
         associated_dpus.is_empty(),
         "NIC-mode host {machine_id} still has associated DPUs: {associated_dpus:?}"
     );
 
-    let interfaces = machine["interfaces"]
-        .as_array()
-        .ok_or_else(|| eyre::eyre!("NIC-mode host {machine_id} has no interfaces"))?;
+    let interfaces = &status.interfaces;
     eyre::ensure!(
         interfaces
             .iter()
-            .all(|interface| interface["attachedDpuMachineId"].is_null()),
+            .all(|interface| interface.attached_dpu_machine_id.is_none()),
         "NIC-mode host {machine_id} still has a DPU-backed interface: {interfaces:?}"
     );
 
     let has_expected_primary_host_inband_interface = interfaces.iter().any(|interface| {
-        interface["macAddress"]
-            .as_str()
-            .is_some_and(|mac| mac.eq_ignore_ascii_case(expected_host_mac))
-            && interface["primaryInterface"] == true
-            && interface["segmentId"]["value"] == host_inband_segment_id
-            && interface["interfaceType"] != "INTERFACE_TYPE_BMC"
+        interface
+            .mac_address
+            .eq_ignore_ascii_case(expected_host_mac)
+            && interface.primary_interface
+            && interface
+                .segment_id
+                .is_some_and(|id| id.to_string() == host_inband_segment_id)
+            && interface.interface_type != Some(rpc::forge::InterfaceType::Bmc as i32)
     });
     eyre::ensure!(
         has_expected_primary_host_inband_interface,
@@ -935,47 +928,54 @@ async fn assert_auto_instance_network(
     instance_id: &str,
     flat_vpc_id: &str,
 ) -> eyre::Result<()> {
-    let instance = instance::get_instance_json_by_id(carbide_api_addrs, instance_id).await?;
-    let network = &instance["config"]["network"];
+    let instance = instance::get_by_id(carbide_api_addrs, instance_id).await?;
+    let network = instance
+        .config
+        .as_ref()
+        .and_then(|config| config.network.as_ref())
+        .context("automatically-networked instance has no network config")?;
     eyre::ensure!(
-        network["auto"] == true,
-        "instance {instance_id} did not retain auto networking: {network}"
+        network.auto_config.is_some(),
+        "instance {instance_id} did not retain auto networking: {network:?}"
     );
     eyre::ensure!(
-        network["interfaces"].as_array().is_some_and(Vec::is_empty),
-        "instance {instance_id} exposed resolved interfaces in its external config: {network}"
+        network.interfaces.is_empty(),
+        "instance {instance_id} exposed resolved interfaces in its external config: {network:?}"
     );
     eyre::ensure!(
-        network["autoConfig"]["vpcId"]["value"] == flat_vpc_id,
-        "instance {instance_id} did not retain flat VPC {flat_vpc_id}: {network}"
+        network
+            .auto_config
+            .as_ref()
+            .and_then(|config| config.vpc_id)
+            .is_some_and(|id| id.to_string() == flat_vpc_id),
+        "instance {instance_id} did not retain flat VPC {flat_vpc_id}: {network:?}"
     );
 
-    let status_interfaces = instance["status"]["network"]["interfaces"]
-        .as_array()
-        .ok_or_else(|| eyre::eyre!("instance {instance_id} has no network status interfaces"))?;
+    let network_status = instance
+        .status
+        .as_ref()
+        .and_then(|status| status.network.as_ref())
+        .context("automatically-networked instance has no network status")?;
+    let status_interfaces = &network_status.interfaces;
     eyre::ensure!(
         !status_interfaces.is_empty()
             && status_interfaces.iter().all(|interface| {
-                interface["vpcId"]["value"] == flat_vpc_id
-                    && interface["macAddress"]
-                        .as_str()
+                interface
+                    .vpc_id
+                    .is_some_and(|id| id.to_string() == flat_vpc_id)
+                    && interface
+                        .mac_address
+                        .as_ref()
                         .is_some_and(|mac| !mac.is_empty())
-                    && interface["addresses"]
-                        .as_array()
-                        .is_some_and(|values| !values.is_empty())
-                    && interface["gateways"]
-                        .as_array()
-                        .is_some_and(|values| !values.is_empty())
-                    && interface["prefixes"]
-                        .as_array()
-                        .is_some_and(|values| !values.is_empty())
+                    && !interface.addresses.is_empty()
+                    && !interface.gateways.is_empty()
+                    && !interface.prefixes.is_empty()
             }),
         "instance {instance_id} status does not contain resolved flat VPC networking: {status_interfaces:?}"
     );
     eyre::ensure!(
-        instance["status"]["network"]["configsSynced"] == "SYNCED",
-        "instance {instance_id} network status is not synced: {}",
-        instance["status"]["network"]
+        network_status.configs_synced == rpc::forge::SyncState::Synced as i32,
+        "instance {instance_id} network status is not synced: {network_status:?}"
     );
     Ok(())
 }
@@ -1034,25 +1034,27 @@ async fn test_machine_a_tron_dual_stack(
                 let machine_id_str = machine_id.to_string();
                 let mut addrs = vec![];
                 for _ in 0..30 {
-                    let instance_json = instance::get_instance_json_by_machine_id(
+                    let instances = instance::get_by_machine_id(
                         carbide_api_addrs,
                         &machine_id_str,
                     )
                     .await?;
-                    if let Some(iface) = instance_json["instances"][0]["status"]["network"]["interfaces"]
-                        .as_array()
-                        .and_then(|ifaces| ifaces.first())
-                        && let Some(a) = iface["addresses"].as_array()
-                        && !a.is_empty()
+                    if let Some(addresses) = instances
+                        .instances
+                        .first()
+                        .and_then(|instance| instance.status.as_ref())
+                        .and_then(|status| status.network.as_ref())
+                        .and_then(|network| network.interfaces.first())
+                        .map(|interface| &interface.addresses)
+                        && !addresses.is_empty()
                     {
-                        addrs = a.clone();
+                        addrs = addresses.clone();
                         break;
                     }
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
 
-                let addr_strings: Vec<&str> =
-                    addrs.iter().filter_map(|a| a.as_str()).collect();
+                let addr_strings: Vec<&str> = addrs.iter().map(String::as_str).collect();
                 let has_ipv4 = addr_strings.iter().any(|a| a.contains('.'));
                 let has_ipv6 = addr_strings.iter().any(|a| a.contains(':'));
                 assert!(

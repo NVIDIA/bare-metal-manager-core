@@ -130,7 +130,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
             .api
             .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
                 instance_id: None,
-                machine_id: Some(self.mh.host().id),
+                machine_id: Some(self.mh.host().id.into()),
                 instance_type_id: None,
                 config: Some(self.config),
                 metadata: self.metadata,
@@ -420,6 +420,17 @@ pub(in crate::tests) async fn advance_created_instance_into_state(
         health_report::HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")),
     )
     .await;
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.host().id,
+        20,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::WaitingForRebootToReady,
+        },
+    )
+    .await;
+    env.run_machine_state_controller_iteration().await;
+    mh.host().reboot_completed().await;
 
     // State controller continues to run till target state
     env.run_machine_state_controller_iteration_until_state_condition(

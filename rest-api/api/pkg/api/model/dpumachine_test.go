@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -177,6 +178,49 @@ func TestAPIDpuMachine_FromProto_NilMachine(t *testing.T) {
 	})
 }
 
+func TestAPIDpuMachineInterface_FromProto_InterfaceType(t *testing.T) {
+	tests := []struct {
+		name          string
+		interfaceType *corev1.InterfaceType
+		legacyIsBmc   *bool
+		want          bool
+	}{
+		{
+			name:          "uses BMC interface type",
+			interfaceType: cutil.GetPtr(corev1.InterfaceType_INTERFACE_TYPE_BMC),
+			legacyIsBmc:   cutil.GetPtr(false),
+			want:          true,
+		},
+		{
+			name:          "uses data interface type",
+			interfaceType: cutil.GetPtr(corev1.InterfaceType_INTERFACE_TYPE_DATA),
+			legacyIsBmc:   cutil.GetPtr(true),
+			want:          false,
+		},
+		{
+			name:        "falls back to legacy BMC field",
+			legacyIsBmc: cutil.GetPtr(true),
+			want:        true,
+		},
+		{
+			name: "defaults to data interface",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protoInterface := &corev1.MachineInterface{
+				InterfaceType: tt.interfaceType,
+				IsBmc:         tt.legacyIsBmc, //nolint:staticcheck // Exercise compatibility with Core responses that predate interface_type.
+			}
+			apiInterface := APIDpuMachineInterface{}
+			apiInterface.FromProto(protoInterface)
+			assert.Equal(t, tt.want, apiInterface.IsBmc)
+		})
+	}
+}
+
 func TestNewAPIDpuMachines(t *testing.T) {
 	ctx := APIDpuMachineProtoContext{
 		HostMachineID:            "test-host-machine-id",
@@ -207,4 +251,50 @@ func TestNewAPIDpuMachines(t *testing.T) {
 	assert.Equal(t, ctx.HostMachineID, apiDpuMachines[0].HostMachineID)
 	assert.Equal(t, ctx.SiteID.String(), apiDpuMachines[0].SiteID)
 	assert.Equal(t, ctx.InfrastructureProviderID.String(), apiDpuMachines[0].InfrastructureProviderID)
+	assert.NotNil(t, apiDpuMachines[0].DpuNetworkConfig)
+	assert.NotNil(t, apiDpuMachines[1].DpuNetworkConfig)
+}
+
+func TestAPIDpuMachine_DpuNetworkConfigJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *APIDpuNetworkConfig
+		want   string
+	}{
+		{name: "unavailable configuration is null", want: `"dpuNetworkConfig":null`},
+		{name: "available configuration is an object", config: &APIDpuNetworkConfig{Asn: 65001}, want: `"dpuNetworkConfig":{"asn":65001`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			encoded, err := json.Marshal(APIDpuMachine{DpuNetworkConfig: tt.config})
+			require.NoError(t, err)
+			assert.Contains(t, string(encoded), tt.want)
+		})
+	}
+}
+
+func TestAPIDpuMachine_ZeroValueJSON(t *testing.T) {
+	encoded, err := json.Marshal(APIDpuMachine{})
+	require.NoError(t, err)
+
+	var response map[string]interface{}
+	require.NoError(t, json.Unmarshal(encoded, &response))
+	assert.Equal(t, map[string]interface{}{
+		"id":                       "",
+		"infrastructureProviderId": "",
+		"siteId":                   "",
+		"hostMachineId":            "",
+		"dpuAgentVersion":          "",
+		"bmcInfo":                  nil,
+		"dmiData":                  nil,
+		"interfaces":               nil,
+		"softwareComponents":       nil,
+		"health":                   nil,
+		"labels":                   nil,
+		"state":                    "",
+		"dpuNetworkConfig":         nil,
+		"lastRebooted":             nil,
+		"placementInRack":          nil,
+	}, response)
 }

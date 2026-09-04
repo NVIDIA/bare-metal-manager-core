@@ -276,7 +276,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
 
 // Create an MQTTEA client, and start up the thread that will do eventloop polling
 // by doing a connect.
-pub(crate) async fn start_dpa_handler(
+pub(crate) async fn start_svpc_handler(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     cancel_token: CancellationToken,
@@ -287,9 +287,9 @@ pub(crate) async fn start_dpa_handler(
 
     let options = {
         let defaults = ClientOptions::default().with_qos(default_qos);
-        if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
+        if let Some(ref dpa_config) = api_service.runtime_config.ewethers_config
             && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
-                &dpa_config.auth,
+                &dpa_config.svpc.auth,
                 carbide_secrets::credentials::CredentialKey::MqttAuth {
                     credential_type: carbide_secrets::credentials::MqttCredentialType::Dpa,
                 },

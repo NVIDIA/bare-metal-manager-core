@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	dpsclient "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/dps"
 	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
 	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
@@ -103,6 +105,8 @@ const (
 	ConfigMetricsEnabled = "metrics.enabled"
 	// ConfigMetricsPort specifies the port for Prometheus metrics
 	ConfigMetricsPort = "metrics.port"
+	// ConfigMetricsNamespace specifies the prefix for every exposed metric name
+	ConfigMetricsNamespace = "metrics.namespace"
 
 	// ConfigTracingEnabled is a feature flag for tracing
 	ConfigTracingEnabled = "tracing.enabled"
@@ -134,6 +138,19 @@ const (
 	ConfigRateLimiterBurst = "rateLimiter.burst"
 	// ConfigRateLimiterExpiresIn specifies the expiration time in seconds
 	ConfigRateLimiterExpiresIn = "rateLimiter.expiresIn"
+
+	// ConfigDPSEnabled controls whether NICo makes direct DPS calls.
+	ConfigDPSEnabled = "powerProvisioning.dps.enabled"
+	// ConfigDPSEndpoint is the remote DPS gRPC endpoint.
+	ConfigDPSEndpoint = "powerProvisioning.dps.endpoint"
+	// ConfigDPSRequestTimeout bounds each direct DPS operation.
+	ConfigDPSRequestTimeout = "powerProvisioning.dps.requestTimeout"
+	// ConfigDPSTokenPath specifies the bearer-token secret file.
+	ConfigDPSTokenPath = "powerProvisioning.dps.tokenPath"
+	// ConfigDPSCAPath specifies the CA bundle used to authenticate DPS.
+	ConfigDPSCAPath = "powerProvisioning.dps.tls.caPath"
+	// ConfigDPSServerName optionally overrides TLS server-name verification.
+	ConfigDPSServerName = "powerProvisioning.dps.tls.serverName"
 )
 
 // IssuerConfig represents a single issuer configuration entry
@@ -241,6 +258,7 @@ func NewConfig() *Config {
 
 	c.v.SetDefault(ConfigMetricsEnabled, true)
 	c.v.SetDefault(ConfigMetricsPort, 9360)
+	c.v.SetDefault(ConfigMetricsNamespace, DefaultMetricsNamespace)
 
 	c.v.SetDefault(ConfigTracingEnabled, false)
 
@@ -257,6 +275,9 @@ func NewConfig() *Config {
 	c.v.SetDefault(ConfigRateLimiterRate, 10.0)     // 10 requests per second
 	c.v.SetDefault(ConfigRateLimiterBurst, 30)      // burst of 30 requests
 	c.v.SetDefault(ConfigRateLimiterExpiresIn, 180) // 180 seconds (3 minutes)
+
+	c.v.SetDefault(ConfigDPSEnabled, false)
+	c.v.SetDefault(ConfigDPSRequestTimeout, 15*time.Second)
 
 	c.v.AutomaticEnv()
 	c.v.SetConfigFile(c.GetPathToConfig())
@@ -363,6 +384,11 @@ func (c *Config) Validate() {
 	// Keycloak validations
 	if err := c.ValidateKeycloakConfig(); err != nil {
 		log.Panic().Err(err).Msg("Keycloak config must be specified")
+	}
+
+	err := c.ValidatePowerProvisioningConfig()
+	if err != nil {
+		log.Panic().Err(err).Msg("Power provisioning config is invalid")
 	}
 
 	if len(issuersConfig) == 0 && !keycloakEnabled {
@@ -516,12 +542,68 @@ func (c *Config) GetSiteConfig() *SiteConfig {
 
 // GetMetricsConfig returns the Metrics config
 func (c *Config) GetMetricsConfig() *MetricsConfig {
-	return NewMetricsConfig(c.GetMetricsEnabled(), c.GetMetricsPort())
+	return NewMetricsConfig(c.GetMetricsEnabled(), c.GetMetricsPort(), c.GetMetricsNamespace())
 }
 
 // GetRateLimiterConfig returns the rate limiter config
 func (c *Config) GetRateLimiterConfig() *RateLimiterConfig {
 	return NewRateLimiterConfig(c.GetRateLimiterEnabled(), c.GetRateLimiterRate(), c.GetRateLimiterBurst(), c.GetRateLimiterExpiresIn())
+}
+
+// GetDPSConfig returns connection settings for direct DPS calls.
+func (c *Config) GetDPSConfig() dpsclient.Config {
+	return dpsclient.Config{
+		Endpoint:       c.v.GetString(ConfigDPSEndpoint),
+		RequestTimeout: c.v.GetDuration(ConfigDPSRequestTimeout),
+		TokenPath:      c.v.GetString(ConfigDPSTokenPath),
+		CAPath:         c.v.GetString(ConfigDPSCAPath),
+		ServerName:     c.v.GetString(ConfigDPSServerName),
+	}
+}
+
+// ValidatePowerProvisioningConfig validates settings required for direct DPS
+// integration. DPS connection fields are ignored when integration is disabled.
+func (c *Config) ValidatePowerProvisioningConfig() error {
+	enabled, err := c.validateDPSEnabled()
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+
+	dpsConfig := c.GetDPSConfig()
+	if strings.TrimSpace(dpsConfig.Endpoint) == "" {
+		return fmt.Errorf("powerProvisioning.dps.endpoint is required when DPS integration is enabled")
+	}
+	if strings.TrimSpace(dpsConfig.TokenPath) == "" {
+		return fmt.Errorf("powerProvisioning.dps.tokenPath is required when DPS integration is enabled")
+	}
+	if strings.TrimSpace(dpsConfig.CAPath) == "" {
+		return fmt.Errorf("powerProvisioning.dps.tls.caPath is required when DPS integration is enabled")
+	}
+	if dpsConfig.RequestTimeout <= 0 {
+		return fmt.Errorf("powerProvisioning.dps.requestTimeout must be greater than zero")
+	}
+
+	return nil
+}
+
+func (c *Config) validateDPSEnabled() (bool, error) {
+	value := c.v.Get(ConfigDPSEnabled)
+	switch typed := value.(type) {
+	case nil:
+		return false, nil
+	case bool:
+		return typed, nil
+	case string:
+		enabled, err := strconv.ParseBool(strings.TrimSpace(typed))
+		if err == nil {
+			return enabled, nil
+		}
+	}
+
+	return false, fmt.Errorf("powerProvisioning.dps.enabled must be a boolean")
 }
 
 // NewRateLimiterConfig initializes and returns a configuration object for rate limiting
@@ -710,6 +792,11 @@ func (c *Config) GetSentryDSN() string {
 	return c.v.GetString(ConfigSentryDSN)
 }
 
+// GetDPSEnabled reports whether NICo makes direct DPS calls.
+func (c *Config) GetDPSEnabled() bool {
+	return c.v.GetBool(ConfigDPSEnabled)
+}
+
 // GetDBHost returns the host of the database
 func (c *Config) GetDBHost() string {
 	return c.v.GetString(ConfigDBHost)
@@ -882,6 +969,17 @@ func (c *Config) GetMetricsEnabled() bool {
 // GetZincSearchPort gets the port for Metrics
 func (c *Config) GetMetricsPort() int {
 	return c.v.GetInt(ConfigMetricsPort)
+}
+
+// GetMetricsNamespace gets the prefix applied to every exposed metric name.
+// An explicitly empty value falls back to the default, since echoprometheus
+// substitutes its own "echo" prefix for an empty one.
+func (c *Config) GetMetricsNamespace() string {
+	namespace := c.v.GetString(ConfigMetricsNamespace)
+	if namespace == "" {
+		return DefaultMetricsNamespace
+	}
+	return namespace
 }
 
 // GetTracingEnabled gets the enabled field for tracing

@@ -179,6 +179,7 @@ func NewElektraConfig(utMode bool) *conftypes.Config {
 
 	// General config
 	flag.StringVar(&conf.MetricsPort, "metricsPort", os.Getenv("METRICS_PORT"), "Metrics port number")
+	flag.StringVar(&conf.MetricsNamespace, "metricsNamespace", os.Getenv("METRICS_NAMESPACE"), "Prefix applied to every exposed metric name")
 	flag.StringVar(&conf.Temporal.Host, "temporalHost", os.Getenv("TEMPORAL_HOST"), "Temporal hostname/IP")
 	flag.StringVar(&conf.Temporal.Port, "temporalPort", os.Getenv("TEMPORAL_PORT"), "Temporal port")
 	flag.StringVar(&enableDebug, "enableDebug", os.Getenv("ENABLE_DEBUG"), "Debug log level setting")
@@ -314,6 +315,12 @@ func NewElektraConfig(utMode bool) *conftypes.Config {
 
 	log.Info().Interface("config", conf).Msg("Config Manager: Config loaded")
 	flag.Parse()
+
+	// Set default metrics namespace if not specified
+	if conf.MetricsNamespace == "" {
+		conf.MetricsNamespace = conftypes.DefaultMetricsNamespace
+	}
+
 	return conf
 }
 

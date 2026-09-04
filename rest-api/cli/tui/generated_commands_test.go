@@ -21,6 +21,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestQuoteShellCommandArgument(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "empty", want: "''"},
+		{name: "safe characters", value: "abc-123_@%+=:,./", want: "abc-123_@%+=:,./"},
+		{name: "whitespace", value: "two words", want: "'two words'"},
+		{name: "single quote", value: "single'quote", want: "'single'\"'\"'quote'"},
+		{name: "backslash", value: "path\\name", want: "'path\\name'"},
+		{name: "control character", value: "line\nbreak", want: "'line\nbreak'"},
+		{name: "non-ASCII", value: "caf\u00e9", want: "'caf\u00e9'"},
+		{name: "shell metacharacters", value: "$HOME;rm", want: "'$HOME;rm'"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, quoteShellCommandArgument(test.value))
+		})
+	}
+}
+
 func TestAllCommands_CoversGeneratedCLISurface(t *testing.T) {
 	spec, err := appcli.ParseSpec(openapi.Spec)
 	require.NoError(t, err)
@@ -585,6 +606,8 @@ func TestGeneratedPathResourcePolicy_CoversEveryParameter(t *testing.T) {
 		"measured-boot profile remove|id",
 		"measured-boot-trusted-machine delete|id",
 		"measured-boot-trusted-profile delete|id",
+		"nvlink-domain firmware-update-nvlink-domain firmware-update-nvlink-domain|id",
+		"nvlink-domain power-control-nvlink-domain|id",
 		"task cancel|id",
 		"task cancel cancel-task|id",
 		"task get|id",

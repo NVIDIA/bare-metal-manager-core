@@ -25,6 +25,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	echo "github.com/labstack/echo/v4"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
@@ -81,7 +82,7 @@ func Test_InitAPIServer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			InitAPIServer(tt.args.cfg, tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp)
+			InitAPIServer(tt.args.cfg, tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp, nil)
 		})
 	}
 }
@@ -124,8 +125,7 @@ func Test_InitTemporalClients(t *testing.T) {
 
 func Test_InitMetricsServer(t *testing.T) {
 	type args struct {
-		e   *echo.Echo
-		cfg *config.Config
+		e *echo.Echo
 	}
 	tests := []struct {
 		name string
@@ -134,14 +134,32 @@ func Test_InitMetricsServer(t *testing.T) {
 		{
 			name: "test initMetricsServer success",
 			args: args{
-				e:   echo.New(),
-				cfg: common.GetTestConfig(),
+				e: echo.New(),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			InitMetricsServer(tt.args.e, tt.args.cfg)
+			// A tracked route, since MetricsURLSkipper only records /v2/ and /metrics.
+			tt.args.e.GET("/v2/probe", func(c echo.Context) error {
+				return c.NoContent(http.StatusOK)
+			})
+
+			InitMetricsServer(tt.args.e, config.DefaultMetricsNamespace)
+
+			tt.args.e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v2/probe", nil))
+
+			// The prefix is the published contract. An empty Subsystem would
+			// silently produce echo_requests_total instead.
+			families, err := prometheus.DefaultGatherer.Gather()
+			assert.NoError(t, err)
+
+			names := make([]string, 0, len(families))
+			for _, family := range families {
+				names = append(names, family.GetName())
+			}
+			assert.Contains(t, names, "nico_rest_api_requests_total")
+			assert.Contains(t, names, "nico_rest_api_request_duration_seconds")
 		})
 	}
 }
@@ -169,7 +187,7 @@ func Test_Audit(t *testing.T) {
 
 	t.Setenv("SENTRY_DSN", "https://bfe69b59461e44059a533274a6393155@glitchtip.test.com/3")
 
-	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp, nil)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/%s/org/wdksahew1rqv/%s/site", cfg.GetAPIRouteVersion(), cfg.GetAPIName()), nil)
@@ -196,7 +214,7 @@ func Test_BodyLimit(t *testing.T) {
 	tcfg, _ := cfg.GetTemporalConfig()
 	scp := sc.NewClientPool(tcfg)
 
-	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp, nil)
 
 	oversizedBody := make([]byte, 11<<20) // 11 MiB, exceeds the 10 MiB limit
 	rec := httptest.NewRecorder()
@@ -224,7 +242,7 @@ func Test_NotFoundHandler(t *testing.T) {
 	tcfg, _ := cfg.GetTemporalConfig()
 	scp := sc.NewClientPool(tcfg)
 
-	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp)
+	srv := InitAPIServer(cfg, dbSession, tc, tnc, scp, nil)
 	rec := httptest.NewRecorder()
 
 	// Arbitrary path that should return 404

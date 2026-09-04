@@ -32,8 +32,8 @@ use clap::{CommandFactory, Parser};
 use mac_address::MacAddress;
 
 use super::common::{
-    BmcCredentialType, RotationCredentialKind, UefiCredentialType, password_validator,
-    url_validator,
+    BmcCredentialType, RotationCredentialKind, UefiCredentialType, map_ufm_credential_api_error,
+    password_validator, url_validator,
 };
 use super::*;
 use crate::test_support::{parse_with_leaf_matches, raw_value};
@@ -46,6 +46,24 @@ use crate::test_support::{parse_with_leaf_matches, raw_value};
 #[test]
 fn verify_cmd_structure() {
     Cmd::command().debug_assert();
+}
+
+#[test]
+fn ufm_failed_precondition_has_operator_specific_error() {
+    let error = map_ufm_credential_api_error(tonic::Status::failed_precondition(
+        "UFM fabric \"default\" is supplied by a watched-file credential; update that file",
+    ));
+
+    assert_eq!(
+        error.to_string(),
+        "ufm credential command is unavailable: UFM fabric \"default\" is supplied by a \
+         watched-file credential; update that file"
+    );
+
+    assert!(matches!(
+        map_ufm_credential_api_error(tonic::Status::unavailable("server unavailable")),
+        crate::errors::CarbideCliError::ApiInvocationError(_)
+    ));
 }
 
 /////////////////////////////////////////////////////////////////////////////

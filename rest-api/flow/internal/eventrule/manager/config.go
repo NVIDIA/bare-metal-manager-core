@@ -37,7 +37,7 @@ func (c SchedulerConfig) Validate() error {
 // manager. Internal registries, the processor, and the scheduler are
 // constructed by New.
 type Config struct {
-	Store       StoreConfig
+	Store       eventrule.Store
 	Scheduler   SchedulerConfig
 	Inventory   inventoryresolver.InventoryReader
 	TaskManager eventexecutor.TaskManager
@@ -46,8 +46,8 @@ type Config struct {
 
 // Validate checks that the manager can assemble a complete internal runtime.
 func (c Config) Validate() error {
-	if err := c.Store.Validate(); err != nil {
-		return err
+	if c.Store == nil {
+		return fmt.Errorf("event-rule store is required")
 	}
 
 	if err := c.Scheduler.Validate(); err != nil {

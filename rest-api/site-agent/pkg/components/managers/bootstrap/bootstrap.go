@@ -44,11 +44,10 @@ import (
 var (
 	// ErrInvalidBootstrapSecret invalid bootstrap secret
 	ErrInvalidBootstrapSecret = errors.New("invalid bootstrap secret")
-	// CertExpirationMetric is a prometheus metric for Site Agent Temporal certificate expiration
-	CertExpirationMetric = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "temporal_cert_expiration",
-		Help: "The expiration date of the Temporal certificate",
-	})
+	// CertExpirationMetric is a prometheus metric for Site Agent Temporal
+	// certificate expiration. Registered in Init rather than here, because the
+	// namespace comes from config that is not loaded yet at package init.
+	CertExpirationMetric prometheus.Gauge
 )
 
 const (
@@ -144,6 +143,14 @@ func initK8sClient(ns string) coreV1Types.SecretInterface {
 func (bs *BoostrapAPI) Init() {
 	ManagerAccess.Data.EB.Log.Info().Msg("Boostrap: Initializing the Site bootstrap manager")
 
+	// Registered ahead of the early returns below so every pod exposes the
+	// series, which is what a package-level promauto var used to do.
+	CertExpirationMetric = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
+		Name:      "temporal_cert_expiration",
+		Help:      "The expiration date of the Temporal certificate",
+	})
+
 	// Only master pod of the statefulset should run the bootstrap
 	if !ManagerAccess.Conf.EB.IsMasterPod {
 		return
@@ -155,7 +162,7 @@ func (bs *BoostrapAPI) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricCredDnloadAttempt,
 			Help:      "Credentials download attempted for Site Agent",
 		},
@@ -165,7 +172,7 @@ func (bs *BoostrapAPI) Init() {
 
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      MetricCredDnloadSucc,
 			Help:      "Credentials download succeeded for Site Agent",
 		},

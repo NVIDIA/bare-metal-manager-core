@@ -1,5 +1,7 @@
 # NVIDIA Infra Controller
 
+> **Repository move notice:** On September 4, 2026, the NICo repository will move from the NVIDIA GitHub organization to `dsx-ai-factory`. Existing repository URLs and standard Git operations are expected to continue working through GitHub redirects. No action is needed for most users. If you maintain automation or integrations that reference `NVIDIA/infra-controller`, such as GitHub Actions, webhooks, or pinned repository URLs, please update them to `dsx-ai-factory/infra-controller` after the move.
+
 NVIDIA Infra Controller (NICo) delivers zero-touch lifecycle automation for
 bare-metal systems that secures datacenter infrastructure at its foundation.
 

@@ -19,22 +19,44 @@ func TestExecutionClaimRequest_Validate(t *testing.T) {
 		wantErr string
 	}{
 		"valid": {
-			request: ExecutionClaimRequest{Owner: "scheduler-1", Limit: 1},
+			request: validExecutionClaimRequest(),
 		},
 		"missing owner": {
-			request: ExecutionClaimRequest{Limit: 1},
-			wantErr: "execution claim owner is empty",
+			request: func() ExecutionClaimRequest {
+				request := validExecutionClaimRequest()
+				request.Owner = ""
+				return request
+			}(),
+			wantErr: "invalid execution input: execution claim owner is empty",
 		},
 		"owner too long": {
 			request: ExecutionClaimRequest{
-				Owner: strings.Repeat("x", maxExecutionClaimOwnerRunes+1),
-				Limit: 1,
+				Owner:         strings.Repeat("x", maxExecutionClaimOwnerRunes+1),
+				Limit:         1,
+				ClaimDuration: time.Minute,
+				MaxAttempts:   4,
 			},
-			wantErr: "execution claim owner exceeds 128 characters",
+			wantErr: "invalid execution input: execution claim owner exceeds 128 characters",
 		},
 		"invalid limit": {
 			request: ExecutionClaimRequest{Owner: "scheduler-1"},
-			wantErr: "execution claim limit must be positive",
+			wantErr: "invalid execution input: execution claim limit must be positive",
+		},
+		"invalid claim duration": {
+			request: func() ExecutionClaimRequest {
+				request := validExecutionClaimRequest()
+				request.ClaimDuration = 0
+				return request
+			}(),
+			wantErr: "invalid execution input: execution claim duration must be positive",
+		},
+		"invalid max attempts": {
+			request: func() ExecutionClaimRequest {
+				request := validExecutionClaimRequest()
+				request.MaxAttempts = 0
+				return request
+			}(),
+			wantErr: "invalid execution input: execution claim max attempts must be positive",
 		},
 	}
 
@@ -47,6 +69,7 @@ func TestExecutionClaimRequest_Validate(t *testing.T) {
 			}
 
 			require.EqualError(t, err, test.wantErr)
+			require.ErrorIs(t, err, ErrInvalidExecutionInput)
 		})
 	}
 }
@@ -57,7 +80,15 @@ func TestClaimedExecution_Validate(t *testing.T) {
 	require.NoError(t, err)
 
 	token := uuid.New()
-	require.NoError(t, execution.Claim("scheduler-1", token, createdAt))
+	disposition, err := execution.AcquireClaim(
+		"scheduler-1",
+		token,
+		createdAt,
+		createdAt.Add(time.Minute),
+		4,
+	)
+	require.NoError(t, err)
+	require.Equal(t, ClaimAcquired, disposition)
 
 	valid := ClaimedExecution{Execution: *execution, Token: token}
 
@@ -100,16 +131,22 @@ func TestClaimedExecution_Validate(t *testing.T) {
 	}
 }
 
+func validExecutionClaimRequest() ExecutionClaimRequest {
+	return ExecutionClaimRequest{
+		Owner:         "scheduler-1",
+		Limit:         1,
+		ClaimDuration: time.Minute,
+		MaxAttempts:   4,
+	}
+}
+
 func TestRuleFilterMatches(t *testing.T) {
 	eventType := Type("test.event")
 	otherEventType := Type("other.event")
-	origin := RuleOriginPersisted
-	otherOrigin := RuleOriginBuiltIn
 	enabled := true
 	disabled := false
 	rule := &Rule{
 		EventType: eventType,
-		Origin:    origin,
 		Enabled:   enabled,
 	}
 
@@ -123,17 +160,12 @@ func TestRuleFilterMatches(t *testing.T) {
 			want: true,
 		},
 		"all fields match": {
-			filter: RuleFilter{EventType: &eventType, Origin: &origin, Enabled: &enabled},
+			filter: RuleFilter{EventType: &eventType, Enabled: &enabled},
 			rule:   rule,
 			want:   true,
 		},
 		"event type differs": {
 			filter: RuleFilter{EventType: &otherEventType},
-			rule:   rule,
-			want:   false,
-		},
-		"origin differs": {
-			filter: RuleFilter{Origin: &otherOrigin},
 			rule:   rule,
 			want:   false,
 		},
@@ -151,6 +183,37 @@ func TestRuleFilterMatches(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			assert.Equal(t, test.want, test.filter.Matches(test.rule))
+		})
+	}
+}
+
+func TestRuleListRequest_Validate(t *testing.T) {
+	tests := map[string]struct {
+		request RuleListRequest
+		wantErr string
+	}{
+		"valid": {
+			request: RuleListRequest{Limit: 100},
+		},
+		"negative offset": {
+			request: RuleListRequest{Offset: -1, Limit: 100},
+			wantErr: "offset must not be negative",
+		},
+		"non-positive limit": {
+			request: RuleListRequest{},
+			wantErr: "limit must be positive",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := test.request.Validate()
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.ErrorContains(t, err, test.wantErr)
 		})
 	}
 }

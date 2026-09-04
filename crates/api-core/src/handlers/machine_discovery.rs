@@ -21,7 +21,9 @@ use std::sync::atomic::Ordering;
 
 use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
-use carbide_uuid::machine::{MachineId, MachineIdSource};
+use carbide_uuid::machine::{
+    HostMachineId, MachineId, MachineIdSource, MachineIdSubtype, StableHostMachineId,
+};
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
@@ -35,39 +37,11 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::client_resolution::{
     OverlayAddressOwnerLookup, find_overlay_address_owner, is_same_host_inband_interface,
 };
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::primary_interface::update_primary_interface_from_scout;
+use crate::handlers::utils::{convert_and_log_machine_id, enqueue_boot_interface_reconciliation};
 use crate::{CarbideError, attestation as attest};
 
-mod scout_pci;
-
-/// Loads the state needed for optional Scout PCI diagnostics after discovery commits.
-///
-/// The caller has released the discovery locks, and failures here are ignored so
-/// this diagnostic cannot reject an otherwise successful machine registration.
-async fn load_scout_pci_evaluation(
-    api: &Api,
-    hardware_info: &HardwareInfo,
-    machine_id: &MachineId,
-) -> Option<scout_pci::Evaluation> {
-    match db::machine::find_one(api.pg_pool(), machine_id, MachineSearchConfig::default()).await {
-        Ok(Some(machine)) => scout_pci::evaluate(hardware_info, &machine),
-        Ok(None) => {
-            tracing::warn!(
-                %machine_id,
-                "Skipping Scout PCI evaluation because the discovered machine was not found"
-            );
-            None
-        }
-        Err(error) => {
-            tracing::warn!(
-                %machine_id,
-                error = %error,
-                "Skipping Scout PCI evaluation after discovery"
-            );
-            None
-        }
-    }
-}
+pub(super) mod scout_pci;
 
 pub(crate) async fn discover_machine(
     api: &Api,
@@ -432,12 +406,20 @@ pub(crate) async fn discover_machine(
         db_machine.id
     } else {
         // Now we know stable machine id for host. Let's update it in db.
+        let stable_host_machine_id = StableHostMachineId::try_from(stable_machine_id)
+            .map_err(|error| CarbideError::InvalidArgument(error.to_string()))?;
+        let current_host_machine_id = caller_interface
+            .machine_id
+            .map(HostMachineId::try_from)
+            .transpose()
+            .map_err(|error| CarbideError::internal(error.to_string()))?;
         db::machine::try_sync_stable_id_with_current_machine_id_for_host(
             &mut txn,
-            &caller_interface.machine_id,
-            &stable_machine_id,
+            current_host_machine_id,
+            &stable_host_machine_id,
         )
         .await?
+        .into()
     };
 
     db::machine_topology::create_or_update_with_bom_validation(
@@ -448,7 +430,7 @@ pub(crate) async fn discover_machine(
     )
     .await?;
 
-    if hardware_info.is_dpu() {
+    if let MachineIdSubtype::Dpu(dpu_machine_id) = machine_id.machine_id_subtype() {
         // Create Host proactively.
         // In case host interface is created, this method will return existing one, instead
         // creating new everytime.
@@ -500,12 +482,15 @@ pub(crate) async fn discover_machine(
             .await?;
 
             // Update host and DPUs state correctly.
+            let host_machine_id = proactive_machine
+                .host_machine_id()
+                .map_err(|error| CarbideError::internal(error.to_string()))?;
             db::machine::update_state(
                 &mut txn,
-                &proactive_machine.id,
+                &host_machine_id,
                 &ManagedHostState::DPUInit {
                     dpu_states: DpuInitStates {
-                        states: HashMap::from([(machine_id, DpuInitState::Init)]),
+                        states: HashMap::from([(dpu_machine_id, DpuInitState::Init)]),
                     },
                 },
             )
@@ -597,16 +582,40 @@ pub(crate) async fn discover_machine(
     txn.commit().await?;
     drop(admin_admission);
 
-    // Authentication and stable ID resolution are complete. Use this request's
-    // HardwareInfo so an older stored topology cannot stand in for the Scout report.
-    let scout_pci_evaluation =
-        if discovery_reporter == rpc::MachineDiscoveryReporter::Scout && !hardware_info.is_dpu() {
-            load_scout_pci_evaluation(api, &hardware_info, &stable_machine_id).await
-        } else {
-            None
-        };
-    if let Some(evaluation) = scout_pci_evaluation {
-        evaluation.emit(&stable_machine_id);
+    // Authentication, stable ID resolution, and discovery writes are complete. A scout update
+    // uses this request's HardwareInfo and wakes the controller only after its own commit. Failure
+    // here must not reject the discovery record that has already committed.
+    if discovery_reporter == rpc::MachineDiscoveryReporter::Scout && !hardware_info.is_dpu() {
+        match StableHostMachineId::try_from(stable_machine_id) {
+            Ok(host_machine_id) => {
+                match update_primary_interface_from_scout(api, host_machine_id, &hardware_info)
+                    .await
+                {
+                    Ok(update) => {
+                        enqueue_boot_interface_reconciliation(
+                            api,
+                            host_machine_id.into(),
+                            update.reconciliation_needed,
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            machine_id = %stable_machine_id,
+                            error = %error,
+                            "Could not apply the scout boot interface selection after discovery"
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    machine_id = %stable_machine_id,
+                    error = %error,
+                    "Could not derive a stable host ID for scout boot interface selection after discovery"
+                );
+            }
+        }
     }
 
     let machine_certificate = if attest_key_challenge.is_none() {
@@ -670,7 +679,7 @@ pub(crate) async fn discovery_completed(
     log_request_data(&request);
 
     let req = request.into_inner();
-    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
+    let machine_id = convert_and_log_machine_id::<MachineId>(req.machine_id.as_ref())?;
 
     let (machine, mut txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())

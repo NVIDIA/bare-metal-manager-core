@@ -25,8 +25,6 @@ app.kubernetes.io/component: orchestrator
 
 {{/*
 Pod selector labels — must match the pod template labels in deployment.yaml.
-The three sidecar Services all select on `app: flow` because they target the
-same pod.
 */}}
 {{- define "nico-flow.selectorLabels" -}}
 app: flow
@@ -34,8 +32,8 @@ app.kubernetes.io/name: flow
 {{- end -}}
 
 {{/*
-Image references — one per container.  If <component>.repository is empty, fall
-back to <global.image.repository>/nico-<component>.  Same for tag.
+Flow image reference. If images.flow.repository is empty, fall back to
+<global.image.repository>/nico-flow. Same for the tag.
 Usage: {{ include "nico-flow.image" (dict "component" "flow" "Values" .Values) }}
 */}}
 {{- define "nico-flow.image" -}}
@@ -54,7 +52,7 @@ Usage: {{ include "nico-flow.image" (dict "component" "flow" "Values" .Values) }
 {{- end -}}
 
 {{/*
-SPIFFE Certificate spec for flow (covers flow, psm, nsm Service DNS names).
+SPIFFE Certificate spec for Flow.
 */}}
 {{- define "nico-flow.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}

@@ -78,7 +78,7 @@ async fn test_expected_machine_selection_source_survives_ingestion(
         .api()
         .get_machine_boot_interfaces(tonic::Request::new(
             forge::GetMachineBootInterfacesRequest {
-                machine_id: Some(host.host.id),
+                machine_id: Some(host.host.id.into()),
             },
         ))
         .await?
@@ -167,13 +167,15 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         // the owned primary -- naming the same boot NIC, so it adds no new
         // distinct boot-MAC signal and leaves the divergence verdict to the
         // conflicting prediction.
-        let bmc_ip: std::net::IpAddr =
-            db::machine_topology::find_machine_bmc_pairs_by_machine_id(txn.as_mut(), vec![host_id])
-                .await?
-                .into_iter()
-                .find_map(|(_, ip)| ip)
-                .expect("the ingested host should have a BMC address")
-                .parse()?;
+        let bmc_ip: std::net::IpAddr = db::machine_topology::find_machine_bmc_pairs_by_machine_id(
+            txn.as_mut(),
+            vec![host_id.into()],
+        )
+        .await?
+        .into_iter()
+        .find_map(|(_, ip)| ip)
+        .expect("the ingested host should have a BMC address")
+        .parse()?;
         db::explored_endpoints::set_boot_interface(
             bmc_ip,
             &model::machine_boot_interface::MachineBootInterface {
@@ -200,17 +202,17 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         .api()
         .get_machine_boot_interfaces(tonic::Request::new(
             forge::GetMachineBootInterfacesRequest {
-                machine_id: Some(host_id),
+                machine_id: Some(host_id.into()),
             },
         ))
         .await?
         .into_inner();
 
-    assert_eq!(report.machine_id, Some(host_id));
+    assert_eq!(report.machine_id, Some(host_id.into()));
 
     // The desired-state view names the boot target Site Explorer persisted for
     // this host. The fixture runs Site Explorer but no machine-controller
-    // iteration, so the generation is still pending in DPU discovery.
+    // iteration, so the host still sits in its initial ConfigureAstra state.
     let reconciliation = report
         .reconciliation
         .as_ref()
@@ -233,7 +235,7 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         "the unverified desired generation should still be pending"
     );
     assert_eq!(
-        reconciliation.machine_state, "DPUDiscovering/Initializing",
+        reconciliation.machine_state, "ConfigureAstra/EnableNics",
         "the managed-host state should explain where reconciliation is waiting"
     );
     assert_eq!(
@@ -377,7 +379,7 @@ async fn test_get_machine_boot_interfaces_agrees_when_only_owned_rows_exist(
         .api()
         .get_machine_boot_interfaces(tonic::Request::new(
             forge::GetMachineBootInterfacesRequest {
-                machine_id: Some(host_id),
+                machine_id: Some(host_id.into()),
             },
         ))
         .await?

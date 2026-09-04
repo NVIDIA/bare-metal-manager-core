@@ -86,6 +86,8 @@ if ! ${_SOURCED}; then
     # DPF is on by default; derive INSTALL_DPF from env, then let flags override.
     INSTALL_DPF="${INSTALL_DPF:-${NICO_INSTALL_DPF:-true}}"
     [[ "${NICO_SKIP_DPF:-false}" == "true" ]] && INSTALL_DPF=false
+    INSTALL_RMS="${INSTALL_RMS:-${NICO_INSTALL_RMS:-true}}"
+    [[ "${NICO_SKIP_RMS:-false}" == "true" ]] && INSTALL_RMS=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --skip-core)      SKIP_CORE=true ;;
@@ -93,6 +95,8 @@ if ! ${_SOURCED}; then
             --skip-flow)      SKIP_FLOW=true ;;
             --skip-dpf)       INSTALL_DPF=false ;;
             --install-dpf)    INSTALL_DPF=true ;;
+            --skip-rms)       INSTALL_RMS=false ;;
+            --install-rms)    INSTALL_RMS=true ;;
             -y|--yes)         AUTO_YES=true ;;
             --core-values)    CORE_VALUES="$2"; shift ;;
             --metallb-config) METALLB_CONFIG="$2"; shift ;;
@@ -467,6 +471,30 @@ fi
 # KUBECONFIG file must exist if explicitly set
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
     ERRORS+=("KUBECONFIG='${KUBECONFIG}' does not exist — check the path to your cluster kubeconfig")
+fi
+
+# RMS requirements. RMS installs by default; these apply unless --skip-rms
+# (NICO_SKIP_RMS=true / NICO_INSTALL_RMS=false), which clears INSTALL_RMS.
+if [[ "${INSTALL_RMS:-true}" == "true" ]]; then
+    if [[ -z "${NICO_RMS_CHART:-}" ]]; then
+        command -v git &>/dev/null || \
+            ERRORS+=("RMS requires 'git' to initialize the nv-rms submodule - install it, or set NICO_RMS_CHART to a local chart path")
+    fi
+    [[ -z "${NICO_RMS_IMAGE_TAG:-}" ]] && \
+        ERRORS+=("NICO_RMS_IMAGE_TAG is not set    (RMS API server image tag; the rack-manager chart fails at render without one — required unless --skip-rms)")
+    # The default rms-api image is entitlement-gated on NGC; without a key the
+    # pod lands in ImagePullBackOff. A mirror override lifts the requirement.
+    if [[ -z "${NICO_RMS_NGC_API_KEY:-${REGISTRY_PULL_SECRET:-}}" && \
+          -z "${NICO_RMS_IMAGE_REPO:-}" ]]; then
+        ERRORS+=("NICO_RMS_NGC_API_KEY / REGISTRY_PULL_SECRET not set - the default rms-api image is entitlement-gated on NGC; set a key, or point NICO_RMS_IMAGE_REPO at your own mirror")
+    fi
+    # Even with a key set: the default image path needs NGC rms-dev org
+    # entitlement, which standard site keys do not carry. Most sites should
+    # build or mirror the image into their own registry instead (README:
+    # "Building the RMS image") and set NICO_RMS_IMAGE_REPO.
+    if [[ -z "${NICO_RMS_IMAGE_REPO:-}" ]]; then
+        WARNINGS+=("NICO_RMS_IMAGE_REPO not set - the default rms-api image (nvcr.io/0837451325059433/rms-dev/rms-api) requires NGC rms-dev entitlement, which most site keys lack. If the pull lands in ImagePullBackOff, build/mirror the image into your registry (helm-prereqs/README.md: Building the RMS image)")
+    fi
 fi
 
 # DPF requirements. DPF installs by default; these apply unless --skip-dpf

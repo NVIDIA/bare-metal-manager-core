@@ -23,7 +23,7 @@ type EventKey struct {
 
 // Validate checks the canonical event identity.
 func (k EventKey) Validate() error {
-	if err := validateIdentifier("event source name", k.SourceName); err != nil {
+	if err := ValidateIdentifier("event source name", k.SourceName); err != nil {
 		return err
 	}
 

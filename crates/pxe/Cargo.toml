@@ -51,6 +51,7 @@ http-body = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 mime = { workspace = true }
+opentelemetry = { workspace = true }
 pin-project-lite = { workspace = true }
 prometheus = { workspace = true }
 rand = { workspace = true }

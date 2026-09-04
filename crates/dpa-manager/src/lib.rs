@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use carbide_dpa::DpaInfo;
 use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{HostMachineId, MachineId};
 use chrono::TimeDelta;
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -38,7 +38,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::config::DpaConfig;
+use crate::config::EwEthersConfig;
 use crate::errors::{DpaManagerError, DpaManagerResult};
 
 mod card_handler;
@@ -52,7 +52,7 @@ pub(crate) use carbide_macros::sqlx_test;
 pub struct DpaMonitor {
     pub(crate) db_services: DbServices,
     pub(crate) dpa_info: Arc<DpaInfo>,
-    pub(crate) config: DpaConfig,
+    pub(crate) config: EwEthersConfig,
     host_health: HostHealthConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
@@ -78,7 +78,7 @@ impl DpaMonitor {
         _db_reader: PgPoolReader,
         dpa_info: Arc<DpaInfo>,
         _meter: opentelemetry::metrics::Meter,
-        config: DpaConfig,
+        config: EwEthersConfig,
         host_health: HostHealthConfig,
         work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
@@ -238,7 +238,7 @@ impl DpaMonitor {
                             })?,
                         };
 
-                    db::dpa_interface::try_update_controller_state(
+                    let applied = db::dpa_interface::try_update_controller_state(
                         &mut txn,
                         mh.dpa_interface_snapshots[idx].id,
                         controller_state.version,
@@ -247,9 +247,17 @@ impl DpaMonitor {
                     )
                     .await?;
 
-                    txn.commit()
-                        .await
-                        .map_err(|e| db::AnnotatedSqlxError::new("dpa_monitor commit txn", e))?;
+                    if applied {
+                        txn.commit().await.map_err(|e| {
+                            db::AnnotatedSqlxError::new("dpa_monitor commit txn", e)
+                        })?;
+                    } else {
+                        // Lost the controller-state CAS: another writer advanced
+                        // this interface since the snapshot loaded. The transition did not apply, so
+                        // drop the txn to roll back any bookkeeping the handler
+                        // staged in it. re-read on the next tick
+                        drop(txn);
+                    }
                 } else if let Some(txn) = txn {
                     txn.commit()
                         .await
@@ -314,6 +322,16 @@ impl DpaMonitor {
             DpaInterfaceControllerState::Assigned => {
                 handler.handle_assigned(self, mh, idx, metrics).await
             }
+            DpaInterfaceControllerState::RotateKeyUnlocking => {
+                handler
+                    .handle_rotate_key_unlocking(self, mh, idx, metrics)
+                    .await
+            }
+            DpaInterfaceControllerState::RotateKeyLocking => {
+                handler
+                    .handle_rotate_key_locking(self, mh, idx, metrics)
+                    .await
+            }
         }
     }
 
@@ -349,7 +367,16 @@ impl DpaMonitor {
         // in the slice are harmless for `= ANY($1)`, and the non-consuming
         // `get` keeps the assignment correct even when two entries resolve to
         // the same host snapshot.
-        let machine_ids: Vec<MachineId> = res.values().map(|mh| mh.host_snapshot.id).collect();
+        let machine_ids: Vec<HostMachineId> = res
+            .values()
+            .map(|mh| {
+                mh.host_snapshot
+                    .host_machine_id()
+                    .map_err(|error| DpaManagerError::Internal {
+                        message: error.to_string(),
+                    })
+            })
+            .collect::<Result<_, _>>()?;
         let dpa_search_config = DpaSearchConfig {
             only_svpc: false,
             only_astra: false,
@@ -361,7 +388,11 @@ impl DpaMonitor {
 
         for mh in res.values_mut() {
             mh.dpa_interface_snapshots = dpa_snapshots_by_machine
-                .get(&mh.host_snapshot.id)
+                .get(&mh.host_snapshot.host_machine_id().map_err(|error| {
+                    DpaManagerError::Internal {
+                        message: error.to_string(),
+                    }
+                })?)
                 .cloned()
                 .unwrap_or_default();
         }

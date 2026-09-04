@@ -247,6 +247,7 @@ service Forge {
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
   rpc FindPowerShelfHealthHistories(PowerShelfHealthHistoriesRequest) returns (HealthHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackHealthHistories(RackHealthHistoriesRequest) returns (HealthHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindSwitchHealthHistories(SwitchHealthHistoriesRequest) returns (HealthHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
@@ -407,6 +408,11 @@ service Forge {
   // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
   // credential that a prior sweep already rotated.
   rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this host's NIC lockdown keys now" escape hatch
+  // for a single host. This is asynchronous: the handler only persists (Set) or
+  // removes (Clear) a flag maintained per host to determine whether to initiate NIC lockdown key rotation.
+  // A later machine-controller sweep observes a set flag and facilitates rotation.
+  rpc TriggerNicLockdownCredentialRotation(NicLockdownCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -694,15 +700,24 @@ service Forge {
   // Machine-Validation test list
   rpc GetMachineValidationTests(MachineValidationTestsGetRequest) returns (MachineValidationTestsGetResponse);
 
+  // A request without plugin creates a legacy test. A plugin creates an immutable
+  // revision that starts unverified and disabled; it must be verified before enablement.
   rpc AddMachineValidationTest(MachineValidationTestAddRequest) returns (MachineValidationTestAddUpdateResponse);
 
   rpc UpdateMachineValidationTest(MachineValidationTestUpdateRequest) returns (MachineValidationTestAddUpdateResponse);
 
+  // Verifies one immutable plugin revision. Verification is required before enablement.
   rpc MachineValidationTestVerfied(MachineValidationTestVerfiedRequest) returns (MachineValidationTestVerfiedResponse);
 
   rpc MachineValidationTestNextVersion(MachineValidationTestNextVersionRequest) returns (MachineValidationTestNextVersionResponse);
 
+  // Enables or disables a revision. Plugin enablement requires verification and,
+  // for host_access_full, separate approval of the exact revision.
   rpc MachineValidationTestEnableDisableTest(MachineValidationTestEnableDisableTestRequest) returns (MachineValidationTestEnableDisableTestResponse);
+
+  // Approves the writable host-root mount for one verified plugin revision.
+  // The request fails unless that exact immutable revision requests host_access_full.
+  rpc MachineValidationTestApproveFullHost(MachineValidationTestFullHostApprovalRequest) returns (MachineValidationTestFullHostApprovalResponse);
 
   rpc UpdateMachineValidationRun(MachineValidationRunRequest) returns (MachineValidationRunResponse);
 
@@ -711,6 +726,8 @@ service Forge {
   rpc AdminBmcReset(AdminBmcResetRequest) returns (AdminBmcResetResponse);
   // Admin Power Control
   rpc AdminPowerControl(AdminPowerControlRequest) returns (AdminPowerControlResponse);
+  // Reset a GPU baseboard (e.g. HGX) via Redfish Chassis.Reset, resetting all GPUs on it; v1 accepts only ForceRestart and rejects all other actions.
+  rpc AdminGpuReset(AdminGpuResetRequest) returns (AdminGpuResetResponse);
   // Disable Secure Boot
   rpc DisableSecureBoot(BmcEndpointRequest) returns (DisableSecureBootResponse);
   // Set Lockdown (Enable or Disable)
@@ -1597,7 +1614,8 @@ message RuntimeConfig {
 
   repeated string dpu_nic_firmware_update_versions=37;
 
-  bool dpa_enabled = 38;
+  reserved 38;
+  reserved "dpa_enabled";
   string mqtt_endpoint = 39;
 
   optional string sitename = 40;
@@ -1622,6 +1640,10 @@ message RuntimeConfig {
   string compile_time_docker_version = 52;
   bool restart_ovs_on_use_admin_network_change = 53;
   uint32 max_site_prefixes_per_tenant = 54;
+
+  bool svpc_enabled = 55;
+  bool astra_enabled = 56;
+  bool ewethers_enabled = 57;
 }
 
 message EchoRequest {
@@ -5843,6 +5865,12 @@ message FindTenantRequest {
 }
 message FindTenantResponse {
   Tenant tenant = 1;
+  // Named VPC routing profiles whose access tier is permitted for this Tenant.
+  // Omitted and empty are equivalent. The list is empty when the Tenant, FNN,
+  // or the Tenant's configured routing profile is unavailable. Otherwise it
+  // includes that profile and every profile with an equal or higher access
+  // tier, sorted by profile name.
+  repeated string permitted_routing_profile_types = 2;
 }
 
 message TenantKeysetIdentifier {
@@ -6157,6 +6185,18 @@ message UefiCredentialRotationRequest {
   // `machine_id` as a cross-check (they must identify the same machine). At
   // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
   optional string bmc_mac = 3;
+}
+
+message NicLockdownCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  common.MachineId machine_id = 2;
 }
 
 message HostReprovisioningListRequest {
@@ -6949,6 +6989,18 @@ message AdminPowerControlResponse {
   optional string msg = 1;
 }
 
+message AdminGpuResetRequest {
+  // Machine whose GPU baseboard BMC is targeted. Required.
+  common.MachineId machine_id = 1;
+  // Redfish Chassis id to reset, e.g. "HGX_Chassis_0". Required.
+  string chassis_id = 2;
+  // Reset type. v1 accepts only ForceRestart and rejects all other actions.
+  AdminPowerControlRequest.SystemPowerControl action = 3;
+}
+
+message AdminGpuResetResponse {
+}
+
 message GetRedfishJobStateRequest {
   common.MachineId machine_id = 1;
   string job_id = 2;
@@ -7083,6 +7135,9 @@ message MachineValidationTestUpdateRequest {
     repeated string custom_tags = 16;
     repeated string components = 17;
     optional bool is_enabled = 19;
+    // Plugin revisions are immutable. This field is accepted only when creating
+    // a new revision and cannot modify an existing plugin revision.
+    optional MachineValidationPlugin plugin = 20;
   }
   string test_id = 1;
   string version = 2;
@@ -7108,6 +7163,7 @@ message MachineValidationTestAddRequest {
   repeated string custom_tags = 16;
   repeated string components = 17;
   optional bool is_enabled = 18;
+  optional MachineValidationPlugin plugin = 19;
 }
 message MachineValidationTestAddUpdateResponse {
   string test_id = 1;
@@ -7149,6 +7205,30 @@ message MachineValidationTest {
   repeated string components = 21;
   string last_modified_at = 22;
   bool is_enabled = 23;
+  // OCI plugin configuration for this immutable revision, if plugin-backed.
+  optional MachineValidationPlugin plugin = 24;
+  // Server-managed approval required for plugin.host_access_full.
+  bool full_host_approved = 25;
+}
+
+// A generic OCI plugin. The image is an immutable digest-pinned reference and
+// entrypoint arguments are passed directly to the container runtime.
+message MachineValidationPlugin {
+  string image = 1;
+  repeated string entrypoint = 2;
+  // JSON object of non-secret site-defined values included in input.json.
+  string parameters_json = 3;
+  bool privileged = 4;
+  bool host_access_full = 5;
+}
+
+message MachineValidationTestFullHostApprovalRequest {
+  string test_id = 1;
+  string version = 2;
+}
+
+message MachineValidationTestFullHostApprovalResponse {
+  string message = 1;
 }
 message MachineValidationTestNextVersionResponse {
   string test_id = 1;
@@ -8109,6 +8189,14 @@ message RackStatus {
 
 message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
+}
+
+message RackHealthHistoriesRequest {
+  repeated common.RackId rack_ids = 1;
+  // Optional: Start time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp start_time = 2;
+  // Optional: End time of the range (inclusive) for filtering health history
+  google.protobuf.Timestamp end_time = 3;
 }
 
 message DeleteRackRequest {
@@ -9347,9 +9435,13 @@ enum ComponentManagerStatusCode {
 }
 
 message ComponentResult {
-  string component_id = 1;
+  // Absent when the target was a MAC with no ingested component row yet.
+  optional string component_id = 1;
   ComponentManagerStatusCode status = 2;
   string error = 3;
+  // Echoed for MAC-targeted requests so callers can correlate results when
+  // component_id is absent. Populated for ID targets too when known.
+  optional string mac_address = 4;
 }
 
 message SwitchIdList {
@@ -9360,6 +9452,11 @@ message PowerShelfIdList {
   repeated common.PowerShelfId ids = 1;
 }
 
+// A list of device MAC addresses used to target component operations (BMC MAC for compute/switch, PMC MAC for power shelf).
+message MacAddressList {
+  repeated string mac_addresses = 1;
+}
+
 // --- Component inventory ---
 
 message GetComponentInventoryRequest {
@@ -9367,6 +9464,7 @@ message GetComponentInventoryRequest {
     common.MachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
+    MacAddressList compute_bmc_macs = 4;
   }
 }
 
@@ -9386,6 +9484,7 @@ message ComponentPowerControlRequest {
     common.MachineIdList machine_ids = 1;
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
+    MacAddressList compute_bmc_macs = 6;
   }
   common.SystemPowerControl action = 4;
   // When true, bypass the state controller and dispatch directly to the
@@ -9458,8 +9557,13 @@ enum ComputeTrayComponent {
 }
 
 message UpdateComputeTrayFirmwareTarget {
+  // Exactly one of machine_ids or bmc_macs must be set (the server rejects
+  // neither/both). machine_ids targets ingested trays; bmc_macs targets by BMC
+  // MAC, including pre-ingestion. These are plain fields rather than a oneof so
+  // field 1 stays wire-compatible with earlier releases that predate bmc_macs.
   common.MachineIdList machine_ids = 1;
   repeated ComputeTrayComponent components = 2;
+  MacAddressList bmc_macs = 3;
 }
 
 message UpdateSwitchFirmwareTarget {
@@ -9511,6 +9615,7 @@ message GetComponentFirmwareStatusRequest {
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
+    MacAddressList compute_bmc_macs = 5;
   }
 }
 
@@ -9524,6 +9629,7 @@ message ListComponentFirmwareVersionsRequest {
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
+    MacAddressList compute_bmc_macs = 5;
   }
 }
 

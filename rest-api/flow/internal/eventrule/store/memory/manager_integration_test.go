@@ -11,8 +11,10 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/leakage"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/manager"
 	eventscheduler "github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/scheduler"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/eventrule/store/memory"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/deviceinfo"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 	"github.com/google/uuid"
@@ -24,9 +26,7 @@ func TestManagerIntegration(t *testing.T) {
 	eventType := leakage.TypeHardwareLeakDetected
 	builtIn := leakage.DefaultRule()
 	ruleManager, err := manager.New(manager.Config{
-		Store: manager.StoreConfig{
-			Backend: manager.StoreBackendMemory,
-		},
+		Store: memory.New(),
 		Scheduler: manager.SchedulerConfig{
 			InstanceID: "memory-manager-integration-test",
 			Runtime:    eventscheduler.DefaultRuntimeConfig(),
@@ -67,10 +67,10 @@ func TestManagerIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, loadedRack.Enabled)
 
-	origin := eventrule.RuleOriginPersisted
-	rules, err := ruleManager.List(ctx, eventrule.RuleFilter{Origin: &origin})
+	rules, err := ruleManager.List(ctx, eventrule.RuleListRequest{Limit: 100})
 	require.NoError(t, err)
-	require.Len(t, rules, 2)
+	require.Equal(t, 3, rules.Total)
+	require.Len(t, rules.Rules, 3)
 }
 
 type integrationInventory struct{}
@@ -99,11 +99,11 @@ func (integrationInventory) GetComponentsByExternalIDs(
 }
 
 func (integrationInventory) GetRackByIdentifier(
-	context.Context,
-	identifier.Identifier,
-	bool,
+	_ context.Context,
+	ref identifier.Identifier,
+	_ bool,
 ) (*rack.Rack, error) {
-	return nil, nil
+	return &rack.Rack{Info: deviceinfo.DeviceInfo{ID: ref.ID}}, nil
 }
 
 func integrationCreate(eventType eventrule.Type, name string) eventrule.RuleCreate {

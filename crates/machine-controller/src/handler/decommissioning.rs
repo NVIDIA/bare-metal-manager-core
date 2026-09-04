@@ -21,7 +21,7 @@ use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialW
 use carbide_uuid::machine::MachineId;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{EnabledDisabled, JobState, RedfishError, SystemPowerControl};
+use libredfish::{EnabledDisabled, JobState, PowerState, RedfishError, SystemPowerControl};
 use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType, DpaLockMode};
 use model::machine::{
@@ -181,10 +181,7 @@ pub(super) async fn handle_deconfiguring_host(
                 ));
             }
 
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(machine)
-                .await?;
+            let bmc_access_info = ctx.services.bmc_access_info_for_machine(machine).await?;
 
             let bmc_mac =
                 machine
@@ -222,7 +219,7 @@ pub(super) async fn handle_deconfiguring_host(
             let key = CredentialKey::host_uefi_site_default(version);
             let credentials = ctx
                 .services
-                .redfish_client_pool
+                .bmc_credential_ops
                 .credential_reader()
                 .get_credentials(&key)
                 .await
@@ -239,13 +236,17 @@ pub(super) async fn handle_deconfiguring_host(
 
             let job_id = ctx
                 .services
-                .redfish_client_pool
-                .clear_host_uefi_password(redfish_client.as_ref(), credentials)
+                .bmc_credential_ops
+                .clear_host_uefi_password(&bmc_access_info, credentials)
                 .await
-                .map_err(|error| {
-                    StateHandlerError::GenericError(eyre::eyre!(
+                .map_err(|error| match error {
+                    // Client creation failed (credential store, TCP, or the
+                    // vendor probe): propagate as-is so the framework
+                    // retries normally.
+                    carbide_redfish::libredfish::CredentialOpError::ClientCreation(e) => e.into(),
+                    error => StateHandlerError::GenericError(eyre::eyre!(
                         "failed to clear host UEFI password: {error}"
-                    ))
+                    )),
                 })?;
 
             let next = match job_id {
@@ -398,13 +399,35 @@ pub(super) async fn handle_deconfiguring_host(
                     "waiting for all SuperNICs to report unlocked".to_string(),
                 ));
             }
-            Ok(StateHandlerOutcome::transition(
-                ManagedHostState::Decommissioning {
+            // Every NIC is now unlocked. Record the unlock against each
+            // card's NIC-MAC-keyed lockdown_ikm row.
+            let mut txn = ctx.services.db_pool.begin().await?;
+            for interface in state
+                .dpa_interface_snapshots
+                .iter()
+                .filter(|interface| interface.interface_type == DpaInterfaceType::Svpc)
+            {
+                db::credential_rotation::record_device_unlocked(
+                    txn.as_mut(),
+                    interface.mac_address,
+                    db::credential_rotation::CredentialRotationType::LockdownIkm,
+                )
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "record decommission unlock for {}: {e}",
+                        interface.mac_address
+                    ))
+                })?;
+            }
+            Ok(
+                StateHandlerOutcome::transition(ManagedHostState::Decommissioning {
                     decommissioning_state: DecommissioningState::DeconfiguringHost {
                         deconfiguring_state: DeconfiguringHostState::ResetUefiSettings,
                     },
-                },
-            ))
+                })
+                .with_txn(txn),
+            )
         }
         DeconfiguringHostState::ResetUefiSettings => {
             let redfish_client = ctx
@@ -720,9 +743,69 @@ pub(super) async fn handle_power_cycling_host(
     })?;
     Ok(StateHandlerOutcome::transition(
         ManagedHostState::Decommissioning {
-            decommissioning_state: DecommissioningState::WaitingForOobDhcpAcknowledgement,
+            decommissioning_state: DecommissioningState::PoweringOnHost,
         },
     ))
+}
+
+pub(super) async fn handle_powering_on_host(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    power_down_wait: chrono::Duration,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let host = &state.host_snapshot;
+    let basetime = host
+        .status
+        .last_reboot_requested
+        .as_ref()
+        .map(|reboot| reboot.time)
+        .unwrap_or(host.state.version.timestamp());
+
+    if super::wait(&basetime, power_down_wait) {
+        return Ok(StateHandlerOutcome::wait(format!(
+            "waiting for power-down grace period before powering on {host_id}; power_down_wait: {power_down_wait}",
+            host_id = host.id,
+        )));
+    }
+
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(host)
+        .await?;
+    let power_state = super::host_power_state(redfish_client.as_ref()).await?;
+    match power_state {
+        PowerState::On => Ok(StateHandlerOutcome::transition(
+            ManagedHostState::Decommissioning {
+                decommissioning_state: DecommissioningState::WaitingForOobDhcpAcknowledgement,
+            },
+        )),
+        PowerState::PoweringOff => Ok(StateHandlerOutcome::wait(format!(
+            "waiting for {host_id} to finish powering off before powering on; current power state: {power_state}",
+            host_id = host.id,
+        ))),
+        PowerState::PoweringOn => Ok(StateHandlerOutcome::wait(format!(
+            "waiting for {host_id} to finish powering on; current power state: {power_state}",
+            host_id = host.id,
+        ))),
+        _ => {
+            tracing::info!(
+                machine_id = %host.id,
+                %power_state,
+                "Host not On after decommissioning power cycle; powering on"
+            );
+            host_power_control(redfish_client.as_ref(), host, SystemPowerControl::On, ctx)
+                .await
+                .map_err(|error| {
+                    StateHandlerError::GenericError(eyre::eyre!(
+                        "failed to power on host after decommissioning power cycle: {error}"
+                    ))
+                })?;
+            Ok(StateHandlerOutcome::wait(format!(
+                "waiting for {host_id} to power on after decommissioning power cycle; current power state: {power_state}",
+                host_id = host.id,
+            )))
+        }
+    }
 }
 
 pub(super) async fn handle_waiting_for_oob_dhcp_acknowledgement(
@@ -899,6 +982,19 @@ pub(super) async fn handle_deleting_managed_credentials(
                 db::credential_rotation::CredentialRotationType::HostUefi,
             ));
         }
+    }
+
+    // NIC lockdown_ikm rows are keyed by the card's NIC MAC, not a BMC MAC,
+    // so the per-machine loop above never reaches them.
+    for interface in state
+        .dpa_interface_snapshots
+        .iter()
+        .filter(|iface| iface.interface_type == DpaInterfaceType::Svpc)
+    {
+        rotation_cleanups.push((
+            interface.mac_address,
+            db::credential_rotation::CredentialRotationType::LockdownIkm,
+        ));
     }
 
     let mut txn = ctx.services.db_pool.begin().await?;

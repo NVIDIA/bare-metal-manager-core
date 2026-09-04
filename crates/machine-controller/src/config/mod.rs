@@ -45,7 +45,10 @@ pub struct MachineStateHandlerSiteConfig {
     pub bios_profiles: libredfish::BiosProfileVendor,
     pub oem_manager_profiles: libredfish::BiosProfileVendor,
 
-    pub dpa_enabled: bool,
+    pub ewethers_enabled: bool,
+    /// Site-wide enable for the Astra (East-West CX NIC) path. When `false`,
+    /// host ingestion skips enabling Astra on declared CX9 NICs.
+    pub astra_enabled: bool,
     pub dpf_enabled: bool,
     /// Site-wide enable for releasing the DPF maintenance hold so a changed
     /// DPUService rolls out. When `false`, a host that DPF has parked in the
@@ -64,6 +67,13 @@ pub struct MachineStateHandlerSiteConfig {
     /// the per-machine operator force-converge escape hatch still works
     /// regardless, for the host or an individual DPU.
     pub uefi_rotation_enabled: bool,
+
+    /// Site-wide kill-switch for the passive SuperNIC lockdown IKM rekey guard.
+    /// When `false` (the default), a Ready host never enters
+    /// `RotatingNicLockdown` on its own even if a card lags the staged site-wide
+    /// target; the per-host operator force-converge escape hatch still works
+    /// regardless.
+    pub nic_lockdown_ikm_rotation_enabled: bool,
 
     /// Site-wide opt-in for factory-resetting the host BMC during tenant
     /// release. When `false` (the default), tenant release skips the BMC
@@ -86,12 +96,14 @@ impl MachineStateHandlerSiteConfig {
             selected_profile: libredfish::BiosProfileType::Performance,
             bios_profiles: HashMap::new(),
             oem_manager_profiles: HashMap::new(),
-            dpa_enabled: true,
+            ewethers_enabled: true,
+            astra_enabled: false,
             dpf_enabled: false,
             dpu_service_sync_enabled: true,
             spdm_enabled: false,
             bmc_rotation_enabled: false,
             uefi_rotation_enabled: false,
+            nic_lockdown_ikm_rotation_enabled: false,
             bmc_factory_reset_on_instance_termination_enabled: false,
             dpu_enable_secure_boot: true,
             restart_ovs_on_use_admin_network_change: false,

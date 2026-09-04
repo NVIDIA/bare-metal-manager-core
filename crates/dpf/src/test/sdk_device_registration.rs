@@ -157,6 +157,9 @@ impl DpuRepository for DeviceRegistrationMock {
     async fn delete(&self, _: &str, _: &str) -> Result<(), DpfError> {
         Ok(())
     }
+    async fn delete_if_uid(&self, name: &str, _ns: &str, _uid: &str) -> Result<(), DpfError> {
+        Err(DpfError::not_found("DPU", name))
+    }
     fn watch<F, Fut>(
         &self,
         _: &str,
@@ -248,7 +251,7 @@ async fn test_register_devices_node_and_force_delete() {
             dpu_machine_id: format!("dpu-{}-id", i),
             is_primary: true,
         };
-        sdk.register_dpu_device(info).await.unwrap();
+        sdk.register_dpu_device(info, None).await.unwrap();
     }
 
     // Register node

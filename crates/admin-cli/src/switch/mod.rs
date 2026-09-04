@@ -16,10 +16,14 @@
  */
 
 mod force_delete;
+mod health_history;
 mod health_report;
 mod list;
 mod metadata;
 mod show;
+
+#[cfg(test)]
+mod tests;
 
 use clap::Parser;
 
@@ -42,4 +46,6 @@ pub(crate) enum Cmd {
         visible_alias = "hr"
     )]
     HealthReport(health_report::Args),
+    #[clap(about = "Show switch health history")]
+    HealthHistory(health_history::Args),
 }

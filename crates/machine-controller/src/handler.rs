@@ -37,7 +37,7 @@ use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_e
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, Credentials,
 };
-use carbide_uuid::machine::MachineId;
+use carbide_uuid::machine::{DpuMachineId, HostMachineId, MachineId};
 use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -54,10 +54,12 @@ use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{Boot, EnabledDisabled, Redfish, RedfishError, SystemPowerControl};
+use mac_address::MacAddress;
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
-use model::dpa_interface::DpaInterfaceControllerState;
+use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceType, NewDpaInterface};
+use model::expected_machine::ExpectedInterface;
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::instance::InstanceNetworkSyncStatus;
 use model::instance::config::network::{
@@ -71,10 +73,11 @@ use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
-    CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
-    DpuInitNextStateResolver, DpuInitState, FactoryResetBmcState, FailureCause, FailureDetails,
-    FailureSource, HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase,
-    InstallDpuOsState, InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    ConfigureAstraState, CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState,
+    DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
+    FactoryResetBmcState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
     MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
     MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
@@ -125,11 +128,13 @@ mod dpu_uefi_rotation;
 mod extension_services;
 mod factory_reset;
 mod firmware_artifact;
+mod gb200_host_interface;
 mod helpers;
 mod host_boot_config;
 mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
+mod nic_lockdown_rotation;
 mod power;
 mod rotation;
 mod sku;
@@ -713,7 +718,8 @@ impl MachineStateHandler {
                     let since_last_seen = Utc::now().signed_duration_since(observed_at);
                     if since_last_seen > self.dpu_up_threshold {
                         let message = format!("Last seen over {} ago", self.dpu_up_threshold);
-                        let dpu_machine_id = &dpu_snapshot.id;
+                        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+                        let dpu_machine_id = &dpu_machine_id;
                         let health_report = health_report::HealthReport::heartbeat_timeout(
                             health_report::HealthReport::DPU_AGENT_SOURCE.to_string(),
                             health_report::HealthReport::DPU_AGENT_SOURCE.to_string(),
@@ -861,6 +867,109 @@ impl MachineStateHandler {
         }
 
         match &mh_state {
+            ManagedHostState::ConfigureAstra {
+                configure_astra_state,
+            } => {
+                match configure_astra_state {
+                    ConfigureAstraState::EnableNics => {
+                        let powercycle_needed =
+                            self.enable_astra_all_nics(mh_snapshot, ctx).await?;
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            powercycle_needed,
+                            "ConfigureAstra state: EnableNics"
+                        );
+                        if powercycle_needed {
+                            if let Err(e) = handler_host_power_control(
+                                mh_snapshot,
+                                ctx,
+                                SystemPowerControl::ACPowercycle,
+                            )
+                            .await
+                            {
+                                tracing::error!(
+                                    machine_id = %mh_snapshot.host_snapshot.id,
+                                    error = %e,
+                                    "ConfigureAstra failed to ACPowercycle host"
+                                );
+                                return Err(e);
+                            }
+                            tracing::info!(
+                                "ConfigureAstra called handler_host_power_control with ACPowercycle"
+                            );
+                            return Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::ConfigureAstra {
+                                    configure_astra_state:
+                                        ConfigureAstraState::WaitingForPowercycle,
+                                },
+                            ));
+                        }
+
+                        let dpu_ids = mh_snapshot.host_snapshot.associated_dpu_machine_ids();
+                        Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::DpuDiscoveringState {
+                                dpu_states: DpuDiscoveringStates {
+                                    states: dpu_ids
+                                        .iter()
+                                        .map(|id| (*id, DpuDiscoveringState::Initializing))
+                                        .collect(),
+                                },
+                            },
+                        ))
+                    }
+                    ConfigureAstraState::WaitingForPowercycle => {
+                        let basetime = mh_snapshot
+                            .host_snapshot
+                            .status
+                            .last_reboot_requested
+                            .as_ref()
+                            .map(|x| x.time)
+                            .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
+
+                        if wait(&basetime, self.reachability_params.power_down_wait) {
+                            return Ok(StateHandlerOutcome::wait(format!(
+                                "Waiting for host {} AC power cycle grace period",
+                                mh_snapshot.host_snapshot.id
+                            )));
+                        }
+
+                        let redfish_client = ctx
+                            .services
+                            .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                            .await?;
+                        let power_state = host_power_state(redfish_client.as_ref()).await?;
+
+                        // ACPowercycle can fall back to ForceOff when unsupported; ensure On.
+                        if power_state != libredfish::PowerState::On
+                            && power_state != libredfish::PowerState::PoweringOn
+                        {
+                            tracing::info!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                %power_state,
+                                "Host not yet On after Astra AC power cycle; powering on"
+                            );
+                            handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::On)
+                                .await?;
+                            return Ok(StateHandlerOutcome::wait(format!(
+                                "Waiting for host {} to power on after Astra AC power cycle",
+                                mh_snapshot.host_snapshot.id
+                            )));
+                        }
+
+                        let dpu_ids = mh_snapshot.host_snapshot.associated_dpu_machine_ids();
+                        Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::DpuDiscoveringState {
+                                dpu_states: DpuDiscoveringStates {
+                                    states: dpu_ids
+                                        .iter()
+                                        .map(|id| (*id, DpuDiscoveringState::Initializing))
+                                        .collect(),
+                                },
+                            },
+                        ))
+                    }
+                }
+            }
             ManagedHostState::DpuDiscoveringState { .. } => {
                 if mh_snapshot
                     .host_snapshot
@@ -1064,7 +1173,10 @@ impl MachineStateHandler {
                     let next_state = reprov_state.next_state_with_all_dpus_updated(
                         &mh_state,
                         &mh_snapshot.dpu_snapshots,
-                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        dpus_for_reprov
+                            .into_iter()
+                            .map(Machine::dpu_machine_id)
+                            .collect::<Result<Vec<_>, _>>()?,
                     )?;
 
                     let health_override = create_host_update_health_report_dpufw();
@@ -1164,6 +1276,22 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Same lowest-precedence idle-only rule again, for the host's
+                // NIC lockdown keys. A rekey unlocks and relocks each SVPC
+                // card via the DPA state machine + scout, so it must never run
+                // under active tenancy; the site flag / force-converge override
+                // live in `nic_lockdown_rotation::should_enter_nic_lockdown_rotation`.
+                if nic_lockdown_rotation::should_enter_nic_lockdown_rotation(
+                    ctx.services,
+                    mh_snapshot,
+                )
+                .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingNicLockdown,
+                    ));
+                }
+
                 // Releasing a DPF maintenance hold restarts DPU services, so it
                 // belongs with the idle-only work above rather than ahead of it.
                 dpu_action_handler::handle_pending_dpu_actions(
@@ -1208,6 +1336,14 @@ impl MachineStateHandler {
                 }
                 DecommissioningState::PowerCyclingHost => {
                     decommissioning::handle_power_cycling_host(mh_snapshot, ctx).await
+                }
+                DecommissioningState::PoweringOnHost => {
+                    decommissioning::handle_powering_on_host(
+                        mh_snapshot,
+                        ctx,
+                        self.reachability_params.power_down_wait,
+                    )
+                    .await
                 }
                 DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                     decommissioning::handle_waiting_for_oob_dhcp_acknowledgement(mh_snapshot, ctx)
@@ -1331,7 +1467,16 @@ impl MachineStateHandler {
             }
 
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
-                dpu_uefi_rotation::handle_rotating_dpu_uefi(ctx, mh_snapshot, *dpu_machine_id).await
+                dpu_uefi_rotation::handle_rotating_dpu_uefi(
+                    ctx,
+                    mh_snapshot,
+                    (*dpu_machine_id).into(),
+                )
+                .await
+            }
+
+            ManagedHostState::RotatingNicLockdown => {
+                nic_lockdown_rotation::handle_rotating_nic_lockdown(ctx, mh_snapshot).await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {
@@ -2034,7 +2179,7 @@ impl MachineStateHandler {
                     instance_state: InstanceState::DpaProvisioning,
                 };
 
-                if !ctx.services.site_config.dpa_enabled {
+                if !ctx.services.site_config.ewethers_enabled {
                     // If DPA is not enabled, we don't need to do any DPA provisioning.
                     // So go directly to WaitingForDpaToBeReady state, where we will change
                     // the network status of our DPUs.
@@ -2067,6 +2212,211 @@ impl MachineStateHandler {
                 }
             },
         }
+    }
+
+    async fn enable_astra_nic(
+        &self,
+        nic_index: u8,
+        mh_snapshot: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        expected_nic: &ExpectedInterface,
+    ) -> Result<(), StateHandlerError> {
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "Enabling Astra on NIC {nic_index}"
+        );
+
+        // Create the redfish client from the machine snapshot.
+        let redfish_client = ctx
+            .services
+            .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+            .await?;
+
+        // Get the MAC address of the NIC at the given index and see if it matches
+        // the mac address in the passed in expected interface.
+        let mac_address = redfish_client
+            .get_spx_nic_mac_address(nic_index)
+            .await
+            .map_err(|e| redfish_error("get_spx_nic_mac_address", e))?
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: mh_snapshot.host_snapshot.id.to_string(),
+                missing: "spx_nic_mac_address",
+            })?;
+        let mac_address = MacAddress::from_str(&mac_address).map_err(|e| {
+            tracing::error!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "Invalid SPX NIC MAC address {mac_address}: {e}"
+            );
+            StateHandlerError::GenericError(eyre!("invalid SPX NIC MAC address {mac_address}: {e}"))
+        })?;
+
+        let expected_mac_address = expected_nic.mac_address;
+        // Does this mac address match the mac address in the passed in expected interface?
+        if mac_address != expected_nic.mac_address {
+            tracing::error!(
+                "Actual MAC address {mac_address} does not match expected MAC address {expected_mac_address} for NIC {nic_index}"
+            );
+            return Err(StateHandlerError::GenericError(eyre!(
+                "mac address mismatch: expected {expected_mac_address}, got {mac_address}"
+            )));
+        }
+
+        // Now enable EastWestControlEnabled on this card.
+        redfish_client
+            .set_spx_nic_east_west_control_enabled(nic_index, true)
+            .await
+            .map_err(|e| redfish_error("set_spx_nic_east_west_control_enabled", e))?;
+
+        // We have successfully enabled EastWestControlEnabled on this card.
+        // Now add an entry for this NIC in the dpa_interface table.
+        // Note that this entry will be added with the predicted host id, and when we
+        // change the predicted host machine id to an actual machine id, we will have
+        // to fix up the dpa_interfaces table.
+
+        // Get the model and name of the NIC also, and we will use that information to create
+        // the dpa_interface object.
+        let nic_model_and_name = redfish_client
+            .get_spx_nic_model_and_name(nic_index)
+            .await
+            .map_err(|e| redfish_error("get_spx_nic_model_and_name", e))?
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: mh_snapshot.host_snapshot.id.to_string(),
+                missing: "spx_nic_model_and_name",
+            })?;
+
+        // Note that we are creating this dpa_interface object with a machine_id which is a predicted machine id.
+        // When we change the predicted machine id to an actual machine id, we will have to fix up the dpa_interfaces table.
+        let mut txn = ctx.services.db_pool.begin().await?;
+        let mut dpa_interface = db::dpa_interface::ensure(
+            NewDpaInterface {
+                machine_id: mh_snapshot.host_snapshot.host_machine_id()?,
+                mac_address,
+                device_type: "Network Adapter Ethernet Interface".to_string(),
+                pci_name: nic_model_and_name.name,
+                device_description: Some(nic_model_and_name.model),
+                interface_type: DpaInterfaceType::Astra,
+            },
+            &mut txn,
+        )
+        .await?;
+
+        dpa_interface.underlay_ip = expected_nic.fixed_ip;
+
+        // Call the update_ip routine to update the underlay_ip address of this dpa object,
+        // obtaining the underlay ip from the fixed_ip field of the ExpectedInterface object.
+        db::dpa_interface::update_ip(dpa_interface, true, &mut txn).await?;
+
+        txn.commit().await?;
+
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            mac_address = %mac_address,
+            "Enabled Astra on NIC {nic_index} with MAC address {mac_address}"
+        );
+
+        Ok(())
+    }
+
+    /// Enables EastWestControl on every declared CX9 NIC.
+    ///
+    /// Returns `true` when at least one CX9 NIC was enabled and the caller
+    /// should AC-power-cycle the host for the change to take effect.
+    async fn enable_astra_all_nics(
+        &self,
+        mh_snapshot: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<bool, StateHandlerError> {
+        // Skip Astra enablement entirely when the site has not opted in.
+        if !ctx.services.site_config.astra_enabled || !ctx.services.site_config.ewethers_enabled {
+            tracing::debug!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "Astra not enabled for this site, skipping NIC enablement"
+            );
+            return Ok(false);
+        }
+
+        // Enable Astra if necessary
+        // Look at the entry in the expected_machines table for this managed host, and retrieve the host_nics
+        // field. If the host_nics is empty, just return.
+
+        // its unlikely we got here without a bmc mac
+        let Some(bmc_mac_address) = mh_snapshot.host_snapshot.status.bmc_info.mac else {
+            tracing::debug!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "No BMC MAC address configured"
+            );
+            return Err(StateHandlerError::MissingData {
+                object_id: mh_snapshot.host_snapshot.id.to_string(),
+                missing: "bmc_mac_address",
+            });
+        };
+
+        let mut txn = ctx.services.db_pool.begin().await?;
+
+        // Retrieve the expected_machines table entry for this managed host.
+        let expected_machine =
+            db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), bmc_mac_address)
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        %bmc_mac_address,
+                        error = %err,
+                        "Failed to look up expected machine for Astra enablement"
+                    );
+                    StateHandlerError::DBError(Box::new(err))
+                })?;
+
+        txn.commit().await?;
+
+        // No expected-machine entry means there are no declared host NICs to act on.
+        let Some(expected_machine) = expected_machine else {
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "No expected-machine entry found for Astra enablement"
+            );
+            return Ok(false);
+        };
+
+        let host_nics = expected_machine.data.interfaces;
+        if host_nics.is_empty() {
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "No host NICs found for Astra enablement"
+            );
+            return Ok(false);
+        }
+
+        // At this point, we need to use Redfish to get all the CX cards in the host.
+        // The end point to explore is /redfish/v1/Chassis/CX_$i
+
+        let cx9_nics: Vec<_> = host_nics
+            .iter()
+            .filter(|nic| nic.nic_type.as_deref() == Some("CX9"))
+            .collect();
+        let enabled_any_cx9 = !cx9_nics.is_empty();
+
+        for (nic_index, expected_nic) in cx9_nics.into_iter().enumerate() {
+            if let Err(e) = self
+                .enable_astra_nic(nic_index as u8, mh_snapshot, ctx, expected_nic)
+                .await
+            {
+                tracing::error!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    nic_index,
+                    error = %e,
+                    "Failed to enable Astra on CX9 NIC"
+                );
+                return Err(e);
+            }
+        }
+
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "Enabled Astra on CX9 NICs: {enabled_any_cx9}"
+        );
+
+        Ok(enabled_any_cx9)
     }
 
     async fn handle_scout_heartbeat_timeout(
@@ -2161,11 +2511,16 @@ impl MachineStateHandler {
             state,
             ctx.services.site_config.dpf_enabled,
         );
-        Ok(Some(reprov_state.next_state_with_all_dpus_updated(
-            &state.managed_state,
-            &state.dpu_snapshots,
-            dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
-        )?))
+        Ok(Some(
+            reprov_state.next_state_with_all_dpus_updated(
+                &state.managed_state,
+                &state.dpu_snapshots,
+                dpus_for_reprov
+                    .iter()
+                    .map(|machine| machine.dpu_machine_id())
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?,
+        ))
     }
 
     // If current BMC FW allows to install bfb via redfish - performs redfish install,
@@ -2221,7 +2576,10 @@ impl MachineStateHandler {
                     .next_state_with_all_dpus_updated(
                         &state.managed_state,
                         &state.dpu_snapshots,
-                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        dpus_for_reprov
+                            .iter()
+                            .map(|m| m.dpu_machine_id())
+                            .collect::<Result<Vec<_>, _>>()?,
                     )?,
                 );
             }
@@ -2245,7 +2603,10 @@ impl MachineStateHandler {
                     .next_state_with_all_dpus_updated(
                         &ManagedHostState::Ready,
                         &state.dpu_snapshots,
-                        dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                        dpus_for_reprov
+                            .iter()
+                            .map(|m| m.dpu_machine_id())
+                            .collect::<Result<Vec<_>, _>>()?,
                     )?,
                 );
             }
@@ -2360,6 +2721,22 @@ async fn handle_restart_verification(
     if let Some(last_reboot) = &mh_snapshot.host_snapshot.status.last_reboot_requested
         && last_reboot.restart_verified == Some(false)
     {
+        if mh_snapshot
+            .host_snapshot
+            .status
+            .last_reboot_time
+            .is_some_and(|completed| completed > last_reboot.time)
+        {
+            ctx.pending_db_writes
+                .push(MachineWriteOp::UpdateRestartVerificationStatus {
+                    machine_id: mh_snapshot.host_snapshot.id,
+                    current_reboot: *last_reboot,
+                    verified: Some(true),
+                    attempts: 0,
+                });
+            return Ok(None);
+        }
+
         let verification_attempts = last_reboot.verification_attempts.unwrap_or(0);
 
         let host_redfish_client = match ctx
@@ -2374,14 +2751,7 @@ async fn handle_restart_verification(
                     error = %err,
                     "Failed to create Redfish client for host during force-restart verification",
                 );
-                ctx.pending_db_writes
-                    .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                        machine_id: mh_snapshot.host_snapshot.id,
-                        current_reboot: *last_reboot,
-                        verified: None,
-                        attempts: 0,
-                    });
-                return Ok(None); // Skip verification, continue with state transition
+                return Ok(None);
             }
         };
 
@@ -2394,14 +2764,7 @@ async fn handle_restart_verification(
                         error = %err,
                         "Failed to fetch BMC logs for host during force-restart verification",
                     );
-                    ctx.pending_db_writes
-                        .push(MachineWriteOp::UpdateRestartVerificationStatus {
-                            machine_id: mh_snapshot.host_snapshot.id,
-                            current_reboot: *last_reboot,
-                            verified: None,
-                            attempts: 0,
-                        });
-                    return Ok(None); // Skip verification, continue with state transition
+                    return Ok(None);
                 }
             };
 
@@ -2418,6 +2781,25 @@ async fn handle_restart_verification(
         }
 
         if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
+            if matches!(
+                &mh_snapshot.managed_state,
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::WaitingForRebootToReady,
+                }
+            ) {
+                ctx.pending_db_writes
+                    .push(MachineWriteOp::UpdateRestartVerificationStatus {
+                        machine_id: mh_snapshot.host_snapshot.id,
+                        current_reboot: *last_reboot,
+                        verified: None,
+                        attempts: 0,
+                    });
+                return Ok(Some(StateHandlerOutcome::wait(
+                    "Waiting for host restart completion after BMC verification attempts were exhausted."
+                        .to_string(),
+                )));
+            }
+
             host_redfish_client
                 .power(SystemPowerControl::ForceRestart)
                 .await
@@ -2664,7 +3046,7 @@ async fn are_dpus_up_trigger_reboot_if_needed(
 impl StateHandler for MachineStateHandler {
     type State = ManagedHostStateSnapshot;
     type ControllerState = ManagedHostState;
-    type ObjectId = MachineId;
+    type ObjectId = HostMachineId;
     type ContextObjects = MachineStateHandlerContextObjects;
 
     // Note: extra_logfmt_logging_fields function to add additional
@@ -2673,7 +3055,7 @@ impl StateHandler for MachineStateHandler {
     #[instrument(skip_all, fields(object_id=%host_machine_id, state=%_mh_state))]
     async fn handle_object_state(
         &self,
-        host_machine_id: &MachineId,
+        host_machine_id: &HostMachineId,
         mh_snapshot: &mut ManagedHostStateSnapshot,
         _mh_state: &Self::ControllerState, // mh_snapshot above already contains it
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
@@ -2890,7 +3272,8 @@ async fn handle_bfb_install_state(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     next_state_resolver: &impl NextState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let dpu_machine_id = &dpu_snapshot.id.clone();
+    let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+    let dpu_machine_id = &dpu_machine_id;
     let dpu_redfish_client_result = ctx
         .services
         .create_redfish_client_from_machine(dpu_snapshot)
@@ -3167,8 +3550,9 @@ fn update_reprovision_targets_to_reprovision_state(
     let reprovision_target_dpu_ids = state
         .dpu_snapshots
         .iter()
-        .filter_map(|dpu| dpu.reprovision_requested.as_ref().map(|_| &dpu.id))
-        .collect_vec();
+        .filter(|dpu| dpu.reprovision_requested.is_some())
+        .map(Machine::dpu_machine_id)
+        .collect::<Result<Vec<_>, _>>()?;
 
     reprovision_state.next_state_with_all_dpus_updated(
         &state.managed_state,
@@ -3188,7 +3572,8 @@ async fn handle_dpu_reprovision(
     hardware_models: &FirmwareConfigSnapshot,
     dpf_sdk: Option<&dyn DpfOperations>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let dpu_machine_id = &dpu_snapshot.id;
+    let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+    let dpu_machine_id = &dpu_machine_id;
     let reprovision_state = state
         .managed_state
         .as_reprovision_state(dpu_machine_id)
@@ -3252,13 +3637,14 @@ async fn handle_dpu_reprovision(
             let dpus_states_for_reprov = &state
                 .dpu_snapshots
                 .iter()
-                .filter_map(|x| {
-                    if x.reprovision_requested.is_some() {
-                        state.managed_state.as_reprovision_state(&x.id)
-                    } else {
-                        None
-                    }
+                .filter(|x| x.reprovision_requested.is_some())
+                .map(|x| {
+                    let id = x.dpu_machine_id()?;
+                    Ok::<_, StateHandlerError>(state.managed_state.as_reprovision_state(&id))
                 })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
                 .collect_vec();
 
             if !all_equal(dpus_states_for_reprov)? {
@@ -3351,13 +3737,14 @@ async fn handle_dpu_reprovision(
             let dpus_states_for_reprov = &state
                 .dpu_snapshots
                 .iter()
-                .filter_map(|x| {
-                    if x.reprovision_requested.is_some() {
-                        state.managed_state.as_reprovision_state(&x.id)
-                    } else {
-                        None
-                    }
+                .filter(|x| x.reprovision_requested.is_some())
+                .map(|x| {
+                    let id = x.dpu_machine_id()?;
+                    Ok::<_, StateHandlerError>(state.managed_state.as_reprovision_state(&id))
                 })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
                 .collect_vec();
 
             if !all_equal(dpus_states_for_reprov)? {
@@ -3742,7 +4129,23 @@ async fn handle_dpu_reprovision(
                 .with_txn(txn),
             )
         }
-        ReprovisionState::NotUnderReprovision => Ok(StateHandlerOutcome::do_nothing()),
+        ReprovisionState::NotUnderReprovision => {
+            if !dpf::deployment_migration_is_parked(state) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            // Deployment migration is host scoped, while this handler is
+            // called once per DPU. Run it only for the first snapshot so one
+            // controller iteration observes and changes the DPF graph once.
+            if state.dpu_snapshots.first().map(|dpu| &dpu.id) != Some(dpu_machine_id) {
+                return Ok(StateHandlerOutcome::do_nothing());
+            }
+            let dpf = dpf_sdk.ok_or_else(|| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "DPF deployment migration reached but DPF is not configured"
+                ))
+            })?;
+            dpf::handle_dpf_deployment_migration(state, ctx, dpf).await
+        }
     }
 }
 
@@ -4285,7 +4688,8 @@ impl DpuMachineStateHandler {
         dpu_snapshot: &Machine,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let dpu_machine_id = &dpu_snapshot.id.clone();
+        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+        let dpu_machine_id = &dpu_machine_id;
         let current_dpu_state = match &state.managed_state {
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
@@ -4456,7 +4860,8 @@ impl DpuMachineStateHandler {
         dpu_snapshot: &Machine,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let dpu_machine_id = &dpu_snapshot.id;
+        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+        let dpu_machine_id = &dpu_machine_id;
         let dpu_state = match &state.managed_state {
             ManagedHostState::DPUInit { dpu_states } => dpu_states
                 .states
@@ -4596,12 +5001,24 @@ impl DpuMachineStateHandler {
 
                 let dpf_managed_bf4 = is_dpf_managed_bf4(state, dpu_snapshot)?;
 
-                let dpu_redfish_client = match ctx
-                    .services
-                    .create_redfish_client_from_machine(dpu_snapshot)
-                    .await
-                {
-                    Ok(client) => client,
+                // One access-info lookup serves both the general client
+                // and the credential op below.
+                let client_result = async {
+                    let access = ctx
+                        .services
+                        .bmc_access_info_for_machine(dpu_snapshot)
+                        .await?;
+                    let client = ctx
+                        .services
+                        .redfish_client_pool
+                        .client_by_info(&access)
+                        .await
+                        .map_err(StateHandlerError::from)?;
+                    Ok::<_, StateHandlerError>((access, client))
+                }
+                .await;
+                let (dpu_bmc_access, dpu_redfish_client) = match client_result {
+                    Ok(v) => v,
                     Err(e) => {
                         let msg = format!(
                             "failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}",
@@ -4686,14 +5103,14 @@ impl DpuMachineStateHandler {
 
                 let dpu_uefi_credentials = resolve_site_uefi_credentials(
                     &ctx.services.db_pool,
-                    ctx.services.redfish_client_pool.credential_reader(),
+                    ctx.services.bmc_credential_ops.credential_reader(),
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 )
                 .await?;
                 let credentials_updated = match ctx
                     .services
-                    .redfish_client_pool
-                    .uefi_setup(dpu_redfish_client.as_ref(), true, dpu_uefi_credentials)
+                    .bmc_credential_ops
+                    .uefi_setup(&dpu_bmc_access, true, dpu_uefi_credentials)
                     .await
                 {
                     Err(e) => {
@@ -4896,7 +5313,7 @@ impl DpuMachineStateHandler {
                     "Invalid State WaitingForNetworkInstall for dpu Machine"
                 );
                 Err(StateHandlerError::InvalidHostState(
-                    *dpu_machine_id,
+                    (*dpu_machine_id).into(),
                     Box::new(state.managed_state.clone()),
                 ))
             }
@@ -4913,7 +5330,8 @@ impl DpuMachineStateHandler {
         dpu_redfish_client: &dyn Redfish,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let next_state: ManagedHostState;
-        let dpu_machine_id = &dpu_snapshot.id.clone();
+        let dpu_machine_id = dpu_snapshot.dpu_machine_id()?;
+        let dpu_machine_id = &dpu_machine_id;
 
         // Use the host snapshot instead of the DPU snapshot because
         // the state.host_snapshot.current.version might be a bit more correct:
@@ -5804,6 +6222,8 @@ const PRIMARY_DPU_BGP_WAIT_REASON: &str =
     "Waiting for the primary DPU p0 BGP session to be established";
 const HOST_HEALTH_WAIT_REASON: &str =
     "Waiting for lifecycle-blocking host health alerts to clear before PXE reboot";
+const DPU_NETWORK_READY_WAIT_REASON: &str =
+    "Waiting for the primary DPU network to become ready before PXE reboot";
 
 /// `provisioning_pxe_reboot_wait_reason` returns the safety condition blocking a provisioning PXE
 /// reboot.
@@ -5838,39 +6258,82 @@ fn report_has_pxe_blocking_bgp_alert(report: &HealthReport) -> bool {
     report.alerts.iter().any(is_pxe_blocking_bgp_alert)
 }
 
-/// Checks whether effective health data contains the p0 BGP condition that blocks PXE.
-///
-/// The agent marks a failed p0 session with `PreventAllocations` because PXE
-/// boot depends on p0. A host Replace report overrides all DPU reports.
-/// Otherwise, only the primary attached DPU is checked: its Replace report
-/// overrides its Merge reports, and any Merge report may contain the blocking
-/// BGP alert when there is no Replace report.
-fn primary_dpu_has_pxe_blocking_bgp_alert(state: &ManagedHostStateSnapshot) -> bool {
-    if let Some(host_replace_report) = state.host_snapshot.health_reports.replace.as_ref() {
-        return report_has_pxe_blocking_bgp_alert(host_replace_report);
-    }
+/// Returns the DPU attached to the host's primary interface.
+fn primary_dpu_snapshot(state: &ManagedHostStateSnapshot) -> Option<&Machine> {
+    let primary_dpu_id = state.host_snapshot.primary_attached_dpu_machine_id()?;
 
-    let Some(primary_dpu_id) = state.host_snapshot.primary_attached_dpu_machine_id() else {
-        return false;
-    };
-
-    let Some(primary_dpu) = state
+    state
         .dpu_snapshots
         .iter()
-        .find(|dpu| dpu.id == primary_dpu_id)
-    else {
+        .find(|dpu| dpu.id == MachineId::from(primary_dpu_id))
+}
+
+/// Returns whether a health alert shows that the primary DPU network is not ready for release PXE.
+fn is_release_pxe_blocking_network_alert(alert: &HealthProbeAlert) -> bool {
+    let network_health_probe_ids = [
+        HealthProbeId::nvue_api_running(),
+        HealthProbeId::bgp_stats(),
+        HealthProbeId::post_config_check_wait(),
+    ];
+
+    (network_health_probe_ids.contains(&alert.id)
+        && alert
+            .classifications
+            .contains(&HealthAlertClassification::prevent_allocations()))
+        || is_pxe_blocking_bgp_alert(alert)
+}
+
+/// Checks whether a health report contains a network alert that should block release PXE.
+fn report_has_release_pxe_blocking_network_alert(report: &HealthReport) -> bool {
+    report
+        .alerts
+        .iter()
+        .any(is_release_pxe_blocking_network_alert)
+}
+
+/// Checks host and primary DPU health reports using their effective precedence.
+///
+/// A host Replace report overrides all DPU reports. Otherwise, the primary
+/// DPU's Replace report overrides its Merge reports, and any Merge report may
+/// match when there is no Replace report.
+fn primary_dpu_effective_health_matches(
+    state: &ManagedHostStateSnapshot,
+    report_matches: impl Fn(&HealthReport) -> bool,
+) -> bool {
+    if let Some(host_replace_report) = state.host_snapshot.health_reports.replace.as_ref() {
+        return report_matches(host_replace_report);
+    }
+
+    let Some(primary_dpu) = primary_dpu_snapshot(state) else {
         return false;
     };
 
     if let Some(dpu_replace_report) = primary_dpu.health_reports.replace.as_ref() {
-        return report_has_pxe_blocking_bgp_alert(dpu_replace_report);
+        return report_matches(dpu_replace_report);
     }
 
     primary_dpu
         .health_reports
         .merges
         .values()
-        .any(report_has_pxe_blocking_bgp_alert)
+        .any(report_matches)
+}
+
+/// Checks whether effective primary DPU health explicitly blocks release PXE.
+///
+/// Missing reports do not block instance deletion. The caller has already
+/// required a fresh network status from every managed DPU, while an operator
+/// Replace report retains its existing precedence over agent health.
+fn primary_dpu_has_release_pxe_blocking_network_alert(state: &ManagedHostStateSnapshot) -> bool {
+    primary_dpu_effective_health_matches(state, report_has_release_pxe_blocking_network_alert)
+}
+
+/// Checks whether effective health data contains the p0 BGP condition that blocks PXE.
+///
+/// The agent marks a failed p0 session with `PreventAllocations` because PXE
+/// boot depends on p0.
+fn primary_dpu_has_pxe_blocking_bgp_alert(state: &ManagedHostStateSnapshot) -> bool {
+    primary_dpu_effective_health_matches(state, report_has_pxe_blocking_bgp_alert)
 }
 
 /// Whether a captured desired target can be replaced before this substate runs.
@@ -7066,14 +7529,13 @@ async fn handle_host_uefi_setup(
                 missing: "bmc_mac",
             })?;
 
-    let redfish_client = ctx
-        .services
-        .create_redfish_client_from_machine(&state.host_snapshot)
-        .await?;
-
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
             if state.host_snapshot.needs_bmc_unlock_for_uefi_setup() {
+                let redfish_client = ctx
+                    .services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
@@ -7094,14 +7556,18 @@ async fn handle_host_uefi_setup(
         UefiSetupState::SetUefiPassword => {
             let host_uefi_credentials = resolve_site_uefi_credentials(
                 &ctx.services.db_pool,
-                ctx.services.redfish_client_pool.credential_reader(),
+                ctx.services.bmc_credential_ops.credential_reader(),
                 db::credential_rotation::CredentialRotationType::HostUefi,
             )
             .await?;
+            let host_bmc_access = ctx
+                .services
+                .bmc_access_info_for_machine(&state.host_snapshot)
+                .await?;
             match ctx
                 .services
-                .redfish_client_pool
-                .uefi_setup(redfish_client.as_ref(), false, host_uefi_credentials)
+                .bmc_credential_ops
+                .uefi_setup(&host_bmc_access, false, host_uefi_credentials)
                 .await
             {
                 Ok(job_id) => Ok(StateHandlerOutcome::transition(
@@ -7114,6 +7580,13 @@ async fn handle_host_uefi_setup(
                         },
                     },
                 )),
+                // Client creation failed (credential store, TCP, or the
+                // vendor probe): return Err so the framework retries.
+                // Falling through to the untested-vendor arm below would
+                // permanently skip setting the BIOS password over a blip.
+                Err(carbide_redfish::libredfish::CredentialOpError::ClientCreation(e)) => {
+                    Err(e.into())
+                }
                 Err(e) => {
                     let msg = format!(
                         "failed to set the BIOS password on {} ({}): {}",
@@ -7149,6 +7622,10 @@ async fn handle_host_uefi_setup(
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
             if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
+                let redfish_client = ctx
+                    .services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 let job_state = redfish_client
                     .get_job_state(job_id)
                     .await
@@ -7352,6 +7829,15 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
 
+                    // GB200 SBIOS can rebuild a stale UEFI HTTP option only when
+                    // `hostusb0` is configured before the platform setup reboot.
+                    gb200_host_interface::repair_gb200_host_interface_if_needed(
+                        ctx,
+                        redfish_client.as_ref(),
+                        mh_snapshot,
+                    )
+                    .await?;
+
                     handle_host_init_boot_config_stage(
                         ctx,
                         mh_snapshot,
@@ -7497,6 +7983,32 @@ impl StateHandler for HostMachineStateHandler {
                     }
                 }
                 MachineState::WaitingForDiscovery => {
+                    let discovery_pending = !discovered_after_state_transition(
+                        mh_snapshot.host_snapshot.state.version,
+                        mh_snapshot.host_snapshot.status.last_discovery_time,
+                    );
+                    if discovery_pending
+                        && gb200_host_interface::gb200_host_interface_address_is_missing(
+                            ctx,
+                            mh_snapshot,
+                        )
+                        .await?
+                    {
+                        // Persist the rewind first. The next iteration repairs
+                        // the BMC from the state that already owns platform setup.
+                        tracing::warn!(
+                            machine_id = %host_machine_id,
+                            "GB200 BMC hostusb0 static IPv4 address is missing; returning to platform configuration before another discovery boot"
+                        );
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::WaitingForPlatformConfiguration {
+                                    retry_count: 0,
+                                },
+                            },
+                        ));
+                    }
+
                     // Storage cleanup is a destructive disk wipe (NVMe/HDD) that scout runs after a
                     // reset, so only a real, discovered host enters it. A predicted host waits for
                     // discovery to promote it; the promoted host then does the cleanup.
@@ -7510,10 +8022,7 @@ impl StateHandler for HostMachineStateHandler {
                         )));
                     }
 
-                    if !discovered_after_state_transition(
-                        mh_snapshot.host_snapshot.state.version,
-                        mh_snapshot.host_snapshot.status.last_discovery_time,
-                    ) {
+                    if discovery_pending {
                         tracing::trace!(
                             machine_id = %host_machine_id,
                             host_last_seen = ?mh_snapshot.host_snapshot.status.last_discovery_time,
@@ -7961,7 +8470,7 @@ impl StateHandler for InstanceStateHandler {
                     // This involves the DPA State Machine sending SetVNI commands to the NICs, and getting
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             if !dpa_interface.managed_host_network_config_version_synced(
                                 &mh_snapshot.instance,
@@ -8150,17 +8659,38 @@ impl StateHandler for InstanceStateHandler {
                             });
                     }
 
-                    // Reboot host
+                    let host = &mh_snapshot.host_snapshot;
+                    if let Some(restart) =
+                        host.status
+                            .last_reboot_requested
+                            .as_ref()
+                            .filter(|restart| {
+                                restart.mode == MachineLastRebootRequestedMode::Reboot
+                                    && restart.time > host.state.version.timestamp()
+                            })
+                    {
+                        let restart_completed = host
+                            .status
+                            .last_reboot_time
+                            .is_some_and(|completed| completed > restart.time);
+                        if restart_completed || restart.restart_verified == Some(true) {
+                            return Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::Assigned {
+                                    instance_state: InstanceState::Ready,
+                                },
+                            ));
+                        }
+
+                        return Ok(StateHandlerOutcome::wait(
+                            "Waiting for host restart completion or verification.".to_string(),
+                        ));
+                    }
+
                     handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
                         .await?;
-
-                    // Instance is ready.
-                    // We can not determine if machine is rebooted successfully or not. Just leave
-                    // it like this and declare Instance Ready.
-                    let next_state = ManagedHostState::Assigned {
-                        instance_state: InstanceState::Ready,
-                    };
-                    Ok(StateHandlerOutcome::transition(next_state))
+                    Ok(StateHandlerOutcome::wait(
+                        "Waiting for host restart completion or verification.".to_string(),
+                    ))
                 }
                 InstanceState::Ready => {
                     // Machine is up after reboot. Hurray. Instance is up.
@@ -8182,6 +8712,41 @@ impl StateHandler for InstanceStateHandler {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
 
+                    let reprov_can_be_started =
+                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
+                            // Usually all DPUs are updated with user_approval_received field as true
+                            // if `invoke_instance_power` is called.
+                            // TODO: multidpu: Move this field to `instances` table and unset on
+                            // reprovision is completed.
+                            mh_snapshot
+                                .dpu_snapshots
+                                .iter()
+                                .filter(|x| x.reprovision_requested.is_some())
+                                .all(|x| {
+                                    x.reprovision_requested
+                                        .as_ref()
+                                        .map(|x| x.user_approval_received || is_auto_approved)
+                                        .unwrap_or_default()
+                                })
+                        } else {
+                            false
+                        };
+                    let host_firmware_requested = if let Some(request) =
+                        &mh_snapshot.host_snapshot.host_reprovision_requested
+                    {
+                        request.user_approval_received || is_auto_approved
+                    } else {
+                        false
+                    };
+
+                    // Check if the instance needs to PXE boot. The
+                    // custom_pxe_reboot_requested flag is set by the API when the tenant calls
+                    // InvokeInstancePower with boot_with_custom_ipxe=true.
+                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
+                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
+                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
+                    // tenant's script.
+                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
                     // Run cleanup here so fully terminated extension services are
                     // removed from persisted instance config.
                     let mut txn_opt = None;
@@ -8228,45 +8793,9 @@ impl StateHandler for InstanceStateHandler {
                         }
                     }
 
-                    let reprov_can_be_started =
-                        if dpu_reprovisioning_needed(&mh_snapshot.dpu_snapshots) {
-                            // Usually all DPUs are updated with user_approval_received field as true
-                            // if `invoke_instance_power` is called.
-                            // TODO: multidpu: Move this field to `instances` table and unset on
-                            // reprovision is completed.
-                            mh_snapshot
-                                .dpu_snapshots
-                                .iter()
-                                .filter(|x| x.reprovision_requested.is_some())
-                                .all(|x| {
-                                    x.reprovision_requested
-                                        .as_ref()
-                                        .map(|x| x.user_approval_received || is_auto_approved)
-                                        .unwrap_or_default()
-                                })
-                        } else {
-                            false
-                        };
-                    let host_firmware_requested = if let Some(request) =
-                        &mh_snapshot.host_snapshot.host_reprovision_requested
-                    {
-                        request.user_approval_received || is_auto_approved
-                    } else {
-                        false
-                    };
-
                     if is_auto_approved && (reprov_can_be_started || host_firmware_requested) {
                         tracing::info!(machine_id = %host_machine_id, "Auto rebooting host for reprovision/upgrade due to being in approved time period");
                     }
-
-                    // Check if the instance needs to PXE boot. The custom_pxe_reboot_requested flag
-                    // is set by the API when the tenant calls InvokeInstancePower with boot_with_custom_ipxe=true
-                    //
-                    // This triggers the HostPlatformConfiguration flow to verify BIOS boot order
-                    // before rebooting. The WaitingForRebootToReady handler will clear this flag
-                    // and set use_custom_pxe_on_boot, which the iPXE handler uses to serve the
-                    // tenant's script.
-                    let boot_with_custom_ipxe = instance.custom_pxe_reboot_requested;
 
                     if instance.deleted.is_some()
                         || reprov_can_be_started
@@ -8513,6 +9042,18 @@ impl StateHandler for InstanceStateHandler {
                         };
                         Ok(StateHandlerOutcome::transition(next_state))
                     } else {
+                        // Current DPU health can show that Scout's primary network path is not
+                        // ready even after every DPU publishes a fresh status. Other flows must
+                        // continue to BootingWithDiscoveryImage because that state starts repair.
+                        if instance.deleted.is_some()
+                            && mh_snapshot.has_managed_dpus()
+                            && primary_dpu_has_release_pxe_blocking_network_alert(mh_snapshot)
+                        {
+                            return Ok(StateHandlerOutcome::wait(
+                                DPU_NETWORK_READY_WAIT_REASON.to_string(),
+                            ));
+                        }
+
                         handler_host_power_control(
                             mh_snapshot,
                             ctx,
@@ -8600,7 +9141,10 @@ impl StateHandler for InstanceStateHandler {
                         .next_state_with_all_dpus_updated(
                             &mh_snapshot.managed_state,
                             &mh_snapshot.dpu_snapshots,
-                            dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
+                            dpus_for_reprov
+                                .into_iter()
+                                .map(Machine::dpu_machine_id)
+                                .collect::<Result<Vec<_>, _>>()?,
                         )?;
                         Ok(StateHandlerOutcome::transition(next_state))
                     } else if mh_snapshot
@@ -8711,7 +9255,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // Check each DPA interface associated with the machine to make sure the DPA NIC has updated
                     // its network config (setting VNI to zero in this case).
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             // We're heading back to admin and a DPA still in
                             // Provisioning has nothing to ack -- it never
@@ -8945,7 +9489,7 @@ impl StateHandler for InstanceStateHandler {
                     // no longer be able to interact with scout.
 
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             let (mut netconf, version) =
                                 dpa_interface.network_config.clone().take();
@@ -8970,7 +9514,7 @@ impl StateHandler for InstanceStateHandler {
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
 
-                    if ctx.services.site_config.dpa_enabled {
+                    if ctx.services.site_config.ewethers_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
                             if !dpa_interface.managed_host_network_config_version_synced(
                                 &mh_snapshot.instance,
@@ -9066,13 +9610,14 @@ async fn process_dpu_use_admin_network_state_change(
         .and_then(|i| i.attached_dpu_machine_id);
 
     for dpu in &mh_snapshot.dpu_snapshots {
+        let dpu_id = dpu.dpu_machine_id()?;
         let dpu_has_tenant_interface_config = interface_configs.iter().any(|cfg| {
-            let is_primary = primary_dpu_id == Some(dpu.id);
+            let is_primary = primary_dpu_id == Some(dpu_id);
             (cfg.device_locator.is_none() && is_primary)
                 || (cfg.device_locator.is_some()
                     && mh_snapshot
                         .host_snapshot
-                        .get_device_locator_for_dpu_id(&dpu.id)
+                        .get_device_locator_for_dpu_id(&dpu_id)
                         .ok()
                         .as_ref()
                         == cfg.device_locator.as_ref())
@@ -9307,7 +9852,7 @@ fn check_instance_network_synced_and_dpu_healthy(
         || maps.0.is_empty()
         || maps.1.is_empty();
 
-    let dpu_machine_ids: Vec<MachineId> = if use_primary_dpu_only {
+    let dpu_machine_ids: Vec<DpuMachineId> = if use_primary_dpu_only {
         if legacy_physical_interface_count != 1 {
             return Err(StateHandlerError::GenericError(eyre!(
                 "more than one interface configured when only the primary dpu is allowed"
@@ -9391,7 +9936,11 @@ fn check_instance_network_synced_and_dpu_healthy(
                 missing_dpus.push(dpu_id);
             }
         }
-        return Ok(InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(missing_dpus));
+        return Ok(
+            InstanceNetworkSyncStatus::InstanceNetworkObservationNotAvailable(
+                missing_dpus.into_iter().map(Into::into).collect(),
+            ),
+        );
     }
     // Check instance network config has been applied
     let expected = &instance.network_config_version;
@@ -9405,7 +9954,7 @@ fn check_instance_network_synced_and_dpu_healthy(
 
     if !outdated_dpus.is_empty() {
         return Ok(InstanceNetworkSyncStatus::InstanceNetworkNotSynced(
-            outdated_dpus,
+            outdated_dpus.into_iter().map(Into::into).collect(),
         ));
     }
 
@@ -9420,7 +9969,8 @@ pub async fn release_vpc_dpu_loopback(
 ) -> Result<(), StateHandlerError> {
     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
         if let Some(common_pools) = common_pools {
-            db::vpc_dpu_loopback::delete_and_deallocate(common_pools, &dpu_snapshot.id, txn, false)
+            let dpu_id = dpu_snapshot.dpu_machine_id()?;
+            db::vpc_dpu_loopback::delete_and_deallocate(common_pools, &dpu_id, txn, false)
                 .await
                 .map_err(|e| StateHandlerError::ResourceCleanupError {
                     resource: "VpcLoopbackIp",
@@ -9449,17 +9999,13 @@ async fn release_vpc_dpu_loopback_for_vpcs(
 
     // Release the removed VPC loopbacks from every DPU that may have rendered them.
     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-        db::vpc_dpu_loopback::delete_and_deallocate_for_vpcs(
-            common_pools,
-            &dpu_snapshot.id,
-            vpc_ids,
-            txn,
-        )
-        .await
-        .map_err(|e| StateHandlerError::ResourceCleanupError {
-            resource: "VpcLoopbackIp",
-            error: e.to_string(),
-        })?;
+        let dpu_id = dpu_snapshot.dpu_machine_id()?;
+        db::vpc_dpu_loopback::delete_and_deallocate_for_vpcs(common_pools, &dpu_id, vpc_ids, txn)
+            .await
+            .map_err(|e| StateHandlerError::ResourceCleanupError {
+                resource: "VpcLoopbackIp",
+                error: e.to_string(),
+            })?;
     }
 
     Ok(())
@@ -12336,7 +12882,7 @@ async fn restart_dpu(
         tracing::warn!(
             machine_id = %machine.id,
             %power_state,
-            "DPU is powered off; powering it on instead of restarting it"
+            "DPU is not running; powering it on instead of restarting it"
         );
     }
 
@@ -12352,11 +12898,12 @@ fn dpu_restart_power_action(
     power_state: libredfish::PowerState,
 ) -> Result<SystemPowerControl, StateHandlerError> {
     match power_state {
-        libredfish::PowerState::Off => Ok(SystemPowerControl::On),
+        // BlueField-3 reports its stable StandbyOffline state as Paused after
+        // the Arm OS shuts down, so it needs the same recovery as Off.
+        libredfish::PowerState::Off | libredfish::PowerState::Paused => Ok(SystemPowerControl::On),
         libredfish::PowerState::On => Ok(SystemPowerControl::ForceRestart),
         libredfish::PowerState::PoweringOff
         | libredfish::PowerState::PoweringOn
-        | libredfish::PowerState::Paused
         | libredfish::PowerState::Reset
         | libredfish::PowerState::Unknown => Err(StateHandlerError::GenericError(eyre!(
             "cannot restart DPU while its power state is {power_state}; retrying"
@@ -13798,6 +14345,84 @@ mod tests {
     }
 
     #[test]
+    fn release_pxe_waits_only_for_relevant_network_alerts() {
+        fn report(alerts: Vec<HealthProbeAlert>) -> HealthReport {
+            HealthReport {
+                source: HealthReport::DPU_AGENT_SOURCE.to_string(),
+                triggered_by: None,
+                observed_at: None,
+                successes: vec![],
+                alerts,
+            }
+        }
+
+        fn alert(
+            probe_id: HealthProbeId,
+            classifications: Vec<HealthAlertClassification>,
+        ) -> HealthProbeAlert {
+            HealthProbeAlert {
+                id: probe_id,
+                target: None,
+                in_alert_since: None,
+                message: "test alert".to_string(),
+                tenant_message: None,
+                classifications,
+            }
+        }
+
+        fn allocation_blocking_alert(probe_id: HealthProbeId) -> HealthProbeAlert {
+            alert(
+                probe_id,
+                vec![HealthAlertClassification::prevent_allocations()],
+            )
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "no network alert",
+                    input: report(vec![]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "NVUE API is unavailable",
+                    input: report(vec![allocation_blocking_alert(
+                        HealthProbeId::nvue_api_running(),
+                    )]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "FRR BGP health check failed",
+                    input: report(vec![allocation_blocking_alert(HealthProbeId::bgp_stats())]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "network config is still settling",
+                    input: report(vec![allocation_blocking_alert(
+                        HealthProbeId::post_config_check_wait(),
+                    )]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "informational NVUE alert does not block release",
+                    input: report(vec![alert(HealthProbeId::nvue_api_running(), vec![])]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "unrelated critical alert does not block release",
+                    input: report(vec![alert(
+                        HealthProbeId::from_str("DpuDiskUtilizationCritical")
+                            .expect("valid test probe id"),
+                        vec![HealthAlertClassification::prevent_host_state_changes()],
+                    )]),
+                    expect: false,
+                },
+            ],
+            |report| report_has_release_pxe_blocking_network_alert(&report),
+        );
+    }
+
+    #[test]
     fn dpu_restart_requires_a_stable_power_state() {
         check_values(
             [
@@ -13822,9 +14447,9 @@ mod tests {
                     expect: Err(()),
                 },
                 Check {
-                    scenario: "paused DPU is retried",
+                    scenario: "paused DPU is powered on",
                     input: libredfish::PowerState::Paused,
-                    expect: Err(()),
+                    expect: Ok(SystemPowerControl::On),
                 },
                 Check {
                     scenario: "resetting DPU is retried",

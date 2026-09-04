@@ -131,9 +131,9 @@ func (Managers *Manager) Init() {
 	ManagerAccess.Data.EB.Log.Info().Msg("Managers: Initializing all the managers")
 	// register version metric (build_version, build_date)
 	versionGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "elektra_site_agent",
+		Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 		Name:      "version",
-		Help:      "version of the elektra_site_agent",
+		Help:      "version of the Site Agent",
 	}, []string{"build_version", "build_date"})
 	prometheus.MustRegister(versionGauge)
 	// set the value once, since it does not change
@@ -141,9 +141,9 @@ func (Managers *Manager) Init() {
 	// register health status metric
 	prometheus.MustRegister(
 		prometheus.NewCounterFunc(prometheus.CounterOpts{
-			Namespace: "elektra_site_agent",
+			Namespace: ManagerAccess.Conf.EB.MetricsNamespace,
 			Name:      "health_status",
-			Help:      "health status of the elektra_site_agent",
+			Help:      "health status of the Site Agent",
 		},
 			func() float64 {
 				return float64(ManagerAccess.Data.EB.HealthStatus.Load())

@@ -40,7 +40,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"site-explorer":             2,
 		"service-account":           1,
 		"infrastructure-provider":   4,
-		"tenant":                    4,
+		"tenant":                    5,
 		"tenant-account":            5,
 		"site":                      6,
 		"vpc":                       6,
@@ -58,7 +58,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"expected-rack":             7,
 		"expected-switch":           5,
 		"instance-type":             5,
-		"machine":                   16,
+		"machine":                   18,
 		"allocation":                6,
 		"subnet":                    5,
 		"machine-instance-type":     3,
@@ -107,7 +107,7 @@ func TestNewAPIRoutes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewAPIRoutes(tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp, tt.args.cfg)
+			got := NewAPIRoutes(tt.args.dbSession, tt.args.tc, tt.args.tnc, tt.args.scp, tt.args.cfg, nil)
 
 			assert.Equal(t, totalRouteCount, len(got))
 
@@ -136,8 +136,13 @@ func TestNewAPIRoutes(t *testing.T) {
 			taskPath := "/org/:orgName/" + cfg.GetAPIName() + "/task"
 			assertRouteExists(t, got, http.MethodGet, taskPath)
 			assertRouteBefore(t, got, http.MethodGet, taskPath, http.MethodGet, taskPath+"/:id")
+			tenantPath := "/org/:orgName/" + cfg.GetAPIName() + "/tenant"
+			assertRouteExists(t, got, http.MethodGet, tenantPath+"/current/routing-profile")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
+			dpuPath := "/org/:orgName/" + cfg.GetAPIName() + "/dpu"
+			assertRouteExists(t, got, http.MethodGet, dpuPath)
+			assertRouteExists(t, got, http.MethodGet, dpuPath+"/:id")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/bmc/reset")
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/dpu/reprovision")
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/health-report")

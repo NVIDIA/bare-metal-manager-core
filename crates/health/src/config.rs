@@ -473,6 +473,12 @@ pub struct SinksConfig {
     #[serde(alias = "switch_health_override")]
     pub switch_health_report: Configurable<SwitchHealthReportSinkConfig>,
 
+    /// Sends generated NMX-C domain health reports to the NICo API.
+    ///
+    /// This sink is disabled by default and cannot be combined with the NMX-C
+    /// schema override collector.
+    pub nvlink_domain_health_report: Configurable<NvLinkDomainHealthReportSinkConfig>,
+
     /// Power shelf health report sink: sends power-shelf-level health reports to the NICo API.
     #[serde(alias = "power_shelf_health_override")]
     pub power_shelf_health_report: Configurable<PowerShelfHealthReportSinkConfig>,
@@ -492,6 +498,7 @@ impl Default for SinksConfig {
             health_report: Configurable::Enabled(HealthReportSinkConfig::default()),
             rack_health_report: Configurable::Enabled(RackHealthReportSinkConfig::default()),
             switch_health_report: Configurable::Enabled(SwitchHealthReportSinkConfig::default()),
+            nvlink_domain_health_report: Configurable::Disabled,
             power_shelf_health_report: Configurable::Enabled(
                 PowerShelfHealthReportSinkConfig::default(),
             ),
@@ -884,6 +891,15 @@ impl Default for SwitchHealthReportSinkConfig {
             skip_empty_reports: true,
         }
     }
+}
+
+/// Configuration for ordered NVLink domain health report submission.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvLinkDomainHealthReportSinkConfig {
+    /// NICo API connection used to submit NVLink domain health reports.
+    #[serde(flatten)]
+    pub connection: CarbideApiConnectionConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1424,7 +1440,7 @@ pub struct PeriodicLogConfig {
     /// `["Journal"]` to suppress the bmcweb HTTP-access log, which is
     /// high-volume and self-referential. Set to `[]` to collect from every
     /// discovered LogService.
-    #[serde(default)]
+    #[serde(default = "default_excluded_log_services")]
     pub exclude_services: Vec<String>,
 
     /// When true, on the first encounter of a LogService with no saved state,
@@ -1442,10 +1458,14 @@ impl Default for PeriodicLogConfig {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
-            exclude_services: vec!["Journal".to_string()],
+            exclude_services: default_excluded_log_services(),
             skip_initial_history: false,
         }
     }
+}
+
+fn default_excluded_log_services() -> Vec<String> {
+    vec!["Journal".to_string()]
 }
 
 /// downgrade thresholds and periodic fallback for `collectors.logs.mode = "auto"`.
@@ -2202,6 +2222,14 @@ impl Config {
                     "collectors.nmxc.schema_override requires at least one OTLP target".to_string(),
                 );
             }
+
+            if nmxc.schema_override.is_some() && self.sinks.nvlink_domain_health_report.is_enabled()
+            {
+                return Err(
+                    "sinks.nvlink_domain_health_report is not supported with collectors.nmxc.schema_override"
+                        .to_string(),
+                );
+            }
         }
 
         if let Configurable::Enabled(reachability) = &self.collectors.reachability {
@@ -2447,10 +2475,7 @@ mod tests {
     }
 
     fn parsed_periodic_defaults() -> PeriodicLogConfig {
-        PeriodicLogConfig {
-            exclude_services: vec![],
-            ..PeriodicLogConfig::default()
-        }
+        PeriodicLogConfig::default()
     }
 
     #[test]
@@ -3016,6 +3041,31 @@ username = "root"
                     });
                 }) => FailsWith(
                     "[collectors.nmxc].grpc_port must be greater than 0".to_string()
+                ),
+
+                config_with(|config| {
+                    config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+                        schema_override: Some(NmxcSchemaOverrideConfig {
+                            descriptor_set_path: PathBuf::from("nmx_c.desc"),
+                            hello_rpc_path: default_nmxc_hello_rpc_path(),
+                            subscribe_rpc_path: default_nmxc_subscribe_rpc_path(),
+                            max_frame_size_bytes: DEFAULT_NMX_C_MAX_FRAME_SIZE_BYTES,
+                            subscribe_fields: Default::default(),
+                        }),
+                        ..NmxcCollectorConfig::default()
+                    });
+
+                    config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![otlp_target("http://localhost:4317")],
+                    });
+
+                    config.sinks.nvlink_domain_health_report = Configurable::Enabled(
+                        NvLinkDomainHealthReportSinkConfig::default(),
+                    );
+
+                }) => FailsWith(
+                    "sinks.nvlink_domain_health_report is not supported with collectors.nmxc.schema_override"
+                        .to_string()
                 ),
             }
 
@@ -3648,6 +3698,28 @@ reload_interval = "30s"
             .extract::<Config>();
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn nvlink_domain_health_report_sink_is_opt_in() {
+        assert!(matches!(
+            SinksConfig::default().nvlink_domain_health_report,
+            Configurable::Disabled
+        ));
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(
+                r#"
+[sinks.nvlink_domain_health_report]
+"#,
+            ))
+            .extract()
+            .expect("NVLink domain health report sink config should parse");
+
+        let Configurable::Enabled(_) = config.sinks.nvlink_domain_health_report else {
+            panic!("NVLink domain health report sink should be enabled");
+        };
     }
 
     #[test]
@@ -5191,6 +5263,75 @@ switch = { serial = "SN-SW-001", physical_slot_number = 7, compute_tray_index = 
                     "[collectors.logs.sse].max_backoff must be greater than or equal to initial_backoff"
                         .to_string()
                 ),
+            }
+        );
+    }
+
+    #[test]
+    fn excluded_log_services_config_surface() {
+        scenarios!(run = |toml| {
+            Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(toml))
+                .extract::<Config>()
+                .map_err(|_| ())
+                .and_then(|config| {
+                    config.validate().map_err(|_| ())?;
+                    let logs = config.collectors.logs.as_option().ok_or(())?;
+
+                    Ok(match logs.mode {
+                        LogCollectionMode::Auto => {
+                            logs.auto_periodic_or_default().exclude_services
+                        }
+                        LogCollectionMode::Periodic => {
+                            logs.periodic_or_default().exclude_services
+                        }
+                        LogCollectionMode::Sse => Vec::new(),
+                    })
+                })
+        };
+            "periodic mode" {
+                r#"
+[collectors.logs]
+mode = "periodic"
+[collectors.logs.periodic]
+"# => Yields(vec!["Journal".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "periodic"
+[collectors.logs.periodic]
+exclude_services = ["Journal", "Dump"]
+"# => Yields(vec!["Journal".to_string(), "Dump".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "periodic"
+[collectors.logs.periodic]
+exclude_services = []
+"# => Yields(vec![]),
+            }
+
+            "auto fallback" {
+                r#"
+[collectors.logs]
+mode = "auto"
+[collectors.logs.auto]
+"# => Yields(vec!["Journal".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "auto"
+[collectors.logs.auto]
+exclude_services = ["Journal", "Dump"]
+"# => Yields(vec!["Journal".to_string(), "Dump".to_string()]),
+
+                r#"
+[collectors.logs]
+mode = "auto"
+[collectors.logs.auto]
+exclude_services = []
+"# => Yields(vec![]),
             }
         );
     }

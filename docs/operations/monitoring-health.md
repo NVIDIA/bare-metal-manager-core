@@ -1,4 +1,4 @@
-# Monitoring and Health <Badge intent="launch" minimal>New</Badge>
+# Monitoring and Health
 
 This page covers monitoring and health workflows for NICo sites after
 deployment: hardware health, DPU health, aggregate host health, health
@@ -33,6 +33,7 @@ alerts from a reporting source. Common health sources are:
 | DPU agent | DPU service health, DPU networking health, BGP state, DHCP service health, and agent heartbeat. |
 | Validation and discovery | SKU validation, host validation, endpoint discovery, and inventory checks. |
 | Rack health | Rack-level health input when rack health reporting is configured. |
+| NVLink domain health | NMX-C controller health for an NVLink domain when domain health reporting is configured. |
 | Health overrides | Manual or service-created health reports used for maintenance, repair, validation, or other controlled workflows. |
 
 Each alert has an ID, an optional target, a message, a start time, and one or
@@ -175,8 +176,13 @@ switch config has NMX-C enabled; it does not use BMC or NICo API TLS material.
 For static switch-host endpoints, `switch.nmxc_enabled` controls this target
 eligibility after the `endpoint_role = "host"` and `is_primary = true` checks;
 it defaults to `switch.is_primary` when omitted.
-NMX-C notifications emit log events for tracing, log-file, and OTLP
-log sinks only; Prometheus metrics and switch health reports are separate scope.
+NMX-C notifications emit log events for tracing, log-file, and OTLP log sinks.
+With `[collectors.nmxc]` and `[sinks.nvlink_domain_health_report]` enabled,
+supported `DomainStateInfo` controller health states also produce NVLink domain
+health reports. Both settings are disabled by default. Configuration validation
+rejects enabling the sink with `[collectors.nmxc.schema_override]`. See
+[NVLink Domain Health Reports](./nvlink-domain-health-reports.md) for state
+mapping, identity checks, report persistence, and configuration behavior.
 
 NMX-C collection uses plaintext gRPC over HTTP/2. TLS, certificate
 bypass, custom certificate loading, and mTLS are intentionally separate scope; do not model them with the NICo API SPIFFE certificate fields.
@@ -338,6 +344,8 @@ Key `nico-dpu-agent` chart values:
 | `dhcp_server.interface_prepend` | empty by default | Optional DHCP interface prefix argument. |
 | `dhcp_server.service_name` | set by DPF service integration | DHCP gRPC service name. |
 | `fmds.service_name` | set by DPF service integration | FMDS gRPC service name. |
+| `lldpSidecar.resources.requests` | `10m` CPU, `64Mi` memory | Default scheduler request for DPF LLDP collection. |
+| `lldpSidecar.resources.limits` | `250m` CPU, `128Mi` memory | Default resource limit for DPF LLDP collection. |
 
 The DaemonSet renders these core arguments:
 
@@ -368,6 +376,24 @@ The pod sets these runtime environment variables:
 | `NVUE_USERNAME` | NVUE user configured for the deployment. |
 | `NVUE_PASSWORD` | Secret key from `hbn.nvue_credentials_secret_name`. |
 | `RUST_LOG` | `info`. |
+
+### DPF LLDP Collection
+
+A DPF-managed DPU pod includes a `nico-lldp-sidecar` container. It captures
+LLDP-MED data through the DPU host's `lldpcli` and publishes `/data/lldp` for
+the `nico-dpu-agent` container. A successful capture is refreshed every 120
+seconds; a failure is retried after 30 seconds. The previous successful file is
+retained across a collection failure, but the agent rejects it after five
+minutes.
+
+When physical uplink discovery is missing or stale, inspect both containers in
+the DPU pod. Confirm that the sidecar can execute the host `lldpcli`, that
+`/data/lldp` is being refreshed, and that the agent has not rejected the file as
+too old. Centralized DPF logs identify the sidecar with
+`systemd.unit=nico-lldp-sidecar`. A systemd-managed DPU does not use the
+snapshot; its agent queries the local `lldpd` service directly.
+
+The deployment and freshness contract is documented in [DPU LLDP Collection](../dpu-management/dpu_configuration.md#dpu-lldp-collection).
 
 ### Common DPU Alerts
 

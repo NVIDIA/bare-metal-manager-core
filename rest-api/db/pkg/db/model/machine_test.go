@@ -12,6 +12,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -69,6 +70,52 @@ func testMachineBuildMachineInstanceType(t *testing.T, dbSession *db.Session, ma
 	_, err := dbSession.DB.NewInsert().Model(m).Exec(context.Background())
 	assert.Nil(t, err)
 	return m
+}
+
+func TestMachine_MatchesLabelSelector(t *testing.T) {
+	tests := []struct {
+		name    string
+		machine *Machine
+		filters map[string]string
+		want    bool
+	}{
+		{
+			name: "nil Machine",
+		},
+		{
+			name:    "empty filters",
+			machine: &Machine{},
+			want:    true,
+		},
+		{
+			name:    "exact match",
+			machine: &Machine{Labels: map[string]string{"failure-domain": "fd-a"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+			want:    true,
+		},
+		{
+			name:    "subset match",
+			machine: &Machine{Labels: map[string]string{"failure-domain": "fd-a", "power-domain": "pd-2"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+			want:    true,
+		},
+		{
+			name:    "missing key",
+			machine: &Machine{Labels: map[string]string{"power-domain": "pd-2"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+		},
+		{
+			name:    "different value",
+			machine: &Machine{Labels: map[string]string{"failure-domain": "fd-b"}},
+			filters: map[string]string{"failure-domain": "fd-a"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, test.machine.MatchesLabelSelector(test.filters))
+		})
+	}
 }
 
 func TestMachineSQLDAO_Create(t *testing.T) {
@@ -809,6 +856,14 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
+	// Give one Machine a distinct placement label for exact label-filter tests.
+	ms1[1].Labels["failure-domain"] = "fd-a"
+	_, err = msd.Update(ctx, nil, MachineUpdateInput{
+		MachineID: ms1[1].ID,
+		Labels:    ms1[1].Labels,
+	})
+	assert.NoError(t, err)
+
 	// set one of machines in set 2 to be missing on site
 	ms2[0].IsMissingOnSite = true
 	_, err = msd.Update(ctx, nil, MachineUpdateInput{
@@ -874,6 +929,26 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 				IsAssigned: cutil.GetPtr(true),
 			},
 			expectedCount: 1,
+			expectedError: false,
+		},
+		{
+			desc: "GetAll with exact Machine label selector returns matching objects",
+			filter: MachineFilterInput{
+				Labels: map[string]string{
+					"failure-domain": "fd-a",
+					"key1":           "value1",
+				},
+			},
+			expectedCount: 1,
+			firstEntry:    &ms1[1],
+			expectedError: false,
+		},
+		{
+			desc: "GetAll with a non-matching Machine label value returns no objects",
+			filter: MachineFilterInput{
+				Labels: map[string]string{"failure-domain": "missing"},
+			},
+			expectedCount: 0,
 			expectedError: false,
 		},
 		{
@@ -1193,6 +1268,35 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("includes soft-deleted Machines when requested", func(t *testing.T) {
+		machineID := ms1[0].ID
+		err := msd.Delete(ctx, nil, machineID, false)
+		require.NoError(t, err)
+
+		active, activeTotal, err := msd.GetAll(
+			ctx,
+			nil,
+			MachineFilterInput{MachineIDs: []string{machineID}},
+			paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		assert.Empty(t, active)
+		assert.Zero(t, activeTotal)
+
+		withDeleted, totalWithDeleted, err := msd.GetAll(
+			ctx,
+			nil,
+			MachineFilterInput{MachineIDs: []string{machineID}, IncludeDeleted: true},
+			paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)},
+			nil,
+		)
+		require.NoError(t, err)
+		require.Len(t, withDeleted, 1)
+		assert.Equal(t, 1, totalWithDeleted)
+		assert.NotNil(t, withDeleted[0].Deleted)
+	})
 }
 
 func TestMachineSQLDAO_Update(t *testing.T) {
@@ -1559,6 +1663,33 @@ func TestMachineSQLDAO_Clear(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("can clear soft-delete timestamp", func(t *testing.T) {
+		machineID := mcsExp[3].ID
+		err := msd.Delete(ctx, nil, machineID, false)
+		require.NoError(t, err)
+
+		var deleted Machine
+		err = dbSession.DB.NewSelect().
+			Model(&deleted).
+			Where("m.id = ?", machineID).
+			WhereAllWithDeleted().
+			Scan(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, deleted.Deleted)
+
+		restored, err := msd.Clear(ctx, nil, MachineClearInput{
+			MachineID: machineID,
+			Deleted:   true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, restored)
+		assert.Nil(t, restored.Deleted)
+
+		active, err := msd.GetByID(ctx, nil, machineID, nil, false)
+		require.NoError(t, err)
+		assert.Equal(t, machineID, active.ID)
+	})
 }
 
 func TestMachineSQLDAO_Delete(t *testing.T) {

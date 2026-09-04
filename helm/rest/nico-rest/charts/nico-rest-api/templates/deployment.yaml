@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         {{- include "nico-rest-api.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -76,6 +80,11 @@ spec:
             {{- end }}
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.config.powerProvisioning.dps.enabled }}
+            - name: dps-creds
+              mountPath: /var/secrets/dps
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           readinessProbe:
@@ -122,4 +131,14 @@ spec:
             items:
               - key: password
                 path: password
+        {{- end }}
+        {{- if .Values.config.powerProvisioning.dps.enabled }}
+        - name: dps-creds
+          secret:
+            secretName: {{ .Values.secrets.dpsCreds }}
+            items:
+              - key: token
+                path: token
+              - key: ca.crt
+                path: ca.crt
         {{- end }}

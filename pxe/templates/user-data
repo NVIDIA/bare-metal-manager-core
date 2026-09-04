@@ -374,7 +374,11 @@ write_files:
         CMD_PREFIX="ip vrf exec mgmt"
         if [[ ! -f "/run/cloud-init.done" ]]
         then
-          ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} --machine-interface-id={{ interface_id }} --mode="standalone" logerror
+          # --uuid is required by the logerror subcommand's argument parser but is
+          # then ignored; the ID actually used is --machine-interface-id above.
+          # Without it clap rejects the invocation before any code runs, which is
+          # why this failure path never reported anything.
+          ${CMD_PREFIX} /opt/forge/forge-scout --api={{ api_url }} --machine-interface-id={{ interface_id }} --mode="standalone" logerror --uuid={{ interface_id }}
         else
           /bin/rm /run/cloud-init.done
         fi
