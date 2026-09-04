@@ -167,7 +167,7 @@ jobs:
       # needed when this run rebuilt base containers (their refs point at the
       # target) and for multi-platform builds that push from the build step
       - name: Login to target registry (pre-build)
-        if: ${{ (inputs.target_prebuild_login && inputs.source_registry_host != '') || (inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller')) }}
+        if: ${{ (inputs.target_prebuild_login && inputs.source_registry_host != '') || (inputs.push && (contains(inputs.platforms, ',') || github.repository == 'dsx-ai-factory/infra-controller')) }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}
@@ -227,11 +227,11 @@ jobs:
           # build so no credential is present during base pulls. Multi-platform
           # images cannot be loaded into the classic store, so they always push
           # directly.
-          push: ${{ inputs.push && (contains(inputs.platforms, ',') || github.repository == 'NVIDIA/infra-controller') }}
-          load: ${{ (inputs.load && !inputs.push) || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller') }}
+          push: ${{ inputs.push && (contains(inputs.platforms, ',') || github.repository == 'dsx-ai-factory/infra-controller') }}
+          load: ${{ (inputs.load && !inputs.push) || (inputs.push && !contains(inputs.platforms, ',') && github.repository != 'dsx-ai-factory/infra-controller') }}
           # mirrors: the docker exporter cannot attach attestations, and
           # provenance would embed private downstream repo refs into artifacts
-          provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
+          provenance: ${{ github.repository == 'dsx-ai-factory/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
           cache-from: ${{ inputs.cache && 'type=gha' || '' }}
@@ -247,7 +247,7 @@ jobs:
           cache-to: ''
 
       - name: Login to target registry
-        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'dsx-ai-factory/infra-controller' }}
         uses: ./.github/actions/docker-auth
         with:
           registry: ${{ steps.registry-host.outputs.host }}
@@ -256,7 +256,7 @@ jobs:
 
       - name: Push image tags
         id: push
-        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}
+        if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'dsx-ai-factory/infra-controller' }}
         env:
           TAGS: ${{ steps.tag_list.outputs.tags }}
           PRIMARY: ${{ steps.tag_list.outputs.primary }}

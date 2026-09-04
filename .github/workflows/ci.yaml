@@ -251,14 +251,14 @@ jobs:
               exit 1
             fi
           done
-          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+          if [[ "${GITHUB_REPOSITORY}" == "dsx-ai-factory/infra-controller" ]]; then
             # canonical endpoints are constants: repository variables must not
             # be able to redirect canonical credentials without a workflow diff
             TARGET="${CANONICAL_DEV}"
             PROD="${CANONICAL_PROD}"
           else
             if [[ -z "${TARGET_OVERRIDE}" ]]; then
-              echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
+              echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside dsx-ai-factory/infra-controller"
               exit 1
             fi
             TARGET="${TARGET_OVERRIDE}"
@@ -280,7 +280,7 @@ jobs:
           fi
           TARGET="${TARGET%/}"
           PROD="${PROD%/}"
-          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+          if [[ "${GITHUB_REPOSITORY}" == "dsx-ai-factory/infra-controller" ]]; then
             SOURCE="${CANONICAL_DEV}"
             EXTRAS="${SOURCE}/nvmetal-carbide-extras:latest"
           else
@@ -292,7 +292,7 @@ jobs:
             echo "::error::NICO_EXTRAS_IMAGE must live on the source registry host (${SOURCE%%/*}); refusing to send source credentials to ${EXTRAS%%/*}"
             exit 1
           fi
-          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+          if [[ "${GITHUB_REPOSITORY}" == "dsx-ai-factory/infra-controller" ]]; then
             NGC_PATH="${TARGET#*/}"
           else
             NGC_PATH="${NGC_PATH_OVERRIDE:-}"
@@ -435,7 +435,7 @@ jobs:
           # checks on `v2.1-latest`; mirrors continue using the `latest` tag from
           # their configured source registry.
           build_container_fallback_version=latest
-          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" && "${MAJOR_MINOR}" == "v2.1" ]]; then
+          if [[ "${GITHUB_REPOSITORY}" == "dsx-ai-factory/infra-controller" && "${MAJOR_MINOR}" == "v2.1" ]]; then
             build_container_fallback_version="${MAJOR_MINOR}-latest"
           fi
 
@@ -528,7 +528,7 @@ jobs:
           echo "publish_built_container=${PUBLISH}" >> "$GITHUB_OUTPUT"
           # job containers log in before any step runs, so the lint job must
           # never point at a target ref that was not published (mirror PRs)
-          if [[ "${BUILD_X86_RUN}" == "true" && "${GITHUB_REPOSITORY}" != "NVIDIA/infra-controller" && "${PUBLISH}" != "true" ]]; then
+          if [[ "${BUILD_X86_RUN}" == "true" && "${GITHUB_REPOSITORY}" != "dsx-ai-factory/infra-controller" && "${PUBLISH}" != "true" ]]; then
             echo "lint_container_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           else
             echo "lint_container_ref=${BUILD_X86_REF}" >> "$GITHUB_OUTPUT"
@@ -592,7 +592,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.build_container_x86_64_version_latest }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
+      push: ${{ github.repository == 'dsx-ai-factory/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -610,7 +610,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.build_container_aarch64_version_latest }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
+      push: ${{ github.repository == 'dsx-ai-factory/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -628,7 +628,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.runtime_container_x86_64_version_latest }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
+      push: ${{ github.repository == 'dsx-ai-factory/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -646,7 +646,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.runtime_container_aarch64_version_latest }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
+      push: ${{ github.repository == 'dsx-ai-factory/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -664,7 +664,7 @@ jobs:
       additional_tags: ${{needs.prepare.outputs.build_artifacts_container_x86_64_version_latest }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
+      push: ${{ github.repository == 'dsx-ai-factory/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -682,7 +682,7 @@ jobs:
       additional_tags: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version_latest }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
+      push: ${{ github.repository == 'dsx-ai-factory/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -1493,6 +1493,10 @@ jobs:
         username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
         password: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
     steps:
+      # The PR mirror's `github.sha` is the submitted head commit. Keep lint on
+      # the same revision as the other PR checks and builds. Validation of the
+      # exact queued revision is tracked at:
+      # https://github.com/dsx-ai-factory/infra-controller/issues/4587
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -2016,7 +2020,7 @@ jobs:
 
   promote-to-be-scanned-image:
     # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
-    if: ${{ !cancelled() && github.repository == 'NVIDIA/infra-controller' && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' }}
+    if: ${{ !cancelled() && github.repository == 'dsx-ai-factory/infra-controller' && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' }}
     needs:
       - prepare
       - build-release-container-x86_64
