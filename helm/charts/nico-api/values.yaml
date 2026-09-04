@@ -250,16 +250,6 @@ command:
   - /bin/sh
   - -c
   - |
-    # Default nofile (1024) is too low for fleet-scale DPU connections; bounded
-    # bump, not maxed to the hard limit. Use -Sn: a bare `ulimit -n` also lowers
-    # the hard limit, which an unprivileged process can never raise back.
-    FD_LIMIT=8192
-    FD_HARD="$(ulimit -Hn)"
-    if [ "$FD_HARD" != "unlimited" ] && [ "$FD_LIMIT" -gt "$FD_HARD" ]; then
-      echo "fd limit ${FD_LIMIT} exceeds hard limit ${FD_HARD}; clamping" >&2
-      FD_LIMIT="$FD_HARD"
-    fi
-    ulimit -Sn "$FD_LIMIT" || { echo "ulimit -Sn ${FD_LIMIT} failed (hard limit ${FD_HARD})" >&2; exit 1; }
     if [ -x /opt/nico/nico-api ]; then
       exec /opt/nico/nico-api run \
         --config-path /etc/nico/nico-api/nico-api-config.toml \

@@ -383,6 +383,8 @@ pub(crate) async fn start(
     let mut http = http2::Builder::new(TokioExecutor::new());
     // Ping idle connections so peers that vanish without a clean close get reaped instead of leaking fds.
     // The timer is required: keep-alive drives its interval through it, and hyper panics without one.
+    // The timeout starts after each ping, so it may be shorter than the interval:
+    // https://docs.rs/hyper/latest/hyper/server/conn/http2/struct.Builder.html#method.keep_alive_timeout
     http.timer(TokioTimer::new())
         .keep_alive_interval(Some(Duration::from_secs(30)))
         .keep_alive_timeout(Duration::from_secs(20));
