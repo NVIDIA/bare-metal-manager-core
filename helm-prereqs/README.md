@@ -107,20 +107,19 @@ config it edits.
    vars only for your own/mirrored registry. See *DPF* below. Sites with no
    DPUs (or still on iPXE) run `./setup.sh -y --skip-dpf` and can ignore these.
 
-9. **[RMS (Rack Management Service)](https://docs.nvidia.com/rms/documentation/home/) - on by default.** Unless you pass
-   `--skip-rms`, export `NICO_RMS_IMAGE_TAG` (required; the image tag
-   is decoupled from the chart). Phase 5c installs the rack-manager chart
-   from the `helm-prereqs/nv-rms` git submodule (pinned to a reviewed
+9. **[RMS (Rack Management Service)](https://docs.nvidia.com/rms/documentation/home/) - on by default.**
+   Unless you pass `--skip-rms`, export `NICO_RMS_IMAGE_TAG` (required; the
+   image tag is decoupled from the chart). Phase 5c installs the rack-manager
+   chart from the `helm-prereqs/nv-rms` git submodule (pinned to a reviewed
    [nv-rms](https://github.com/dsx-ai-factory/nv-rms) commit; initialized
-   automatically) with mTLS issued from `vault-nico-issuer`, and provisions
-   the `rms` database on `nico-pg-cluster`. Airgapped sites clone nv-rms
+   automatically) with mTLS issued from `vault-nico-issuer`, and provisions the
+   `rms` database on `nico-pg-cluster`. Airgapped sites clone nv-rms
    out-of-band and set `NICO_RMS_CHART=<clone>/helm` instead. Refer to
-   *Building the RMS image* below.
-   NICo Core's chart defaults already point the component manager at
-   `rms-api-server.rack-manager.svc.cluster.local:8801`; the namespace is
-   fixed to `rack-manager` to match, so no Core config change is needed.
-   Set `NICO_RMS_IMAGE_REPO` only for a mirrored or self-built image (the
-   default NGC image is entitlement-gated).
+   *Building the RMS image* below. NICo Core's chart defaults already point the
+   component manager at `rms-api-server.rack-manager.svc.cluster.local:8801`;
+   the namespace is fixed to `rack-manager` to match, so no Core config change
+   is needed. Set `NICO_RMS_IMAGE_REPO` only for a mirrored or self-built image
+   (the default NGC image is entitlement-gated).
 
 ### Building the RMS image
 
