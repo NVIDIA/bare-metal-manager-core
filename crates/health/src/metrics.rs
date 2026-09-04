@@ -712,6 +712,17 @@ mod tests {
             serve_request(request, metrics_manager).expect("request should produce a response");
 
         assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; charset=utf-8"),
+        );
+        assert_eq!(
+            response.body(),
+            "not found; use /metrics, /telemetry, or /livez",
+        );
     }
 
     #[test]
