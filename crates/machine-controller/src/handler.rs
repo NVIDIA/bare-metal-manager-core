@@ -2214,6 +2214,10 @@ impl MachineStateHandler {
         }
     }
 
+    /// Enables Astra on a single NIC.
+    /// We pass in the expected interfaces and the NIC index to enable Astra on.
+    /// Returns `true` when the NIC was enabled and the caller
+    /// should AC-power-cycle the host for the change to take effect.
     async fn enable_astra_nic(
         &self,
         nic_index: u8,
