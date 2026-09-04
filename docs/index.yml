@@ -68,6 +68,8 @@ navigation:
       contents:
         - page: Overview and Components
           path: architecture/overview.md
+        - page: Vault-Free Runtime Design
+          path: design/eliminate-vault-dependency-design.md
         - section: Redfish
           contents:
             - page: Redfish Workflow
