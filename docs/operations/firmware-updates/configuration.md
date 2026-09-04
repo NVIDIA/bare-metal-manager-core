@@ -214,15 +214,17 @@ To prepare the update:
 1. Publish the NVIDIA-signed CX7 firmware artifact at an HTTPS URL that Scout
    can access from the discovery environment. Use the
    [DGX H100/H200 firmware guide](https://docs.nvidia.com/dgx/dgxh100-fw-update-guide/network-card-fw-update.html)
-   to select an artifact compatible with every CX7 adapter in the host. Record
-   the artifact's SHA-256 digest. NICo does not require a particular repository
-   path or filename.
+   to select an artifact compatible with every CX7 adapter in the host. The
+   artifact's SHA-256 digest is optional; when provided, it must be 64
+   hexadecimal characters and NICo uses it to verify the download. NICo does
+   not require a particular repository path or filename.
 
 1. Use the
    [Host Firmware Config API](#configure-host-firmware-through-the-api) with
    `vendor: Nvidia`, `model: DGXH100`, component `type: Cx7`, the desired
    `version` such as `28.47.2682`, `default: true`, `powerDrainsNeeded: 1`,
-   and one artifact containing the HTTPS `url` and 64-character `sha256`.
+   and one artifact containing the HTTPS `url`. Optionally include its
+   64-character `sha256` to enable download verification.
 
 Use [Monitor and verify](host-firmware.md#monitor-and-verify). A host is updated
 only when every `CX7_<number>` entry reports the target version, the host has
