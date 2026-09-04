@@ -3295,7 +3295,7 @@ enum FirmwareStatusRouting {
     /// requested IDs are sent to the compute-tray backend.
     DirectDispatch,
     /// The CM is in state-controller mode: the request is split by whether each
-    /// machine has a persisted `backend_firmware_object_job_id`.
+    /// machine has an in-flight direct-dispatch firmware-object job.
     Partitioned {
         /// IDs with a persisted backend job — route to `compute_tray` so callers
         /// can poll the live in-flight state.
@@ -3305,25 +3305,28 @@ enum FirmwareStatusRouting {
     },
 }
 
-/// Partition `machine_ids` into those that have a persisted backend
-/// firmware-object job ID on their machine row and those that do not.
+/// Partition `machine_ids` by whether their BMC MAC has a persisted
+/// direct-dispatch firmware-update job (`bmc_macs_with_direct_fw_updates`).
 ///
 /// Returns `(persisted_ids, fallback_ids)`:
-/// - `persisted_ids` — IDs where the loaded machine has a non-null
-///   `backend_firmware_object_job_id`; route to `compute_tray`.
+/// - `persisted_ids` — the machine's BMC MAC is in
+///   `bmc_macs_with_direct_fw_updates`; route to `compute_tray` to poll the live
+///   in-flight job.
 /// - `fallback_ids` — remaining IDs; route to `machine_firmware_statuses`.
 ///
-/// A tray flashed before ingestion persists its job to `explored_endpoints`
-/// rather than the machine row, so the caller augments the split with
-/// [`reclassify_preingestion_jobs_from_explored_endpoints`] before routing.
+/// Keyed by BMC MAC because a job dispatched before ingestion is recorded under
+/// the tray's MAC, and stays reachable there after ingestion creates the machine
+/// row — so a tray flashed pre-ingestion still polls the live backend.
 fn partition_by_backend_job_id(
     machine_ids: &[MachineId],
     machines_by_id: &HashMap<MachineId, Machine>,
+    bmc_macs_with_direct_fw_updates: &HashSet<MacAddress>,
 ) -> (Vec<MachineId>, Vec<MachineId>) {
     machine_ids.iter().copied().partition(|id| {
         machines_by_id
             .get(id)
-            .is_some_and(|m| m.status.backend_firmware_object_job_id.is_some())
+            .and_then(|m| m.status.bmc_info.mac)
+            .is_some_and(|mac| bmc_macs_with_direct_fw_updates.contains(&mac))
     })
 }
 
@@ -3331,64 +3334,28 @@ fn partition_by_backend_job_id(
 ///
 /// When `use_state_controller` is `false` (direct-dispatch mode) all IDs are
 /// forwarded to the compute-tray backend. Otherwise the IDs are partitioned by
-/// the presence of a persisted `backend_firmware_object_job_id`: those with a job
-/// go to the live backend; the rest fall back to the DB-only path.
+/// whether their BMC MAC has a persisted direct-dispatch job
+/// (`bmc_macs_with_direct_fw_updates`): those with a job poll the live backend;
+/// the rest fall back to the DB-only path.
 fn select_firmware_status_routing(
     use_state_controller: bool,
     machine_ids: &[MachineId],
     machines_by_id: &HashMap<MachineId, Machine>,
+    bmc_macs_with_direct_fw_updates: &HashSet<MacAddress>,
 ) -> FirmwareStatusRouting {
     if !use_state_controller {
         FirmwareStatusRouting::DirectDispatch
     } else {
-        let (persisted, fallback) = partition_by_backend_job_id(machine_ids, machines_by_id);
+        let (persisted, fallback) = partition_by_backend_job_id(
+            machine_ids,
+            machines_by_id,
+            bmc_macs_with_direct_fw_updates,
+        );
         FirmwareStatusRouting::Partitioned {
             persisted,
             fallback,
         }
     }
-}
-
-/// Move `fallback` machines whose BMC IP still carries a pre-ingestion firmware
-/// job in `explored_endpoints` into `persisted`, so they poll the live backend.
-///
-/// A tray flashed before ingestion persists its job id to `explored_endpoints`
-/// (keyed by BMC IP), not the machine row. Once ingestion creates the row its
-/// `backend_firmware_object_job_id` stays NULL, so the machine-row partition
-/// alone would misroute it to the DB-only path and lose live status. One batched
-/// query over the fallback set's BMC IPs reclassifies those still tracked.
-async fn reclassify_preingestion_jobs_from_explored_endpoints(
-    api: &Api,
-    persisted: &mut Vec<MachineId>,
-    fallback: &mut Vec<MachineId>,
-    machines_by_id: &HashMap<MachineId, Machine>,
-) -> Result<(), Status> {
-    let fallback_ips: Vec<IpAddr> = fallback
-        .iter()
-        .filter_map(|id| machines_by_id.get(id).and_then(|m| m.status.bmc_info.ip))
-        .collect();
-    let ips_with_job = db::explored_endpoints::find_ips_with_backend_firmware_object_job_id(
-        api.pg_pool(),
-        &fallback_ips,
-    )
-    .await
-    .map_err(|e| Status::internal(format!("db error: {e}")))?;
-
-    if ips_with_job.is_empty() {
-        return Ok(());
-    }
-
-    fallback.retain(|id| {
-        let has_explored_job = machines_by_id
-            .get(id)
-            .and_then(|m| m.status.bmc_info.ip)
-            .is_some_and(|ip| ips_with_job.contains(&ip));
-        if has_explored_job {
-            persisted.push(*id);
-        }
-        !has_explored_job
-    });
-    Ok(())
 }
 
 pub(crate) async fn get_component_firmware_status(
@@ -3479,38 +3446,42 @@ pub(crate) async fn get_component_firmware_status(
             }
 
             // In direct-dispatch mode all IDs go to the compute-tray backend.
-            // In state-controller mode the batch is partitioned: IDs with a
-            // persisted backend_firmware_object_job_id (set when a firmware update
-            // was dispatched via --bypass-state-controller) are polled from the
-            // live backend; the rest use the DB-only machine_firmware_statuses()
-            // path.
+            // In state-controller mode the batch is partitioned by whether each
+            // tray's BMC MAC has an in-flight direct-dispatch firmware-object job
+            // in compute_firmware_object_jobs (set when a firmware update was
+            // dispatched via --bypass-state-controller, before or after
+            // ingestion): those are polled from the live backend; the rest use
+            // the DB-only machine_firmware_statuses() path.
             if let Some(cm) = api.component_manager.as_ref() {
                 let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
+
+                let bmc_macs_with_direct_fw_updates = if cm.compute_tray_use_state_controller {
+                    let bmc_macs: Vec<MacAddress> = list
+                        .machine_ids
+                        .iter()
+                        .filter_map(|id| machines_by_id.get(id).and_then(|m| m.status.bmc_info.mac))
+                        .collect();
+                    db::direct_dispatch_firmware_job::find_macs_with_job(api.pg_pool(), &bmc_macs)
+                        .await
+                        .map_err(|e| Status::internal(format!("db error: {e}")))?
+                } else {
+                    HashSet::new()
+                };
 
                 match select_firmware_status_routing(
                     cm.compute_tray_use_state_controller,
                     &list.machine_ids,
                     &machines_by_id,
+                    &bmc_macs_with_direct_fw_updates,
                 ) {
                     FirmwareStatusRouting::DirectDispatch => {
                         compute_tray_firmware_statuses(cm, api, &machines_by_id, &list.machine_ids)
                             .await?
                     }
                     FirmwareStatusRouting::Partitioned {
-                        mut persisted,
-                        mut fallback,
+                        persisted,
+                        fallback,
                     } => {
-                        // A tray flashed before ingestion keeps its job on
-                        // explored_endpoints, not the machine row, so reclassify
-                        // those still tracked there back onto the live-poll path.
-                        reclassify_preingestion_jobs_from_explored_endpoints(
-                            api,
-                            &mut persisted,
-                            &mut fallback,
-                            &machines_by_id,
-                        )
-                        .await?;
-
                         let mut statuses = Vec::with_capacity(list.machine_ids.len());
                         if !persisted.is_empty() {
                             statuses.extend(
@@ -5216,21 +5187,25 @@ mod tests {
         let id_b = dpu_machine_id(0);
         let id_c = dpu_machine_id(1);
 
-        let mut machine_with_rms_job = machine_with_id(standalone_machine(), id_a);
-        machine_with_rms_job.status.backend_firmware_object_job_id =
-            Some("backend-job-bypass-abc".to_string());
+        let mac_a: MacAddress = "AA:BB:CC:DD:EE:01".parse().unwrap();
+        let mac_b: MacAddress = "AA:BB:CC:DD:EE:02".parse().unwrap();
+        let mac_c: MacAddress = "AA:BB:CC:DD:EE:03".parse().unwrap();
+
+        let mut machine_a = machine_with_id(standalone_machine(), id_a);
+        machine_a.status.bmc_info.mac = Some(mac_a);
+        let mut machine_b = machine_with_id(standalone_machine(), id_b.into());
+        machine_b.status.bmc_info.mac = Some(mac_b);
+        let mut machine_c = machine_with_id(standalone_machine(), id_c.into());
+        machine_c.status.bmc_info.mac = Some(mac_c);
 
         let machines = HashMap::from([
-            (id_a, machine_with_rms_job),
-            (
-                id_b.into(),
-                machine_with_id(standalone_machine(), id_b.into()),
-            ),
-            (
-                id_c.into(),
-                machine_with_id(standalone_machine(), id_c.into()),
-            ),
+            (id_a, machine_a),
+            (id_b.into(), machine_b),
+            (id_c.into(), machine_c),
         ]);
+
+        // Only machine A has an in-flight direct-dispatch firmware job.
+        let bmc_macs_with_direct_fw_updates: HashSet<MacAddress> = HashSet::from([mac_a]);
 
         struct Case {
             scenario: &'static str,
@@ -5283,8 +5258,12 @@ mod tests {
                 .map(|&i| all_ids[i])
                 .collect();
 
-            let routing =
-                select_firmware_status_routing(case.use_state_controller, &ids, &machines);
+            let routing = select_firmware_status_routing(
+                case.use_state_controller,
+                &ids,
+                &machines,
+                &bmc_macs_with_direct_fw_updates,
+            );
             match routing {
                 FirmwareStatusRouting::DirectDispatch => {
                     assert!(
