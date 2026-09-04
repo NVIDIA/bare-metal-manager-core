@@ -39,6 +39,7 @@ mod ib_fabric_find;
 mod level_filter;
 mod machine_bmc_metadata;
 mod machine_boot_interfaces;
+mod machine_metadata;
 mod nvlink_domain_health;
 mod operating_system;
 mod power_options;

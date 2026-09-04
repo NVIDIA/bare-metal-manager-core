@@ -22,6 +22,7 @@ pub mod health;
 pub(crate) mod ib_fabric;
 pub(crate) mod ib_guid_pool;
 pub mod mac_address_pool;
+pub mod metadata;
 pub mod network;
 pub mod network_segment;
 

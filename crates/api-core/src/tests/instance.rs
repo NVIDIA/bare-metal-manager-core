@@ -85,6 +85,7 @@ use crate::cfg::file::VmaasConfig;
 use crate::instance::{allocate_instance, allocate_network};
 use crate::network_segment::allocate::PrefixAllocator;
 use crate::test_support::fixture_config::FixtureDefault as _;
+use crate::test_support::metadata;
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::instance::single_interface_network_config_with_vfs;
@@ -930,7 +931,7 @@ async fn test_allocate_instance_with_invalid_metadata(_: PgPoolOptions, options:
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
-    for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
+    for (invalid_metadata, expected_err) in metadata::invalid_metadata_testcases(true) {
         let tenant_config = default_tenant_config();
         let config = InstanceConfig::builder()
             .tenant(tenant_config)
