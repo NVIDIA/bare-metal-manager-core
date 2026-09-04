@@ -12,7 +12,7 @@ the rack profile. If a configured rack profile is missing required fields,
 at runtime when an RMS operation runs (refer to
 [Startup validation](#startup-validation)).
 
-Canonical field reference: [`crates/api-core/src/cfg/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/cfg/README.md).
+Canonical field reference: [`crates/api-core/src/cfg/README.md`](https://github.com/dsx-ai-factory/infra-controller/blob/main/crates/api-core/src/cfg/README.md).
 Configure the `[rms]` block (mTLS connectivity to the external RMS) separately;
 the examples on this page cover the component-manager and rack-profile fields.
 The `nsm` and `psm` backend values require externally managed services; the

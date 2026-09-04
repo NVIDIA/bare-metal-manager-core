@@ -54,11 +54,11 @@ machine identity material, and credentials used to manage BMCs, UEFI, DPUs,
 switches, fabrics, databases, and service-to-service communication.
 
 **Repository Exposure Classification:** Public.
-Basis: the repository origin is `github.com:NVIDIA/infra-controller`, the
-workspace package metadata points to the same GitHub repository, and the checked
-in documentation links to public NICo documentation. Treat this document as
-public-consumable and do not add internal hostnames, private IP allocations,
-customer identifiers, incident IDs, or exploit details.
+Basis: the canonical repository is
+`github.com/dsx-ai-factory/infra-controller`, and the checked-in documentation
+links to public NICo documentation. Treat this document as public-consumable
+and do not add internal hostnames, private IP allocations, customer identifiers,
+incident IDs, or exploit details.
 
 **Service Exposure Classification:** External / Regulated (medium confidence).
 Basis: NICo is documented as a preview infrastructure product with public docs,

@@ -42,7 +42,7 @@ Use `site_explorer.dpu_policy` instead.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
-| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for [tenant prefix overlap checks](#tenant-prefix-overlap-checks). The existing `VpcPrefix` exclusion continues to prevent overlapping `VpcPrefix` persistence until the cutover tracked by [#3892](https://github.com/NVIDIA/infra-controller/issues/3892). |
+| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for [tenant prefix overlap checks](#tenant-prefix-overlap-checks). The existing `VpcPrefix` exclusion continues to prevent overlapping `VpcPrefix` persistence until the cutover tracked by [#3892](https://github.com/dsx-ai-factory/infra-controller/issues/3892). |
 | `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
@@ -766,16 +766,16 @@ not run these checks, but a later attachment does.
 These handlers do not validate changes to peering or VPC policy, or Instance
 paths that retain routing state. They also do not cover startup or audit every
 writer. Those checks are tracked in
-[#5114](https://github.com/NVIDIA/infra-controller/issues/5114) and
-[#5115](https://github.com/NVIDIA/infra-controller/issues/5115), while startup
+[#5114](https://github.com/dsx-ai-factory/infra-controller/issues/5114) and
+[#5115](https://github.com/dsx-ai-factory/infra-controller/issues/5115), while startup
 and complete writer coverage are tracked in
-[#5116](https://github.com/NVIDIA/infra-controller/issues/5116). All three must
+[#5116](https://github.com/dsx-ai-factory/infra-controller/issues/5116). All three must
 land before the database cutover in
-[#3892](https://github.com/NVIDIA/infra-controller/issues/3892).
+[#3892](https://github.com/dsx-ai-factory/infra-controller/issues/3892).
 
 Even when the application accepts an eligible pair, the existing `VpcPrefix`
 exclusion rejects overlapping `VpcPrefix` persistence until the cutover tracked
-by [#3892](https://github.com/NVIDIA/infra-controller/issues/3892).
+by [#3892](https://github.com/dsx-ai-factory/infra-controller/issues/3892).
 
 ### `VpcDefinition`
 

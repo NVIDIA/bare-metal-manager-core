@@ -251,10 +251,10 @@ support for another model:
 
 - Follow the [contributing guide](../../../CONTRIBUTING.md).
 - Add the catalog component regex for `FirmwareComponentType::Cx7` to the
-  [host firmware inventory mappings](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/handlers/firmware.rs)
+  [host firmware inventory mappings](https://github.com/dsx-ai-factory/infra-controller/blob/main/crates/api-core/src/handlers/firmware.rs)
   for the model.
 - Add the model's script and metadata under the
-  [Scout firmware script assets](https://github.com/NVIDIA/infra-controller/tree/main/pxe/scout-firmware-scripts).
+  [Scout firmware script assets](https://github.com/dsx-ai-factory/infra-controller/tree/main/pxe/scout-firmware-scripts).
 
 The existing DGX H100 script might work on other servers, but it has not been
 tested on them; validate it on the new platform before reusing it.

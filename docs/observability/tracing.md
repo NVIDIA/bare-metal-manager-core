@@ -125,9 +125,9 @@ nico-api's:
 
 nico-bmc-proxy traces each proxied Redfish request through the BMC credential proxy
 (`crates/bmc-proxy/src/bmc_proxy.rs`). It follows the same W3C propagation model as nico-api
-(issue [#2438](https://github.com/NVIDIA/infra-controller/issues/2438)) so a call from nico-api or
+(issue [#2438](https://github.com/dsx-ai-factory/infra-controller/issues/2438)) so a call from nico-api or
 DPS stays one trace across the proxy hop (issue
-[#2355](https://github.com/NVIDIA/infra-controller/issues/2355)).
+[#2355](https://github.com/dsx-ai-factory/infra-controller/issues/2355)).
 
 - **Off by default.** Spans are exported only when an OTLP endpoint is configured **and**
   `[tracing] enabled = true` (or the process is started with `--debug`). There is no runtime

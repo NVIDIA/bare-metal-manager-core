@@ -203,7 +203,7 @@ kubectl rollout status statefulset/postgres -n postgres
 
 Keycloak is the **reference OIDC identity provider** for the NICo REST API. It handles authentication and issues JWTs that the API validates on every request. It is pre-loaded with the `nico-dev` realm via an imported realm ConfigMap, which includes the `nico-api` client, realm roles, and a set of pre-seeded dev users.
 
-Users of NICo can also bring their own OpenID/OAuth JWT Provider, see [Auth docs](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth) for more details.
+Users of NICo can also bring their own OpenID/OAuth JWT Provider, see [Auth docs](https://github.com/dsx-ai-factory/infra-controller/tree/main/rest-api/auth) for more details.
 
 ### Manifests
 
