@@ -200,7 +200,7 @@ pub(crate) async fn release_dpu_service_sync_hold(
     // Each entry carries its own tenant policy: naming an instance consents to
     // disrupting that instance's tenant and nobody else's.
     let targets = resolve_target(api, request.get_ref()).await?;
-    let machine_ids: Vec<MachineId> = targets.iter().map(|(id, _)| *id).collect();
+    let machine_ids: Vec<StableHostMachineId> = targets.iter().map(|(id, _)| *id).collect();
     validate(api, &machine_ids).await?;
 
     // One machine at a time, each committed as it goes. Nothing spans the batch:
@@ -227,7 +227,7 @@ pub(crate) async fn release_dpu_service_sync_hold(
 async fn resolve_target(
     api: &Api,
     request: &rpc::ReleaseDpuServiceSyncHoldRequest,
-) -> Result<Vec<(MachineId, TenantPolicy)>, Status> {
+) -> Result<Vec<(StableHostMachineId, TenantPolicy)>, Status> {
     use rpc::release_dpu_service_sync_hold_request::Target;
 
     match request.target.as_ref() {
@@ -235,7 +235,7 @@ async fn resolve_target(
             .machine_ids
             .iter()
             // Naming a machine says nothing about the tenant that may be on it.
-            .map(|machine_id| ((*machine_id).into(), TenantPolicy::RefuseIfAssigned))
+            .map(|machine_id| (*machine_id, TenantPolicy::RefuseIfAssigned))
             .collect()),
         Some(Target::InstanceIds(list)) => {
             // Checked before the loop, not just in `validate`: resolving costs a
@@ -251,10 +251,16 @@ async fn resolve_target(
                         kind: "instance",
                         id: instance_id.to_string(),
                     })?;
+                // TODO: Instances should store StableHostMachineId in the first place so that we
+                // don't need to handle this.
+                let instance_machine_id = StableHostMachineId::try_from(instance.machine_id)
+                    .map_err(|e| {
+                        CarbideError::internal(format!("bug: invalid machine ID in instance: {e}"))
+                    })?;
                 // Consent is for this instance, not for its host: if the host
                 // has been reallocated since, the new tenant agreed to nothing.
                 targets.push((
-                    instance.machine_id.into(),
+                    instance_machine_id,
                     TenantPolicy::AllowNamedInstance(*instance_id),
                 ));
             }
@@ -284,7 +290,7 @@ fn check_batch_size(len: usize) -> Result<(), Status> {
 /// must not release half of itself first. It also keeps `FAILED` meaning
 /// "retry": a mistyped machine id is not retryable and would be actively
 /// misleading reported that way.
-async fn validate(api: &Api, machine_ids: &[MachineId]) -> Result<(), Status> {
+async fn validate(api: &Api, machine_ids: &[StableHostMachineId]) -> Result<(), Status> {
     if machine_ids.is_empty() {
         return Err(CarbideError::InvalidArgument("no machines were named".to_string()).into());
     }
@@ -339,7 +345,7 @@ async fn validate(api: &Api, machine_ids: &[MachineId]) -> Result<(), Status> {
 async fn release_one(
     api: &Api,
     dpf_sdk: &dyn carbide_machine_controller::dpf::DpfOperations,
-    machine_id: MachineId,
+    machine_id: StableHostMachineId,
     tenant_policy: &TenantPolicy,
 ) -> rpc::DpuServiceSyncReleaseResult {
     use rpc::DpuServiceSyncReleaseStatus as ProtoStatus;
@@ -364,11 +370,7 @@ async fn release_one(
     };
 
     rpc::DpuServiceSyncReleaseResult {
-        machine_id: Some(
-            machine_id
-                .try_into()
-                .expect("DPU service sync targets stable hosts"),
-        ),
+        machine_id: Some(machine_id),
         status: status.into(),
         detail,
     }
@@ -378,7 +380,7 @@ async fn release_one(
 async fn release_one_inner(
     api: &Api,
     dpf_sdk: &dyn carbide_machine_controller::dpf::DpfOperations,
-    machine_id: MachineId,
+    machine_id: StableHostMachineId,
     tenant_policy: &TenantPolicy,
 ) -> Result<Option<ReleaseOutcome>, String> {
     // A pooled connection rather than a transaction, matching the automatic path.
