@@ -430,7 +430,7 @@ impl ComponentManager {
                             txn,
                             *machine_id,
                             &initiator,
-                            operation,
+                            operation.clone(),
                         )
                         .await
                         .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;

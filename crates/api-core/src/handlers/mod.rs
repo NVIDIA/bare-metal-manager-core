@@ -22,6 +22,7 @@ pub(super) mod bmc_credential_rotation;
 pub(super) mod bmc_endpoint_explorer;
 pub(super) mod bmc_metadata;
 pub(super) mod boot_override;
+pub(super) mod chassis_reset;
 mod client_resolution;
 pub(super) mod component_manager;
 pub(super) mod compute_allocation;

@@ -512,6 +512,7 @@ const (
 	Forge_GetOperatingSystemCachableIpxeTemplateArtifacts_FullMethodName    = "/forge.Forge/GetOperatingSystemCachableIpxeTemplateArtifacts"
 	Forge_UpdateOperatingSystemCachableIpxeTemplateArtifacts_FullMethodName = "/forge.Forge/UpdateOperatingSystemCachableIpxeTemplateArtifacts"
 	Forge_ReWrapSecrets_FullMethodName                                      = "/forge.Forge/ReWrapSecrets"
+	Forge_AdminChassisReset_FullMethodName                                  = "/forge.Forge/AdminChassisReset"
 )
 
 // ForgeClient is the client API for Forge service.
@@ -1402,6 +1403,8 @@ type ForgeClient interface {
 	UpdateOperatingSystemCachableIpxeTemplateArtifacts(ctx context.Context, in *UpdateOperatingSystemIpxeTemplateArtifactRequest, opts ...grpc.CallOption) (*IpxeTemplateArtifactList, error)
 	// Secrets management
 	ReWrapSecrets(ctx context.Context, in *ReWrapSecretsRequest, opts ...grpc.CallOption) (*ReWrapSecretsResponse, error)
+	// Queue a Redfish ForceRestart through Machine Maintenance.
+	AdminChassisReset(ctx context.Context, in *AdminChassisResetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type forgeClient struct {
@@ -6312,6 +6315,16 @@ func (c *forgeClient) ReWrapSecrets(ctx context.Context, in *ReWrapSecretsReques
 	return out, nil
 }
 
+func (c *forgeClient) AdminChassisReset(ctx context.Context, in *AdminChassisResetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_AdminChassisReset_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ForgeServer is the server API for Forge service.
 // All implementations should embed UnimplementedForgeServer
 // for forward compatibility.
@@ -7200,6 +7213,8 @@ type ForgeServer interface {
 	UpdateOperatingSystemCachableIpxeTemplateArtifacts(context.Context, *UpdateOperatingSystemIpxeTemplateArtifactRequest) (*IpxeTemplateArtifactList, error)
 	// Secrets management
 	ReWrapSecrets(context.Context, *ReWrapSecretsRequest) (*ReWrapSecretsResponse, error)
+	// Queue a Redfish ForceRestart through Machine Maintenance.
+	AdminChassisReset(context.Context, *AdminChassisResetRequest) (*emptypb.Empty, error)
 }
 
 // UnimplementedForgeServer should be embedded to have
@@ -8675,6 +8690,9 @@ func (UnimplementedForgeServer) UpdateOperatingSystemCachableIpxeTemplateArtifac
 }
 func (UnimplementedForgeServer) ReWrapSecrets(context.Context, *ReWrapSecretsRequest) (*ReWrapSecretsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReWrapSecrets not implemented")
+}
+func (UnimplementedForgeServer) AdminChassisReset(context.Context, *AdminChassisResetRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminChassisReset not implemented")
 }
 func (UnimplementedForgeServer) testEmbeddedByValue() {}
 
@@ -17487,6 +17505,24 @@ func _Forge_ReWrapSecrets_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_AdminChassisReset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AdminChassisResetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).AdminChassisReset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_AdminChassisReset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).AdminChassisReset(ctx, req.(*AdminChassisResetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Forge_ServiceDesc is the grpc.ServiceDesc for Forge service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -19445,6 +19481,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReWrapSecrets",
 			Handler:    _Forge_ReWrapSecrets_Handler,
+		},
+		{
+			MethodName: "AdminChassisReset",
+			Handler:    _Forge_AdminChassisReset_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

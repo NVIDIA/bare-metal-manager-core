@@ -5,6 +5,7 @@ package forge;
 import "codegen/v1/derive.proto";
 import "codegen/v1/extern_path.proto";
 
+import "chassis_reset.proto";
 import "common.proto";
 import "dns.proto";
 import "google/protobuf/duration.proto";
@@ -1088,6 +1089,9 @@ service Forge {
 
   // Secrets management
   rpc ReWrapSecrets(ReWrapSecretsRequest) returns (ReWrapSecretsResponse);
+
+  // Queue a Redfish ForceRestart through Machine Maintenance.
+  rpc AdminChassisReset(AdminChassisResetRequest) returns (google.protobuf.Empty);
 }
 
 // Indicates the lifecycle state of a resource that is controlled by a state controller

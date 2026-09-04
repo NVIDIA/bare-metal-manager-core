@@ -660,6 +660,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewResetMachineBMCHandler(dbSession, scp, cfg),
 		},
 		{
+			Path:    apiPathPrefix + "/machine/:id/chassis/reset",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewResetMachineChassisHandler(dbSession, scp),
+		},
+		{
 			Path:    apiPathPrefix + "/machine/:id/health-report",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetAllMachineHealthReportHandler(dbSession, scp, cfg),

@@ -10133,6 +10133,64 @@ paths:
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/chassis/reset':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    patch:
+      summary: Reset Machine Chassis
+      tags:
+        - Machine
+      parameters:
+        - name: chassisId
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            pattern: '^[A-Za-z0-9_-][A-Za-z0-9._-]*$'
+          description: Case-sensitive Redfish chassis identifier
+      responses:
+        '202':
+          description: Machine chassis reset request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              examples:
+                example-1:
+                  value:
+                    message: Machine chassis reset request was accepted
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The Machine cannot reset its chassis in its current Core state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: reset-machine-chassis
+      description: |-
+        Queue a case-sensitive Redfish chassis reset on an unassigned Machine owned by the Provider Admin's Org.
+        A `202` response means queued, not completed; `metadata.lifecycleState.value` transitions through `Maintenance(...)` to `Ready` on success or `Failed/...` on failure.
+        The reset sends the Redfish `ForceRestart` action to the selected chassis.
+        Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/dpu/reprovision':
     parameters:
       - schema:
