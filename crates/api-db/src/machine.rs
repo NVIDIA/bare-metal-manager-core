@@ -2754,13 +2754,18 @@ pub async fn set_machine_maintenance_requested(
         initiator: initiator.to_string(),
         operation,
     };
-    let query = "UPDATE machines SET machine_maintenance_requested = $1 WHERE id = $2 RETURNING id";
-    sqlx::query_as::<_, MachineId>(query)
+    let query = "UPDATE machines SET machine_maintenance_requested = $1 WHERE id = $2 AND machine_maintenance_requested IS NULL RETURNING id";
+    let updated = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(req))
         .bind(machine_id)
-        .fetch_one(txn)
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("set_machine_maintenance_requested", e))?;
+    if updated.is_none() {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "machine {machine_id} already has a pending maintenance request"
+        )));
+    }
     Ok(())
 }
 
