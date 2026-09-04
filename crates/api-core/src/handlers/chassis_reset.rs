@@ -21,7 +21,7 @@ use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::HostMachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{MachineMaintenanceOperation, ManagedHostState};
+use model::machine::{MachineMaintenanceOperation, ManagedHostState, ReadyBootConfigState};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -71,20 +71,18 @@ pub(crate) async fn admin_chassis_reset(
             },
         )
         .await?;
-    if matches!(
+    if !matches!(
         host_machine.current_state(),
-        ManagedHostState::Assigned { .. }
+        ManagedHostState::Ready
+            | ManagedHostState::Failed { .. }
+            | ManagedHostState::BootConfiguring {
+                boot_config_state: ReadyBootConfigState::Prepare
+                    | ReadyBootConfigState::Failed { .. },
+                ..
+            }
     ) {
         return Err(Status::failed_precondition(
-            "host is assigned to a tenant; a chassis reset is not allowed",
-        ));
-    }
-    if matches!(
-        host_machine.current_state(),
-        ManagedHostState::ForceDeletion | ManagedHostState::Decommissioning { .. }
-    ) {
-        return Err(Status::failed_precondition(
-            "host is being decommissioned or deleted; a chassis reset is not allowed",
+            "host state does not allow a chassis reset",
         ));
     }
     if db::instance::find_live_by_machine_id_for_update(&mut txn, &host_machine.id)

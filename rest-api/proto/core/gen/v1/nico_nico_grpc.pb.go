@@ -1106,9 +1106,9 @@ type ForgeClient interface {
 	// v1 accepts only ForceRestart. An omitted action has proto3's On default and
 	// is rejected with INVALID_ARGUMENT, as are a missing/invalid machine_id or
 	// missing chassis_id.
-	// NOT_FOUND means the machine does not exist. FAILED_PRECONDITION means the
-	// host is assigned, has a live instance, is decommissioning/decommissioned,
-	// is marked for forced deletion, or already has pending maintenance.
+	// NOT_FOUND means the machine does not exist. FAILED_PRECONDITION means
+	// maintenance is already pending, a live instance exists, or the host is outside
+	// Ready, Failed, or a maintenance-safe boot-configuration checkpoint.
 	//
 	// This replaces the unused AdminGpuReset RPC; no compatibility alias is kept.
 	AdminChassisReset(ctx context.Context, in *AdminChassisResetRequest, opts ...grpc.CallOption) (*AdminChassisResetResponse, error)
@@ -6917,9 +6917,9 @@ type ForgeServer interface {
 	// v1 accepts only ForceRestart. An omitted action has proto3's On default and
 	// is rejected with INVALID_ARGUMENT, as are a missing/invalid machine_id or
 	// missing chassis_id.
-	// NOT_FOUND means the machine does not exist. FAILED_PRECONDITION means the
-	// host is assigned, has a live instance, is decommissioning/decommissioned,
-	// is marked for forced deletion, or already has pending maintenance.
+	// NOT_FOUND means the machine does not exist. FAILED_PRECONDITION means
+	// maintenance is already pending, a live instance exists, or the host is outside
+	// Ready, Failed, or a maintenance-safe boot-configuration checkpoint.
 	//
 	// This replaces the unused AdminGpuReset RPC; no compatibility alias is kept.
 	AdminChassisReset(context.Context, *AdminChassisResetRequest) (*AdminChassisResetResponse, error)

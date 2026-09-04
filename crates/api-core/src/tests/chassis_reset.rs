@@ -16,7 +16,11 @@
  */
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
-use model::machine::{DecommissioningState, MachineMaintenanceOperation, ManagedHostState};
+use config_version::ConfigVersion;
+use model::machine::{
+    DecommissioningState, MachineMaintenanceOperation, ManagedHostState, ReadyBootConfigState,
+};
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use rpc::forge::AdminChassisResetRequest;
 use rpc::forge::admin_power_control_request::SystemPowerControl;
 use rpc::forge::forge_server::Forge;
@@ -157,32 +161,52 @@ async fn admin_chassis_reset_rejects_live_instance_even_if_machine_state_is_read
 }
 
 #[crate::sqlx_test]
-async fn admin_chassis_reset_rejects_decommissioned_host(
+async fn admin_chassis_reset_rejects_unsupported_states(
     db_pool: sqlx::PgPool,
 ) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
     let managed_host = create_managed_host(&env).await;
-    let mut txn = env.db_txn().await;
-    db::machine::update_state(
-        &mut txn,
-        &managed_host.host().id,
-        &ManagedHostState::Decommissioning {
+
+    for state in [
+        ManagedHostState::Created,
+        ManagedHostState::Decommissioning {
             decommissioning_state: DecommissioningState::Decommissioned,
         },
-    )
-    .await?;
-    txn.commit().await?;
+        ManagedHostState::BootConfiguring {
+            desired_version: ConfigVersion::initial(),
+            desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                "02:00:00:00:00:01".parse()?,
+            ),
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::CheckHostConfig,
+        },
+    ] {
+        let mut txn = env.db_txn().await;
+        db::machine::update_state(&mut txn, &managed_host.host().id, &state).await?;
+        txn.commit().await?;
 
-    let error = env
-        .api
-        .admin_chassis_reset(Request::new(AdminChassisResetRequest {
-            machine_id: Some(managed_host.host().id.into()),
-            chassis_id: "HGX_Chassis_0".to_string(),
-            action: SystemPowerControl::ForceRestart as i32,
-        }))
-        .await
-        .unwrap_err();
+        let error = env
+            .api
+            .admin_chassis_reset(Request::new(AdminChassisResetRequest {
+                machine_id: Some(managed_host.host().id.into()),
+                chassis_id: "HGX_Chassis_0".to_string(),
+                action: SystemPowerControl::ForceRestart as i32,
+            }))
+            .await
+            .unwrap_err();
 
-    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(error.message(), "host state does not allow a chassis reset");
+
+        let mut txn = env.db_txn().await;
+        assert!(
+            managed_host
+                .host()
+                .db_machine(&mut txn)
+                .await
+                .machine_maintenance_requested
+                .is_none()
+        );
+    }
     Ok(())
 }
