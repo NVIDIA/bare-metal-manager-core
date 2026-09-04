@@ -49,7 +49,13 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError>;
+}
 
+/// Authenticated BMC operations, resolving stored credentials from the
+/// endpoint's interface. Kept separate from [`EndpointExplorer`] so BMC ops
+/// don't route through the explorer.
+#[async_trait::async_trait]
+pub trait AuthenticatedBmc: Send + Sync + 'static {
     // redfish_reset_bmc issues a BMC reset through redfish.
     async fn redfish_reset_bmc(
         &self,

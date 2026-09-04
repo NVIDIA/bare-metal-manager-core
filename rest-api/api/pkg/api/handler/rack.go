@@ -163,7 +163,7 @@ func (grh GetRackHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_GetRackInfoByID_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(fmt.Sprintf("rack-get-%s", rackStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		fmt.Sprintf("rack-get-%s", rackStrID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -349,7 +349,7 @@ func (garh GetAllRackHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_GetListOfRacks_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -515,7 +515,7 @@ func (vrh ValidateRackHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ValidateComponents_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(fmt.Sprintf("rack-validate-%s", rackStrID)), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		fmt.Sprintf("rack-validate-%s", rackStrID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr
@@ -660,7 +660,7 @@ func (vrsh ValidateRacksHandler) Handle(c echo.Context) error {
 		ctx, c, logger, stc,
 		flowv1.Flow_ValidateComponents_FullMethodName,
 		flowRequest, &flowResponse,
-		common.FlowWorkflowID(workflowID), temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		workflowID, temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 	)
 	if proxyErr != nil {
 		return proxyErr

@@ -28,7 +28,9 @@ use carbide_secrets::test_support::certificates::TestCertificateProvider;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_site_explorer::config::SiteExplorerExploreMode;
 use carbide_site_explorer::test_support::MockEndpointExplorer;
-use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer};
+use carbide_site_explorer::{
+    AuthenticatedBmc, AuthenticatedBmcClient, EndpointExplorationService, EndpointExplorer,
+};
 use carbide_utils::test_support::test_meter::TestMeter;
 use db::work_lock_manager::WorkLockManagerHandle;
 use libnmxc::NmxcPool;
@@ -229,18 +231,30 @@ impl TestApiBuilder {
         // behind it), so a supplied mock serves exploration -- but forwards its
         // boot-order/machine-setup calls to this real, `RedfishSim`-backed
         // explorer. With no mock, the API uses the real explorer (prod wiring).
-        let real_endpoint_explorer = carbide_site_explorer::new_bmc_explorer(
+        let real_bmc_client = Arc::new(AuthenticatedBmcClient::new(
             redfish_pool.clone(),
             nv_redfish_pool,
             carbide_ipmi::test_support(),
             credential_manager.clone(),
+        ));
+        let real_endpoint_explorer = carbide_site_explorer::new_bmc_explorer(
+            real_bmc_client.clone(),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             SiteExplorerExploreMode::NvRedfish,
             self.db_pool.clone(),
         );
-        let endpoint_explorer: Arc<dyn EndpointExplorer> = match self.endpoint_explorer {
-            Some(mock) => Arc::new(mock.with_redfish_backend(real_endpoint_explorer)),
-            None => real_endpoint_explorer,
+        // A mock supplies both narrow interfaces so tests asserting on BMC calls
+        // still see them; production-like tests use the independently constructed
+        // authenticated client shared with the real explorer.
+        let (endpoint_explorer, bmc_client): (
+            Arc<dyn EndpointExplorer>,
+            Arc<dyn AuthenticatedBmc>,
+        ) = match self.endpoint_explorer {
+            Some(mock) => {
+                let mock = Arc::new(mock.with_redfish_backend(real_bmc_client));
+                (mock.clone(), mock)
+            }
+            None => (real_endpoint_explorer, real_bmc_client),
         };
         let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
             self.db_pool.clone(),
@@ -284,6 +298,7 @@ impl TestApiBuilder {
             ib_fabric_manager,
             dynamic_settings,
             endpoint_explorer,
+            bmc_client,
             endpoint_exploration_service,
             dpu_health_log_limiter,
             scout_stream_registry,

@@ -39,7 +39,7 @@ use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
-use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer};
+use carbide_site_explorer::{AuthenticatedBmc, EndpointExplorationService, EndpointExplorer};
 use carbide_uuid::machine::{
     AsMachineId, DpuMachineId, MachineId, MachineIdSubtypeTrait, MachineInterfaceId,
     StableHostMachineId,
@@ -86,6 +86,9 @@ pub struct Api {
     pub(crate) dpu_health_log_limiter: LogLimiter<DpuMachineId>,
     pub dynamic_settings: DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
+    /// Authenticated BMC client for admin operations, supplied independently of
+    /// endpoint exploration.
+    pub(crate) bmc_client: Arc<dyn AuthenticatedBmc>,
     pub(crate) endpoint_exploration_service: Arc<EndpointExplorationService>,
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]

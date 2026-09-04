@@ -333,18 +333,18 @@ func TestGetAllTaskHandler_Handle(t *testing.T) {
 	}}
 	defaultPageNumber, defaultPageSize := 1, 20
 	filteredPageNumber, filteredPageSize := 2, 10
-	defaultFlowID := common.FlowWorkflowID(fmt.Sprintf("task-get-all-%s", common.QueryParamHash(
+	defaultFlowID := fmt.Sprintf("task-get-all-%s", common.QueryParamHash(
 		(&model.APIGetTasksRequest{SiteID: site.ID.String()}).QueryValues(pagination.PageRequest{
 			PageNumber: &defaultPageNumber,
 			PageSize:   &defaultPageSize,
 		}),
-	)))
-	filteredFlowID := common.FlowWorkflowID(fmt.Sprintf("task-get-all-%s", common.QueryParamHash(
+	))
+	filteredFlowID := fmt.Sprintf("task-get-all-%s", common.QueryParamHash(
 		(&model.APIGetTasksRequest{SiteID: site.ID.String(), ActiveOnly: true, IncludeReport: true}).QueryValues(pagination.PageRequest{
 			PageNumber: &filteredPageNumber,
 			PageSize:   &filteredPageSize,
 		}),
-	)))
+	))
 
 	cases := []GetTasksHandlerTestCase{
 		{
