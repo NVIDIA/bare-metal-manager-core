@@ -234,14 +234,6 @@ impl OutdatedHost<'_> {
         if !self.managed_host.aggregate_health.alerts.is_empty() {
             return false;
         }
-        // Skip looking at any machines that are marked for updates
-        if self
-            .managed_host
-            .host_snapshot
-            .machine_updates_in_progress()
-        {
-            return false;
-        }
         // Skip any machines that are not Ready
         if !matches!(self.managed_host.managed_state, ManagedHostState::Ready) {
             return false;

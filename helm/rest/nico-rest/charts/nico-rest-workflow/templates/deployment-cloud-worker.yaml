@@ -27,6 +27,10 @@ spec:
         app: nico-rest-cloud-worker
         app.kubernetes.io/name: nico-rest-workflow
         app.kubernetes.io/component: cloud-worker
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:

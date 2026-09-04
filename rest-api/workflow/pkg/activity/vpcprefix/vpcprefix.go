@@ -520,7 +520,7 @@ func (mvp ManageVpcPrefix) createOrUpdateVpcPrefixFromSite(
 			Prefix:       reportedVpcPrefix.Prefix,
 			PrefixLength: reportedPrefixLength,
 			Status:       cdbm.VpcPrefixStatusReady,
-			CreatedBy:    site.CreatedBy,
+			CreatedBy:    vpc.CreatedBy,
 		})
 		if createErr != nil {
 			return nil, fmt.Errorf("unable to create VPC Prefix found on Site: failed to create VPC Prefix, DB error: %w", createErr)

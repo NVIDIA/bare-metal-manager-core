@@ -43,10 +43,10 @@ pub trait NvosUpdateManager: sealed::Sealed + Send + Sync {
     /// # Errors
     ///
     /// Returns [`ComponentManagerError::InvalidArgument`] when the request cannot
-    /// be translated for the backend. An explicit backend rejection without a
-    /// durable job handle returns [`ComponentManagerError::RejectedBeforeDispatch`].
-    /// The current RMS backend reports RPC invocation failures as
-    /// [`ComponentManagerError::Internal`].
+    /// be translated for the backend or the backend rejects it as invalid before
+    /// accepting work. An explicit backend rejection without a durable job handle
+    /// returns [`ComponentManagerError::RejectedBeforeDispatch`]. Other submission
+    /// failures return [`ComponentManagerError::Internal`].
     async fn start_nvos_update(
         &self,
         request: NvosUpdateRequest<'_>,

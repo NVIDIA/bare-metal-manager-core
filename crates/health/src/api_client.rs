@@ -313,7 +313,7 @@ fn switch_endpoint_metadata(
             .filter(|domain_uuid| domain_uuid != &NvLinkDomainId::nil()),
         endpoint_role,
         is_primary: switch.is_primary,
-        nmxc_enabled: config.enable_nmxc,
+        nmxc_enabled: config.enable_nmxc || switch.is_primary,
         nmxt_enabled,
     }))
 }
@@ -966,6 +966,29 @@ mod tests {
                 switch.nvlink_domain_uuid
             },
         );
+    }
+
+    #[test]
+    fn switch_endpoint_metadata_enables_nmxc_for_primary_switch() {
+        let metadata = switch_endpoint_metadata(
+            &rpc::forge::Switch {
+                config: Some(rpc::forge::SwitchConfig {
+                    name: "switch-a".to_string(),
+                    ..Default::default()
+                }),
+                is_primary: true,
+                ..Default::default()
+            },
+            SwitchEndpointRole::Host,
+            false,
+        )
+        .expect("switch metadata");
+
+        let EndpointMetadata::Switch(switch) = metadata else {
+            panic!("expected switch metadata");
+        };
+
+        assert!(switch.nmxc_enabled);
     }
 
     #[test]

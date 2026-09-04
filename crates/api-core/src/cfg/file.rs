@@ -4004,10 +4004,10 @@ pub struct NetworkSecurityGroupConfig {
     /// (src port range * dst port range * src prefix list * dst prefix list)
     #[serde(default = "default_max_network_security_group_size")]
     pub max_network_security_group_size: u32,
-    /// Whether to allow stateful security groups.
-    /// This will initially only be passed through to the
-    /// DPU as a way to toggle default stateful options
-    /// in nvue config.
+    /// Whether NSGs may enable stateful egress and the DPU enables its supporting NVUE options.
+    ///
+    /// When disabled, stateful NSG creation and updates from stateless to stateful are rejected.
+    /// Existing stateful NSGs remain editable, but the DPU applies their rules statelessly.
     #[serde(default = "default_to_true")]
     pub stateful_acls_enabled: bool,
 

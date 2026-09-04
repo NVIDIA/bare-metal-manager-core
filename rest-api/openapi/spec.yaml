@@ -166,7 +166,7 @@ tags:
     description: |-
       VPC Prefix is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use VPC Prefixes to enable network connectivity between their Instances.
 
-      VPC Prefixes configure FNN VPCs. VPCs whose `networkVirtualizationType` is `ETHERNET_VIRTUALIZER` use Subnets instead. REST creation of IPv6 VPC Prefixes is tracked by [#5407](https://github.com/NVIDIA/infra-controller/issues/5407).
+      VPC Prefixes configure FNN VPCs and can use IPv4 or IPv6 tenant IP Blocks. VPCs whose `networkVirtualizationType` is `ETHERNET_VIRTUALIZER` use IPv4 Subnets instead.
   - name: Subnet
     description: |-
       Subnet is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use Subnets to enable network connectivity between their Instances.
@@ -3968,6 +3968,8 @@ paths:
         Create a VPC Prefix for the org.
 
         Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix.
+
+        The VPC must be Ready and use FNN, and its Site must be Registered. `ipBlockId` must identify a Ready tenant IP Block at the VPC's Site. The selected IP Block determines whether the VPC Prefix uses IPv4 or IPv6.
       requestBody:
         content:
           application/json:
@@ -19912,10 +19914,8 @@ components:
           description: The network prefix including prefix length in CIDR notation
         prefixLength:
           type: integer
-          minimum: 8
-          maximum: 31
           example: 24
-          description: Length of the prefix. Valid range is 8 to 31, and max usable value depends on prefix length of parent IP Block.
+          description: Length of the returned prefix. A VPC Prefix reported by a Site may fall outside the bounds for REST create requests.
         status:
           $ref: '#/components/schemas/VpcPrefixStatus'
           readOnly: true
@@ -19973,12 +19973,12 @@ components:
         ipBlockId:
           type: string
           format: uuid
-          description: ID of the IP Block to allocate the VPC Prefix from
+          description: ID of the Ready tenant IPv4 or IPv6 IP Block to allocate the VPC Prefix from. The block must be at the FNN VPC's Site.
         prefixLength:
           type: integer
           minimum: 8
-          maximum: 31
-          description: Prefix length for the VPC Prefix. Valid range is 8 to 31, and max usable value depends on prefix length of parent IP Block.
+          maximum: 126
+          description: Prefix length for the VPC Prefix. IPv4 accepts 8 through 31. IPv6 accepts 8 through 63 when the FNN VPC has `slaacEnabled=true`, or 8 through 126 otherwise. The selected IP Block must contain a prefix of the requested length.
       required:
         - name
         - vpcId
@@ -20900,13 +20900,21 @@ components:
           type:
             - string
             - 'null'
+          pattern: '^(|smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/\s]+))$'
+          not:
+            type: string
+            pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
+          examples:
+            - smallest
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Whole-disk target that will be overwritten with the image. Accepts
             `smallest`, `/dev/nvme<controller>n<namespace>`, `/dev/sd<letters>`, or
-            `/dev/disk/by-id/<identifier>`. `smallest` selects the smallest suitable
-            disk, preferring one with an EFI partition to break a size tie. When
-            omitted or empty, the Site prefers a disk with an EFI partition, then
-            falls back to `/dev/nvme0n1` or `/dev/sda`.
+            `/dev/disk/by-id/<identifier>`. `smallest` selects the smallest enumerated
+            whole disk, preferring one with an EFI partition to break a size tie.
+            Partition aliases ending in `-part<digits>` are rejected.
+            An empty stored value means the Site prefers a disk with an EFI partition,
+            then falls back to `/dev/nvme0n1` or `/dev/sda`.
         rootFsId:
           type:
             - string
@@ -21195,7 +21203,7 @@ components:
           imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
-          imageDisk: /dev/sda
+          imageDisk: /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
           isCloudInit: false
           allowOverride: false
@@ -21271,13 +21279,22 @@ components:
           type:
             - string
             - 'null'
+          pattern: '^(|smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/\s]+))$'
+          not:
+            type: string
+            pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
+          examples:
+            - smallest
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Optional whole-disk target that will be overwritten with the image.
             Accepts `smallest`, `/dev/nvme<controller>n<namespace>`,
             `/dev/sd<letters>`, or `/dev/disk/by-id/<identifier>`. `smallest`
-            selects the smallest suitable disk, preferring one with an EFI partition
-            to break a size tie. When omitted or empty, the Site prefers a disk
-            with an EFI partition, then falls back to `/dev/nvme0n1` or `/dev/sda`.
+            selects the smallest enumerated whole disk, preferring one with an EFI
+            partition to break a size tie. Partition aliases ending in
+            `-part<digits>` are rejected. When omitted, null, or empty on creation,
+            the Site prefers a disk with an EFI partition, then falls back to
+            `/dev/nvme0n1` or `/dev/sda`.
         rootFsId:
           type:
             - string
@@ -21297,7 +21314,7 @@ components:
           type:
             - string
             - 'null'
-          description: User data for the Operating System
+          description: User data for the Operating System. Limited to 32768 bytes (32 KiB), measured on the effective value NICo stores rather than the text submitted. Operating System defaults are inherited first, and when phone-home is configured the document is re-serialized with a `phone_home` block added. Re-serialization normalizes indentation and can grow the document, so a request just under the limit may still be rejected.
         isCloudInit:
           type: boolean
           deprecated: true
@@ -21334,7 +21351,7 @@ components:
           description: Official Debian 12 for AMD/Intel
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
-          imageDisk: /dev/sda
+          imageDisk: smallest
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
           isCloudInit: false
           allowOverride: false
@@ -21384,13 +21401,23 @@ components:
           type:
             - string
             - 'null'
+          pattern: '^(|smallest|/dev/(nvme[0-9]+n[0-9]+|sd[a-z]+|disk/by-id/[^/\s]+))$'
+          not:
+            type: string
+            pattern: '^/dev/disk/by-id/.*-part[0-9]+$'
+          examples:
+            - smallest
+            - /dev/disk/by-id/nvme-Dell_BOSS-N1_VNOWW12345V0123451UT
           description: >-
             Optional whole-disk target that will be overwritten with the image.
             Accepts `smallest`, `/dev/nvme<controller>n<namespace>`,
             `/dev/sd<letters>`, or `/dev/disk/by-id/<identifier>`. `smallest`
-            selects the smallest suitable disk, preferring one with an EFI partition
-            to break a size tie. When omitted or empty, the Site prefers a disk
-            with an EFI partition, then falls back to `/dev/nvme0n1` or `/dev/sda`.
+            selects the smallest enumerated whole disk, preferring one with an EFI
+            partition to break a size tie. Partition aliases ending in
+            `-part<digits>` are rejected. Omitting this field or sending null preserves
+            the current value. Sending an explicit empty string clears the value and
+            restores automatic selection: prefer a disk with an EFI partition, then
+            fall back to `/dev/nvme0n1` or `/dev/sda`.
         rootFsId:
           type:
             - string
@@ -21410,7 +21437,7 @@ components:
           type:
             - string
             - 'null'
-          description: User data for the Operating System
+          description: User data for the Operating System. Limited to 32768 bytes (32 KiB), measured on the effective value NICo stores rather than the text submitted. Operating System defaults are inherited first, and when phone-home is configured the document is re-serialized with a `phone_home` block added. Re-serialization normalizes indentation and can grow the document, so a request just under the limit may still be rejected.
         isCloudInit:
           type:
             - boolean
@@ -22335,7 +22362,7 @@ components:
           type:
             - string
             - 'null'
-          description: Can only be specified if allowOverride is set to true in Operating System
+          description: Can only be specified if allowOverride is set to true in Operating System. Limited to 32768 bytes (32 KiB), measured on the effective value NICo stores rather than the text submitted. Operating System defaults are inherited first, and when phone-home is configured the document is re-serialized with a `phone_home` block added. Re-serialization normalizes indentation and can grow the document, so a request just under the limit may still be rejected.
         operatingSystemId:
           type:
             - string
@@ -22510,7 +22537,7 @@ components:
           type:
             - string
             - 'null'
-          description: User data applied to all instances. Can only be specified if allowOverride is set to true in Operating System
+          description: User data applied to all instances. Can only be specified if allowOverride is set to true in Operating System. Limited to 32768 bytes (32 KiB), measured on the effective value NICo stores rather than the text submitted. Operating System defaults are inherited first, and when phone-home is configured the document is re-serialized with a `phone_home` block added. Re-serialization normalizes indentation and can grow the document, so a request just under the limit may still be rejected.
         operatingSystemId:
           type:
             - string
@@ -22721,7 +22748,7 @@ components:
           type:
             - string
             - 'null'
-          description: 'Any user-data to be sent to the booting OS.  For example, cloud-init data.'
+          description: 'Any user-data to be sent to the booting OS.  For example, cloud-init data. Limited to 32768 bytes (32 KiB), measured on the effective value NICo stores rather than the text submitted. Operating System defaults are inherited first, and when phone-home is configured the document is re-serialized with a `phone_home` block added. Re-serialization normalizes indentation and can grow the document, so a request just under the limit may still be rejected.'
         alwaysBootWithCustomIpxe:
           type:
             - boolean

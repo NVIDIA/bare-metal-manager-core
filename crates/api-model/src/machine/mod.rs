@@ -1219,13 +1219,6 @@ impl Machine {
 
         Ok((id_to_device_map, device_to_id_map))
     }
-
-    /// Returns whether a Machine is marked as having updates in progress
-    ///
-    /// The marking is achieved by applying a special health override and health alert on the Machine
-    pub fn machine_updates_in_progress(&self) -> bool {
-        self.reprovision_requested.is_some()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

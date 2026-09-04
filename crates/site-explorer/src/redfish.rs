@@ -49,6 +49,7 @@ const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
 // Eventually, this file should only have code related to generating the site exploration report.
+#[derive(Clone)]
 pub(super) struct RedfishClient {
     redfish_client_pool: Arc<dyn BmcCredentialOps>,
     nv_redfish_client_pool: Arc<NvRedfishClientPool>,
@@ -953,6 +954,13 @@ async fn fetch_system(client: &dyn Redfish) -> Result<FetchedSystem, EndpointExp
             .ok(),
     };
 
+    let bios_version = system
+        .bios_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .map(str::to_string);
+
     Ok(FetchedSystem {
         system: ComputerSystem {
             ethernet_interfaces,
@@ -969,6 +977,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<FetchedSystem, EndpointExp
             power_state: system.power_state.into_model(),
             sku: system.sku,
             boot_order,
+            bios_version,
             serial_console_ssh_port: None,
         },
         is_dpu,

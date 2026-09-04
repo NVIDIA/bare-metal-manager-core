@@ -1448,6 +1448,16 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                     stale_run_timeout: config.machine_validation_config.stale_run_timeout,
                     tests: config.machine_validation_config.tests.clone(),
                     test_selection_mode: config.machine_validation_config.test_selection_mode,
+                    approved_plugin_registries: config
+                        .machine_validation_config
+                        .approved_plugin_registries
+                        .clone(),
+                    allow_privileged_plugins: config
+                        .machine_validation_config
+                        .allow_privileged_plugins,
+                    allow_full_host_plugins: config
+                        .machine_validation_config
+                        .allow_full_host_plugins,
                 })
                 .bom_validation(config.bom_validation)
                 .instance_autoreboot_period(
@@ -1688,6 +1698,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
         },
         test_meter.meter(),
         api.endpoint_exploration_service.clone(),
+        api.bmc_client.clone(),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
         site_explorer_rack_profiles,
