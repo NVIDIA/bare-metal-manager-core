@@ -100,7 +100,7 @@ $ nicocli tenant current
 | `id` | UUID identifier for the tenant, used in all subsequent API calls |
 | `org` | Organization name (matches your config `api.org`) |
 | `orgDisplayName` | Human-readable name pulled from the IdP's org metadata |
-| `capabilities.targetedInstanceCreation` | **Deprecated, removal scheduled for October 1, 2026.** A read-only aggregate across the tenant's `Ready` tenant accounts, not a setting on the tenant. It is `true` only when every such account enables the capability and no site override disables it, and it is always `false` on embedded `tenantSummary` objects. A Provider Admin configures the capability per tenant account, and optionally per site. See [Granting Targeted Instance Creation](#granting-targeted-instance-creation). |
+| `capabilities.targetedInstanceCreation` | **Deprecated, removal scheduled for October 1, 2026.** A read-only aggregate across the tenant's `Ready` tenant accounts, not a setting on the tenant. It is `true` only when every such account enables the capability and no site override disables it, and it is absent rather than `false` when disabled: the field is omitted, and on the `tenantSummary` objects embedded in other resources `capabilities` is always `{}`. A Provider Admin configures the capability per tenant account, and optionally per site. See [Granting Targeted Instance Creation](#granting-targeted-instance-creation). |
 
 ### Verifying the Tenant
 
@@ -206,7 +206,7 @@ Error: API error 400: Tenant Account status is not Invited
 
 - Create an instance against a specific machine ID, or narrow placement with a machine label selector.
 - Set `isRepairTenant: true` when releasing an instance, which is what the repair tenant workflow requires.
-- Read a set of otherwise provider-only resources, including machines, machine health, SKUs, racks, trays, and expected machines, across the sites of any provider it holds a `Ready` tenant account with.
+- Read a set of otherwise provider-only resources, including machines, machine health, SKUs, racks, trays, and expected machines, at the sites of a provider it holds a `Ready` tenant account with, wherever the capability is effective. A site override that disables it also removes these reads at that site.
 - Receive alternative VPC routing profiles from `tenant/current/routing-profile`.
 
 A Provider Admin configures it per tenant account with the `siteCapabilities` field. This is
@@ -262,8 +262,9 @@ nicocli tenant-account list --tenant-id <tenant-uuid>
 > **Do not read `capabilities.targetedInstanceCreation` from `nicocli tenant current`.** It is
 > a deprecated read-only aggregate, scheduled for removal on **October 1, 2026**. It reports
 > `true` only when every `Ready` tenant account enables the capability and no site override
-> disables it, and it is always `false` on the `tenantSummary` objects embedded in other
-> resources. Use `tenant-account list` instead.
+> disables it, and it is omitted rather than returned as `false` otherwise, so a client cannot
+> branch on a boolean here. On the `tenantSummary` objects embedded in other resources it is
+> always omitted, leaving `"capabilities": {}`. Use `tenant-account list` instead.
 
 ## Instance Types
 

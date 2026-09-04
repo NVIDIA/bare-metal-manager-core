@@ -35,7 +35,7 @@ In a multi-Tenant Site, NICo allows certain Tenants to be designated as privileg
 - Update the labels of a Machine to indicate repair related metadata
 - Create a new Instance by specifying a Machine ID
 
-Tenant privileges are described in terms of Capabilities. A Tenant is privileged when its Tenant Account with the Provider is `Ready` and has the `targetedInstanceCreation` capability enabled.
+Tenant privileges are described in terms of Capabilities. A Tenant is privileged at a Site when its Tenant Account with that Site's Provider is `Ready` and `targetedInstanceCreation` is effective there, meaning the account default enables it and no Site override turns it off.
 
 A Provider Admin grants the capability by setting `siteCapabilities` on the Tenant Account, through [`PATCH /v2/org/{org}/nico/tenant/account/{accountId}`](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tenant-account/update-tenant-account). This works for regular Tenants as well as Service Account orgs, and the capability can be set as an account-wide default or overridden per Site. For the payload rules, the per-Site override behavior, and how the effective value resolves, see [Granting Targeted Instance Creation](../../configuration/tenant_management.md#granting-targeted-instance-creation).
 

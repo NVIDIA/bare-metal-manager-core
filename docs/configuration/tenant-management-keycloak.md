@@ -202,11 +202,16 @@ Two `nicocli` flag defaults do not match a `setup.sh` deployment and have to be 
 `--keycloak-realm` defaults to `nico-dev` and `--client-id` defaults to `nico-api`, both of
 which are Kustomize dev values.
 
+`--keycloak-url`, `--keycloak-realm`, and `--client-id` are global flags, so they go before
+`login`. Only `--client-secret`, `--username`, and `--password` belong to the subcommand.
+Putting a global flag after `login` fails with `flag provided but not defined`.
+
 ```bash
-nicocli login \
+nicocli \
   --keycloak-url http://keycloak.nico-rest:8082 \
   --keycloak-realm nico \
   --client-id nico-rest \
+  login \
   --client-secret nico-local-secret \
   --username tenant-admin@acme-corp.example
 ```
