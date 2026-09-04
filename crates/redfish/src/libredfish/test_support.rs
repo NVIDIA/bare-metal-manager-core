@@ -609,6 +609,7 @@ impl From<libredfish::BootInterfaceRef<'_>> for RedfishSimBootInterfaceRef {
 pub enum RedfishSimAction {
     Power(libredfish::SystemPowerControl),
     BmcReset(Option<ManagerResetType>),
+    /// Records a Redfish `Chassis.Reset` call with its target and reset type.
     ChassisReset {
         chassis_id: String,
         reset_type: SystemPowerControl,

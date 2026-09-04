@@ -16,7 +16,7 @@
  */
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
-use model::machine::{MachineMaintenanceOperation, ManagedHostState};
+use model::machine::{DecommissioningState, MachineMaintenanceOperation, ManagedHostState};
 use rpc::forge::AdminChassisResetRequest;
 use rpc::forge::admin_power_control_request::SystemPowerControl;
 use rpc::forge::forge_server::Forge;
@@ -119,7 +119,12 @@ async fn admin_chassis_reset_rejects_live_instance_even_if_machine_state_is_read
 ) -> Result<(), eyre::Report> {
     let env = create_test_env(db_pool).await;
     let managed_host = create_managed_host(&env).await;
-    let _instance = managed_host.instance_builer(&env).build().await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let _instance = managed_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
 
     // Model allocation having committed immediately before the reset request,
     // while the machine controller has not yet observed the live instance.
@@ -148,5 +153,36 @@ async fn admin_chassis_reset_rejects_live_instance_even_if_machine_state_is_read
             .is_none()
     );
 
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn admin_chassis_reset_rejects_decommissioned_host(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+    let managed_host = create_managed_host(&env).await;
+    let mut txn = env.db_txn().await;
+    db::machine::update_state(
+        &mut txn,
+        &managed_host.host().id,
+        &ManagedHostState::Decommissioning {
+            decommissioning_state: DecommissioningState::Decommissioned,
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let error = env
+        .api
+        .admin_chassis_reset(Request::new(AdminChassisResetRequest {
+            machine_id: Some(managed_host.host().id.into()),
+            chassis_id: "HGX_Chassis_0".to_string(),
+            action: SystemPowerControl::ForceRestart as i32,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
     Ok(())
 }

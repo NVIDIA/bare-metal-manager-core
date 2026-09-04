@@ -426,19 +426,28 @@ impl ComponentManager {
                             continue;
                         }
 
-                        db::machine::set_machine_maintenance_requested(
+                        match db::machine::set_machine_maintenance_requested(
                             txn,
                             *machine_id,
                             &initiator,
                             operation.clone(),
                         )
                         .await
-                        .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
-
-                        results.push(MachineMaintenanceRequestResult {
-                            machine_id: *machine_id,
-                            error: None,
-                        });
+                        {
+                            Ok(()) => results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: None,
+                            }),
+                            Err(db::DatabaseError::FailedPrecondition(error)) => {
+                                results.push(MachineMaintenanceRequestResult {
+                                    machine_id: *machine_id,
+                                    error: Some(error),
+                                });
+                            }
+                            Err(error) => {
+                                return Err(ComponentManagerError::Internal(error.to_string()));
+                            }
+                        }
                     }
 
                     Ok(results)
@@ -798,6 +807,7 @@ mod tests {
     use super::*;
     use crate::config::ComponentManagerConfig;
     use crate::mock::{MockComputeTrayManager, MockNvSwitchManager, MockPowerShelfManager};
+    use crate::test_support::test_machine_id;
 
     struct FailingCredentialManager;
 
@@ -1075,6 +1085,84 @@ mod tests {
         .unwrap()
         .pop()
         .unwrap()
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn pending_machine_maintenance_does_not_abort_batch(pool: PgPool) {
+        let busy_machine_id = test_machine_id("maintenance-busy");
+        let free_machine_id = test_machine_id("maintenance-free");
+        let mut txn = pool.begin().await.unwrap();
+        for machine_id in [busy_machine_id, free_machine_id] {
+            db::machine::create(
+                txn.as_mut(),
+                None,
+                &machine_id,
+                model::machine::ManagedHostState::Ready,
+                None,
+                2,
+            )
+            .await
+            .unwrap();
+        }
+        db::machine::set_machine_maintenance_requested(
+            txn.as_mut(),
+            busy_machine_id,
+            "existing-request",
+            MachineMaintenanceOperation::PowerOff,
+        )
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+
+        let manager = ComponentManager::new(
+            Arc::new(MockNvSwitchManager::default()),
+            Arc::new(MockPowerShelfManager),
+            Arc::new(MockComputeTrayManager),
+            false,
+            false,
+            true,
+        );
+        let results = manager
+            .request_machine_maintenance_via_state_controller(
+                &pool,
+                &[busy_machine_id, free_machine_id],
+                MachineMaintenanceOperation::Reset,
+                "batch-request",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            results,
+            vec![
+                MachineMaintenanceRequestResult {
+                    machine_id: busy_machine_id,
+                    error: Some(format!(
+                        "machine {busy_machine_id} already has a pending maintenance request"
+                    )),
+                },
+                MachineMaintenanceRequestResult {
+                    machine_id: free_machine_id,
+                    error: None,
+                },
+            ]
+        );
+
+        let mut conn = pool.acquire().await.unwrap();
+        let free_machine = db::machine::find_one(
+            conn.as_mut(),
+            &free_machine_id,
+            model::machine::machine_search_config::MachineSearchConfig::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            free_machine
+                .machine_maintenance_requested
+                .map(|request| request.operation),
+            Some(MachineMaintenanceOperation::Reset)
+        );
     }
 
     fn nmx_scope() -> MaintenanceScope {

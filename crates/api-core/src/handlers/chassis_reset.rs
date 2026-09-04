@@ -81,10 +81,10 @@ pub(crate) async fn admin_chassis_reset(
     }
     if matches!(
         host_machine.current_state(),
-        ManagedHostState::ForceDeletion
+        ManagedHostState::ForceDeletion | ManagedHostState::Decommissioning { .. }
     ) {
         return Err(Status::failed_precondition(
-            "host is marked for forced deletion; a chassis reset is not allowed",
+            "host is being decommissioned or deleted; a chassis reset is not allowed",
         ));
     }
     if db::instance::find_live_by_machine_id_for_update(&mut txn, &host_machine.id)

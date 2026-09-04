@@ -1097,7 +1097,20 @@ type ForgeClient interface {
 	AdminBmcReset(ctx context.Context, in *AdminBmcResetRequest, opts ...grpc.CallOption) (*AdminBmcResetResponse, error)
 	// Admin Power Control
 	AdminPowerControl(ctx context.Context, in *AdminPowerControlRequest, opts ...grpc.CallOption) (*AdminPowerControlResponse, error)
-	// Reset a Redfish Chassis (e.g. an HGX baseboard) via Chassis.Reset; v1 accepts only ForceRestart and rejects all other actions.
+	// Queues a Redfish Chassis.Reset request for later execution by the machine
+	// controller through Maintenance state. Success means the request was accepted,
+	// not that the reset completed. The controller consumes it from Ready, Failed,
+	// or a maintenance-safe boot-configuration checkpoint, returns the host to
+	// Ready on success, and moves it to Failed if Redfish execution fails.
+	//
+	// v1 accepts only ForceRestart. An omitted action has proto3's On default and
+	// is rejected with INVALID_ARGUMENT, as are a missing/invalid machine_id or
+	// missing chassis_id.
+	// NOT_FOUND means the machine does not exist. FAILED_PRECONDITION means the
+	// host is assigned, has a live instance, is decommissioning/decommissioned,
+	// is marked for forced deletion, or already has pending maintenance.
+	//
+	// This replaces the unused AdminGpuReset RPC; no compatibility alias is kept.
 	AdminChassisReset(ctx context.Context, in *AdminChassisResetRequest, opts ...grpc.CallOption) (*AdminChassisResetResponse, error)
 	// Disable Secure Boot
 	DisableSecureBoot(ctx context.Context, in *BmcEndpointRequest, opts ...grpc.CallOption) (*DisableSecureBootResponse, error)
@@ -6895,7 +6908,20 @@ type ForgeServer interface {
 	AdminBmcReset(context.Context, *AdminBmcResetRequest) (*AdminBmcResetResponse, error)
 	// Admin Power Control
 	AdminPowerControl(context.Context, *AdminPowerControlRequest) (*AdminPowerControlResponse, error)
-	// Reset a Redfish Chassis (e.g. an HGX baseboard) via Chassis.Reset; v1 accepts only ForceRestart and rejects all other actions.
+	// Queues a Redfish Chassis.Reset request for later execution by the machine
+	// controller through Maintenance state. Success means the request was accepted,
+	// not that the reset completed. The controller consumes it from Ready, Failed,
+	// or a maintenance-safe boot-configuration checkpoint, returns the host to
+	// Ready on success, and moves it to Failed if Redfish execution fails.
+	//
+	// v1 accepts only ForceRestart. An omitted action has proto3's On default and
+	// is rejected with INVALID_ARGUMENT, as are a missing/invalid machine_id or
+	// missing chassis_id.
+	// NOT_FOUND means the machine does not exist. FAILED_PRECONDITION means the
+	// host is assigned, has a live instance, is decommissioning/decommissioned,
+	// is marked for forced deletion, or already has pending maintenance.
+	//
+	// This replaces the unused AdminGpuReset RPC; no compatibility alias is kept.
 	AdminChassisReset(context.Context, *AdminChassisResetRequest) (*AdminChassisResetResponse, error)
 	// Disable Secure Boot
 	DisableSecureBoot(context.Context, *BmcEndpointRequest) (*DisableSecureBootResponse, error)
