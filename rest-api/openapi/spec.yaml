@@ -11167,7 +11167,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    - id: 550e8400-e29b-41d4-a716-446655440000
+                    - id: rack-01
                       name: Rack-01
                       manufacturer: Dell
                       model: PowerEdge R750
@@ -11184,8 +11184,7 @@ paths:
                         room: Room-A
                         position: A1
                       components:
-                        - id: 660e8400-e29b-41d4-a716-446655440001
-                          componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
+                        - id: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
                           type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
@@ -11221,7 +11220,6 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
@@ -11256,7 +11254,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    id: 550e8400-e29b-41d4-a716-446655440000
+                    id: rack-01
                     name: Rack-01
                     manufacturer: Dell
                     model: PowerEdge R750
@@ -11273,8 +11271,7 @@ paths:
                       room: Room-A
                       position: A1
                     components:
-                      - id: 660e8400-e29b-41d4-a716-446655440001
-                        componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
+                      - id: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
                         type: Compute
                         name: Server-01
                         serialNumber: SN-SRV-001
@@ -11355,11 +11352,9 @@ paths:
                   value:
                     diffs:
                       - type: Missing
-                        id: 660e8400-e29b-41d4-a716-446655440001
-                        componentId: comp-1
+                        id: null
+                        macAddress: 'AA:BB:CC:DD:EE:01'
                         expected:
-                          id: 660e8400-e29b-41d4-a716-446655440001
-                          componentId: comp-1
                           type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
@@ -11374,8 +11369,8 @@ paths:
                               ipAddress: 10.0.0.101
                           powerState: 'on'
                       - type: Mismatch
-                        id: 770e8400-e29b-41d4-a716-446655440002
-                        componentId: comp-2
+                        id: comp-2
+                        macAddress: null
                         fieldDiffs:
                           - fieldName: firmware_version
                             expectedValue: '1.0.0'
@@ -11403,7 +11398,6 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
@@ -11445,11 +11439,9 @@ paths:
                   value:
                     diffs:
                       - type: Missing
-                        id: 660e8400-e29b-41d4-a716-446655440001
-                        componentId: comp-1
+                        id: null
+                        macAddress: 'AA:BB:CC:DD:EE:01'
                         expected:
-                          id: 660e8400-e29b-41d4-a716-446655440001
-                          componentId: comp-1
                           type: Compute
                           name: Server-01
                           serialNumber: SN-SRV-001
@@ -11464,8 +11456,8 @@ paths:
                               ipAddress: 10.0.0.101
                           powerState: 'on'
                       - type: Mismatch
-                        id: 770e8400-e29b-41d4-a716-446655440002
-                        componentId: comp-2
+                        id: comp-2
+                        macAddress: null
                         fieldDiffs:
                           - fieldName: firmware_version
                             expectedValue: '1.0.0'
@@ -11550,7 +11542,6 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
@@ -11559,7 +11550,7 @@ paths:
       summary: Power control a Rack
       operationId: power-control-rack
       description: |-
-        Power control a Rack identified by Rack UUID.
+        Power control a Rack identified by its Rack ID.
 
         Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
 
@@ -11666,7 +11657,6 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
@@ -11675,7 +11665,7 @@ paths:
       summary: Firmware update a Rack
       operationId: firmware-update-rack
       description: |-
-        Update firmware on a Rack identified by Rack UUID.
+        Update firmware on a Rack identified by its Rack ID.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
@@ -11775,7 +11765,6 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
@@ -11784,7 +11773,7 @@ paths:
       summary: Bring up a Rack
       operationId: bringup-rack
       description: |-
-        Bring up a Rack identified by Rack UUID.
+        Bring up a Rack identified by its Rack ID.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
@@ -13008,11 +12997,10 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
-        description: UUID of the Rack
+        description: ID of the Rack
     get:
       summary: Retrieve all Tasks for a Rack
       operationId: get-rack-tasks
@@ -13317,8 +13305,7 @@ paths:
 
         **Filter constraints:**
         - `rackId` and `rackName` are mutually exclusive
-        - `rackId`/`rackName` cannot be combined with `id`/`componentId` (rack-level vs component-level targeting)
-        - `componentId` requires `type` to be specified
+        - `rackId`/`rackName` cannot be combined with `id` (rack-level vs component-level targeting)
         - `slotId` restricts to trays at that rack slot, requires `rackId` or `rackName`, and composes with the rest of the query via AND
       parameters:
         - schema:
@@ -13330,7 +13317,6 @@ paths:
           description: ID of the Site to retrieve Trays from
         - schema:
             type: string
-            format: uuid
           name: rackId
           in: query
           description: Filter by Rack ID
@@ -13347,18 +13333,12 @@ paths:
               - PowerShelf
           name: type
           in: query
-          description: Filter by tray type
+          description: Filter by tray type. When `id` is specified, the type disambiguates component IDs shared by different component types.
         - schema:
             type: string
-          name: componentId
-          in: query
-          description: Filter by component ID. Can be specified multiple times to filter on more than one component ID. Requires 'type' parameter.
-        - schema:
-            type: string
-            format: uuid
           name: id
           in: query
-          description: Filter by tray UUID. Can be specified multiple times to filter on more than one tray ID.
+          description: Filter by component ID. Can be specified multiple times to filter on more than one Tray ID.
         - schema:
             type: integer
             format: int32
@@ -13408,8 +13388,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    - id: 660e8400-e29b-41d4-a716-446655440001
-                      componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
+                    - id: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
                       type: Compute
                       name: compute-tray-1
                       manufacturer: NVIDIA
@@ -13422,7 +13401,7 @@ paths:
                         slotId: 1
                         trayIdx: 0
                         hostId: 1
-                      rackId: 550e8400-e29b-41d4-a716-446655440000
+                      rackId: rack-01
                       nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                       taskStats:
                         pendingTaskCount: 0
@@ -13449,16 +13428,17 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
-        description: ID of the Tray
+        description: Component ID or component MAC address
     get:
       summary: Retrieve a Tray
       operationId: get-tray
       description: |-
-        Get a Tray by ID.
+        Get a Tray by component ID or component MAC address.
+
+        The identifier must resolve to exactly one component. An ambiguous component ID returns `412 Precondition Failed`; use the component MAC address to disambiguate it.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
       parameters:
@@ -13479,8 +13459,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    id: 660e8400-e29b-41d4-a716-446655440001
-                    componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
+                    id: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
                     type: Compute
                     name: compute-tray-1
                     manufacturer: NVIDIA
@@ -13493,7 +13472,7 @@ paths:
                       slotId: 1
                       trayIdx: 0
                       hostId: 1
-                    rackId: 550e8400-e29b-41d4-a716-446655440000
+                    rackId: rack-01
                     nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
                     taskStats:
                       pendingTaskCount: 0
@@ -13502,6 +13481,9 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The identifier matches more than one component or resolves to a component without a component ID.
+          $ref: '#/components/responses/GenericHttpError'
         '504':
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
@@ -13535,11 +13517,10 @@ paths:
           description: ID of the Site
         - schema:
             type: string
-            format: uuid
           name: rackId
           in: query
           required: false
-          description: Scope to a specific Rack by ID (mutually exclusive with rackName)
+          description: Scope to a specific Rack by Rack ID (mutually exclusive with rackName)
         - schema:
             type: string
           name: rackName
@@ -13567,13 +13548,13 @@ paths:
           name: type
           in: query
           required: false
-          description: Filter trays by type
+          description: Filter trays by type. When `id` is specified, the type disambiguates component IDs shared by different component types.
         - schema:
             type: string
-          name: componentId
+          name: id
           in: query
           required: false
-          description: Filter by external component ID (requires type; mutually exclusive with rackId/rackName; use repeated params for multiple values)
+          description: Filter by component ID (mutually exclusive with rackId/rackName; use repeated params for multiple values)
         - schema:
             type: integer
             format: int32
@@ -13617,16 +13598,15 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
-        description: ID of the Tray
+        description: Component ID or component MAC address
     get:
       summary: Validate a Tray
       operationId: validate-tray
       description: |-
-        Validate a Tray by comparing expected vs actual state.
+        Validate a Tray identified by its component ID or component MAC address by comparing expected vs actual state.
 
         Compares the expected component configuration against the actual state. Returns a detailed diff report showing missing, extra, and mismatched components.
 
@@ -13659,6 +13639,9 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The identifier matches more than one component.
+          $ref: '#/components/responses/GenericHttpError'
         '504':
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
@@ -13681,8 +13664,7 @@ paths:
 
         **Filter constraints:**
         - `rackId` and `rackName` are mutually exclusive
-        - `rackId`/`rackName` cannot be combined with `ids`/`componentIds` (rack-level vs component-level targeting)
-        - `componentIds` requires `type` to be specified
+        - `rackId`/`rackName` cannot be combined with `ids` (rack-level vs component-level targeting)
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
@@ -13700,7 +13682,7 @@ paths:
                 value:
                   siteId: 550e8400-e29b-41d4-a716-446655440000
                   filter:
-                    rackId: 660e8400-e29b-41d4-a716-446655440001
+                    rackId: rack-01
                   state: 'off'
       responses:
         '200':
@@ -13732,16 +13714,15 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
-        description: ID of the Tray
+        description: Component ID or component MAC address
     patch:
       summary: Power control a Tray
       operationId: power-control-tray
       description: |-
-        Power control a Tray identified by Tray UUID.
+        Power control a Tray identified by its component ID or component MAC address.
 
         Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
 
@@ -13781,6 +13762,9 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The identifier matches more than one component.
+          $ref: '#/components/responses/GenericHttpError'
         '504':
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
@@ -13801,8 +13785,7 @@ paths:
 
         **Filter constraints:**
         - `rackId` and `rackName` are mutually exclusive
-        - `rackId`/`rackName` cannot be combined with `ids`/`componentIds` (rack-level vs component-level targeting)
-        - `componentIds` requires `type` to be specified
+        - `rackId`/`rackName` cannot be combined with `ids` (rack-level vs component-level targeting)
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
@@ -13819,7 +13802,7 @@ paths:
                 value:
                   siteId: 550e8400-e29b-41d4-a716-446655440000
                   filter:
-                    rackId: 660e8400-e29b-41d4-a716-446655440001
+                    rackId: rack-01
                   version: '24.11.0'
       responses:
         '200':
@@ -13851,16 +13834,15 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
-        description: ID of the Tray
+        description: Component ID or component MAC address
     patch:
       summary: Firmware update a Tray
       operationId: firmware-update-tray
       description: |-
-        Update firmware on a Tray identified by Tray UUID.
+        Update firmware on a Tray identified by its component ID or component MAC address.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
@@ -13893,6 +13875,9 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '412':
+          description: The identifier matches more than one component.
+          $ref: '#/components/responses/GenericHttpError'
         '504':
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
@@ -13907,16 +13892,15 @@ paths:
         description: Name of the Org
       - schema:
           type: string
-          format: uuid
         name: id
         in: path
         required: true
-        description: UUID of the Tray
+        description: Component ID or component MAC address
     get:
       summary: Retrieve all Tasks for a Tray
       operationId: get-tray-tasks
       description: |-
-        List Tasks targeting the specified Tray.
+        List Tasks targeting the Tray identified by its component ID or component MAC address.
 
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -13979,6 +13963,9 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '412':
+          description: The identifier matches more than one component.
+          $ref: '#/components/responses/GenericHttpError'
         '504':
           $ref: '#/components/responses/GatewayTimeoutError'
       tags:
@@ -23057,7 +23044,7 @@ components:
         - nvLinkDomainIds
         - taskStats
       examples:
-        - id: 550e8400-e29b-41d4-a716-446655440000
+        - id: rack-01
           name: Rack-01
           manufacturer: Dell
           model: PowerEdge R750
@@ -23074,8 +23061,7 @@ components:
             room: Room-A
             position: A1
           components:
-            - id: 660e8400-e29b-41d4-a716-446655440001
-              componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
+            - id: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
               type: Compute
               name: Server-01
               serialNumber: SN-SRV-001
@@ -23092,8 +23078,7 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Unique identifier of the Rack
+          description: Rack ID
         name:
           type: string
           description: Name of the Rack
@@ -23176,6 +23161,9 @@ components:
       title: ComponentDiff
       type: object
       description: A single component difference found during rack validation
+      required:
+        - id
+        - macAddress
       properties:
         type:
           type: string
@@ -23186,12 +23174,15 @@ components:
             - Unexpected
             - Mismatch
         id:
-          type: string
-          format: uuid
-          description: Flow internal component UUID
-        componentId:
-          type: string
-          description: Component ID assigned by the component manager service
+          type:
+            - string
+            - 'null'
+          description: Component ID. Null when type is `Missing`.
+        macAddress:
+          type:
+            - string
+            - 'null'
+          description: BMC MAC address identifying a missing expected component. Null for other difference types.
         expected:
           $ref: '#/components/schemas/RackComponent'
           description: 'Expected component value'
@@ -23224,15 +23215,10 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Unique identifier of the component
-        componentId:
-          type: string
-          description: ID of the component
+          description: Component ID
         rackId:
           type: string
-          format: uuid
-          description: ID of the rack this component belongs to
+          description: ID of the Rack this component belongs to
         type:
           type: string
           description: Type of the component (e.g. Compute, NVSwitch, PowerShelf)
@@ -23313,8 +23299,7 @@ components:
         - nvLinkDomainId
         - taskStats
       examples:
-        - id: 660e8400-e29b-41d4-a716-446655440001
-          componentId: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
+        - id: fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
           type: Compute
           name: compute-tray-1
           manufacturer: NVIDIA
@@ -23331,7 +23316,7 @@ components:
             - type: BmcTypeHost
               macAddress: '00:11:22:33:44:55'
               ipAddress: 192.168.1.100
-          rackId: 550e8400-e29b-41d4-a716-446655440000
+          rackId: rack-01
           nvLinkDomainId: 59202b81-65fb-45ec-b3b8-91ab0ad3f34a
           taskStats:
             pendingTaskCount: 3
@@ -23339,11 +23324,7 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Unique identifier of the Tray
-        componentId:
-          type: string
-          description: ID of the component
+          description: Component ID
         type:
           type: string
           enum:
@@ -23399,8 +23380,7 @@ components:
             $ref: '#/components/schemas/BMCInfo'
         rackId:
           type: string
-          format: uuid
-          description: ID of the rack this tray belongs to
+          description: ID of the Rack this Tray belongs to
         nvLinkDomainId:
           type:
             - string
@@ -23442,11 +23422,10 @@ components:
       description: |-
         Filter criteria for selecting trays in batch operations. If omitted or empty, all trays in the site are targeted.
 
-        Constraints: `rackId` and `rackName` are mutually exclusive. `rackId`/`rackName` cannot be combined with `ids`/`componentIds`. `componentIds` requires `type`. `slotId` requires `rackId` or `rackName`, must be >= 0, and composes with the rest of the filter via AND.
+        Constraints: `rackId` and `rackName` are mutually exclusive. `rackId`/`rackName` cannot be combined with `ids`. `slotId` requires `rackId` or `rackName`, must be >= 0, and composes with the rest of the filter via AND.
       properties:
         rackId:
           type: string
-          format: uuid
           description: Filter by Rack ID
         rackName:
           type: string
@@ -23457,18 +23436,12 @@ components:
             - Compute
             - NVSwitch
             - PowerShelf
-          description: Filter by tray type
-        componentIds:
-          type: array
-          items:
-            type: string
-          description: Filter by component ID. Requires 'type'.
+          description: Filter by tray type. When `ids` is specified, the type disambiguates component IDs shared by different component types.
         ids:
           type: array
           items:
             type: string
-            format: uuid
-          description: Filter by tray UUID
+          description: Filter by component ID
         slotId:
           type: integer
           format: int32
@@ -24355,7 +24328,6 @@ components:
           description: ID of the Task Run that owns this target.
         rackId:
           type: string
-          format: uuid
           description: ID of the Rack this target operates on.
         sequenceIndex:
           type: integer
