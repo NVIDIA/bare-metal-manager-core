@@ -100,7 +100,7 @@ export NICO_DPF_BMC_ROOT_PASSWORD
 
 # RMS (Rack Management Service) installs by default. Set the image tag (there
 # is no safe default), or pass --skip-rms to setup.sh to opt out:
-export NICO_RMS_IMAGE_TAG=v0.10.0-rc2                 # your rms-api image tag (git describe of your build)
+export NICO_RMS_IMAGE_TAG=v0.10.0-rc2             # your rms-api image tag (git describe of your build)
 # export NICO_RMS_IMAGE_REPO=<registry>/rms-api   # only for a mirror/self-built image
 ```
 

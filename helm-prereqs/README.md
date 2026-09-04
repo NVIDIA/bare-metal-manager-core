@@ -114,7 +114,7 @@ config it edits.
    [nv-rms](https://github.com/dsx-ai-factory/nv-rms) commit; initialized
    automatically) with mTLS issued from `vault-nico-issuer`, and provisions
    the `rms` database on `nico-pg-cluster`. Airgapped sites clone nv-rms
-   out-of-band and set `NICO_RMS_CHART=<clone>/helm` instead. See
+   out-of-band and set `NICO_RMS_CHART=<clone>/helm` instead. Refer to
    *Building the RMS image* below.
    NICo Core's chart defaults already point the component manager at
    `rms-api-server.rack-manager.svc.cluster.local:8801`; the namespace is
@@ -131,7 +131,7 @@ themselves and push it to the same registry as the other NICo images:
 git submodule update --init helm-prereqs/nv-rms   # or your own nv-rms clone
 cd helm-prereqs/nv-rms
 # One version for the binary metadata, the image tag, and NICO_RMS_IMAGE_TAG,
-# derived from the pinned checkout (currently v0.10.0-rc2):
+# derived from the pinned checkout (for example, v0.10.0-rc2):
 RMS_VERSION="$(git describe --tags --always)"
 docker build \
   --build-arg VERGEN_GIT_SHA="$(git rev-parse HEAD)" \
