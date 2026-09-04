@@ -19,8 +19,11 @@ pub(crate) enum Args {
 #[command(after_long_help = "\
 EXAMPLES:
 
+Set a token from a file:
+    $ nico-admin-cli credential firmware-access-token set --name repository-a --token-file ./firmware-token.txt
+
 Set a token from standard input:
-    $ printf '%s' \"$TOKEN\" | nico-admin-cli credential firmware-access-token set --name repository-a --token-file -
+    $ cat ./firmware-token.txt | nico-admin-cli credential firmware-access-token set --name repository-a --token-file -
 
 ")]
 pub(crate) struct SetArgs {

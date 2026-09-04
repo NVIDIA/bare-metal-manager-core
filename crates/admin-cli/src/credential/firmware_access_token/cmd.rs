@@ -15,15 +15,16 @@ use crate::rpc::ApiClient;
 fn read_token(args: &SetArgs) -> CarbideCliResult<String> {
     let token = if args.token_file.as_os_str() == "-" {
         let mut token = String::new();
-        std::io::stdin()
-            .read_to_string(&mut token)
-            .wrap_err("failed to read firmware artifact access token from standard input")?;
+
+        std::io::stdin().read_to_string(&mut token).wrap_err(
+            "while attempting to read the firmware artifact access token from standard input",
+        )?;
 
         token
     } else {
         std::fs::read_to_string(&args.token_file).wrap_err_with(|| {
             format!(
-                "failed to read firmware artifact access token from {}",
+                "while attempting to read the firmware artifact access token from {}",
                 args.token_file.display()
             )
         })?
@@ -112,7 +113,7 @@ mod tests {
         assert_eq!(
             error.to_string(),
             format!(
-                "failed to read firmware artifact access token from {}",
+                "while attempting to read the firmware artifact access token from {}",
                 path.display()
             )
         );

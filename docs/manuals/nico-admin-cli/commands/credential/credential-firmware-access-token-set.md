@@ -48,7 +48,8 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-printf '%s' "$TOKEN" | nico-admin-cli credential firmware-access-token set --name repository-a --token-file -
+nico-admin-cli credential firmware-access-token set --name repository-a --token-file ./firmware-token.txt
+cat ./firmware-token.txt | nico-admin-cli credential firmware-access-token set --name repository-a --token-file -
 ```
 
 ---

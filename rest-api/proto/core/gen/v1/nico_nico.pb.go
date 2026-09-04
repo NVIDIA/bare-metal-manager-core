@@ -8426,7 +8426,8 @@ type CredentialCreationRequest struct {
 	// For the BMC factory default credential: "dell", "lenovo", "hpe", "supermicro", etc
 	Vendor     *string `protobuf:"bytes,4,opt,name=vendor,proto3,oneof" json:"vendor,omitempty"`
 	MacAddress *string `protobuf:"bytes,5,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
-	// Required and non-empty for FirmwareArtifactAccessToken. This is an opaque,
+	// Required and non-empty for FirmwareArtifactAccessToken. The server returns
+	// InvalidArgument when this field is omitted or empty. This is an opaque,
 	// non-secret lookup name. Setting the same name replaces the stored token;
 	// username, vendor, and mac_address are ignored for this credential type.
 	CredentialName *string `protobuf:"bytes,6,opt,name=credential_name,json=credentialName,proto3,oneof" json:"credential_name,omitempty"`
@@ -8511,7 +8512,8 @@ type CredentialDeletionRequest struct {
 	CredentialType CredentialType         `protobuf:"varint,1,opt,name=credential_type,json=credentialType,proto3,enum=forge.CredentialType" json:"credential_type,omitempty"`
 	Username       *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	MacAddress     *string                `protobuf:"bytes,3,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
-	// Required and non-empty for FirmwareArtifactAccessToken. This opaque,
+	// Required and non-empty for FirmwareArtifactAccessToken. The server returns
+	// InvalidArgument when this field is omitted or empty. This opaque,
 	// non-secret lookup name selects the token to delete; username and
 	// mac_address are ignored for this credential type.
 	CredentialName *string `protobuf:"bytes,4,opt,name=credential_name,json=credentialName,proto3,oneof" json:"credential_name,omitempty"`

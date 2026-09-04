@@ -1461,7 +1461,8 @@ message CredentialCreationRequest {
   // For the BMC factory default credential: "dell", "lenovo", "hpe", "supermicro", etc
   optional string vendor = 4;
   optional string mac_address = 5;
-  // Required and non-empty for FirmwareArtifactAccessToken. This is an opaque,
+  // Required and non-empty for FirmwareArtifactAccessToken. The server returns
+  // InvalidArgument when this field is omitted or empty. This is an opaque,
   // non-secret lookup name. Setting the same name replaces the stored token;
   // username, vendor, and mac_address are ignored for this credential type.
   optional string credential_name = 6;
@@ -1471,7 +1472,8 @@ message CredentialDeletionRequest {
   CredentialType credential_type = 1;
   optional string username = 2;
   optional string mac_address = 3;
-  // Required and non-empty for FirmwareArtifactAccessToken. This opaque,
+  // Required and non-empty for FirmwareArtifactAccessToken. The server returns
+  // InvalidArgument when this field is omitted or empty. This opaque,
   // non-secret lookup name selects the token to delete; username and
   // mac_address are ignored for this credential type.
   optional string credential_name = 4;
