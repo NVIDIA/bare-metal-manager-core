@@ -35,14 +35,14 @@ async fn init(pool: PgPool) -> (TestHarness, TestManagedHost) {
     let network_controller = env.network_controller();
     let domain = env.test_domain().await;
     let underlay_segment = network_controller.create_underlay_segment(&domain).await;
-    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    network_controller.create_admin_segment(&domain).await;
     let site_explorer = env.default_test_site_explorer();
     let (mh, _) = env
         .managed_host_builder(&site_explorer, underlay_segment)
         .with_config(ManagedHostConfig::default().with_dpu_count(1))
         .build()
         .await;
-    mh.first_dpu().discover_oob_iface(admin_segment).await;
+    mh.first_dpu().discover_oob_iface(underlay_segment).await;
     (env, mh)
 }
 

@@ -2584,7 +2584,7 @@ pub async fn move_predicted_machine_interface_to_machine(
         != predicted_machine_interface.expected_network_segment_type
     {
         return Err(DatabaseError::internal(format!(
-            "Got DHCP for predicted host with MAC address {0} on network segment {1}, which is not of the expected type {2}",
+            "Got DHCP for predicted interface with MAC address {0} on network segment {1}, which is not of the expected type {2}",
             predicted_machine_interface.mac_address,
             network_segment.id,
             predicted_machine_interface.expected_network_segment_type,
@@ -2683,6 +2683,22 @@ pub async fn move_predicted_machine_interface_to_machine(
         txn,
     )
     .await?;
+
+    if predicted_machine_interface
+        .machine_id
+        .machine_type()
+        .is_dpu()
+    {
+        // Site Explorer is the trusted source for a DPU's OOB MAC. Preserve that trust when DHCP
+        // materializes the predicted row so anonymous DiscoverMachine can authenticate the DPU on
+        // its first attempt without being allowed to claim an arbitrary existing machine.
+        associate_interface_with_dpu_machine(
+            &machine_interface_id,
+            &predicted_machine_interface.machine_id,
+            txn,
+        )
+        .await?;
+    }
 
     // Resolve the promoted row's boot interface id. The prediction's value
     // comes from the live report and outranks an existing row value: that
