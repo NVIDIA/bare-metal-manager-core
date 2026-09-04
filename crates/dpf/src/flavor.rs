@@ -846,7 +846,7 @@ fn hbn_apparmor_config_files() -> [DpuFlavorConfigFiles; 2] {
                     "signal (receive) peer=runc,\n",
                     "capability chown,\n",
                     "/usr/{bin,sbin}/* ixr,\n",
-                    "/etc/logrotate.d/* r,\n",
+                    "/etc/logrotate.d/* rk,\n",
                     "/var/lib/logrotate/{,**} rwk,\n",
                 )
                 .to_string(),
@@ -2726,7 +2726,7 @@ mod tests {
                         "signal (receive) peer=runc,\n",
                         "capability chown,\n",
                         "/usr/{bin,sbin}/* ixr,\n",
-                        "/etc/logrotate.d/* r,\n",
+                        "/etc/logrotate.d/* rk,\n",
                         "/var/lib/logrotate/{,**} rwk,\n",
                     ),
                 ) && has_file(
