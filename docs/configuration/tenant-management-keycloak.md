@@ -162,8 +162,7 @@ bundled `ncx-service` client uses. Requires `serviceAccount: true` in the NICo c
 ```
 
 **Option B, a human user.** The bundled realm ships no human users, so create one, set
-`oidc_id`, and assign the role. Interactive login goes through the `nico-rest` client,
-which already has the standard flow enabled.
+`oidc_id`, and assign the role.
 
 ```bash
 /opt/keycloak/bin/kcadm.sh create users -r nico \
@@ -184,7 +183,47 @@ which already has the standard flow enabled.
 Any value for `oidc_id` works as long as it is unique within the realm and stable for
 the life of the user. Changing it later makes NICo treat the login as a new user.
 
+The doubled `u` in `--uusername` is not a typo. `kcadm.sh add-roles` prefixes each
+option with the target type, so `--uusername` names a user and `--cclientid` names a
+client, while `set-password` in the previous command takes a plain `--username`.
+
 Exit the pod shell when finished.
+
+### How a human user signs in
+
+There is no browser step. `nicocli` implements the OAuth password grant, the client
+credentials grant, and refresh-token renewal, and has no authorization-code or device-code
+flow, so Keycloak's login page is never shown. `nicocli login` collects the username and
+password (prompting when they are not supplied) and exchanges them at the realm's token
+endpoint directly. This requires `directAccessGrantsEnabled` on the client, which the
+bundled `nico-rest` client has.
+
+Two `nicocli` flag defaults do not match a `setup.sh` deployment and have to be overridden:
+`--keycloak-realm` defaults to `nico-dev` and `--client-id` defaults to `nico-api`, both of
+which are Kustomize dev values.
+
+```bash
+nicocli login \
+  --keycloak-url http://keycloak.nico-rest:8082 \
+  --keycloak-realm nico \
+  --client-id nico-rest \
+  --client-secret nico-local-secret \
+  --username tenant-admin@acme-corp.example
+```
+
+`--keycloak-url` has to be the host in `externalBaseURL`, because that is what the issuer
+is validated against. With the in-cluster default that name does not resolve from a
+workstation, so interactive sign-in from outside the cluster needs one of:
+
+- Set `externalBaseURL` to an externally resolvable hostname and expose Keycloak through an
+  ingress, restricted to the endpoints listed in
+  [Authentication and Authorization](https://docs.nvidia.com/infra-controller/rest-api-reference/authentication-and-authorization).
+  This is the production answer.
+- Or, for evaluation only, port-forward Keycloak and map the in-cluster name to `127.0.0.1`
+  in `/etc/hosts`, so the issuer in the minted token still matches.
+
+The Keycloak admin console is for realm administration, not for Tenant sign-in. Human
+Tenants never need an account in it.
 
 ### Verify the token maps to the org
 

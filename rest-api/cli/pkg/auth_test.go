@@ -115,6 +115,10 @@ func TestLoginWithOIDCCmd(t *testing.T) {
 		name         string
 		clientIDArgs []string
 		wantClientID string
+		// rejectStatus, when non-zero, makes the token endpoint fail so the case can
+		// assert what a failed login reports back to the user.
+		rejectStatus int
+		wantErr      string
 	}{
 		{
 			name:         "preserves configured client ID",
@@ -124,6 +128,12 @@ func TestLoginWithOIDCCmd(t *testing.T) {
 			name:         "uses explicit client ID",
 			clientIDArgs: []string{"--client-id", "override-id"},
 			wantClientID: "override-id",
+		},
+		{
+			name:         "failed login names the token endpoint",
+			wantClientID: "client-id",
+			rejectStatus: http.StatusNotFound,
+			wantErr:      "token endpoint: ",
 		},
 	}
 
@@ -137,6 +147,10 @@ func TestLoginWithOIDCCmd(t *testing.T) {
 				require.True(t, ok)
 				require.Equal(t, tt.wantClientID, clientID)
 				require.Equal(t, "client-secret", clientSecret)
+				if tt.rejectStatus != 0 {
+					w.WriteHeader(tt.rejectStatus)
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"access_token":"new-token","expires_in":3600}`))
 			}))
@@ -159,9 +173,152 @@ func TestLoginWithOIDCCmd(t *testing.T) {
 			args := append([]string{"nicocli", "--token-url", server.URL}, tt.clientIDArgs...)
 			args = append(args, "login")
 			withArgs(t, args...)
-			require.NoError(t, app.Run(os.Args))
+
+			runErr := app.Run(os.Args)
+			if tt.wantErr != "" {
+				require.Error(t, runErr)
+				require.Contains(t, runErr.Error(), tt.wantErr)
+				require.Contains(t, runErr.Error(), server.URL)
+				return
+			}
+			require.NoError(t, runErr)
 		})
 	}
+}
+
+func TestResolveOIDCRealm(t *testing.T) {
+	tests := []struct {
+		name            string
+		args            []string
+		configRealm     string
+		wantRealm       string
+		wantFromDefault bool
+	}{
+		{
+			name:            "falls back to the flag default",
+			wantRealm:       "nico-dev",
+			wantFromDefault: true,
+		},
+		{
+			name:        "configured realm beats the flag default",
+			configRealm: "nico",
+			wantRealm:   "nico",
+		},
+		{
+			name:        "explicit flag beats the configured realm",
+			args:        []string{"--keycloak-realm", "nico-prod"},
+			configRealm: "nico",
+			wantRealm:   "nico-prod",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withArgs(t, append([]string{"nicocli"}, tt.args...)...)
+			c := newRealmFlagContext(t, tt.args)
+			cfg := &ConfigFile{Auth: ConfigAuth{OIDC: &ConfigOIDC{Realm: tt.configRealm}}}
+
+			realm, fromDefault := resolveOIDCRealm(c, cfg)
+			require.Equal(t, tt.wantRealm, realm)
+			require.Equal(t, tt.wantFromDefault, fromDefault)
+		})
+	}
+}
+
+func TestResolveOIDCClientID(t *testing.T) {
+	tests := []struct {
+		name            string
+		args            []string
+		configClientID  string
+		wantClientID    string
+		wantFromDefault bool
+	}{
+		{
+			name:            "falls back to the flag default",
+			wantClientID:    "nico-api",
+			wantFromDefault: true,
+		},
+		{
+			name:           "configured client beats the flag default",
+			configClientID: "nico-rest",
+			wantClientID:   "nico-rest",
+		},
+		{
+			name:           "explicit flag beats the configured client",
+			args:           []string{"--client-id", "override-id"},
+			configClientID: "nico-rest",
+			wantClientID:   "override-id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withArgs(t, append([]string{"nicocli"}, tt.args...)...)
+			c := newClientIDFlagContext(t, tt.args)
+			cfg := &ConfigFile{Auth: ConfigAuth{OIDC: &ConfigOIDC{ClientID: tt.configClientID}}}
+
+			clientID, fromDefault := resolveOIDCClientID(c, cfg)
+			require.Equal(t, tt.wantClientID, clientID)
+			require.Equal(t, tt.wantFromDefault, fromDefault)
+		})
+	}
+}
+
+func TestLoginFailureHint(t *testing.T) {
+	tests := []struct {
+		name        string
+		defaulted   []string
+		wantContain []string
+		wantAbsent  string
+	}{
+		{
+			name:        "reports only the endpoint when nothing was defaulted",
+			wantContain: []string{"token endpoint: https://kc.example/token"},
+			wantAbsent:  "built-in default",
+		},
+		{
+			name:        "names a single default",
+			defaulted:   []string{"--keycloak-realm=nico-dev"},
+			wantContain: []string{"built-in default --keycloak-realm=nico-dev", "auth.oidc"},
+		},
+		{
+			name:        "joins multiple defaults",
+			defaulted:   []string{"--keycloak-realm=nico-dev", "--client-id=nico-api"},
+			wantContain: []string{"--keycloak-realm=nico-dev and --client-id=nico-api"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hint := loginFailureHint("https://kc.example/token", tt.defaulted)
+			for _, want := range tt.wantContain {
+				require.Contains(t, hint, want)
+			}
+			if tt.wantAbsent != "" {
+				require.NotContains(t, hint, tt.wantAbsent)
+			}
+		})
+	}
+}
+
+// newRealmFlagContext builds a cli.Context carrying only the keycloak-realm flag, with
+// the same default the login command declares.
+func newRealmFlagContext(t *testing.T, args []string) *cli.Context {
+	t.Helper()
+	set := flag.NewFlagSet("test", flag.ContinueOnError)
+	set.String("keycloak-realm", "nico-dev", "")
+	require.NoError(t, set.Parse(args))
+	return cli.NewContext(nil, set, nil)
+}
+
+// newClientIDFlagContext builds a cli.Context carrying only the client-id flag, with the
+// same default the login command declares.
+func newClientIDFlagContext(t *testing.T, args []string) *cli.Context {
+	t.Helper()
+	set := flag.NewFlagSet("test", flag.ContinueOnError)
+	set.String("client-id", "nico-api", "")
+	require.NoError(t, set.Parse(args))
+	return cli.NewContext(nil, set, nil)
 }
 
 func TestExtractNGCToken(t *testing.T) {
