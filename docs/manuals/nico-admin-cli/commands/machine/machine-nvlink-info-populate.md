@@ -4,8 +4,8 @@ _[Hardware commands](../../hardware.md) › [machine](./machine.md) › [nvlink-
 
 ## NAME
 
-nico-admin-cli-machine-nvlink-info-populate - Build NVLink info from
-Redfish + NMX-C and populate DB
+nico-admin-cli-machine-nvlink-info-populate - Deprecated compatibility
+command; NVLink info is populated automatically by NICo
 
 ## SYNOPSIS
 
@@ -15,12 +15,17 @@ Redfish + NMX-C and populate DB
 
 ## DESCRIPTION
 
-Build NVLink info from Redfish + NMX-C and populate DB
+Deprecated compatibility command. The NICo NVLink partition manager
+populates and repairs the NVLink info of a managed machine
+automatically, so manual population is no longer required. This command
+always returns an error and does not contact Redfish, NMX-C, or the
+database. Use \`nico-admin-cli machine nvlink-info show\` to inspect the
+current NVLink info.
 
 ## OPTIONS
 
 **--update-db**  
-Update the database with the nvlink_info
+Ignored; retained for command-line compatibility
 
 **--extended**  
 Extended result output.
@@ -43,7 +48,13 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*MACHINE_ID*\>  
-Machine ID to populate
+Machine ID (ignored)
+
+## Examples
+
+```sh
+nico-admin-cli machine nvlink-info populate 12345678-1234-5678-90ab-cdef01234567
+```
 
 ---
 
