@@ -8,7 +8,7 @@ If online repair cannot fix the issue, clear online repair first and then releas
 
 This page is intended for tenant admins and platform operators writing tenant-facing runbooks.
 
-The caller must have access to the Infra Controller REST API through an API profile such as `nico-stg`. The online repair operation is allowed for provider admins and privileged tenant admins. In tenant workflows, this means the tenant must have the required privileged capability for repair operations, such as targeted instance creation access.
+The caller must have access to the Infra Controller REST API through an API profile such as `nico-stg`. The online repair operation is allowed for provider admins and privileged tenant admins. In tenant workflows, this means the tenant must have the required privileged capability for repair operations, such as targeted instance creation access. See [Granting Targeted Instance Creation](../../configuration/tenant_management.md#granting-targeted-instance-creation).
 
 ## What Online Repair Does
 
