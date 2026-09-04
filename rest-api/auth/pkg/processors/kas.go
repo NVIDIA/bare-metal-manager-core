@@ -263,11 +263,11 @@ type identity struct {
 	orgData cdbm.OrgData
 }
 
-// lowerOrgData restates org names in lower case, both as map keys and on the org
+// normalizeOrgData restates org names in lower case, both as map keys and on the org
 // itself. NGC treats an org name as a case-insensitive slug and the route carries
 // it verbatim, so normalizing on ingest keeps one spelling in the cache, in the
 // request scope, and in the user record.
-func lowerOrgData(orgData cdbm.OrgData) cdbm.OrgData {
+func normalizeOrgData(orgData cdbm.OrgData) cdbm.OrgData {
 	lowered := make(cdbm.OrgData, len(orgData))
 	for name, org := range orgData {
 		org.Name = strings.ToLower(org.Name)
@@ -404,7 +404,7 @@ func identityFromNgcUser(ngcUser *userActivity.NgcUser, urlOrg string) (*identit
 		return nil, fmt.Errorf("NGC returned a user with no starfleetId: %w", errNgcUpstream)
 	}
 
-	routeOrg, err := lowerOrgData(userActivity.GetOrgData(ngcUser)).GetOrgByName(urlOrg)
+	routeOrg, err := normalizeOrgData(userActivity.GetOrgData(ngcUser)).GetOrgByName(urlOrg)
 	if err != nil {
 		return nil, fmt.Errorf("get-caller-info reported no roles in %q: %w", urlOrg, errOrgNotGranted)
 	}
@@ -450,7 +450,7 @@ func identityFromServiceKey(caller *callerInfo, urlOrg string) (*identity, error
 
 	return &identity{
 		auxiliaryID: cutil.GetPtr(caller.UserID),
-		orgData:     lowerOrgData(cdbm.OrgData{caller.OrgName: keyOrg}),
+		orgData:     normalizeOrgData(cdbm.OrgData{caller.OrgName: keyOrg}),
 	}, nil
 }
 
