@@ -252,6 +252,8 @@ const (
 	CredentialType_NmxM                      CredentialType = 10
 	CredentialType_BgpSiteWideLeafPassword   CredentialType = 11
 	CredentialType_SiteWideNicLockdownIkm    CredentialType = 12
+	// Named credential used to authorize firmware artifact downloads.
+	CredentialType_FirmwareArtifactAccessToken CredentialType = 13
 )
 
 // Enum value maps for CredentialType.
@@ -270,21 +272,23 @@ var (
 		10: "NmxM",
 		11: "BgpSiteWideLeafPassword",
 		12: "SiteWideNicLockdownIkm",
+		13: "FirmwareArtifactAccessToken",
 	}
 	CredentialType_value = map[string]int32{
-		"HostBMC":                   0,
-		"DPUBMC":                    1,
-		"UFM":                       2,
-		"DpuUefi":                   3,
-		"HostUefi":                  4,
-		"HostBMCFactoryDefault":     5,
-		"DpuBMCFactoryDefault":      6,
-		"SiteWideBmcRoot":           7,
-		"RootBmcByMacAddress":       8,
-		"BmcForgeAdminByMacAddress": 9,
-		"NmxM":                      10,
-		"BgpSiteWideLeafPassword":   11,
-		"SiteWideNicLockdownIkm":    12,
+		"HostBMC":                     0,
+		"DPUBMC":                      1,
+		"UFM":                         2,
+		"DpuUefi":                     3,
+		"HostUefi":                    4,
+		"HostBMCFactoryDefault":       5,
+		"DpuBMCFactoryDefault":        6,
+		"SiteWideBmcRoot":             7,
+		"RootBmcByMacAddress":         8,
+		"BmcForgeAdminByMacAddress":   9,
+		"NmxM":                        10,
+		"BgpSiteWideLeafPassword":     11,
+		"SiteWideNicLockdownIkm":      12,
+		"FirmwareArtifactAccessToken": 13,
 	}
 )
 
@@ -8415,12 +8419,19 @@ type CredentialCreationRequest struct {
 	Username *string `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	// The password of credential for HostBMC, DPUBMC, DpuUefi.
 	// For UFM, the password is the token of UFM.
+	// For FirmwareArtifactAccessToken, the password is the non-empty artifact
+	// access token. Its contents are stored verbatim, including whitespace and
+	// line endings.
 	Password string `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
 	// For the BMC factory default credential: "dell", "lenovo", "hpe", "supermicro", etc
-	Vendor        *string `protobuf:"bytes,4,opt,name=vendor,proto3,oneof" json:"vendor,omitempty"`
-	MacAddress    *string `protobuf:"bytes,5,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Vendor     *string `protobuf:"bytes,4,opt,name=vendor,proto3,oneof" json:"vendor,omitempty"`
+	MacAddress *string `protobuf:"bytes,5,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
+	// Required and non-empty for FirmwareArtifactAccessToken. This is an opaque,
+	// non-secret lookup name. Setting the same name replaces the stored token;
+	// username, vendor, and mac_address are ignored for this credential type.
+	CredentialName *string `protobuf:"bytes,6,opt,name=credential_name,json=credentialName,proto3,oneof" json:"credential_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *CredentialCreationRequest) Reset() {
@@ -8488,11 +8499,22 @@ func (x *CredentialCreationRequest) GetMacAddress() string {
 	return ""
 }
 
+func (x *CredentialCreationRequest) GetCredentialName() string {
+	if x != nil && x.CredentialName != nil {
+		return *x.CredentialName
+	}
+	return ""
+}
+
 type CredentialDeletionRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	CredentialType CredentialType         `protobuf:"varint,1,opt,name=credential_type,json=credentialType,proto3,enum=forge.CredentialType" json:"credential_type,omitempty"`
 	Username       *string                `protobuf:"bytes,2,opt,name=username,proto3,oneof" json:"username,omitempty"`
 	MacAddress     *string                `protobuf:"bytes,3,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
+	// Required and non-empty for FirmwareArtifactAccessToken. This opaque,
+	// non-secret lookup name selects the token to delete; username and
+	// mac_address are ignored for this credential type.
+	CredentialName *string `protobuf:"bytes,4,opt,name=credential_name,json=credentialName,proto3,oneof" json:"credential_name,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -8544,6 +8566,13 @@ func (x *CredentialDeletionRequest) GetUsername() string {
 func (x *CredentialDeletionRequest) GetMacAddress() string {
 	if x != nil && x.MacAddress != nil {
 		return *x.MacAddress
+	}
+	return ""
+}
+
+func (x *CredentialDeletionRequest) GetCredentialName() string {
+	if x != nil && x.CredentialName != nil {
+		return *x.CredentialName
 	}
 	return ""
 }
@@ -65978,24 +66007,28 @@ const file_nico_nico_proto_rawDesc = "" +
 	"_event_log\"{\n" +
 	"\x13AttestQuoteResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12J\n" +
-	"\x13machine_certificate\x18\x02 \x01(\v2\x19.forge.MachineCertificateR\x12machineCertificate\"\x83\x02\n" +
+	"\x13machine_certificate\x18\x02 \x01(\v2\x19.forge.MachineCertificateR\x12machineCertificate\"\xc5\x02\n" +
 	"\x19CredentialCreationRequest\x12>\n" +
 	"\x0fcredential_type\x18\x01 \x01(\x0e2\x15.forge.CredentialTypeR\x0ecredentialType\x12\x1f\n" +
 	"\busername\x18\x02 \x01(\tH\x00R\busername\x88\x01\x01\x12\x1a\n" +
 	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x1b\n" +
 	"\x06vendor\x18\x04 \x01(\tH\x01R\x06vendor\x88\x01\x01\x12$\n" +
 	"\vmac_address\x18\x05 \x01(\tH\x02R\n" +
-	"macAddress\x88\x01\x01B\v\n" +
+	"macAddress\x88\x01\x01\x12,\n" +
+	"\x0fcredential_name\x18\x06 \x01(\tH\x03R\x0ecredentialName\x88\x01\x01B\v\n" +
 	"\t_usernameB\t\n" +
 	"\a_vendorB\x0e\n" +
-	"\f_mac_address\"\xbf\x01\n" +
+	"\f_mac_addressB\x12\n" +
+	"\x10_credential_name\"\x81\x02\n" +
 	"\x19CredentialDeletionRequest\x12>\n" +
 	"\x0fcredential_type\x18\x01 \x01(\x0e2\x15.forge.CredentialTypeR\x0ecredentialType\x12\x1f\n" +
 	"\busername\x18\x02 \x01(\tH\x00R\busername\x88\x01\x01\x12$\n" +
 	"\vmac_address\x18\x03 \x01(\tH\x01R\n" +
-	"macAddress\x88\x01\x01B\v\n" +
+	"macAddress\x88\x01\x01\x12,\n" +
+	"\x0fcredential_name\x18\x04 \x01(\tH\x02R\x0ecredentialName\x88\x01\x01B\v\n" +
 	"\t_usernameB\x0e\n" +
-	"\f_mac_address\"\x1a\n" +
+	"\f_mac_addressB\x12\n" +
+	"\x10_credential_name\"\x1a\n" +
 	"\x18CredentialCreationResult\"\x1a\n" +
 	"\x18CredentialDeletionResult\"\xb7\x01\n" +
 	"\x17RotateCredentialRequest\x12F\n" +
@@ -71156,7 +71189,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\rNotDiscovered\x10\x00\x12\x17\n" +
 	"\x13WaitingForIngestion\x10\x01\x12\x1e\n" +
 	"\x1aIngestionMachineNotCreated\x10\x02\x12\x1b\n" +
-	"\x17IngestionMachineCreated\x10\x03*\x92\x02\n" +
+	"\x17IngestionMachineCreated\x10\x03*\xb3\x02\n" +
 	"\x0eCredentialType\x12\v\n" +
 	"\aHostBMC\x10\x00\x12\n" +
 	"\n" +
@@ -71172,7 +71205,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x04NmxM\x10\n" +
 	"\x12\x1b\n" +
 	"\x17BgpSiteWideLeafPassword\x10\v\x12\x1a\n" +
-	"\x16SiteWideNicLockdownIkm\x10\f*\xcf\x01\n" +
+	"\x16SiteWideNicLockdownIkm\x10\f\x12\x1f\n" +
+	"\x1bFirmwareArtifactAccessToken\x10\r*\xcf\x01\n" +
 	"\x16RotationCredentialType\x12(\n" +
 	"$ROTATION_CREDENTIAL_TYPE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fROTATION_BMC\x10\x01\x12\x16\n" +

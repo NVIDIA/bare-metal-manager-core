@@ -1414,6 +1414,8 @@ enum CredentialType {
   NmxM = 10;
   BgpSiteWideLeafPassword = 11;
   SiteWideNicLockdownIkm = 12;
+  // Named credential used to authorize firmware artifact downloads.
+  FirmwareArtifactAccessToken = 13;
 }
 
 message CredentialCreationRequest {
@@ -1425,16 +1427,27 @@ message CredentialCreationRequest {
   optional string username = 2;
   // The password of credential for HostBMC, DPUBMC, DpuUefi.
   // For UFM, the password is the token of UFM.
+  // For FirmwareArtifactAccessToken, the password is the non-empty artifact
+  // access token. Its contents are stored verbatim, including whitespace and
+  // line endings.
   string password = 3;
   // For the BMC factory default credential: "dell", "lenovo", "hpe", "supermicro", etc
   optional string vendor = 4;
   optional string mac_address = 5;
+  // Required and non-empty for FirmwareArtifactAccessToken. This is an opaque,
+  // non-secret lookup name. Setting the same name replaces the stored token;
+  // username, vendor, and mac_address are ignored for this credential type.
+  optional string credential_name = 6;
 }
 
 message CredentialDeletionRequest {
   CredentialType credential_type = 1;
   optional string username = 2;
   optional string mac_address = 3;
+  // Required and non-empty for FirmwareArtifactAccessToken. This opaque,
+  // non-secret lookup name selects the token to delete; username and
+  // mac_address are ignored for this credential type.
+  optional string credential_name = 4;
 }
 
 message CredentialCreationResult {
