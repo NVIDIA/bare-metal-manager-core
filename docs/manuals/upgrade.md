@@ -79,9 +79,9 @@ With an Integrated provider, export every Secret that holds key material your `[
 The following command exports one Secret; repeat it for each:
 
 ```bash
-umask 077   # keep the backup readable only by you
-kubectl get secret nico-secrets-kek -n nico-system -o json > nico-secrets-kek-backup.json.new \
-  && mv nico-secrets-kek-backup.json.new nico-secrets-kek-backup.json   # keep the old backup if the export fails
+tmp=$(mktemp nico-secrets-kek-backup.XXXXXX)   # created with mode 0600
+kubectl get secret nico-secrets-kek -n nico-system -o json > "$tmp" \
+  && mv "$tmp" nico-secrets-kek-backup.json   # keep the old backup if the export fails
 ```
 
 With a Transit provider the KEK lives in the Transit engine's storage, which the unseal-key export above does not include; take a Vault storage snapshot as well, for example `vault operator raft snapshot save vault-storage.snap`.

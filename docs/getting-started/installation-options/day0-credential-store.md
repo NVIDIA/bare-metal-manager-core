@@ -98,9 +98,9 @@ A database dump is unreadable without every KEK its rows reference, and losing t
 </Warning>
 
 ```bash
-umask 077   # keep the backup readable only by you
-kubectl -n nico-system get secret nico-secrets-kek -o json > nico-secrets-kek-backup.json.new \
-  && mv nico-secrets-kek-backup.json.new nico-secrets-kek-backup.json   # keep the old backup if the export fails
+tmp=$(mktemp nico-secrets-kek-backup.XXXXXX)   # created with mode 0600
+kubectl -n nico-system get secret nico-secrets-kek -o json > "$tmp" \
+  && mv "$tmp" nico-secrets-kek-backup.json   # keep the old backup if the export fails
 ```
 
 </Steps>
