@@ -413,11 +413,11 @@ impl NvosUpdateManager for RmsNvosUpdateManager {
             .into(),
         );
 
-        updated.completed_at = if total > 0 && terminal == total {
-            Some(chrono::Utc::now())
+        if total > 0 && terminal == total {
+            updated.completed_at.get_or_insert_with(chrono::Utc::now);
         } else {
-            None
-        };
+            updated.completed_at = None;
+        }
 
         Ok(updated)
     }
@@ -434,20 +434,20 @@ fn apply_nvos_job_status_response(
                 switch.node_id = response.node_id.clone();
             }
 
-            match response.state.to_ascii_lowercase().as_str() {
-                "queued" | "pending" => {
+            match map_rms_switch_system_image_job_state(&response.state) {
+                FirmwareState::Queued => {
                     switch.status = "pending".into();
                     switch.error_message = None;
                 }
-                "running" | "in_progress" | "active" => {
+                FirmwareState::InProgress => {
                     switch.status = "in_progress".into();
                     switch.error_message = None;
                 }
-                "completed" | "success" | "done" => {
+                FirmwareState::Completed => {
                     switch.status = "completed".into();
                     switch.error_message = None;
                 }
-                "failed" | "error" => {
+                FirmwareState::Failed => {
                     switch.status = "failed".into();
 
                     switch.error_message = Some(if response.error_message.is_empty() {
@@ -456,15 +456,17 @@ fn apply_nvos_job_status_response(
                         response.error_message
                     });
                 }
-                other => {
+                FirmwareState::Unknown | FirmwareState::Verifying | FirmwareState::Cancelled => {
+                    let state = response.state.to_ascii_lowercase();
+
                     tracing::warn!(
                         job_id = %job_id,
-                        job_state = %other,
+                        job_state = %state,
                         "RMS returned unknown switch system image job state; keeping previous status",
                     );
 
                     switch.error_message =
-                        Some(format!("Unknown RMS switch image job state {}", other));
+                        Some(format!("Unknown RMS switch image job state {}", state));
                 }
             }
         }
@@ -3835,7 +3837,7 @@ mod tests {
             version: None,
             status: Some("in_progress".into()),
             started_at: Some(chrono::Utc::now()),
-            completed_at: None,
+            completed_at: Some(chrono::Utc::now()),
             switches: vec![NvosUpdateSwitchStatus {
                 node_id: "old-node-id".into(),
                 mac: "00:11:22:33:44:55".into(),
@@ -3858,10 +3860,33 @@ mod tests {
         assert_eq!(updated.status.as_deref(), Some("in_progress"));
         assert_eq!(updated.completed_at, None);
 
+        mock.enqueue_get_switch_system_image_job_status(Ok(
+            rms::GetSwitchSystemImageJobStatusResponse {
+                status: rms::ReturnCode::Success as i32,
+                state: "COMPLETED".into(),
+                ..Default::default()
+            },
+        ))
+        .await;
+
+        let completed = manager
+            .get_nvos_update_status(&updated)
+            .await
+            .expect("NVOS polling should succeed");
+
+        let repolled = manager
+            .get_nvos_update_status(&completed)
+            .await
+            .expect("completed NVOS polling should succeed");
+
+        assert_eq!(completed.status.as_deref(), Some("completed"));
+        assert!(completed.completed_at.is_some());
+        assert_eq!(repolled.completed_at, completed.completed_at);
+
         let calls = mock.get_switch_system_image_job_status_calls().await;
 
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].job_id, "child-job");
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|call| call.job_id == "child-job"));
     }
 
     #[test]
