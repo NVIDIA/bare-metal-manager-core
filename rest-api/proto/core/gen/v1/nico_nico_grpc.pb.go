@@ -224,6 +224,7 @@ const (
 	Forge_RemoveRouteServers_FullMethodName                                 = "/forge.Forge/RemoveRouteServers"
 	Forge_ReplaceRouteServers_FullMethodName                                = "/forge.Forge/ReplaceRouteServers"
 	Forge_UpdateAgentReportedInventory_FullMethodName                       = "/forge.Forge/UpdateAgentReportedInventory"
+	Forge_ReportLldpNeighbors_FullMethodName                                = "/forge.Forge/ReportLldpNeighbors"
 	Forge_UpdateInstancePhoneHomeLastContact_FullMethodName                 = "/forge.Forge/UpdateInstancePhoneHomeLastContact"
 	Forge_SetHostUefiPassword_FullMethodName                                = "/forge.Forge/SetHostUefiPassword"
 	Forge_ClearHostUefiPassword_FullMethodName                              = "/forge.Forge/ClearHostUefiPassword"
@@ -889,6 +890,8 @@ type ForgeClient interface {
 	ReplaceRouteServers(ctx context.Context, in *RouteServers, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// MachineInventory
 	UpdateAgentReportedInventory(ctx context.Context, in *DpuAgentInventoryReport, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Periodic LLDP neighbor report from a running agent (DPU agent or scout).
+	ReportLldpNeighbors(ctx context.Context, in *LldpNeighborReport, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Phone Home
 	UpdateInstancePhoneHomeLastContact(ctx context.Context, in *InstancePhoneHomeLastContactRequest, opts ...grpc.CallOption) (*InstancePhoneHomeLastContactResponse, error)
 	// Set Host UEFI password
@@ -976,7 +979,9 @@ type ForgeClient interface {
 	DeleteAllExpectedRacks(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Perform Attestation Procedure for Measured Boot
 	AttestQuote(ctx context.Context, in *AttestQuoteRequest, opts ...grpc.CallOption) (*AttestQuoteResponse, error)
+	//
 	// InstanceType
+	//
 	CreateInstanceType(ctx context.Context, in *CreateInstanceTypeRequest, opts ...grpc.CallOption) (*CreateInstanceTypeResponse, error)
 	FindInstanceTypeIds(ctx context.Context, in *FindInstanceTypeIdsRequest, opts ...grpc.CallOption) (*FindInstanceTypeIdsResponse, error)
 	FindInstanceTypesByIds(ctx context.Context, in *FindInstanceTypesByIdsRequest, opts ...grpc.CallOption) (*FindInstanceTypesByIdsResponse, error)
@@ -1033,7 +1038,9 @@ type ForgeClient interface {
 	ListMeasurementTrustedMachines(ctx context.Context, in *ListMeasurementTrustedMachinesRequest, opts ...grpc.CallOption) (*ListMeasurementTrustedMachinesResponse, error)
 	ListMeasurementTrustedProfiles(ctx context.Context, in *ListMeasurementTrustedProfilesRequest, opts ...grpc.CallOption) (*ListMeasurementTrustedProfilesResponse, error)
 	ListAttestationSummary(ctx context.Context, in *ListAttestationSummaryRequest, opts ...grpc.CallOption) (*ListAttestationSummaryResponse, error)
+	//
 	// NetworkSecurityGroups
+	//
 	CreateNetworkSecurityGroup(ctx context.Context, in *CreateNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*CreateNetworkSecurityGroupResponse, error)
 	FindNetworkSecurityGroupIds(ctx context.Context, in *FindNetworkSecurityGroupIdsRequest, opts ...grpc.CallOption) (*FindNetworkSecurityGroupIdsResponse, error)
 	FindNetworkSecurityGroupsByIds(ctx context.Context, in *FindNetworkSecurityGroupsByIdsRequest, opts ...grpc.CallOption) (*FindNetworkSecurityGroupsByIdsResponse, error)
@@ -1130,7 +1137,7 @@ type ForgeClient interface {
 	// Terminate active rack maintenance and transition the rack to Error.
 	TerminateRackMaintenance(ctx context.Context, in *RackMaintenanceTerminateRequest, opts ...grpc.CallOption) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
-	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
+	//rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(ctx context.Context, in *TpmCaCert, opts ...grpc.CallOption) (*TpmCaAddedCaStatus, error)
 	TpmShowCaCerts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TpmCaCertDetailCollection, error)
 	TpmShowUnmatchedEkCerts(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*TpmEkCertStatusCollection, error)
@@ -1193,7 +1200,9 @@ type ForgeClient interface {
 	// Lists the rack profiles from the effective runtime configuration.
 	// Rack profiles are configuration, not persisted rack resources.
 	ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error)
+	//
 	// Compute Allocations
+	//
 	CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(ctx context.Context, in *FindComputeAllocationIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationIdsResponse, error)
 	FindComputeAllocationsByIds(ctx context.Context, in *FindComputeAllocationsByIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationsByIdsResponse, error)
@@ -3423,6 +3432,16 @@ func (c *forgeClient) UpdateAgentReportedInventory(ctx context.Context, in *DpuA
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Forge_UpdateAgentReportedInventory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ReportLldpNeighbors(ctx context.Context, in *LldpNeighborReport, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_ReportLldpNeighbors_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6687,6 +6706,8 @@ type ForgeServer interface {
 	ReplaceRouteServers(context.Context, *RouteServers) (*emptypb.Empty, error)
 	// MachineInventory
 	UpdateAgentReportedInventory(context.Context, *DpuAgentInventoryReport) (*emptypb.Empty, error)
+	// Periodic LLDP neighbor report from a running agent (DPU agent or scout).
+	ReportLldpNeighbors(context.Context, *LldpNeighborReport) (*emptypb.Empty, error)
 	// Phone Home
 	UpdateInstancePhoneHomeLastContact(context.Context, *InstancePhoneHomeLastContactRequest) (*InstancePhoneHomeLastContactResponse, error)
 	// Set Host UEFI password
@@ -6774,7 +6795,9 @@ type ForgeServer interface {
 	DeleteAllExpectedRacks(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
 	// Perform Attestation Procedure for Measured Boot
 	AttestQuote(context.Context, *AttestQuoteRequest) (*AttestQuoteResponse, error)
+	//
 	// InstanceType
+	//
 	CreateInstanceType(context.Context, *CreateInstanceTypeRequest) (*CreateInstanceTypeResponse, error)
 	FindInstanceTypeIds(context.Context, *FindInstanceTypeIdsRequest) (*FindInstanceTypeIdsResponse, error)
 	FindInstanceTypesByIds(context.Context, *FindInstanceTypesByIdsRequest) (*FindInstanceTypesByIdsResponse, error)
@@ -6831,7 +6854,9 @@ type ForgeServer interface {
 	ListMeasurementTrustedMachines(context.Context, *ListMeasurementTrustedMachinesRequest) (*ListMeasurementTrustedMachinesResponse, error)
 	ListMeasurementTrustedProfiles(context.Context, *ListMeasurementTrustedProfilesRequest) (*ListMeasurementTrustedProfilesResponse, error)
 	ListAttestationSummary(context.Context, *ListAttestationSummaryRequest) (*ListAttestationSummaryResponse, error)
+	//
 	// NetworkSecurityGroups
+	//
 	CreateNetworkSecurityGroup(context.Context, *CreateNetworkSecurityGroupRequest) (*CreateNetworkSecurityGroupResponse, error)
 	FindNetworkSecurityGroupIds(context.Context, *FindNetworkSecurityGroupIdsRequest) (*FindNetworkSecurityGroupIdsResponse, error)
 	FindNetworkSecurityGroupsByIds(context.Context, *FindNetworkSecurityGroupsByIdsRequest) (*FindNetworkSecurityGroupsByIdsResponse, error)
@@ -6928,7 +6953,7 @@ type ForgeServer interface {
 	// Terminate active rack maintenance and transition the rack to Error.
 	TerminateRackMaintenance(context.Context, *RackMaintenanceTerminateRequest) (*RackMaintenanceTerminateResponse, error)
 	// TPM CA certs Management
-	// rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
+	//rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
 	TpmAddCaCert(context.Context, *TpmCaCert) (*TpmCaAddedCaStatus, error)
 	TpmShowCaCerts(context.Context, *emptypb.Empty) (*TpmCaCertDetailCollection, error)
 	TpmShowUnmatchedEkCerts(context.Context, *emptypb.Empty) (*TpmEkCertStatusCollection, error)
@@ -6991,7 +7016,9 @@ type ForgeServer interface {
 	// Lists the rack profiles from the effective runtime configuration.
 	// Rack profiles are configuration, not persisted rack resources.
 	ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error)
+	//
 	// Compute Allocations
+	//
 	CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(context.Context, *FindComputeAllocationIdsRequest) (*FindComputeAllocationIdsResponse, error)
 	FindComputeAllocationsByIds(context.Context, *FindComputeAllocationsByIdsRequest) (*FindComputeAllocationsByIdsResponse, error)
@@ -7811,6 +7838,9 @@ func (UnimplementedForgeServer) ReplaceRouteServers(context.Context, *RouteServe
 }
 func (UnimplementedForgeServer) UpdateAgentReportedInventory(context.Context, *DpuAgentInventoryReport) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateAgentReportedInventory not implemented")
+}
+func (UnimplementedForgeServer) ReportLldpNeighbors(context.Context, *LldpNeighborReport) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportLldpNeighbors not implemented")
 }
 func (UnimplementedForgeServer) UpdateInstancePhoneHomeLastContact(context.Context, *InstancePhoneHomeLastContactRequest) (*InstancePhoneHomeLastContactResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateInstancePhoneHomeLastContact not implemented")
@@ -12310,6 +12340,24 @@ func _Forge_UpdateAgentReportedInventory_Handler(srv interface{}, ctx context.Co
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).UpdateAgentReportedInventory(ctx, req.(*DpuAgentInventoryReport))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ReportLldpNeighbors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LldpNeighborReport)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ReportLldpNeighbors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ReportLldpNeighbors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ReportLldpNeighbors(ctx, req.(*LldpNeighborReport))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -18297,6 +18345,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateAgentReportedInventory",
 			Handler:    _Forge_UpdateAgentReportedInventory_Handler,
+		},
+		{
+			MethodName: "ReportLldpNeighbors",
+			Handler:    _Forge_ReportLldpNeighbors_Handler,
 		},
 		{
 			MethodName: "UpdateInstancePhoneHomeLastContact",

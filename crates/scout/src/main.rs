@@ -55,6 +55,7 @@ mod client;
 mod deprovision;
 mod discovery;
 mod firmware_upgrade;
+mod lldp_report;
 mod machine_validation;
 mod metrics;
 mod mlx_device;
@@ -260,6 +261,14 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         }),
     };
 
+    // Report LLDP neighbors on each poll, re-sending only when the snapshot
+    // changes. The reporter's cache must live across loop iterations.
+    let mut lldp_reporter = lldp_report::LldpReporter::new(
+        machine_id,
+        config.api.clone(),
+        client::forge_client_config(config),
+    );
+
     let mut scout_stream_started = false;
     loop {
         if is_time_to_check_certs_expiry(next_certs_check_time) {
@@ -273,6 +282,8 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
                 initial_setup(config).await?;
             }
         }
+        lldp_report::report_lldp_neighbors(&mut lldp_reporter).await;
+
         let controller_response = match query_api_with_retries(config, &machine_id).await {
             Ok(action) => action,
             Err(e) => {
