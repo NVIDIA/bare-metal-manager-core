@@ -117,6 +117,8 @@ resources:
     cpu: 1500m
     memory: 8Gi
 
+fileDescriptorLimit: 65536
+
 ## Optional init containers (general-purpose pass-through)
 initContainers: []
 
@@ -242,23 +244,20 @@ migrationJob:
 ## with additional time for queue finalization.
 terminationGracePeriodSeconds: 240
 
-## Container command (override to customise startup).
+## Script body executed after setting the file descriptor limit.
 ## Picks /opt/nico/nico-api if present (renamed image), else /opt/carbide/carbide-api
 ## (current image). Configmaps are mounted at both /etc/nico and /etc/forge paths
 ## so the binary finds its expected config regardless of which it picks.
-command:
-  - /bin/sh
-  - -c
-  - |
-    if [ -x /opt/nico/nico-api ]; then
-      exec /opt/nico/nico-api run \
-        --config-path /etc/nico/nico-api/nico-api-config.toml \
-        --site-config-path /etc/nico/nico-api/site/nico-api-site-config.toml
-    else
-      exec /opt/carbide/carbide-api run \
-        --config-path /etc/forge/carbide-api/carbide-api-config.toml \
-        --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
-    fi
+command: |
+  if [ -x /opt/nico/nico-api ]; then
+    exec /opt/nico/nico-api run \
+      --config-path /etc/nico/nico-api/nico-api-config.toml \
+      --site-config-path /etc/nico/nico-api/site/nico-api-site-config.toml
+  else
+    exec /opt/carbide/carbide-api run \
+      --config-path /etc/forge/carbide-api/carbide-api-config.toml \
+      --site-config-path /etc/forge/carbide-api/site/carbide-api-site-config.toml
+  fi
 
 ## Environment variables for nico-api
 env:
@@ -437,8 +436,8 @@ auth:
 
 ## Config files -- can be overridden with custom content
 configFiles:
-  nicoApiConfig: ""  # If empty, uses the default from files/
-  casbinPolicy: ""      # If empty, uses the default from files/
+  nicoApiConfig: "" # If empty, uses the default from files/
+  casbinPolicy: "" # If empty, uses the default from files/
 
 ## Site-specific config (nico-api-site-config-files ConfigMap)
 ## nicoApiSiteConfig is REQUIRED: nico-api exits at startup if the four
@@ -447,7 +446,7 @@ configFiles:
 ## deploy/files/nico-api/nico-api-site-config.toml for a full example.
 siteConfig:
   enabled: true
-  nicoApiSiteConfig: ""  # Must include [pools.lo-ip], [pools.vlan-id], [pools.vni], [pools.vpc-vni]
+  nicoApiSiteConfig: "" # Must include [pools.lo-ip], [pools.vlan-id], [pools.vni], [pools.vpc-vni]
   ## Public CA trust bundle used to verify admin client certificates. Use a dedicated
   ## admin-client intermediate whose entire issuance population may cross this trust boundary.
   ## Accepts only bare PEM CERTIFICATE blocks separated by whitespace; strip subject=/issuer=
