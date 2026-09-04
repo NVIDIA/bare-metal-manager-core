@@ -211,28 +211,40 @@ vendor `Nvidia`, model `DGXH100`, and firmware inventory entries named
 
 To prepare the update:
 
-1. Publish the NVIDIA-signed CX7 firmware artifact at an HTTPS URL that Scout
-   can access from the discovery environment. Use the
+1. Publish the NVIDIA-signed CX7 firmware artifact at an HTTPS URL that Scout can
+   access from the discovery environment.
+
+   Use the
    [DGX H100/H200 firmware guide](https://docs.nvidia.com/dgx/dgxh100-fw-update-guide/network-card-fw-update.html)
    to select an artifact compatible with every CX7 adapter in the host. The
    artifact's SHA-256 digest is optional; when provided, it must be 64
    hexadecimal characters and NICo uses it to verify the download. NICo does
    not require a particular repository path or filename.
 
-1. Use the
-   [Host Firmware Config API](#configure-host-firmware-through-the-api) with
-   `vendor: Nvidia`, `model: DGXH100`, component `type: Cx7`, the desired
-   `version` such as `28.47.2682`, `default: true`, `powerDrainsNeeded: 1`,
-   and one artifact containing the HTTPS `url`. Optionally include its
-   64-character `sha256` to enable download verification.
+1. Call the
+   [Host Firmware Config API](#configure-host-firmware-through-the-api) with the
+   following:
+
+   - `vendor: Nvidia`
+   - `model: DGXH100`
+   - Component `type: Cx7`
+   - `version: 28.47.2682`
+   - `default: true`
+   - `powerDrainsNeeded: 1`
+   - One artifact containing the HTTPS `url`
+   - `sha256`: (optional) the artifact's 64-character SHA-256 digest to enable
+     download verification
 
 Use [Monitor and verify](host-firmware.md#monitor-and-verify). A host is updated
 only when every `CX7_<number>` entry reports the target version, the host has
 returned to `Ready` or `Assigned/Ready`, and its reprovisioning request is gone.
 
-> **Legacy NICo 0.10.x:** The firmware container must also carry the CX7
-> upgrade script. NICo 2.0 and later package the Scout script, so their firmware
-> package no longer needs to contain that script.
+<Note>
+**Legacy NICo installations:** If you are running a version of NICo prior to
+2.0, the firmware container must also carry the CX7 upgrade script. NICo 2.0 and
+later bundle the Scout script, so their firmware containers no longer need to
+contain that script.
+</Note>
 
 Other host models require their own inventory mapping and Scout script. To add
 support for another model:
@@ -244,7 +256,7 @@ support for another model:
 - Add the model's script and metadata under the
   [Scout firmware script assets](https://github.com/NVIDIA/infra-controller/tree/main/pxe/scout-firmware-scripts).
 
-The existing DGX H100 script may work on other servers, but it has not been
+The existing DGX H100 script might work on other servers, but it has not been
 tested on them; validate it on the new platform before reusing it.
 
 ## DPU firmware
