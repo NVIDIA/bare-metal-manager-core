@@ -213,10 +213,9 @@ func TestConfig_ValidateIssuersConfig(t *testing.T) {
 	kasIssuer := IssuerConfig{Name: "kas-api-key", Origin: cauth.TokenOriginKas, Issuer: "https://ngc-api.example.com"}
 
 	tests := []struct {
-		name                string
-		issuers             []IssuerConfig
-		rateLimiterDisabled bool
-		wantErr             string
+		name    string
+		issuers []IssuerConfig
+		wantErr string
 	}{
 		{
 			name: "direct and legacy KAS",
@@ -226,14 +225,8 @@ func TestConfig_ValidateIssuersConfig(t *testing.T) {
 			},
 		},
 		{
-			name:    "direct KAS alone",
+			name:    "direct KAS without rate limiter",
 			issuers: []IssuerConfig{kasIssuer},
-		},
-		{
-			name:                "direct KAS without rate limiter",
-			issuers:             []IssuerConfig{kasIssuer},
-			rateLimiterDisabled: true,
-			wantErr:             "origin: kas requires rateLimiter.enabled: true",
 		},
 		{
 			name:    "direct KAS over plaintext HTTP",
@@ -320,7 +313,6 @@ func TestConfig_ValidateIssuersConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
-			v.Set(ConfigRateLimiterEnabled, !tt.rateLimiterDisabled)
 			cfg := &Config{v: v}
 
 			err := cfg.ValidateIssuersConfig(tt.issuers)

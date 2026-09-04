@@ -105,7 +105,6 @@ config:
   #       origin: custom
   #       jwks: https://my-idp.example.com/.well-known/jwks.json
   #       issuer: "my-idp.example.com"
-  # Direct NGC API-key authentication with origin: kas requires rateLimiter.enabled: true.
   issuers: []
   # -- Keycloak authentication (mutually exclusive with issuers)
   keycloak:

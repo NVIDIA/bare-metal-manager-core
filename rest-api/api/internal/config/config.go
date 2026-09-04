@@ -769,9 +769,6 @@ func (c *Config) ValidateIssuersConfig(issuers []IssuerConfig) error {
 	if err != nil {
 		return err
 	}
-	if originCounts[cauth.TokenOriginKas] > 0 && !c.GetRateLimiterEnabled() {
-		return errors.New("origin: kas requires rateLimiter.enabled: true")
-	}
 
 	return nil
 }
