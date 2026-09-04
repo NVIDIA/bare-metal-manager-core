@@ -39983,9 +39983,9 @@ func (x *AdminPowerControlResponse) GetMsg() string {
 	return ""
 }
 
-type AdminGpuResetRequest struct {
+type AdminChassisResetRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Machine whose GPU baseboard BMC is targeted. Required.
+	// Machine whose BMC is targeted. Required.
 	MachineId *MachineId `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
 	// Redfish Chassis id to reset, e.g. "HGX_Chassis_0". Required.
 	ChassisId string `protobuf:"bytes,2,opt,name=chassis_id,json=chassisId,proto3" json:"chassis_id,omitempty"`
@@ -39995,20 +39995,20 @@ type AdminGpuResetRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AdminGpuResetRequest) Reset() {
-	*x = AdminGpuResetRequest{}
+func (x *AdminChassisResetRequest) Reset() {
+	*x = AdminChassisResetRequest{}
 	mi := &file_nico_nico_proto_msgTypes[523]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AdminGpuResetRequest) String() string {
+func (x *AdminChassisResetRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AdminGpuResetRequest) ProtoMessage() {}
+func (*AdminChassisResetRequest) ProtoMessage() {}
 
-func (x *AdminGpuResetRequest) ProtoReflect() protoreflect.Message {
+func (x *AdminChassisResetRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[523]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -40020,52 +40020,52 @@ func (x *AdminGpuResetRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AdminGpuResetRequest.ProtoReflect.Descriptor instead.
-func (*AdminGpuResetRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use AdminChassisResetRequest.ProtoReflect.Descriptor instead.
+func (*AdminChassisResetRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{523}
 }
 
-func (x *AdminGpuResetRequest) GetMachineId() *MachineId {
+func (x *AdminChassisResetRequest) GetMachineId() *MachineId {
 	if x != nil {
 		return x.MachineId
 	}
 	return nil
 }
 
-func (x *AdminGpuResetRequest) GetChassisId() string {
+func (x *AdminChassisResetRequest) GetChassisId() string {
 	if x != nil {
 		return x.ChassisId
 	}
 	return ""
 }
 
-func (x *AdminGpuResetRequest) GetAction() AdminPowerControlRequest_SystemPowerControl {
+func (x *AdminChassisResetRequest) GetAction() AdminPowerControlRequest_SystemPowerControl {
 	if x != nil {
 		return x.Action
 	}
 	return AdminPowerControlRequest_On
 }
 
-type AdminGpuResetResponse struct {
+type AdminChassisResetResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AdminGpuResetResponse) Reset() {
-	*x = AdminGpuResetResponse{}
+func (x *AdminChassisResetResponse) Reset() {
+	*x = AdminChassisResetResponse{}
 	mi := &file_nico_nico_proto_msgTypes[524]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AdminGpuResetResponse) String() string {
+func (x *AdminChassisResetResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AdminGpuResetResponse) ProtoMessage() {}
+func (*AdminChassisResetResponse) ProtoMessage() {}
 
-func (x *AdminGpuResetResponse) ProtoReflect() protoreflect.Message {
+func (x *AdminChassisResetResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nico_nico_proto_msgTypes[524]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -40077,8 +40077,8 @@ func (x *AdminGpuResetResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AdminGpuResetResponse.ProtoReflect.Descriptor instead.
-func (*AdminGpuResetResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use AdminChassisResetResponse.ProtoReflect.Descriptor instead.
+func (*AdminChassisResetResponse) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{524}
 }
 
@@ -68788,14 +68788,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\v_machine_id\":\n" +
 	"\x19AdminPowerControlResponse\x12\x15\n" +
 	"\x03msg\x18\x01 \x01(\tH\x00R\x03msg\x88\x01\x01B\x06\n" +
-	"\x04_msg\"\xb3\x01\n" +
-	"\x14AdminGpuResetRequest\x120\n" +
+	"\x04_msg\"\xb7\x01\n" +
+	"\x18AdminChassisResetRequest\x120\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\tmachineId\x12\x1d\n" +
 	"\n" +
 	"chassis_id\x18\x02 \x01(\tR\tchassisId\x12J\n" +
-	"\x06action\x18\x03 \x01(\x0e22.forge.AdminPowerControlRequest.SystemPowerControlR\x06action\"\x17\n" +
-	"\x15AdminGpuResetResponse\"d\n" +
+	"\x06action\x18\x03 \x01(\x0e22.forge.AdminPowerControlRequest.SystemPowerControlR\x06action\"\x1b\n" +
+	"\x19AdminChassisResetResponse\"d\n" +
 	"\x19GetRedfishJobStateRequest\x120\n" +
 	"\n" +
 	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\tmachineId\x12\x15\n" +
@@ -71379,7 +71379,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"!SITE_PREFIX_LIFECYCLE_STATE_ERROR\x10\x04*e\n" +
 	"\x12DpuNvConfigProfile\x12%\n" +
 	"!DPU_NV_CONFIG_PROFILE_UNSPECIFIED\x10\x00\x12(\n" +
-	"$DPU_NV_CONFIG_PROFILE_GB200_B3240_V1\x10\x012\xea\xe5\x02\n" +
+	"$DPU_NV_CONFIG_PROFILE_GB200_B3240_V1\x10\x012\xf6\xe5\x02\n" +
 	"\x05Forge\x122\n" +
 	"\aVersion\x12\x15.forge.VersionRequest\x1a\x10.forge.BuildInfo\x125\n" +
 	"\fCreateDomain\x12\x18.dns.CreateDomainRequest\x1a\v.dns.Domain\x125\n" +
@@ -71714,8 +71714,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"$MachineValidationTestApproveFullHost\x123.forge.MachineValidationTestFullHostApprovalRequest\x1a4.forge.MachineValidationTestFullHostApprovalResponse\x12e\n" +
 	"\x1aUpdateMachineValidationRun\x12\".forge.MachineValidationRunRequest\x1a#.forge.MachineValidationRunResponse\x12J\n" +
 	"\rAdminBmcReset\x12\x1b.forge.AdminBmcResetRequest\x1a\x1c.forge.AdminBmcResetResponse\x12V\n" +
-	"\x11AdminPowerControl\x12\x1f.forge.AdminPowerControlRequest\x1a .forge.AdminPowerControlResponse\x12J\n" +
-	"\rAdminGpuReset\x12\x1b.forge.AdminGpuResetRequest\x1a\x1c.forge.AdminGpuResetResponse\x12P\n" +
+	"\x11AdminPowerControl\x12\x1f.forge.AdminPowerControlRequest\x1a .forge.AdminPowerControlResponse\x12V\n" +
+	"\x11AdminChassisReset\x12\x1f.forge.AdminChassisResetRequest\x1a .forge.AdminChassisResetResponse\x12P\n" +
 	"\x11DisableSecureBoot\x12\x19.forge.BmcEndpointRequest\x1a .forge.DisableSecureBootResponse\x12;\n" +
 	"\bLockdown\x12\x16.forge.LockdownRequest\x1a\x17.forge.LockdownResponse\x12M\n" +
 	"\x0eLockdownStatus\x12\x1c.forge.LockdownStatusRequest\x1a\x1d.site_explorer.LockdownStatus\x12G\n" +
@@ -72529,8 +72529,8 @@ var file_nico_nico_proto_goTypes = []any{
 	(*RackMaintenanceTerminateResponse)(nil),                                  // 628: forge.RackMaintenanceTerminateResponse
 	(*AdminPowerControlRequest)(nil),                                          // 629: forge.AdminPowerControlRequest
 	(*AdminPowerControlResponse)(nil),                                         // 630: forge.AdminPowerControlResponse
-	(*AdminGpuResetRequest)(nil),                                              // 631: forge.AdminGpuResetRequest
-	(*AdminGpuResetResponse)(nil),                                             // 632: forge.AdminGpuResetResponse
+	(*AdminChassisResetRequest)(nil),                                          // 631: forge.AdminChassisResetRequest
+	(*AdminChassisResetResponse)(nil),                                         // 632: forge.AdminChassisResetResponse
 	(*GetRedfishJobStateRequest)(nil),                                         // 633: forge.GetRedfishJobStateRequest
 	(*GetRedfishJobStateResponse)(nil),                                        // 634: forge.GetRedfishJobStateResponse
 	(*MachineValidationRunList)(nil),                                          // 635: forge.MachineValidationRunList
@@ -73937,8 +73937,8 @@ var file_nico_nico_proto_depIdxs = []int32{
 	1068, // 762: forge.RackMaintenanceTerminateRequest.rack_id:type_name -> common.RackId
 	403,  // 763: forge.AdminPowerControlRequest.bmc_endpoint_request:type_name -> forge.BmcEndpointRequest
 	105,  // 764: forge.AdminPowerControlRequest.action:type_name -> forge.AdminPowerControlRequest.SystemPowerControl
-	1056, // 765: forge.AdminGpuResetRequest.machine_id:type_name -> common.MachineId
-	105,  // 766: forge.AdminGpuResetRequest.action:type_name -> forge.AdminPowerControlRequest.SystemPowerControl
+	1056, // 765: forge.AdminChassisResetRequest.machine_id:type_name -> common.MachineId
+	105,  // 766: forge.AdminChassisResetRequest.action:type_name -> forge.AdminPowerControlRequest.SystemPowerControl
 	1056, // 767: forge.GetRedfishJobStateRequest.machine_id:type_name -> common.MachineId
 	106,  // 768: forge.GetRedfishJobStateResponse.job_state:type_name -> forge.GetRedfishJobStateResponse.RedfishJobState
 	607,  // 769: forge.MachineValidationRunList.runs:type_name -> forge.MachineValidationRun
@@ -74786,7 +74786,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	663,  // 1611: forge.Forge.UpdateMachineValidationRun:input_type -> forge.MachineValidationRunRequest
 	445,  // 1612: forge.Forge.AdminBmcReset:input_type -> forge.AdminBmcResetRequest
 	629,  // 1613: forge.Forge.AdminPowerControl:input_type -> forge.AdminPowerControlRequest
-	631,  // 1614: forge.Forge.AdminGpuReset:input_type -> forge.AdminGpuResetRequest
+	631,  // 1614: forge.Forge.AdminChassisReset:input_type -> forge.AdminChassisResetRequest
 	403,  // 1615: forge.Forge.DisableSecureBoot:input_type -> forge.BmcEndpointRequest
 	435,  // 1616: forge.Forge.Lockdown:input_type -> forge.LockdownRequest
 	437,  // 1617: forge.Forge.LockdownStatus:input_type -> forge.LockdownStatusRequest
@@ -75275,7 +75275,7 @@ var file_nico_nico_proto_depIdxs = []int32{
 	664,  // 2100: forge.Forge.UpdateMachineValidationRun:output_type -> forge.MachineValidationRunResponse
 	446,  // 2101: forge.Forge.AdminBmcReset:output_type -> forge.AdminBmcResetResponse
 	630,  // 2102: forge.Forge.AdminPowerControl:output_type -> forge.AdminPowerControlResponse
-	632,  // 2103: forge.Forge.AdminGpuReset:output_type -> forge.AdminGpuResetResponse
+	632,  // 2103: forge.Forge.AdminChassisReset:output_type -> forge.AdminChassisResetResponse
 	434,  // 2104: forge.Forge.DisableSecureBoot:output_type -> forge.DisableSecureBootResponse
 	436,  // 2105: forge.Forge.Lockdown:output_type -> forge.LockdownResponse
 	1254, // 2106: forge.Forge.LockdownStatus:output_type -> site_explorer.LockdownStatus

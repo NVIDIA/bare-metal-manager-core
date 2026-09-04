@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Handler for the admin out-of-band GPU baseboard reset (Redfish Chassis.Reset).
+//! Handler for the administrative out-of-band Redfish chassis reset.
 
 use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
@@ -34,7 +34,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 ///
 /// v1 only supports `ForceRestart`; all other actions are rejected because
 /// Redfish `Chassis.Reset` allowable `ResetType` values are vendor-specific.
-fn map_gpu_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, Status> {
+fn map_chassis_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, Status> {
     use rpc::admin_power_control_request::SystemPowerControl as Spc;
     let action = Spc::try_from(action).map_err(|_| Status::invalid_argument("unknown action"))?;
     match action {
@@ -49,11 +49,11 @@ fn map_gpu_reset_action(action: i32) -> Result<libredfish::SystemPowerControl, S
     }
 }
 
-/// Handle an administrative out-of-band GPU baseboard reset and return the reset response.
-pub(crate) async fn admin_gpu_reset(
+/// Handle an administrative out-of-band Redfish chassis reset and return the response.
+pub(crate) async fn admin_chassis_reset(
     api: &Api,
-    request: Request<rpc::AdminGpuResetRequest>,
-) -> Result<Response<rpc::AdminGpuResetResponse>, Status> {
+    request: Request<rpc::AdminChassisResetRequest>,
+) -> Result<Response<rpc::AdminChassisResetResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
@@ -72,18 +72,18 @@ pub(crate) async fn admin_gpu_reset(
         ManagedHostState::Assigned { .. }
     ) {
         return Err(Status::failed_precondition(
-            "host is assigned to a tenant; a GPU reset is not allowed",
+            "host is assigned to a tenant; a chassis reset is not allowed",
         ));
     }
     if host_machine.health_reports.maintenance_override().is_none() {
         return Err(Status::failed_precondition(
-            "host must be in maintenance mode before a GPU reset \
+            "host must be in maintenance mode before a chassis reset \
              (nico-admin-cli managed-host maintenance on <machine-id>)",
         ));
     }
     drop(txn);
 
-    let action = map_gpu_reset_action(req.action)?;
+    let action = map_chassis_reset_action(req.action)?;
 
     let mut txn = api.txn_begin().await?;
     let (bmc_endpoint_request, _) =
@@ -98,22 +98,22 @@ pub(crate) async fn admin_gpu_reset(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    Ok(Response::new(rpc::AdminGpuResetResponse {}))
+    Ok(Response::new(rpc::AdminChassisResetResponse {}))
 }
 
 #[cfg(test)]
 mod tests {
     use carbide_test_support::value_scenarios;
 
-    use super::map_gpu_reset_action;
+    use super::map_chassis_reset_action;
 
     #[test]
-    fn gpu_reset_action_maps_force_restart_and_rejects_others() {
+    fn chassis_reset_action_maps_force_restart_and_rejects_others() {
         use libredfish::SystemPowerControl as L;
 
         use super::rpc::admin_power_control_request::SystemPowerControl as Spc;
-        value_scenarios!(run = |a: i32| { map_gpu_reset_action(a).map_err(|_| ()) };
-            "gpu reset action mapping" {
+        value_scenarios!(run = |a: i32| { map_chassis_reset_action(a).map_err(|_| ()) };
+            "chassis reset action mapping" {
                 Spc::ForceRestart as i32 => Ok(L::ForceRestart),
                 Spc::On as i32 => Err(()),
                 0 => Err(()), // omitted action (proto3 default)

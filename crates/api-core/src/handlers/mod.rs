@@ -42,7 +42,7 @@ pub(super) mod expected_switch;
 pub(super) mod extension_service;
 pub(super) mod finder;
 pub(super) mod firmware;
-pub(super) mod gpu_reset;
+pub(super) mod chassis_reset;
 pub(super) mod health;
 pub(super) mod host_reprovisioning;
 pub(super) mod ib_fabric;
