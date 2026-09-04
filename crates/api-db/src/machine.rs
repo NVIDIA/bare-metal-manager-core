@@ -2146,7 +2146,7 @@ pub async fn clear_dpu_reprovisioning_request(
 
 pub async fn list_machines_requested_for_reprovisioning(
     txn: impl DbReader<'_>,
-) -> Result<Vec<AnyMachine>, DatabaseError> {
+) -> Result<Vec<DpuMachine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
             "{} WHERE m.reprovisioning_requested IS NOT NULL",
@@ -2161,7 +2161,7 @@ pub async fn list_machines_requested_for_reprovisioning(
 
 pub async fn list_machines_requested_for_host_reprovisioning(
     txn: impl DbReader<'_>,
-) -> Result<Vec<AnyMachine>, DatabaseError> {
+) -> Result<Vec<HostMachine>, DatabaseError> {
     lazy_static! {
         static ref query: String = format!(
             "{} WHERE m.host_reprovisioning_requested IS NOT NULL",

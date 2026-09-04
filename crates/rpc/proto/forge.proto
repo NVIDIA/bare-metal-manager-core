@@ -6428,7 +6428,7 @@ message HostReprovisioningListRequest {
 
 message HostReprovisioningListResponse {
   message HostReprovisioningListItem {
-    common.MachineId id = 1; // Machine ID
+    common.MachineId id = 1 [(carbide.codegen.v1.field_rust_type) = ".common.HostMachineId"]; // Machine ID
     string state = 2; // ManagedHost state
     string initiator = 3; // Who requested this reprovisioning.
     google.protobuf.Timestamp requested_at = 4; // When reprovisioning was requested.

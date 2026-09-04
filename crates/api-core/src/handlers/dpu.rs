@@ -1784,39 +1784,37 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
     let dpus = db::machine::list_machines_requested_for_reprovisioning(&api.database_connection)
         .await?
         .into_iter()
-        .map(|x| {
-            Ok::<_, CarbideError>(
-                rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
-                    id: Some(x.id.try_into().map_err(CarbideError::from)?),
-                    state: x.current_state().to_string(),
-                    requested_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.requested_at.into()),
-                    initiator: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.initiator.clone())
-                        .unwrap_or_default(),
-                    update_firmware: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.update_firmware)
-                        .unwrap_or_default(),
-                    initiated_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.started_at.map(|x| x.into()))
-                        .unwrap_or_default(),
-                    user_approval_received: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|x| x.user_approval_received)
-                        .unwrap_or_default(),
-                },
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(
+            |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
+                id: Some(x.id),
+                state: x.current_state().to_string(),
+                requested_at: x
+                    .reprovision_requested
+                    .as_ref()
+                    .map(|a| a.requested_at.into()),
+                initiator: x
+                    .reprovision_requested
+                    .as_ref()
+                    .map(|a| a.initiator.clone())
+                    .unwrap_or_default(),
+                update_firmware: x
+                    .reprovision_requested
+                    .as_ref()
+                    .map(|a| a.update_firmware)
+                    .unwrap_or_default(),
+                initiated_at: x
+                    .reprovision_requested
+                    .as_ref()
+                    .map(|a| a.started_at.map(|x| x.into()))
+                    .unwrap_or_default(),
+                user_approval_received: x
+                    .reprovision_requested
+                    .as_ref()
+                    .map(|x| x.user_approval_received)
+                    .unwrap_or_default(),
+            },
+        )
+        .collect_vec();
 
     Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
 }
