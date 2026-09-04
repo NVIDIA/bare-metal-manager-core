@@ -509,6 +509,10 @@ impl ManagedHostStateSnapshot {
             return Err(NotAllocatableReason::PendingInstanceCreation);
         }
 
+        if self.host_snapshot.machine_maintenance_requested.is_some() {
+            return Err(NotAllocatableReason::MaintenanceMode);
+        }
+
         // A desired boot-interface update and instance allocation can race
         // before machine-controller has persisted BootConfiguring. Keep the
         // host unavailable as soon as the desired version lacks a matching
@@ -2573,7 +2577,7 @@ pub struct ReprovisionRequest {
     pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "lowercase")]
 #[allow(clippy::enum_variant_names)]
 pub enum MachineMaintenanceOperation {
@@ -2583,6 +2587,8 @@ pub enum MachineMaintenanceOperation {
     PowerOff,
     /// Reset the host (restart / AC power cycle).
     Reset,
+    /// Reset the identified Redfish chassis through the host BMC.
+    ChassisReset { chassis_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3907,6 +3913,23 @@ mod tests {
         assert_eq!(
             snapshot.is_usable_as_instance(false),
             Err(NotAllocatableReason::PendingBootConfiguration)
+        );
+    }
+
+    #[test]
+    fn ready_host_with_pending_maintenance_is_not_allocatable() {
+        let mut snapshot = managed_host_state_snapshot();
+        snapshot.host_snapshot.machine_maintenance_requested = Some(MachineMaintenanceRequest {
+            requested_at: chrono::Utc::now(),
+            initiator: "test".to_string(),
+            operation: MachineMaintenanceOperation::ChassisReset {
+                chassis_id: "HGX_Chassis_0".to_string(),
+            },
+        });
+
+        assert_eq!(
+            snapshot.is_usable_as_instance(false),
+            Err(NotAllocatableReason::MaintenanceMode),
         );
     }
 

@@ -19,15 +19,12 @@
 
 use ::rpc::forge as rpc;
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use carbide_uuid::machine::HostMachineId;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{MachineInterfaceSnapshot, ManagedHostState};
+use model::machine::{MachineMaintenanceOperation, ManagedHostState};
 use tonic::{Request, Response, Status};
 
-use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::handlers::bmc_endpoint_explorer::{
-    resolve_bmc_interface, validate_and_complete_bmc_endpoint_request,
-};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Maps the requested reset action to a Redfish chassis power control.
@@ -56,16 +53,23 @@ pub(crate) async fn admin_chassis_reset(
 ) -> Result<Response<rpc::AdminChassisResetResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
-    let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
+    let machine_id: HostMachineId = convert_and_log_machine_id(req.machine_id.as_ref())?;
     let chassis_id = req
         .chassis_id
         .none_if_empty()
         // xtask:allow-error-case: HGX_Chassis_0 is a case-sensitive Redfish chassis id
         .ok_or_else(|| Status::invalid_argument("chassis_id is required (e.g. HGX_Chassis_0)"))?;
 
-    // Reject tenant-assigned hosts and require maintenance mode before a reset.
-    let (host_machine, txn) = api
-        .load_machine(&machine_id, MachineSearchConfig::default())
+    map_chassis_reset_action(req.action)?;
+
+    let (host_machine, mut txn) = api
+        .load_machine(
+            &machine_id,
+            MachineSearchConfig {
+                for_update: true,
+                ..Default::default()
+            },
+        )
         .await?;
     if matches!(
         host_machine.current_state(),
@@ -75,28 +79,43 @@ pub(crate) async fn admin_chassis_reset(
             "host is assigned to a tenant; a chassis reset is not allowed",
         ));
     }
-    if host_machine.health_reports.maintenance_override().is_none() {
+    if matches!(
+        host_machine.current_state(),
+        ManagedHostState::ForceDeletion
+    ) {
         return Err(Status::failed_precondition(
-            "host must be in maintenance mode before a chassis reset \
-             (nico-admin-cli managed-host maintenance on <machine-id>)",
+            "host is marked for forced deletion; a chassis reset is not allowed",
         ));
     }
-    drop(txn);
+    if db::instance::find_live_by_machine_id_for_update(&mut txn, &host_machine.id)
+        .await?
+        .is_some()
+    {
+        return Err(Status::failed_precondition(
+            "host is assigned to a tenant; a chassis reset is not allowed",
+        ));
+    }
 
-    let action = map_chassis_reset_action(req.action)?;
-
-    let mut txn = api.txn_begin().await?;
-    let (bmc_endpoint_request, _) =
-        validate_and_complete_bmc_endpoint_request(&mut txn, None, Some(machine_id)).await?;
+    db::machine::set_machine_maintenance_requested(
+        &mut txn,
+        machine_id.into(),
+        "admin-chassis-reset",
+        MachineMaintenanceOperation::ChassisReset { chassis_id },
+    )
+    .await?;
     txn.commit().await?;
 
-    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
-    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-
-    api.bmc_client
-        .redfish_chassis_reset(bmc_addr, &machine_interface, &chassis_id, action)
+    if let Err(error) = api
+        .machine_state_handler_enqueuer
+        .enqueue_object(&machine_id)
         .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    {
+        tracing::warn!(
+            %machine_id,
+            %error,
+            "Failed to enqueue managed host after recording chassis reset request",
+        );
+    }
 
     Ok(Response::new(rpc::AdminChassisResetResponse {}))
 }
