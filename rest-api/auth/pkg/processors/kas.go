@@ -454,13 +454,8 @@ func identityFromServiceKey(caller *callerInfo, urlOrg string) (*identity, error
 	}, nil
 }
 
-// applyVerifiedOrgs writes verified over stored and restamps what it wrote, leaving
-// every other stored org alone. One resolution speaks for the one org the route named,
-// so it cannot tell a revoked grant elsewhere from an org it was never asked about;
-// the kas-legacy workflow is what replaces the map wholesale. A stored entry keeps the
-// ID, display name, org type, and teams that only a richer source supplies, since
-// get-caller-info reports none of them, and takes only the roles it does report. The
-// result stays non-nil, because UserDAO.Update leaves the column alone on a nil map.
+// applyVerifiedOrgs updates verified org roles and timestamps while retaining
+// stored metadata and organizations outside the route scope.
 func applyVerifiedOrgs(stored, verified cdbm.OrgData, updatedAt time.Time) cdbm.OrgData {
 	orgData := make(cdbm.OrgData, len(stored)+len(verified))
 	for name, org := range stored {
