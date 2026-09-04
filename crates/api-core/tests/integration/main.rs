@@ -50,6 +50,7 @@ mod power_shelf_health;
 mod power_shelf_maintenance;
 mod rack_find;
 mod rack_profile;
+mod redfish_actions;
 mod route_servers;
 mod scout_firmware_upgrade_status;
 mod set_primary_dpu;

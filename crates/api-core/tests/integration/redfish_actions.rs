@@ -14,25 +14,84 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::sync::Arc;
 use std::time::Duration;
 
 use ::rpc::forge::forge_server::Forge;
+use carbide_api_core::AuthContext;
+use carbide_api_core::test_support::fixture_config::FixtureDefault as _;
+use carbide_api_core::test_support::redfish::test_behavior;
 use carbide_authn::middleware::{ExternalUserInfo, Principal};
+use carbide_secrets::credentials::Credentials;
+use carbide_secrets::test_support::credentials::TestCredentialManager;
+use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_test_harness::TestNetworkSegment;
+use carbide_test_harness::prelude::*;
+use model::test_support::ManagedHostConfig;
 use rpc::forge::{RedfishAction, RedfishActionResult};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::time::Instant;
 
-use crate::auth::AuthContext;
-use crate::handlers::redfish::test_behavior;
-use crate::tests::common::api_fixtures::{TestEnv, create_managed_host, create_test_env};
+struct TestEnv {
+    api: Arc<Api>,
+    harness: TestHarness,
+    admin_segment: TestNetworkSegment,
+    underlay_segment: TestNetworkSegment,
+    site_explorer: TestSiteExplorer,
+}
 
-#[crate::sqlx_test]
+async fn create_test_env(pool: PgPool) -> TestEnv {
+    let harness = TestHarness::builder(pool)
+        .with_api_builder_fn(|builder| {
+            builder.with_credential_manager(Arc::new(TestCredentialManager::new(
+                Credentials::UsernamePassword {
+                    username: "root".to_string(),
+                    password: "notforprod".to_string(),
+                },
+            )))
+        })
+        .build()
+        .await;
+    let domain = harness.test_domain().await;
+    let network_controller = harness.network_controller();
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let site_explorer = harness.test_site_explorer(SiteExplorerConfig::default());
+    let api = harness.api_arc();
+
+    TestEnv {
+        api,
+        harness,
+        admin_segment,
+        underlay_segment,
+        site_explorer,
+    }
+}
+
+async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
+    let mut managed_host = env
+        .harness
+        .managed_host_builder(&env.site_explorer, env.underlay_segment)
+        .with_config(ManagedHostConfig::default())
+        .with_dpu_network_status_reported()
+        .build()
+        .await
+        .0;
+    managed_host
+        .host
+        .discover_primary_iface(env.admin_segment)
+        .await;
+    managed_host.advance_to_converged_ready().await;
+    managed_host
+}
+
+#[sqlx_test]
 async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
     let bmc_ip = mh
-        .host()
+        .host
         .rpc_machine()
         .await
         .bmc_info
@@ -130,7 +189,7 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
     assert_eq!(err.message(), "user already approved request");
 
     // Test whether the raw DB query allows double insertion of approver
-    let mut txn = env.db_txn().await;
+    let mut txn = env.harness.db_txn().await;
     assert!(
         !db::redfish_actions::approve_request("user2".to_string(), request_id.into(), &mut txn)
             .await
@@ -161,13 +220,13 @@ async fn test_create_and_approve_action(_: PgPoolOptions, options: PgConnectOpti
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
     let bmc_ip = mh
-        .host()
+        .host
         .rpc_machine()
         .await
         .bmc_info
@@ -219,13 +278,13 @@ async fn test_action_failure_at_bmc_request(_: PgPoolOptions, options: PgConnect
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_action_failure_at_client_creation(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
     let bmc_ip = mh
-        .host()
+        .host
         .rpc_machine()
         .await
         .bmc_info
