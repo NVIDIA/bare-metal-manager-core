@@ -472,6 +472,20 @@ pub enum PreingestionState {
         #[serde(default)]
         attempt: u32,
     },
+
+    /// RMS firmware submission has been claimed for one rack compute tray.
+    ///
+    /// The state is persisted before the external call. A restart from this
+    /// state fails closed because RMS may have accepted the request.
+    RackFirmwareSubmitting,
+
+    /// An RMS firmware-object job is pending for one rack compute tray.
+    ///
+    /// The backend job ID is stored on the canonical explored endpoint so
+    /// polling can resume after a process restart. NICo keeps polling until
+    /// RMS reports a terminal state because a local timeout cannot cancel the
+    /// accepted RMS operation safely.
+    RackFirmwareUpdateWait,
     UpgradeFirmwareWait {
         task_id: String,
         final_version: String,

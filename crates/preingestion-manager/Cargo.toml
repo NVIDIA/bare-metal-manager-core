@@ -21,14 +21,18 @@ carbide-api-model = { path = "../api-model" }
 carbide-firmware = { path = "../firmware" }
 carbide-instrument = { path = "../instrument" }
 carbide-redfish = { path = "../redfish" }
+carbide-rack = { path = "../rack", default-features = false }
 carbide-secrets = { path = "../secrets" }
 carbide-ssh = { path = "../ssh" }
 carbide-utils = { path = "../utils" }
+carbide-uuid = { path = "../uuid" }
+component-manager = { path = "../component-manager" }
 
 # these are alphabetized
 chrono = { workspace = true }
 futures-util = { workspace = true }
 libredfish = { workspace = true }
+mac_address = { workspace = true }
 opentelemetry = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
@@ -39,12 +43,14 @@ tracing = { workspace = true }
 version-compare = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
+carbide-api-test-helper = { path = "../api-test-helper" }
 carbide-firmware = { path = "../firmware", features = ["test-support"] }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
-carbide-uuid = { path = "../uuid" }
 libc = { workspace = true }
+librms = { workspace = true }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 tempfile = { workspace = true }
 
