@@ -61,7 +61,7 @@ async fn clear_sku_validation_report(
 
     Ok(db::machine::update_sku_validation_health_report(
         txn,
-        mh_snapshot.host_snapshot.id.as_machine_id(),
+        &mh_snapshot.host_snapshot.id,
         &health_report,
     )
     .await?)
@@ -78,19 +78,13 @@ async fn match_sku_for_machine(
             t < (Utc::now() - host_handler_params.bom_validation.find_match_interval)
         })
     }) {
-        let machine_sku = db::sku::generate_sku_from_machine(
-            &mut *txn,
-            mh_snapshot.host_snapshot.id.as_machine_id(),
-        )
-        .await?;
+        let machine_sku =
+            db::sku::generate_sku_from_machine(&mut *txn, &mh_snapshot.host_snapshot.id).await?;
         let matching_sku = db::sku::find_matching(txn, &machine_sku).await?;
         if matching_sku.is_none() {
             // only update the last attempt if there is no match
-            db::machine::update_sku_status_last_match_attempt(
-                txn,
-                mh_snapshot.host_snapshot.id.as_machine_id(),
-            )
-            .await?;
+            db::machine::update_sku_status_last_match_attempt(txn, &mh_snapshot.host_snapshot.id)
+                .await?;
         }
         Ok(matching_sku)
     } else {
@@ -151,11 +145,9 @@ async fn generate_missing_sku_for_machine(
         return false;
     }
 
-    if let Err(e) = db::machine::update_sku_status_last_generate_attempt(
-        txn,
-        mh_snapshot.host_snapshot.id.as_machine_id(),
-    )
-    .await
+    if let Err(e) =
+        db::machine::update_sku_status_last_generate_attempt(txn, &mh_snapshot.host_snapshot.id)
+            .await
     {
         tracing::error!(
             machine_id=%mh_snapshot.host_snapshot.id,
@@ -165,7 +157,7 @@ async fn generate_missing_sku_for_machine(
     } else {
         let generated_sku = match db::sku::generate_sku_from_machine(
             &mut *txn,
-            mh_snapshot.host_snapshot.id.as_machine_id(),
+            &mh_snapshot.host_snapshot.id,
         )
         .await
         {
@@ -327,7 +319,7 @@ async fn advance_to_sku_missing(
 
     db::machine::update_sku_validation_health_report(
         &mut txn,
-        mh_snapshot.host_snapshot.id.as_machine_id(),
+        &mh_snapshot.host_snapshot.id,
         &health_report,
     )
     .await?;
@@ -347,12 +339,8 @@ async fn advance_to_updating_inventory(
     let bom_validation_context =
         get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
 
-    db::machine_topology::set_topology_update_needed(
-        &mut txn,
-        mh_snapshot.host_snapshot.id.as_machine_id(),
-        true,
-    )
-    .await?;
+    db::machine_topology::set_topology_update_needed(&mut txn, &mh_snapshot.host_snapshot.id, true)
+        .await?;
 
     Ok(
         StateHandlerOutcome::transition(ManagedHostState::BomValidating {
@@ -410,7 +398,7 @@ async fn advance_to_machine_validating(
     };
     let validation = db::machine_validation::create_new_run(
         &mut txn,
-        mh_snapshot.host_snapshot.id.as_machine_id(),
+        &mh_snapshot.host_snapshot.id,
         context,
         model::machine::MachineValidationFilter::default(),
     )
@@ -468,12 +456,8 @@ pub(crate) async fn handle_bom_validation_state(
                     if let Some(sku) =
                         match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot).await?
                     {
-                        db::machine::assign_sku(
-                            &mut txn,
-                            mh_snapshot.host_snapshot.id.as_machine_id(),
-                            &sku.id,
-                        )
-                        .await?;
+                        db::machine::assign_sku(&mut txn, &mh_snapshot.host_snapshot.id, &sku.id)
+                            .await?;
                         // finding a match uses the same check as verifying the sku, so consider it verified.
                         advance_to_machine_validating(txn, mh_snapshot).await
                     } else {
@@ -572,7 +556,7 @@ pub(crate) async fn handle_bom_validation_state(
 
                 let actual_sku = db::sku::generate_sku_from_machine_at_version(
                     txn.as_mut(),
-                    mh_snapshot.host_snapshot.id.as_machine_id(),
+                    &mh_snapshot.host_snapshot.id,
                     expected_sku.schema_version,
                 )
                 .await?;
@@ -600,7 +584,7 @@ pub(crate) async fn handle_bom_validation_state(
                     let health_report = HealthReport::sku_mismatch(diffs);
                     db::machine::update_sku_validation_health_report(
                         &mut txn,
-                        mh_snapshot.host_snapshot.id.as_machine_id(),
+                        &mh_snapshot.host_snapshot.id,
                         &health_report,
                     )
                     .await?;

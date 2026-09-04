@@ -35,12 +35,8 @@ pub(crate) async fn reset_host_reprovisioning(
 
     let mut txn = api.txn_begin().await?;
 
-    db::host_machine_update::reset_host_reprovisioning_request(
-        &mut txn,
-        machine_id.as_host_machine_id(),
-        false,
-    )
-    .await?;
+    db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
+        .await?;
     txn.commit().await?;
 
     Ok(Response::new(()))
@@ -78,17 +74,14 @@ pub(crate) async fn trigger_host_reprovisioning(
             db::host_machine_update::trigger_host_reprovisioning_request(
                 &mut txn,
                 initiator,
-                machine_id.as_host_machine_id(),
+                &machine_id,
             )
             .await?;
             Some(initiator)
         }
         Mode::Clear => {
-            db::host_machine_update::clear_host_reprovisioning_request(
-                &mut txn,
-                machine_id.as_host_machine_id(),
-            )
-            .await?;
+            db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
+                .await?;
             None
         }
     };

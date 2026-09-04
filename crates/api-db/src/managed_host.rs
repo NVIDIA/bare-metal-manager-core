@@ -35,15 +35,13 @@ use crate::db_read::DbReader;
 use crate::{DatabaseError, queries};
 
 /// Loads a ManagedHost snapshot from the database
-pub async fn load_snapshot<DB, ID>(
+pub async fn load_snapshot<DB>(
     txn: &mut DB,
-    machine_id: &ID,
+    machine_id: &MachineId,
     options: LoadSnapshotOptions,
 ) -> Result<Option<ManagedHostStateSnapshot>, DatabaseError>
 where
     for<'db> &'db mut DB: DbReader<'db>,
-    ID: MachineIdSubtypeTrait,
-    DatabaseError: From<<ID as TryFrom<MachineId>>::Error>,
 {
     let mut snapshots = load_by_machine_ids(txn, std::slice::from_ref(machine_id), options).await?;
     Ok(snapshots.remove(machine_id))

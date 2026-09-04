@@ -36,9 +36,7 @@ use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{
-    AsMachineId, HostMachineId, MachineId, MachineIdSubtypeTrait, MachineInterfaceId,
-};
+use carbide_uuid::machine::{HostMachineId, MachineId, MachineIdSubtypeTrait, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
@@ -788,12 +786,12 @@ impl ApiClient {
 
     pub(crate) async fn machine_insert_health_report_override(
         &self,
-        id: &dyn AsMachineId,
+        id: &MachineId,
         report: ::rpc::health::HealthReport,
         replace: bool,
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::InsertMachineHealthReportRequest {
-            machine_id: Some(id.to_machine_id()),
+            machine_id: Some(*id),
             health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
                 mode: if replace {

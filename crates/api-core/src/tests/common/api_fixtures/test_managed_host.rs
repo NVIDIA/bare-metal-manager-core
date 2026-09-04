@@ -116,7 +116,7 @@ where
     }
 
     pub(in crate::tests) async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
-        db::managed_host::load_snapshot(txn.as_mut(), &self.id, Default::default())
+        db::managed_host::load_snapshot(txn.as_mut(), self.id.as_machine_id(), Default::default())
             .await
             .unwrap()
             .unwrap()

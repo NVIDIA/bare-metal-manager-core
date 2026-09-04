@@ -16,7 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
-use carbide_uuid::machine::StableHostMachineId;
+use carbide_uuid::machine::{HostMachineId, StableHostMachineId};
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use tonic::{Request, Response, Status};
@@ -196,7 +196,7 @@ pub(crate) async fn set_maintenance(
         .and_then(|ctx| ctx.get_external_user_name())
         .map(String::from);
     let req = request.into_inner();
-    let machine_id = convert_and_log_machine_id(req.host_id.as_ref())?;
+    let machine_id: HostMachineId = convert_and_log_machine_id(req.host_id.as_ref())?;
 
     let (_, mut txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())

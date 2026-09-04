@@ -629,7 +629,7 @@ impl ManagedHostStateSnapshotRpc for ManagedHostStateSnapshot {
         match dpu_machine_id {
             None => {
                 let sla: rpc::forge::StateSla = state_sla(
-                    host_snapshot.id.as_machine_id(),
+                    &host_snapshot.id,
                     &host_snapshot.state.value,
                     &host_snapshot.state.version,
                     &aggregate_health,
@@ -656,7 +656,7 @@ impl ManagedHostStateSnapshotRpc for ManagedHostStateSnapshot {
                     .find(|dpu| dpu.id == *dpu_machine_id)?;
                 let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
                 let sla: rpc::forge::StateSla = state_sla(
-                    dpu_snapshot.id.as_machine_id(),
+                    &dpu_snapshot.id,
                     &dpu_snapshot.state.value,
                     &dpu_snapshot.state.version,
                     &aggregate_health,
@@ -746,7 +746,7 @@ mod test {
         match dpu_machine_id {
             None => {
                 let sla: rpc::forge::StateSla = state_sla(
-                    snapshot.host_snapshot.id.as_machine_id(),
+                    &snapshot.host_snapshot.id,
                     &snapshot.host_snapshot.state.value,
                     &snapshot.host_snapshot.state.version,
                     &snapshot.aggregate_health,
@@ -773,7 +773,7 @@ mod test {
                     .iter()
                     .find(|dpu| &dpu.id == dpu_machine_id)?;
                 let sla: rpc::forge::StateSla = state_sla(
-                    dpu_snapshot.id.as_machine_id(),
+                    &dpu_snapshot.id,
                     &dpu_snapshot.state.value,
                     &dpu_snapshot.state.version,
                     &snapshot.aggregate_health,

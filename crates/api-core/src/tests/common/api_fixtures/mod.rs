@@ -70,7 +70,9 @@ use carbide_spdm_controller::io::SpdmStateControllerIO;
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{AsMachineId, DpuMachineId, MachineId, MachineIdSubtypeTrait};
+use carbide_uuid::machine::{
+    AsMachineId, DpuMachineId, HostMachineId, MachineId, MachineIdSubtypeTrait,
+};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
@@ -92,8 +94,8 @@ use model::hardware_info::{HardwareInfo, TpmEkCertificate};
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
 use model::machine::capabilities::MachineCapabilityType;
 use model::machine::{
-    FailureDetails, Machine, MachineLastRebootRequested, MachineValidatingState, ManagedHostState,
-    ValidationState,
+    FailureDetails, HostMachine, Machine, MachineLastRebootRequested, MachineValidatingState,
+    ManagedHostState, ValidationState,
 };
 use model::metadata::Metadata;
 use model::network_security_group;
@@ -398,10 +400,10 @@ impl TestEnv {
             .expect("Unable to create transaction on database pool")
     }
 
-    fn fill_machine_information<ID: MachineIdSubtypeTrait>(
+    fn fill_machine_information(
         &self,
         state: &ManagedHostState,
-        machine: &Machine<ID>,
+        machine: &HostMachine,
     ) -> ManagedHostState {
         //This block is to fill data that is populated within statemachine
         match state.clone() {
@@ -504,15 +506,12 @@ impl TestEnv {
         }
     }
 
-    pub(in crate::tests) async fn run_machine_state_controller_iteration_until_state_matches<ID>(
+    pub(in crate::tests) async fn run_machine_state_controller_iteration_until_state_matches(
         &self,
-        host_machine_id: &ID,
+        host_machine_id: &HostMachineId,
         max_iterations: u32,
         expected_state: ManagedHostState,
-    ) where
-        ID: MachineIdSubtypeTrait,
-        db::DatabaseError: From<<ID as TryFrom<MachineId>>::Error>,
-    {
+    ) {
         self.run_machine_state_controller_iteration_until_state_condition(
             host_machine_id,
             max_iterations,
@@ -2115,10 +2114,7 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
 }
 
 /// Emulates the `DiscoveryCompleted` request of a DPU/Host
-pub(in crate::tests) async fn discovery_completed<ID: MachineIdSubtypeTrait>(
-    env: &TestEnv,
-    machine_id: &ID,
-) {
+pub(in crate::tests) async fn discovery_completed(env: &TestEnv, machine_id: &MachineId) {
     let _response = env
         .api
         .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
@@ -2308,9 +2304,9 @@ pub(in crate::tests) async fn network_configured_with_health_and_ext_services(
 }
 
 /// Fake hardware health service reporting health
-pub(in crate::tests) async fn simulate_hardware_health_report<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn simulate_hardware_health_report(
     env: &TestEnv,
-    host_machine_id: &ID,
+    host_machine_id: &MachineId,
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
@@ -2331,9 +2327,9 @@ pub(in crate::tests) async fn simulate_hardware_health_report<ID: MachineIdSubty
 }
 
 /// Send a health report entry
-pub(in crate::tests) async fn send_health_report_entry<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn send_health_report_entry(
     env: &TestEnv,
-    machine_id: &ID,
+    machine_id: &MachineId,
     entry: (HealthReport, HealthReportApplyMode),
 ) {
     use rpc::forge::forge_server::Forge;
@@ -2352,9 +2348,9 @@ pub(in crate::tests) async fn send_health_report_entry<ID: MachineIdSubtypeTrait
 }
 
 /// Remove a health report entry
-pub(in crate::tests) async fn remove_health_report_entry<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn remove_health_report_entry(
     env: &TestEnv,
-    machine_id: &ID,
+    machine_id: &MachineId,
     source: String,
 ) {
     use rpc::forge::forge_server::Forge;
@@ -2369,9 +2365,9 @@ pub(in crate::tests) async fn remove_health_report_entry<ID: MachineIdSubtypeTra
         .unwrap();
 }
 
-pub(in crate::tests) async fn forge_agent_control<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn forge_agent_control(
     env: &TestEnv,
-    machine_id: ID,
+    machine_id: impl MachineIdSubtypeTrait,
 ) -> rpc::forge::ForgeAgentControlResponse {
     let _ = reboot_completed(env, machine_id).await;
 
@@ -2631,9 +2627,9 @@ pub(in crate::tests) async fn set_nvlink_nmxc_endpoint(
     txn.commit().await.expect("commit nvlink_nmxc_endpoint");
 }
 
-pub(in crate::tests) async fn update_time_params<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn update_time_params(
     pool: &sqlx::PgPool,
-    machine: &Machine<ID>,
+    machine: &Machine<impl MachineIdSubtypeTrait>,
     retry_count: i64,
     last_reboot_requested: Option<DateTime<Utc>>,
 ) {
@@ -2674,9 +2670,9 @@ pub(in crate::tests) async fn update_time_params<ID: MachineIdSubtypeTrait>(
     txn.commit().await.unwrap();
 }
 
-pub(in crate::tests) async fn reboot_completed<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn reboot_completed(
     env: &TestEnv,
-    machine_id: ID,
+    machine_id: impl MachineIdSubtypeTrait,
 ) -> rpc::forge::MachineRebootCompletedResponse {
     tracing::info!(
         machine_id = %machine_id,
@@ -2692,9 +2688,9 @@ pub(in crate::tests) async fn reboot_completed<ID: MachineIdSubtypeTrait>(
 }
 
 // Emulates the `MachineValidationComplete` request of a Host
-pub(in crate::tests) async fn machine_validation_completed<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn machine_validation_completed(
     env: &TestEnv,
-    machine_id: &ID,
+    machine_id: &MachineId,
     machine_validation_error: Option<String>,
 ) {
     let response = forge_agent_control(env, *machine_id).await;
@@ -2718,9 +2714,9 @@ pub(in crate::tests) async fn machine_validation_completed<ID: MachineIdSubtypeT
 /// inject_machine_measurements injects auto-approved measurements
 /// for a machine. This also will create a new profile and bundle,
 /// if needed, as part of the auto-approval process.
-pub(in crate::tests) async fn inject_machine_measurements<ID: MachineIdSubtypeTrait>(
+pub(in crate::tests) async fn inject_machine_measurements(
     env: &TestEnv,
-    machine_id: ID,
+    machine_id: impl MachineIdSubtypeTrait,
 ) {
     let _response = env
         .api

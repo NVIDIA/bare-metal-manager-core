@@ -125,9 +125,7 @@ pub(crate) async fn list_dpu_service_sync_history(
         convert_and_log_machine_id(request.get_ref().machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
-    let actions =
-        db::machine_pending_action::find_all_for_machine(&mut txn, machine_id.as_machine_id())
-            .await?;
+    let actions = db::machine_pending_action::find_all_for_machine(&mut txn, &machine_id).await?;
     let pending = project(api, &mut txn, actions).await?;
     txn.commit().await?;
 
@@ -162,10 +160,10 @@ async fn project(
                 machine_id: Some(host_machine_id),
                 requested_at: Some(action.requested_at.into()),
                 state: states
-                    .get(host_machine_id.as_host_machine_id())
+                    .get(&host_machine_id)
                     .cloned()
                     .unwrap_or_else(|| "unknown".to_string()),
-                instance_id: instances.get(host_machine_id.as_host_machine_id()).copied(),
+                instance_id: instances.get(&host_machine_id).copied(),
                 completed_at: action.completed_at.map(Into::into),
                 // Left absent while outstanding. `UpdateInitiator::AdminCli` is zero,
                 // so a default here would misreport every waiting machine as

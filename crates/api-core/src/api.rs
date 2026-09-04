@@ -41,8 +41,7 @@ use carbide_secrets::credentials::{
 };
 use carbide_site_explorer::{AuthenticatedBmc, EndpointExplorationService, EndpointExplorer};
 use carbide_uuid::machine::{
-    AsMachineId, DpuMachineId, MachineId, MachineIdSubtypeTrait, MachineInterfaceId,
-    StableHostMachineId,
+    AsMachineId, DpuMachineId, MachineId, MachineInterfaceId, StableHostMachineId,
 };
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -3743,11 +3742,8 @@ pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
 }
 
 /// Logs the Machine ID in the current tracing span
-pub(crate) fn log_machine_id(machine_id: &dyn AsMachineId) {
-    tracing::Span::current().record(
-        "forge.machine_id",
-        tracing::field::display(machine_id.as_machine_id()),
-    );
+pub(crate) fn log_machine_id(machine_id: &MachineId) {
+    tracing::Span::current().record("forge.machine_id", tracing::field::display(machine_id));
 }
 
 pub(crate) fn log_tenant_organization_id(organization_id: &str) {
@@ -3868,7 +3864,7 @@ impl Api {
     #[track_caller]
     pub(crate) fn load_machine(
         &self,
-        machine_id: &impl MachineIdSubtypeTrait,
+        machine_id: &MachineId,
         search_config: MachineSearchConfig,
     ) -> impl Future<Output = CarbideResult<(AnyMachine, db::Transaction<'_>)>> {
         let loc = Location::caller();

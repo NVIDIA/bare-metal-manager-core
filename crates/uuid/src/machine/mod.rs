@@ -390,6 +390,7 @@ pub trait MachineIdSubtypeTrait:
     + Hash
     + Into<MachineId>
     + TryFrom<MachineId, Error: Into<InvalidMachineType> + std::fmt::Debug>
+    + MachineIdSubtypeSqlx
 {
     /// Returns this machine's type.
     fn machine_type(&self) -> MachineType;
@@ -409,6 +410,30 @@ pub trait MachineIdSubtypeTrait:
         matches!(self.machine_type(), MachineType::Dpu)
     }
 }
+
+#[cfg(feature = "sqlx")]
+#[doc(hidden)]
+pub trait MachineIdSubtypeSqlx:
+    for<'q> sqlx::Encode<'q, sqlx::Postgres>
+    + sqlx::Type<sqlx::Postgres>
+    + sqlx::postgres::PgHasArrayType
+{
+}
+
+#[cfg(feature = "sqlx")]
+impl<T> MachineIdSubtypeSqlx for T where
+    T: for<'q> sqlx::Encode<'q, sqlx::Postgres>
+        + sqlx::Type<sqlx::Postgres>
+        + sqlx::postgres::PgHasArrayType
+{
+}
+
+#[cfg(not(feature = "sqlx"))]
+#[doc(hidden)]
+pub trait MachineIdSubtypeSqlx {}
+
+#[cfg(not(feature = "sqlx"))]
+impl<T> MachineIdSubtypeSqlx for T {}
 
 pub trait AsMachineId: Send + Sync {
     fn as_machine_id(&self) -> &MachineId;

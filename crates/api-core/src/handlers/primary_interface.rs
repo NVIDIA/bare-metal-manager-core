@@ -143,8 +143,7 @@ pub(super) async fn update_primary_interface(
     let interface_snapshots =
         db::machine_interface::find_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
     // This locks the Machine row with `FOR UPDATE`; the snapshot below is read after that wait.
-    db::machine_desired_boot_interface::lock(txn.as_pgconn(), host_machine_id.as_host_machine_id())
-        .await?;
+    db::machine_desired_boot_interface::lock(txn.as_pgconn(), &host_machine_id).await?;
     let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| CarbideError::Internal {
@@ -311,8 +310,7 @@ pub(super) async fn update_primary_interface_from_scout(
     let interface_snapshots =
         db::machine_interface::find_by_machine_id_for_update(&mut txn, &host_machine_id).await?;
     // This locks the Machine row with `FOR UPDATE`; the snapshot below is read after that wait.
-    db::machine_desired_boot_interface::lock(txn.as_pgconn(), host_machine_id.as_host_machine_id())
-        .await?;
+    db::machine_desired_boot_interface::lock(txn.as_pgconn(), &host_machine_id).await?;
     let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
         .await?
         .ok_or_else(|| CarbideError::Internal {
@@ -497,21 +495,10 @@ async fn apply_primary_interface_update(
     }
 
     let desired_update = if force_reconcile {
-        db::machine_desired_boot_interface::force_set(
-            txn,
-            host_machine_id.as_host_machine_id(),
-            boot_target,
-            source,
-        )
-        .await?
+        db::machine_desired_boot_interface::force_set(txn, &host_machine_id, boot_target, source)
+            .await?
     } else {
-        db::machine_desired_boot_interface::set(
-            txn,
-            host_machine_id.as_host_machine_id(),
-            boot_target,
-            source,
-        )
-        .await?
+        db::machine_desired_boot_interface::set(txn, &host_machine_id, boot_target, source).await?
     };
 
     Ok(desired_update.desired_changed)

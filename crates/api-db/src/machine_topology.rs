@@ -55,7 +55,7 @@ async fn update(
 
 pub async fn create_or_update(
     txn: &mut PgConnection,
-    machine_id: &impl MachineIdSubtypeTrait,
+    machine_id: &MachineId,
     hardware_info: &HardwareInfo,
 ) -> DatabaseResult<MachineTopology> {
     let machine_id = machine_id.to_machine_id();
@@ -413,12 +413,12 @@ pub async fn find_freetext(
 
 pub async fn set_topology_update_needed(
     txn: &mut PgConnection,
-    machine_id: &impl MachineIdSubtypeTrait,
+    machine_id: &MachineId,
     value: bool,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machine_topologies SET topology_update_needed=$2 WHERE machine_id=$1 RETURNING machine_id";
     let _id = sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .bind(value)
         .fetch_one(txn)
         .await

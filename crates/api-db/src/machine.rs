@@ -26,8 +26,7 @@ use std::str::FromStr;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{
-    AsMachineId, DpuMachineId, HostMachineId, MachineId, MachineIdSubtypeTrait, MachineType,
-    StableHostMachineId,
+    DpuMachineId, HostMachineId, MachineId, MachineIdSubtypeTrait, MachineType, StableHostMachineId,
 };
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::{RackId, RackProfileId};
@@ -1002,7 +1001,7 @@ pub async fn find_dpus_by_host_machine_id(
 
 pub async fn update_metadata(
     txn: &mut PgConnection,
-    machine_id: &impl MachineIdSubtypeTrait,
+    machine_id: &MachineId,
     expected_version: ConfigVersion,
     metadata: Metadata,
 ) -> Result<(), DatabaseError> {
@@ -1018,7 +1017,7 @@ pub async fn update_metadata(
         .bind(&metadata.name)
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .bind(expected_version)
         .fetch_one(txn)
         .await;
@@ -1060,7 +1059,7 @@ pub async fn update_network_status_observation(
             // It compiles to a no-op in production environments.
             debug_failed_machine_status_update(
                 txn,
-                machine_id.as_machine_id(),
+                machine_id,
                 "network_status_observation",
                 observation,
             )
@@ -1429,18 +1428,11 @@ pub async fn insert_health_report(
 
 pub async fn remove_health_report(
     txn: &mut PgConnection,
-    machine_id: &impl MachineIdSubtypeTrait,
+    machine_id: &MachineId,
     mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
-    crate::health_report::remove_health_report(
-        txn,
-        "machines",
-        machine_id.as_machine_id(),
-        mode,
-        source,
-    )
-    .await
+    crate::health_report::remove_health_report(txn, "machines", machine_id, mode, source).await
 }
 
 pub async fn update_agent_reported_inventory(
@@ -2720,13 +2712,13 @@ pub async fn find_by_validation_id(
 /// set_firmware_autoupdate flags a machine ID as explicitly having firmware upgrade enabled or disabled, or use config files if None.
 pub async fn set_firmware_autoupdate(
     txn: &mut PgConnection,
-    machine_id: &dyn AsMachineId,
+    machine_id: &MachineId,
     state: Option<bool>,
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET firmware_autoupdate = $1 WHERE id = $2";
     sqlx::query(query)
         .bind(state)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -2768,7 +2760,7 @@ pub async fn set_machine_validation_request(
 
 pub async fn set_machine_maintenance_requested(
     txn: &mut PgConnection,
-    machine_id: impl AsMachineId,
+    machine_id: impl MachineIdSubtypeTrait,
     initiator: &str,
     operation: MachineMaintenanceOperation,
 ) -> DatabaseResult<()> {
@@ -2780,7 +2772,7 @@ pub async fn set_machine_maintenance_requested(
     let query = "UPDATE machines SET machine_maintenance_requested = $1 WHERE id = $2 RETURNING id";
     sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(req))
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("set_machine_maintenance_requested", e))?;
@@ -2789,11 +2781,11 @@ pub async fn set_machine_maintenance_requested(
 
 pub async fn set_decommission_requested(
     txn: &mut PgConnection,
-    machine_id: impl AsMachineId,
+    machine_id: impl MachineIdSubtypeTrait,
 ) -> DatabaseResult<()> {
     let query = "UPDATE machines SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
     sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map(|_| ())
@@ -2802,11 +2794,11 @@ pub async fn set_decommission_requested(
 
 pub async fn clear_decommission_requested(
     txn: &mut PgConnection,
-    machine_id: impl AsMachineId,
+    machine_id: impl MachineIdSubtypeTrait,
 ) -> DatabaseResult<()> {
     let query = "UPDATE machines SET decommission_requested = FALSE WHERE id = $1 RETURNING id";
     sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map(|_| ())
@@ -2815,12 +2807,12 @@ pub async fn clear_decommission_requested(
 
 pub async fn clear_machine_maintenance_requested(
     txn: &mut PgConnection,
-    machine_id: impl AsMachineId,
+    machine_id: impl MachineIdSubtypeTrait,
 ) -> DatabaseResult<()> {
     let query =
         "UPDATE machines SET machine_maintenance_requested = NULL WHERE id = $1 RETURNING id";
     sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("clear_machine_maintenance_requested", e))?;
@@ -2832,12 +2824,12 @@ pub async fn clear_machine_maintenance_requested(
 /// The machine state controller consumes it on its next sweep.
 pub async fn set_bmc_credential_rotation_requested(
     txn: &mut PgConnection,
-    machine_id: &dyn AsMachineId,
+    machine_id: &MachineId,
 ) -> DatabaseResult<()> {
     let query =
         "UPDATE machines SET bmc_credential_rotation_requested = true WHERE id = $1 RETURNING id";
     sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| match e {
@@ -2845,7 +2837,7 @@ pub async fn set_bmc_credential_rotation_requested(
             // clean not-found rather than a generic wrapped error.
             sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
                 kind: "machine",
-                id: machine_id.as_machine_id().to_string(),
+                id: machine_id.to_string(),
             },
             e => DatabaseError::new("set_bmc_credential_rotation_requested", e),
         })?;
@@ -2854,12 +2846,12 @@ pub async fn set_bmc_credential_rotation_requested(
 
 pub async fn clear_bmc_credential_rotation_requested(
     txn: &mut PgConnection,
-    machine_id: &dyn AsMachineId,
+    machine_id: &MachineId,
 ) -> DatabaseResult<()> {
     let query =
         "UPDATE machines SET bmc_credential_rotation_requested = false WHERE id = $1 RETURNING id";
     sqlx::query_as::<_, MachineId>(query)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_one(txn)
         .await
         .map_err(|e| match e {
@@ -2867,7 +2859,7 @@ pub async fn clear_bmc_credential_rotation_requested(
             // clean not-found rather than a generic wrapped error.
             sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
                 kind: "machine",
-                id: machine_id.as_machine_id().to_string(),
+                id: machine_id.to_string(),
             },
             e => DatabaseError::new("clear_bmc_credential_rotation_requested", e),
         })?;
@@ -3336,18 +3328,10 @@ pub async fn set_quarantine_state(
     quarantine_state: ManagedHostQuarantineState,
 ) -> Result<Option<ManagedHostQuarantineState>, DatabaseError> {
     let (mut network_config, network_config_version) =
-        get_network_config(&mut *txn, machine_id.as_machine_id())
-            .await?
-            .take();
+        get_network_config(&mut *txn, machine_id).await?.take();
     let old_quarantine_state = network_config.quarantine_state.clone();
     network_config.quarantine_state = Some(quarantine_state);
-    try_update_network_config(
-        txn,
-        machine_id.as_machine_id(),
-        network_config_version,
-        &network_config,
-    )
-    .await?;
+    try_update_network_config(txn, machine_id, network_config_version, &network_config).await?;
     Ok(old_quarantine_state)
 }
 
@@ -3537,7 +3521,8 @@ mod test {
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
     use carbide_uuid::machine::{
-        HostMachineId, MachineId, MachineInterfaceId, StableHostMachineId,
+        HostMachineId, HostMachineIdSubtypeTrait, MachineId, MachineInterfaceId,
+        StableHostMachineId,
     };
     use carbide_uuid::network::NetworkSegmentId;
     use model::allocation_type::AllocationType;
@@ -3657,7 +3642,7 @@ mod test {
 
         let under_stable = crate::dpa_interface::find_by_machine_id(
             txn.as_mut(),
-            *stable_id.as_host_machine_id(),
+            stable_id.to_host_machine_id(),
             DpaSearchConfig::default(),
         )
         .await?;

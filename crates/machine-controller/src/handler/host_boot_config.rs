@@ -195,7 +195,7 @@ pub(super) async fn check_host_boot_config(
 
     let resolution = resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
     let boot_interface = match require_boot_interface(
-        mh_snapshot.host_snapshot.id.as_machine_id(),
+        &mh_snapshot.host_snapshot.id,
         resolution,
         "configuring boot",
         HostBootConfigCheckOutcome::Wait,

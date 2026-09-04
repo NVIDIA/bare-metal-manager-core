@@ -116,7 +116,7 @@ async fn handle_validation_boot_config_stage(
             let mut txn = ctx.services.db_pool.begin().await?;
             let completed = db::machine_validation::mark_machine_validation_complete(
                 txn.as_mut(),
-                machine_id.as_machine_id(),
+                &machine_id,
                 &validation_id,
                 MachineValidationStatus {
                     state: MachineValidationState::Failed,
@@ -157,7 +157,7 @@ async fn skip_machine_validation(
     let mut txn = ctx.services.db_pool.begin().await?;
     let completed = db::machine_validation::mark_machine_validation_complete(
         txn.as_mut(),
-        machine_id.as_machine_id(),
+        &machine_id,
         validation_id,
         MachineValidationStatus {
             state: MachineValidationState::Skipped,
@@ -249,7 +249,7 @@ pub(crate) async fn handle_machine_validation_state(
                 let boot_interface_resolution =
                     resolve_boot_interface_for_step(ctx, mh_snapshot, None).await?;
                 if let RequiredBootInterface::Ready(boot_interface) = require_boot_interface(
-                    mh_snapshot.host_snapshot.id.as_machine_id(),
+                    &mh_snapshot.host_snapshot.id,
                     boot_interface_resolution,
                     "verifying the boot config during validation",
                     |message| message,
@@ -616,16 +616,12 @@ pub(crate) async fn handle_machine_validation_requested(
         let mut txn = services.db_pool.begin().await?;
         if clear_failure_details {
             // Clear the error so that state machine doesnt get into loop
-            db::machine::clear_failure_details(
-                mh_snapshot.host_snapshot.id.as_machine_id(),
-                txn.as_mut(),
-            )
-            .await?;
+            db::machine::clear_failure_details(&mh_snapshot.host_snapshot.id, txn.as_mut()).await?;
         }
         let machine_validation =
             match db::machine_validation::find_active_machine_validation_by_machine_id(
                 txn.as_mut(),
-                mh_snapshot.host_snapshot.id.as_machine_id(),
+                &mh_snapshot.host_snapshot.id,
             )
             .await
             {
@@ -637,7 +633,7 @@ pub(crate) async fn handle_machine_validation_requested(
                     );
                     db::machine::set_machine_validation_request(
                         txn.as_mut(),
-                        mh_snapshot.host_snapshot.id.as_machine_id(),
+                        &mh_snapshot.host_snapshot.id,
                         true,
                     )
                     .await?;

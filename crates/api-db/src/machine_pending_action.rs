@@ -18,7 +18,7 @@
 //! Durable markers for work carbide still owes an external system per machine,
 //! and a bounded history of the work already done.
 
-use carbide_uuid::machine::{AsMachineId, MachineId, MachineIdSubtypeTrait};
+use carbide_uuid::machine::{MachineId, MachineIdSubtypeTrait};
 use model::machine_pending_action::{
     MachinePendingAction, MachinePendingActionActor, MachinePendingActionKind,
 };
@@ -35,10 +35,9 @@ use crate::{DatabaseError, DatabaseResult};
 /// starts a new row, leaving the earlier completion in the history.
 pub async fn request(
     txn: &mut PgConnection,
-    machine_id: &dyn AsMachineId,
+    machine_id: &MachineId,
     kind: MachinePendingActionKind,
 ) -> DatabaseResult<MachinePendingAction> {
-    let machine_id = *machine_id.as_machine_id();
     // The conflict target is the partial unique index over outstanding rows, so
     // only an unfinished request collides. `kind` already equals `EXCLUDED.kind`
     // there; assigning it is the way to make this a `DO UPDATE` -- which returns
@@ -150,12 +149,7 @@ pub async fn find_outstanding_by_machine_ids(
 
     sqlx::query_as(QUERY)
         .bind(kind)
-        .bind(
-            machine_ids
-                .iter()
-                .map(|i| i.as_machine_id())
-                .collect::<Vec<_>>(),
-        )
+        .bind(machine_ids)
         .fetch_all(db)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))
@@ -167,7 +161,7 @@ pub async fn find_outstanding_by_machine_ids(
 /// History is capped per machine by the database, so this is bounded.
 pub async fn find_all_for_machine(
     db: impl DbReader<'_>,
-    machine_id: &dyn AsMachineId,
+    machine_id: &MachineId,
 ) -> DatabaseResult<Vec<MachinePendingAction>> {
     const QUERY: &str = "SELECT
         machine_id,
@@ -180,7 +174,7 @@ pub async fn find_all_for_machine(
     ORDER BY id DESC";
 
     sqlx::query_as(QUERY)
-        .bind(machine_id.as_machine_id())
+        .bind(machine_id)
         .fetch_all(db)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))

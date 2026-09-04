@@ -982,11 +982,8 @@ async fn handle_dpf_reprovisioning(
 
         let outcome = StateHandlerOutcome::transition(next);
         let mut txn = ctx.services.db_pool.begin().await?;
-        db::machine::mark_machine_ingestion_done_with_dpf(
-            &mut txn,
-            state.host_snapshot.id.as_machine_id(),
-        )
-        .await?;
+        db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &state.host_snapshot.id)
+            .await?;
         return Ok(outcome.with_txn(txn));
     }
 

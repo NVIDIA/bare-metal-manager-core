@@ -61,7 +61,7 @@ pub(crate) async fn update_power_option(
         .machine_id
         .ok_or_else(|| CarbideError::InvalidArgument("machine ID is missing".to_string()))?;
 
-    log_machine_id(machine_id.as_machine_id());
+    log_machine_id(&machine_id);
 
     let mut txn = api.txn_begin().await?;
 

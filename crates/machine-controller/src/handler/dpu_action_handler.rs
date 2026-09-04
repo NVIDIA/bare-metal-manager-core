@@ -148,12 +148,7 @@ async fn pending_sync_is_outstanding(
     host: &HostMachine,
 ) -> Result<bool, StateHandlerError> {
     let mut conn = ctx.services.db_pool.acquire().await?;
-    Ok(db::machine_pending_action::is_outstanding(
-        &mut *conn,
-        host.id.as_machine_id(),
-        DpuServiceSync,
-    )
-    .await?)
+    Ok(db::machine_pending_action::is_outstanding(&mut *conn, &host.id, DpuServiceSync).await?)
 }
 
 /// Marks this host's pending DPU service sync as done.
@@ -171,7 +166,7 @@ pub(super) async fn complete_pending_sync(
     // itself. An operator-driven release records itself separately.
     Ok(db::machine_pending_action::complete(
         &mut conn,
-        host.id.as_machine_id(),
+        &host.id,
         DpuServiceSync,
         MachinePendingActionActor::Automatic,
     )

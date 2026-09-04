@@ -1959,7 +1959,7 @@ impl NvlPartitionMonitor {
         // Update db with the operations that completed successfully.
         let mut txn = self.db_pool.txn_begin().await?;
         for (machine_id, nvlink_info) in nvlink_info_db_updates {
-            machine::update_nvlink_info(&mut txn, machine_id.as_machine_id(), nvlink_info).await?;
+            machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
         }
         self.update_db_with_nmx_c_operations(
             &mut txn,

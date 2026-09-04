@@ -332,7 +332,7 @@ pub(super) async fn handle_deconfiguring_host(
                 )));
             }
             let mut txn = ctx.services.db_pool.begin().await?;
-            db::machine::clear_bios_password_set_time(machine.id.as_machine_id(), &mut txn).await?;
+            db::machine::clear_bios_password_set_time(&machine.id, &mut txn).await?;
             Ok(
                 StateHandlerOutcome::transition(deconfiguring_dpus_after_host_reset(state))
                     .with_txn(txn),
@@ -867,12 +867,12 @@ pub(super) async fn handle_factory_resetting_bmcs(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let machine_id = if !completed.contains(state.host_snapshot.id.as_machine_id()) {
+    let machine_id = if !completed.contains(&state.host_snapshot.id) {
         factory_reset_bmc(&state.host_snapshot, ctx).await?
     } else if let Some(dpu) = state
         .dpu_snapshots
         .iter()
-        .find(|dpu| !completed.contains(dpu.id.as_machine_id()))
+        .find(|dpu| !completed.contains(&dpu.id))
     {
         factory_reset_bmc(dpu, ctx).await?
     } else {

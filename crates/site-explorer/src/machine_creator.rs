@@ -590,13 +590,8 @@ impl MachineCreator {
             {
                 match prediction.machine_id.machine_id_subtype() {
                     MachineIdSubtype::StableHost(stable_machine_id) => {
-                        reconcile_desired_boot_interface(
-                            txn,
-                            stable_machine_id.as_host_machine_id(),
-                            None,
-                            None,
-                        )
-                        .await?;
+                        reconcile_desired_boot_interface(txn, &stable_machine_id, None, None)
+                            .await?;
                         return Ok(None);
                     }
                     MachineIdSubtype::PredictedHost(predicted_machine_id) => {
@@ -665,13 +660,7 @@ impl MachineCreator {
                 primary_mac,
             )
             .await?;
-            reconcile_desired_boot_interface(
-                txn,
-                machine_id.as_host_machine_id(),
-                None,
-                declared_primary,
-            )
-            .await?;
+            reconcile_desired_boot_interface(txn, &machine_id, None, declared_primary).await?;
             return Ok(None);
         }
 

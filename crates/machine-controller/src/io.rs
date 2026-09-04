@@ -440,7 +440,7 @@ impl StateControllerIO for MachineStateControllerIO {
         object_state: &Self::State,
     ) -> StateSla {
         machine::state_sla(
-            object_state.host_snapshot.id.as_machine_id(),
+            &object_state.host_snapshot.id,
             &state.value,
             &state.version,
             &object_state.aggregate_health,

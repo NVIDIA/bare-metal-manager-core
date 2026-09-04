@@ -1354,7 +1354,7 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
 
     validate_delete_response_multi_dpu(&response, Some(&mh.host().id), dpu_ids.as_slice());
 
-    validate_machine_deletion(&env, mh.host().id.as_machine_id(), None).await;
+    validate_machine_deletion(&env, &mh.host().id, None).await;
     for id in &dpu_ids {
         validate_machine_deletion(&env, id, None).await;
     }

@@ -505,7 +505,7 @@ async fn handle_instance_release_from_repair_tenant(
                 create_tenant_reported_issue_override(issue, tenant_organization_id);
             apply_health_override(
                 txn,
-                machine_id.as_machine_id(),
+                machine_id,
                 &override_report,
                 "TenantReportedIssue for repair tenant issues (no auto-repair to prevent cycles)",
             )
@@ -534,7 +534,7 @@ async fn handle_instance_release_from_repair_tenant(
         // Repair completed successfully - Good to remove the RequestRepair override.
         remove_health_override(
             txn,
-            machine_id.as_machine_id(),
+            machine_id,
             health_report::REPAIR_REQUEST_MERGE_SOURCE,
             "RequestRepair removed - repair completed successfully",
         )
@@ -555,7 +555,7 @@ async fn handle_instance_release_from_repair_tenant(
                 create_tenant_reported_issue_override(issue, tenant_organization_id);
             apply_health_override(
                 txn,
-                machine_id.as_machine_id(),
+                machine_id,
                 &override_report,
                 "TenantReportedIssue updated for repair tenant (no auto-repair to prevent cycles)",
             )
@@ -564,7 +564,7 @@ async fn handle_instance_release_from_repair_tenant(
             // No new issues - Remove TenantReportedIssue override to make machine available in ready pool
             remove_health_override(
                 txn,
-                machine_id.as_machine_id(),
+                machine_id,
                 "tenant-reported-issue",
                 "TenantReportedIssue removed - repair completed successfully",
             )
@@ -575,7 +575,7 @@ async fn handle_instance_release_from_repair_tenant(
         // to send the machine for Forge team intervention, preventing auto-repair loops.
         remove_health_override(
             txn,
-            machine_id.as_machine_id(),
+            machine_id,
             health_report::REPAIR_REQUEST_MERGE_SOURCE,
             "RequestRepair removed for incomplete repair",
         )
@@ -610,7 +610,7 @@ async fn handle_instance_release_from_repair_tenant(
             create_tenant_reported_issue_override(&issue_to_apply, tenant_organization_id);
         apply_health_override(
             txn,
-            machine_id.as_machine_id(),
+            machine_id,
             &override_report,
             "TenantReportedIssue for incomplete repair (no auto-repair to prevent cycles)",
         )
@@ -654,7 +654,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
     let tenant_override = create_tenant_reported_issue_override(issue, tenant_organization_id);
     apply_health_override(
         txn,
-        machine_id.as_machine_id(),
+        machine_id,
         &tenant_override,
         "TenantReportedIssue for regular tenant",
     )
@@ -665,7 +665,7 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
         let repair_override = create_request_repair_override(issue);
         apply_health_override(
             txn,
-            machine_id.as_machine_id(),
+            machine_id,
             &repair_override,
             "RequestRepair for regular tenant (auto-repair enabled)",
         )
@@ -2257,7 +2257,7 @@ impl HydrateFromDeprecatedFields for rpc::InstanceAllocationRequest {
 
         let ns_id = match db::network_segment::find_ids_by_machine_id(
             txn,
-            machine_id.as_host_machine_id(),
+            &machine_id,
             Some(NetworkSegmentType::HostInband),
         )
         .await?

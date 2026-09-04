@@ -123,9 +123,9 @@ fn stable_host_id(host_id: HostMachineId) -> StableHostMachineId {
         .expect("site-explorer fixture should produce a stable host ID")
 }
 
-async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
+async fn load_set_primary_persistence_state(
     pool: &sqlx::PgPool,
-    host_id: ID,
+    host_id: impl MachineIdSubtypeTrait,
 ) -> Result<SetPrimaryPersistenceState, sqlx::Error> {
     Ok(SetPrimaryPersistenceState {
         interface_identities: sqlx::query_as(
@@ -141,7 +141,7 @@ async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
              WHERE machine_id = $1
              ORDER BY id",
         )
-        .bind(host_id.as_machine_id())
+        .bind(host_id)
         .fetch_all(pool)
         .await?,
         interface_presentations: sqlx::query_as(
@@ -150,7 +150,7 @@ async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
              WHERE machine_id = $1
              ORDER BY id",
         )
-        .bind(host_id.as_machine_id())
+        .bind(host_id)
         .fetch_all(pool)
         .await?,
         interface_addresses: sqlx::query_as(
@@ -163,7 +163,7 @@ async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
              WHERE interface.machine_id = $1 \
              ORDER BY address.id",
         )
-        .bind(host_id.as_machine_id())
+        .bind(host_id)
         .fetch_all(pool)
         .await?,
         machine_network_configs: sqlx::query_as(
@@ -172,7 +172,7 @@ async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
              WHERE id IN (SELECT id FROM machine_group_member_ids($1)) \
              ORDER BY id",
         )
-        .bind(host_id.as_machine_id())
+        .bind(host_id)
         .fetch_all(pool)
         .await?,
         instance_network_configs: sqlx::query_as(
@@ -181,7 +181,7 @@ async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
              WHERE machine_id = $1
              ORDER BY id",
         )
-        .bind(host_id.as_machine_id())
+        .bind(host_id)
         .fetch_all(pool)
         .await?,
         desired_boot_interface: sqlx::query_as(
@@ -198,7 +198,7 @@ async fn load_set_primary_persistence_state<ID: MachineIdSubtypeTrait>(
              JOIN machines machine ON machine.id = boot_interface.machine_id
              WHERE boot_interface.machine_id = $1",
         )
-        .bind(host_id.as_machine_id())
+        .bind(host_id)
         .fetch_optional(pool)
         .await?,
     })

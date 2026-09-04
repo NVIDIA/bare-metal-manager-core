@@ -649,7 +649,7 @@ impl MachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         db::machine::remove_health_report(
             txn,
-            mh_snaphost.host_snapshot.id.as_machine_id(),
+            &mh_snaphost.host_snapshot.id,
             health_report::HealthReportApplyMode::Merge,
             model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
@@ -1118,7 +1118,7 @@ impl MachineStateHandler {
                                 async move {
                                     db::machine::insert_health_report(
                                         txn,
-                                        host_machine_id.as_machine_id(),
+                                        &host_machine_id,
                                         health_report::HealthReportApplyMode::Merge,
                                         &health_report,
                                         false,
@@ -1186,7 +1186,7 @@ impl MachineStateHandler {
                     let mut txn = ctx.services.db_pool.begin().await?;
                     db::machine::insert_health_report(
                         &mut txn,
-                        host_machine_id.as_machine_id(),
+                        host_machine_id,
                         health_report::HealthReportApplyMode::Merge,
                         &health_override,
                         false,
@@ -1200,7 +1200,7 @@ impl MachineStateHandler {
                 // the measurement state
                 if self.host_handler.host_handler_params.attestation_enabled
                     && check_if_should_redo_measurements(
-                        mh_snapshot.host_snapshot.id.as_machine_id(),
+                        &mh_snapshot.host_snapshot.id,
                         &mut ctx.services.db_reader,
                     )
                     .await?
@@ -1787,8 +1787,7 @@ impl MachineStateHandler {
                     // Clear stale host failure details before accepting maintenance,
                     // matching other Failed recovery branches that exit with a txn.
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    db::machine::clear_failure_details(host_machine_id.as_machine_id(), &mut txn)
-                        .await?;
+                    db::machine::clear_failure_details(host_machine_id, &mut txn).await?;
                     return Ok(outcome.with_txn(txn));
                 }
 
@@ -1913,7 +1912,7 @@ impl MachineStateHandler {
                     | FailureCause::MeasurementsRevoked { .. }
                     | FailureCause::MeasurementsCAValidationFailed { .. } => {
                         if check_if_not_in_original_failure_cause_anymore(
-                            mh_snapshot.host_snapshot.id.as_machine_id(),
+                            &mh_snapshot.host_snapshot.id,
                             &mut ctx.services.db_reader,
                             &details.cause,
                             self.host_handler.host_handler_params.attestation_enabled,
@@ -1955,12 +1954,7 @@ impl MachineStateHandler {
                         }
                     }
                     FailureCause::SpdmAttestationFailed { .. } => {
-                        handle_spdm_attestation_failed_recovery(
-                            ctx,
-                            host_machine_id.as_machine_id(),
-                            details,
-                        )
-                        .await
+                        handle_spdm_attestation_failed_recovery(ctx, host_machine_id, details).await
                     }
                     FailureCause::MachineValidation { .. }
                         if machine_id.machine_type().is_host() =>
@@ -2056,7 +2050,7 @@ impl MachineStateHandler {
             // ceases being attested
             ManagedHostState::Measuring { measuring_state } => handle_measuring_state(
                 measuring_state,
-                mh_snapshot.host_snapshot.id.as_machine_id(),
+                &mh_snapshot.host_snapshot.id,
                 &mut ctx.services.db_reader,
                 self.host_handler.host_handler_params.attestation_enabled,
                 mh_snapshot.host_snapshot.state.version.timestamp(),
@@ -2082,7 +2076,7 @@ impl MachineStateHandler {
                         }
                         handle_measuring_state(
                             measuring_state,
-                            mh_snapshot.host_snapshot.id.as_machine_id(),
+                            &mh_snapshot.host_snapshot.id,
                             &mut ctx.services.db_reader,
                             self.host_handler.host_handler_params.attestation_enabled,
                             mh_snapshot.host_snapshot.state.version.timestamp(),
@@ -2114,7 +2108,7 @@ impl MachineStateHandler {
                                 handle_spdm_trigger_state(
                                     ctx.services,
                                     mh_snapshot,
-                                    host_machine_id.as_machine_id(),
+                                    host_machine_id,
                                     ManagedHostState::PostAssignedMeasuring {
                                         attestation_mode: AttestationMode::SpdmAttestation {
                                             spdm_measuring_state: SpdmMeasuringState::PollResult,
@@ -2127,7 +2121,7 @@ impl MachineStateHandler {
                             SpdmMeasuringState::PollResult => {
                                 handle_spdm_poll_state(
                                     &ctx.services.db_pool,
-                                    host_machine_id.as_machine_id(),
+                                    host_machine_id,
                                     FailureSource::StateMachineArea(
                                         StateMachineArea::AssignedInstance,
                                     ),
@@ -2151,7 +2145,7 @@ impl MachineStateHandler {
                         handle_spdm_trigger_state(
                             ctx.services,
                             mh_snapshot,
-                            host_machine_id.as_machine_id(),
+                            host_machine_id,
                             ManagedHostState::PreAssignedMeasuring {
                                 spdm_measuring_state: SpdmMeasuringState::PollResult,
                             },
@@ -2162,7 +2156,7 @@ impl MachineStateHandler {
                     SpdmMeasuringState::PollResult => {
                         handle_spdm_poll_state(
                             &ctx.services.db_pool,
-                            host_machine_id.as_machine_id(),
+                            host_machine_id,
                             FailureSource::StateMachineArea(StateMachineArea::MainFlow),
                             next_skip_state,
                         )
@@ -2458,7 +2452,7 @@ impl MachineStateHandler {
             let mut txn = ctx.services.db_pool.begin().await?;
             db::machine::insert_health_report(
                 &mut txn,
-                host_machine_id.as_machine_id(),
+                host_machine_id,
                 HealthReportApplyMode::Merge,
                 &health_report,
                 false,
@@ -4321,8 +4315,7 @@ async fn resolve_boot_interface_for_step(
         return Ok(BootInterfaceResolution::Ready(target.clone()));
     }
 
-    let predictions =
-        load_boot_predictions(ctx, mh_snapshot.host_snapshot.id.as_machine_id()).await?;
+    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
     Ok(resolve_boot_interface(mh_snapshot, &predictions))
 }
 
@@ -4819,7 +4812,7 @@ impl DpuMachineStateHandler {
                     let mut txn = ctx.services.db_pool.begin().await?;
                     db::machine::mark_machine_ingestion_done_with_dpf(
                         &mut txn,
-                        state.host_snapshot.id.as_machine_id(),
+                        &state.host_snapshot.id,
                     )
                     .await?;
 
@@ -6091,11 +6084,11 @@ async fn trigger_reboot_if_needed_with_policy(
 /// This function waits until target machine is up or not. It relies on scout to identify if
 /// machine has come up or not after reboot.
 // True if machine is rebooted after state change.
-pub fn rebooted(target: &Machine<impl MachineIdSubtypeTrait>) -> bool {
+pub fn rebooted(target: &HostMachine) -> bool {
     target.status.last_reboot_time.unwrap_or_default() > target.state.version.timestamp()
 }
 
-pub fn machine_validation_completed(target: &Machine<impl MachineIdSubtypeTrait>) -> bool {
+pub fn machine_validation_completed(target: &HostMachine) -> bool {
     target.last_machine_validation_time.unwrap_or_default() > target.state.version.timestamp()
 }
 // Was machine rebooted after state change?
@@ -7672,17 +7665,14 @@ async fn handle_host_uefi_setup(
 
             let mut txn = ctx.services.db_pool.begin().await?;
             state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());
-            db::machine::update_bios_password_set_time(
-                state.host_snapshot.id.as_machine_id(),
-                &mut txn,
-            )
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!(
-                    "update_host_bios_password_set failed: {}",
-                    e
-                ))
-            })?;
+            db::machine::update_bios_password_set_time(&state.host_snapshot.id, &mut txn)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!(
+                        "update_host_bios_password_set failed: {}",
+                        e
+                    ))
+                })?;
 
             // The host's UEFI password is now the site-wide value: record it as
             // converged to the current host_uefi target so the rotation engine
@@ -7910,7 +7900,7 @@ impl StateHandler for HostMachineStateHandler {
                     }
                     match handle_measuring_state(
                         measuring_state,
-                        mh_snapshot.host_snapshot.id.as_machine_id(),
+                        &mh_snapshot.host_snapshot.id,
                         &mut ctx.services.db_reader,
                         self.host_handler_params.attestation_enabled,
                         mh_snapshot.host_snapshot.state.version.timestamp(),
@@ -7951,7 +7941,7 @@ impl StateHandler for HostMachineStateHandler {
                             handle_spdm_trigger_state(
                                 ctx.services,
                                 mh_snapshot,
-                                host_machine_id.as_machine_id(),
+                                host_machine_id,
                                 ManagedHostState::HostInit {
                                     machine_state: MachineState::SpdmMeasuring {
                                         spdm_measuring_state: SpdmMeasuringState::PollResult,
@@ -7964,7 +7954,7 @@ impl StateHandler for HostMachineStateHandler {
                         SpdmMeasuringState::PollResult => {
                             handle_spdm_poll_state(
                                 &ctx.services.db_pool,
-                                host_machine_id.as_machine_id(),
+                                host_machine_id,
                                 FailureSource::StateMachineArea(StateMachineArea::HostInit),
                                 next_skip_state,
                             )
@@ -8854,7 +8844,7 @@ impl StateHandler for InstanceStateHandler {
                             // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
                             db::machine::insert_health_report(
                                 &mut txn,
-                                host_machine_id.as_machine_id(),
+                                host_machine_id,
                                 HealthReportApplyMode::Merge,
                                 &health_override,
                                 false,
@@ -8867,7 +8857,7 @@ impl StateHandler for InstanceStateHandler {
                             // Mark the Host as in update.
                             db::machine::insert_health_report(
                                 &mut txn,
-                                host_machine_id.as_machine_id(),
+                                host_machine_id,
                                 HealthReportApplyMode::Merge,
                                 &health_override,
                                 false,
@@ -9172,7 +9162,7 @@ impl StateHandler for InstanceStateHandler {
                     host_netconf.use_admin_network = Some(true);
                     let updated = db::machine::try_update_network_config(
                         &mut txn,
-                        mh_snapshot.host_snapshot.id.as_machine_id(),
+                        &mh_snapshot.host_snapshot.id,
                         host_version,
                         &host_netconf,
                     )
@@ -9520,7 +9510,7 @@ impl StateHandler for InstanceStateHandler {
                     host_netconf.use_admin_network = Some(false);
                     let updated = db::machine::try_update_network_config(
                         &mut txn,
-                        mh_snapshot.host_snapshot.id.as_machine_id(),
+                        &mh_snapshot.host_snapshot.id,
                         host_version,
                         &host_netconf,
                     )
@@ -10570,14 +10560,7 @@ impl HostUpgradeState {
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let machine_id = state.host_snapshot.id;
         let ret = self
-            .host_checking_fw_noclear(
-                details,
-                state,
-                ctx,
-                machine_id.as_machine_id(),
-                scenario,
-                repeat,
-            )
+            .host_checking_fw_noclear(details, state, ctx, &machine_id, scenario, repeat)
             .await?;
 
         // Check if we are returning to the ready state, and clear the host reprovisioning request if so.
@@ -10601,7 +10584,7 @@ impl HostUpgradeState {
                         // TODO: Remove when manual upgrade feature is removed
                         db::host_machine_update::clear_manual_firmware_upgrade_completed(
                             txn,
-                            machine_id.as_machine_id(),
+                            &machine_id,
                         )
                         .await?;
                         Ok::<_, DatabaseError>(())
@@ -11357,14 +11340,13 @@ impl HostUpgradeState {
         };
 
         let machine_id = state.host_snapshot.id;
-        let address =
-            match find_explored_refreshed_endpoint(state, machine_id.as_machine_id(), ctx).await {
-                Ok(explored_endpoint) => match explored_endpoint {
-                    Some(explored_endpoint) => explored_endpoint.address.to_string(),
-                    None => "unknown".to_string(),
-                },
-                Err(_) => "unknown".to_string(),
-            };
+        let address = match find_explored_refreshed_endpoint(state, &machine_id, ctx).await {
+            Ok(explored_endpoint) => match explored_endpoint {
+                Some(explored_endpoint) => explored_endpoint.address.to_string(),
+                None => "unknown".to_string(),
+            },
+            Err(_) => "unknown".to_string(),
+        };
         let machine_id = machine_id.to_string();
         match self.async_firmware_uploader.upload_status(&machine_id) {
             None => {
@@ -13012,7 +12994,7 @@ fn ipmi_socket_address(ip_address: IpAddr, port: Option<u16>) -> SocketAddr {
 /// on explorer to have a chance to run again.
 pub async fn find_explored_refreshed_endpoint(
     state: &ManagedHostStateSnapshot,
-    machine_id: &dyn AsMachineId,
+    machine_id: &MachineId,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<Option<ExploredEndpoint>, StateHandlerError> {
     let addr: IpAddr = state
@@ -13029,7 +13011,7 @@ pub async fn find_explored_refreshed_endpoint(
         .next()
         .ok_or(StateHandlerError::GenericError(eyre!(
             "unable to find explored_endpoint for {}",
-            machine_id.as_machine_id()
+            machine_id
         )))?;
 
     if endpoint.waiting_for_explorer_refresh {
@@ -13712,7 +13694,7 @@ async fn set_host_boot_order(
             // resolves via its predictions; it waits only when neither a real row
             // nor a usable prediction exists.
             let boot_interface = match require_boot_interface(
-                mh_snapshot.host_snapshot.id.as_machine_id(),
+                &mh_snapshot.host_snapshot.id,
                 boot_interface_resolution,
                 "setting boot order",
                 SetBootOrderOutcome::Wait,
@@ -13852,7 +13834,7 @@ async fn set_host_boot_order(
             const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
 
             let boot_interface = match require_boot_interface(
-                mh_snapshot.host_snapshot.id.as_machine_id(),
+                &mh_snapshot.host_snapshot.id,
                 boot_interface_resolution,
                 "verifying the re-asserted HTTP boot device",
                 SetBootOrderOutcome::Wait,
@@ -14162,7 +14144,7 @@ async fn set_host_boot_order(
                 .max_bios_config_retries;
 
             let boot_interface = match require_boot_interface(
-                mh_snapshot.host_snapshot.id.as_machine_id(),
+                &mh_snapshot.host_snapshot.id,
                 boot_interface_resolution,
                 "verifying boot order",
                 SetBootOrderOutcome::Wait,
