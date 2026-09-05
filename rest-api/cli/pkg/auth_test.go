@@ -20,12 +20,16 @@ import (
 
 func TestLoginWithOIDCConfig(t *testing.T) {
 	tests := []struct {
-		name           string
-		oidc           ConfigOIDC
-		checkRequest   func(*testing.T, *http.Request)
-		wantErr        string
-		wantRequests   int
-		wantSavedToken bool
+		name         string
+		oidc         ConfigOIDC
+		checkRequest func(*testing.T, *http.Request)
+		// rejectStatus, when non-zero, makes the token endpoint fail so the case can
+		// assert what a failed configured login reports back.
+		rejectStatus      int
+		wantErr           string
+		wantEndpointInErr bool
+		wantRequests      int
+		wantSavedToken    bool
 	}{
 		{
 			name: "custom client credentials request",
@@ -77,6 +81,14 @@ func TestLoginWithOIDCConfig(t *testing.T) {
 			},
 			wantErr: "reserved token parameter",
 		},
+		{
+			name:              "failed grant names the token endpoint",
+			oidc:              ConfigOIDC{ClientID: "client-id", ClientSecret: "client-secret"},
+			rejectStatus:      http.StatusNotFound,
+			wantErr:           "token endpoint: ",
+			wantEndpointInErr: true,
+			wantRequests:      1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -84,7 +96,13 @@ func TestLoginWithOIDCConfig(t *testing.T) {
 			requests := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests++
-				tt.checkRequest(t, r)
+				if tt.checkRequest != nil {
+					tt.checkRequest(t, r)
+				}
+				if tt.rejectStatus != 0 {
+					w.WriteHeader(tt.rejectStatus)
+					return
+				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"access_token":"new-token","expires_in":3600}`))
 			}))
@@ -96,6 +114,9 @@ func TestLoginWithOIDCConfig(t *testing.T) {
 			token, err := LoginWithOIDCConfig(cfg, configPath)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
+				if tt.wantEndpointInErr {
+					require.ErrorContains(t, err, server.URL)
+				}
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, "new-token", token)
@@ -136,6 +157,31 @@ func TestLoginWithOIDCCmd(t *testing.T) {
 			wantErr:      "token endpoint: ",
 		},
 	}
+
+	// `--keycloak-realm` and `--client-id` are registered on the app, not on the login
+	// command, so resolveOIDCRealm only sees an explicit flag when it is passed in
+	// global position. Exercised here rather than against a hand-built flag set.
+	t.Run("global keycloak-realm flag builds the token endpoint", func(t *testing.T) {
+		var gotPath string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		configPath := filepath.Join(t.TempDir(), "config.yaml")
+		cfg := &ConfigFile{Auth: ConfigAuth{OIDC: &ConfigOIDC{Realm: "from-config"}}}
+		require.NoError(t, SaveConfigToPath(cfg, configPath))
+		SetConfigPath(configPath)
+		defer SetConfigPath("")
+
+		app, err := NewApp([]byte(`{"openapi":"3.0.0","info":{"title":"test","version":"test"},"paths":{}}`))
+		require.NoError(t, err)
+		withArgs(t, "nicocli", "--keycloak-url", server.URL, "--keycloak-realm", "from-flag",
+			"login", "--client-secret", "secret")
+		require.Error(t, app.Run(os.Args))
+		require.Equal(t, "/realms/from-flag/protocol/openid-connect/token", gotPath)
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

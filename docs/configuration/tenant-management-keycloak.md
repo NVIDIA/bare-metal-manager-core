@@ -48,10 +48,17 @@ Three of these govern the rest of this page.
 from exactly one realm, so the Provider org and every Tenant org are realm roles inside
 `nico`. There is no list-valued realm setting.
 
-`externalBaseURL` is the issuer prefix NICo validates against the token's `iss` claim.
-When it is an in-cluster address, as it is above, **tokens must be requested from inside
-the cluster**. A token fetched through a port-forward to `localhost` carries a
-non-matching `iss` and is rejected with `401`.
+`externalBaseURL` fixes the issuer NICo requires: a token is accepted only when its `iss`
+claim equals `<externalBaseURL>/realms/<realm>`, which is
+`http://keycloak.nico-rest:8082/realms/nico` above. It does not constrain where you fetch
+the token from, only what Keycloak must have stamped into it.
+
+That distinction matters because the bundled Keycloak sets no `KC_HOSTNAME`, so it derives
+`iss` from the hostname each request arrives on. Requesting a token at
+`http://localhost:8082` therefore stamps `iss` as `http://localhost:8082/realms/nico`,
+which does not match, and the API rejects it with `401`. Requesting it at the in-cluster
+name is the simplest way to get a matching `iss`, which is why the examples below run from
+inside the cluster.
 
 `serviceAccount: true` permits `client_credentials` tokens. Leave it enabled if the
 Tenant will authenticate as a service account rather than as a user.
@@ -146,15 +153,21 @@ Choose one of the two options below.
 **Option A, a service-account client.** Suited to automation, and the pattern the
 bundled `ncx-service` client uses. Requires `serviceAccount: true` in the NICo config.
 
+Pass the client definition on stdin rather than putting the secret in `-s secret=...`,
+which would place it in shell history, process listings, and any terminal capture:
+
 ```bash
-/opt/keycloak/bin/kcadm.sh create clients -r nico \
-  -s clientId=acme-corp-service \
-  -s enabled=true \
-  -s publicClient=false \
-  -s serviceAccountsEnabled=true \
-  -s standardFlowEnabled=false \
-  -s directAccessGrantsEnabled=false \
-  -s secret=REPLACE_WITH_A_GENERATED_SECRET
+/opt/keycloak/bin/kcadm.sh create clients -r nico -f - <<EOF
+{
+  "clientId": "acme-corp-service",
+  "enabled": true,
+  "publicClient": false,
+  "serviceAccountsEnabled": true,
+  "standardFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "secret": "$(cat /path/to/client-secret)"
+}
+EOF
 
 /opt/keycloak/bin/kcadm.sh add-roles -r nico \
   --uusername service-account-acme-corp-service \
@@ -234,15 +247,26 @@ Tenants never need an account in it.
 
 Request a token from inside the cluster. For Option A:
 
+The request body carries the client secret, so pass it to `curl` on stdin with `-K -`
+rather than in `-d`. In `-d` it would appear in the pod spec, in Kubernetes audit
+records, and in your shell history.
+
 ```bash
-TENANT_TOKEN=$(kubectl run -i --rm --restart=Never \
-  --image=curlimages/curl "curl-tenant-$$" -n nico-rest --quiet -- \
-  -sf -X POST \
-  "http://keycloak.nico-rest:8082/realms/nico/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=acme-corp-service&client_secret=REPLACE_WITH_A_GENERATED_SECRET" \
-  2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+CLIENT_SECRET_FILE=/path/to/client-secret
+
+TENANT_TOKEN=$(
+  printf 'data = "grant_type=client_credentials&client_id=acme-corp-service&client_secret=%s"\n' \
+    "$(cat "$CLIENT_SECRET_FILE")" \
+  | kubectl run -i --rm --restart=Never --image=curlimages/curl "curl-tenant-$$" \
+      -n nico-rest --quiet -- \
+      -sf -K - "http://keycloak.nico-rest:8082/realms/nico/protocol/openid-connect/token" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])'
+)
 ```
+
+`printf` is a shell builtin, so the expanded secret never becomes a separate process's
+arguments. `curl` sets `Content-Type: application/x-www-form-urlencoded` for `data`
+itself, and `data` implies `POST`.
 
 `helm-prereqs/keycloak/get-token.sh` does the same thing for the bundled `ncx-service`
 client and is a working reference for the pattern.
@@ -260,10 +284,16 @@ A `200` response means the issuer validated, a realm role parsed into org
 `acme-corp`, and the user record exists. Decode the token payload if it does not, then
 check that `realm_access.roles` contains `acme-corp:TENANT_ADMIN`:
 
+JWT segments use the URL-safe base64 alphabet, which GNU `base64 --decode` rejects, so
+decode the payload with Python rather than piping it through `base64`:
+
 ```bash
-echo "$TENANT_TOKEN" | cut -d. -f2 \
-  | awk '{l=length($0)%4; if(l) $0=$0 substr("====",1,4-l)}1' \
-  | base64 --decode | python3 -m json.tool
+printf '%s' "$TENANT_TOKEN" | cut -d. -f2 | python3 -c '
+import base64, json, sys
+segment = sys.stdin.read().strip()
+padded = segment + "=" * (-len(segment) % 4)
+print(json.dumps(json.loads(base64.urlsafe_b64decode(padded)), indent=2))
+'
 ```
 
 ## Completing the Setup in NICo
@@ -349,7 +379,7 @@ authentication inactive, so confirm Keycloak is ready first.
 
 | Symptom | Cause | Resolution |
 |---------|-------|-----------|
-| `401 Invalid authorization token in request` | Token `iss` does not match `externalBaseURL` plus the realm. Usually a token fetched over a port-forward | Request the token from inside the cluster |
+| `401 Invalid authorization token in request` | Token `iss` is not `<externalBaseURL>/realms/<realm>`. Usually a token fetched over a port-forward, where Keycloak stamped the forwarded hostname instead | Decode the payload and compare `iss` with the configured issuer, then fetch the token from a host that produces a matching value |
 | `401 Service accounts are not enabled` | Token carries a `client_id` claim but `keycloak.serviceAccount` is `false` | Enable `serviceAccount` in the values and upgrade, or use a user token |
 | `403 User does not have any roles assigned` | No realm role parsed into an org. Usually a role name without exactly one colon | Check `realm_access.roles` in the decoded token |
 | `403 Requested organization not found in token claims` | The `{org}` path segment does not match any role prefix. Often a case mismatch | Use the lowercase org name in the path and in `api.org` |

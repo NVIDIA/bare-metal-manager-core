@@ -246,7 +246,9 @@ func LoginWithOIDCConfig(cfg *ConfigFile, configPath string) (string, error) {
 	}
 	if tokenResp == nil {
 		if err != nil {
-			return "", fmt.Errorf("OIDC login failed: %w", err)
+			// Nothing is defaulted on this path, every value came from config, so the
+			// hint carries only the endpoint that was contacted.
+			return "", fmt.Errorf("OIDC login failed: %w%s", err, loginFailureHint(oidc.TokenURL, nil))
 		}
 		return "", fmt.Errorf("OIDC login requires auth.oidc.refresh_token, client credentials, or username/password in config")
 	}
