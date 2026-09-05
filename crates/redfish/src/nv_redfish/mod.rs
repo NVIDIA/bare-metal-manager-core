@@ -52,9 +52,10 @@ pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedf
 /// resolves the BMC from the `Forwarded` header (reusing this pool's
 /// existing redirect machinery) and authenticates upstream itself, so
 /// callers pass empty credentials -- the proxy strips `Authorization`
-/// regardless. Certificates are re-read from disk on every client build
-/// (one per uncached service-root fetch), so SPIFFE rotation needs no
-/// reload machinery here.
+/// regardless. Certificates are re-read from disk at most once per
+/// [`MUTUAL_CLIENT_REBUILD_INTERVAL`], off the request path (see
+/// [`NvRedfishClientPool::refresh_mutual_client`]), so a rotated SPIFFE
+/// certificate is picked up within that interval.
 pub fn new_proxied_pool(
     proxy: HostPortPair,
     client_cert: impl Into<std::path::PathBuf>,
@@ -69,6 +70,7 @@ pub fn new_proxied_pool(
             client_cert: client_cert.into(),
             client_key: client_key.into(),
             root_ca: root_ca.into(),
+            rebuild_claimed_at: Mutex::new(None),
             cached: ArcSwapOption::empty(),
         },
     })
@@ -81,28 +83,26 @@ enum NvClientTls {
     AcceptInvalid,
     /// To nico-bmc-proxy: present the client identity its mTLS listener
     /// expects and verify its certificate against `root_ca`. Paths are
-    /// re-read on every client build so certificate rotation is picked up
-    /// without a reload mechanism.
+    /// re-read at most once per [`MUTUAL_CLIENT_REBUILD_INTERVAL`], so
+    /// certificate rotation is picked up within that interval.
     Mutual {
         client_cert: std::path::PathBuf,
         client_key: std::path::PathBuf,
         root_ca: std::path::PathBuf,
+        /// Start of the current rebuild interval, claimed before a rebuild
+        /// runs (see [`NvRedfishClientPool::refresh_mutual_client`]).
+        rebuild_claimed_at: Mutex<Option<Instant>>,
         /// The built mTLS client, rebuilt from disk at most every
-        /// [`MUTUAL_CLIENT_REBUILD_INTERVAL`] off the request path (see
-        /// [`NvRedfishClientPool::refresh_mutual_client`]), so certificate
-        /// rotation is picked up without a per-fetch blocking file read.
-        cached: ArcSwapOption<CachedMutualClient>,
+        /// [`MUTUAL_CLIENT_REBUILD_INTERVAL`] off the request path, so
+        /// certificate rotation is picked up without a per-fetch blocking
+        /// file read.
+        cached: ArcSwapOption<libredfish::reqwest::Client>,
     },
 }
 
 /// How often the proxied pool re-reads its certificates; the same cadence
 /// nico-api's other proxy-facing clients use.
 const MUTUAL_CLIENT_REBUILD_INTERVAL: Duration = Duration::from_secs(5 * 60);
-
-struct CachedMutualClient {
-    built_at: Instant,
-    client: libredfish::reqwest::Client,
-}
 
 /// Reads the three PEM files and builds the verified mTLS client. Blocking
 /// (file I/O): call from `spawn_blocking` on the async path.
@@ -386,24 +386,35 @@ impl NvRedfishClientPool {
     }
 
     /// For the proxied pool: (re)build the mTLS client when none is cached
-    /// or the cached one is older than [`MUTUAL_CLIENT_REBUILD_INTERVAL`].
-    /// The file reads run on the blocking pool so a hung secret mount cannot
-    /// stall request threads; a failed rebuild keeps serving the previous
-    /// client and surfaces the error only when there is none yet.
+    /// or the current rebuild interval ([`MUTUAL_CLIENT_REBUILD_INTERVAL`])
+    /// has elapsed. The interval is claimed before the rebuild runs, so
+    /// concurrent callers past it do not each spawn one and a persistently
+    /// failing rebuild is retried once per interval rather than on every
+    /// request. The file reads run on the blocking pool so a hung secret
+    /// mount cannot stall request threads; a failed rebuild keeps serving
+    /// the previous client and surfaces the error only when there is none
+    /// yet.
     async fn refresh_mutual_client(&self) -> Result<(), Error> {
         let NvClientTls::Mutual {
             client_cert,
             client_key,
             root_ca,
+            rebuild_claimed_at,
             cached,
         } = &self.client_tls
         else {
             return Ok(());
         };
-        if let Some(current) = cached.load_full()
-            && current.built_at.elapsed() < MUTUAL_CLIENT_REBUILD_INTERVAL
         {
-            return Ok(());
+            let mut claimed = rebuild_claimed_at
+                .lock()
+                .expect("nv-redfish mutual client rebuild claim mutex poisoned");
+            if cached.load().is_some()
+                && claimed.is_some_and(|at| at.elapsed() < MUTUAL_CLIENT_REBUILD_INTERVAL)
+            {
+                return Ok(());
+            }
+            *claimed = Some(Instant::now());
         }
         let (client_cert, client_key, root_ca) =
             (client_cert.clone(), client_key.clone(), root_ca.clone());
@@ -418,10 +429,7 @@ impl NvRedfishClientPool {
         })?;
         match built {
             Ok(client) => {
-                cached.store(Some(Arc::new(CachedMutualClient {
-                    built_at: Instant::now(),
-                    client,
-                })));
+                cached.store(Some(Arc::new(client)));
                 Ok(())
             }
             // Keep serving the previous client through a transient read
@@ -482,9 +490,10 @@ impl NvRedfishClientPool {
                 client_key,
                 root_ca,
                 cached,
+                ..
             } => {
                 let client = match cached.load_full() {
-                    Some(current) => current.client.clone(),
+                    Some(current) => (*current).clone(),
                     // Direct callers that skipped `refresh_mutual_client`
                     // still get a working client, at the cost of a
                     // blocking build here.
@@ -709,6 +718,63 @@ mod tests {
         assert!(
             err.to_string().contains("tls.key"),
             "the error should name the unreadable file: {err}"
+        );
+    }
+
+    /// The rebuild cadence: within the interval the cached client is served
+    /// without touching disk, a failed rebuild past it keeps the previous
+    /// client and claims the interval so the failure is not retried on the
+    /// next call, and a rebuild past the interval picks up the PEMs on disk.
+    #[tokio::test]
+    async fn proxied_pool_rebuilds_once_per_interval_and_keeps_the_previous_client() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pool = proxied_pool_with_generated_pems(&dir);
+        let NvClientTls::Mutual {
+            rebuild_claimed_at,
+            cached,
+            ..
+        } = &pool.client_tls
+        else {
+            panic!("the proxied pool authenticates with a client certificate");
+        };
+        // An unclaimed interval is an elapsed one.
+        let expire_interval = || *rebuild_claimed_at.lock().unwrap() = None;
+        let current = || cached.load_full().expect("a client is cached");
+
+        pool.refresh_mutual_client()
+            .await
+            .expect("the first refresh builds a client");
+        let first = current();
+
+        let key = dir.path().join("tls.key");
+        let key_pem = std::fs::read(&key).expect("read key");
+        std::fs::remove_file(&key).expect("remove key");
+        pool.refresh_mutual_client()
+            .await
+            .expect("within the interval the cached client is served without a disk read");
+        assert!(Arc::ptr_eq(&first, &current()));
+
+        expire_interval();
+        pool.refresh_mutual_client()
+            .await
+            .expect("a failed rebuild keeps serving the previous client");
+        assert!(Arc::ptr_eq(&first, &current()));
+        std::fs::write(&key, key_pem).expect("restore key");
+        pool.refresh_mutual_client()
+            .await
+            .expect("still within the claimed interval");
+        assert!(
+            Arc::ptr_eq(&first, &current()),
+            "a failed rebuild must not be retried before the interval elapses"
+        );
+
+        expire_interval();
+        pool.refresh_mutual_client()
+            .await
+            .expect("past the interval the restored PEMs rebuild the client");
+        assert!(
+            !Arc::ptr_eq(&first, &current()),
+            "a rebuild past the interval must pick up the PEMs on disk"
         );
     }
 }

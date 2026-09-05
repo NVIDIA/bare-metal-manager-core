@@ -37,6 +37,7 @@ use carbide_secrets::credentials::{
 };
 use carbide_utils::HostPortPair;
 use libredfish::model::service_root::RedfishVendor;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 const SERVICE_ROOT: &str = r##"{
   "@odata.id": "/redfish/v1",
@@ -72,8 +73,9 @@ async fn service_root(State(state): State<Received>, headers: HeaderMap) -> impl
 
 struct Pki {
     ca_pem: String,
-    server_cert_pem: String,
-    server_key_pem: String,
+    ca_der: CertificateDer<'static>,
+    server_cert_der: CertificateDer<'static>,
+    server_key_der: PrivateKeyDer<'static>,
     client_cert_pem: String,
     client_key_pem: String,
 }
@@ -92,15 +94,18 @@ fn pki() -> Pki {
         .signed_by(&server_key, &issuer)
         .expect("server cert");
 
+    // The client identity is issued by the same CA the fake proxy verifies
+    // against, as a SPIFFE identity is in production.
     let client_key = rcgen::KeyPair::generate().expect("client key");
     let client_cert = rcgen::CertificateParams::default()
-        .self_signed(&client_key)
+        .signed_by(&client_key, &issuer)
         .expect("client cert");
 
     Pki {
         ca_pem: ca_cert.pem(),
-        server_cert_pem: server_cert.pem(),
-        server_key_pem: server_key.serialize_pem(),
+        ca_der: ca_cert.der().clone(),
+        server_cert_der: server_cert.der().clone(),
+        server_key_der: PrivateKeyDer::Pkcs8(server_key.serialize_der().into()),
         client_cert_pem: client_cert.pem(),
         client_key_pem: client_key.serialize_pem(),
     }
@@ -114,12 +119,22 @@ async fn spawn_fake_proxy(pki: &Pki, received: Received) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let addr = listener.local_addr().unwrap();
-    let config = RustlsConfig::from_pem(
-        pki.server_cert_pem.clone().into_bytes(),
-        pki.server_key_pem.clone().into_bytes(),
-    )
-    .await
-    .expect("server TLS config");
+    // Require a client certificate issued by the test CA, as nico-bmc-proxy's
+    // mTLS listener does; a client that presents none is refused at the
+    // handshake and never reaches the handler.
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(pki.ca_der.clone()).expect("ca in root store");
+    let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+        .build()
+        .expect("client verifier");
+    let config = rustls::ServerConfig::builder()
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(
+            vec![pki.server_cert_der.clone()],
+            pki.server_key_der.clone_key(),
+        )
+        .expect("server TLS config");
+    let config = RustlsConfig::from_config(Arc::new(config));
     tokio::spawn(async move {
         axum_server::from_tcp_rustls(listener, config)
             .unwrap()
@@ -128,6 +143,32 @@ async fn spawn_fake_proxy(pki: &Pki, received: Received) -> SocketAddr {
             .unwrap();
     });
     addr
+}
+
+/// A proxied client for BMC 192.0.2.10 over `inner`, addressed to the fake
+/// proxy. `Unknown` skips vendor auto-detect, so each service-root fetch is
+/// exactly one request.
+async fn proxied_client(
+    inner: libredfish::RedfishClientPool,
+    proxy_addr: SocketAddr,
+) -> Box<dyn libredfish::Redfish> {
+    new_proxied_pool(
+        Arc::new(NoCredentials),
+        inner,
+        HostPortPair::HostAndPort("127.0.0.1".to_string(), proxy_addr.port()),
+    )
+    .create_client(
+        "192.0.2.10",
+        Some(443),
+        RedfishAuth::Key(CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot {
+                bmc_mac_address: mac_address::MacAddress::new([2, 0, 0, 0, 0, 1]),
+            },
+        }),
+        Some(RedfishVendor::Unknown),
+    )
+    .await
+    .expect("client builds without resolving credentials")
 }
 
 /// The proxied pool never resolves credentials itself; a reader that has
@@ -163,34 +204,30 @@ async fn proxied_pool_reaches_the_proxy_over_mtls_with_a_forwarded_header() {
         .add_root_certificates(pki.ca_pem.clone())
         .build()
         .expect("verified pool builds");
-    let pool = new_proxied_pool(
-        Arc::new(NoCredentials),
-        inner,
-        HostPortPair::HostAndPort("127.0.0.1".to_string(), proxy_addr.port()),
-    );
-
-    let client = pool
-        .create_client(
-            "192.0.2.10",
-            Some(443),
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: mac_address::MacAddress::new([2, 0, 0, 0, 0, 1]),
-                },
-            }),
-            // `Unknown` skips vendor auto-detect, so exactly one request.
-            Some(RedfishVendor::Unknown),
-        )
+    proxied_client(inner, proxy_addr)
         .await
-        .expect("client builds without resolving credentials");
-
-    client
         .get_service_root()
         .await
         .expect("the fake proxy serves a service root");
 
+    // The same pool without an identity is refused at the handshake, which
+    // is what makes the request above proof that the identity was presented.
+    let anonymous = libredfish::RedfishClientPool::builder()
+        .add_root_certificates(pki.ca_pem.clone())
+        .build()
+        .expect("anonymous pool builds");
+    proxied_client(anonymous, proxy_addr)
+        .await
+        .get_service_root()
+        .await
+        .expect_err("the proxy must refuse a client that presents no certificate");
+
     let requests = received.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1, "exactly one request reached the proxy");
+    assert_eq!(
+        requests.len(),
+        1,
+        "exactly one request reached the proxy: the refused handshake never did"
+    );
     let RequestHeaders { forwarded, host } = &requests[0];
     assert_eq!(
         forwarded.as_deref(),
