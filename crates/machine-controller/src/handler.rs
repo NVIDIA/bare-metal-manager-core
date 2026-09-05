@@ -1970,7 +1970,7 @@ impl MachineStateHandler {
                             None => Ok(StateHandlerOutcome::do_nothing()),
                         }
                     }
-                    FailureCause::BiosSetupFailed { .. } if machine_id.machine_type().is_host() => {
+                    FailureCause::BiosSetupFailed { .. } if machine_id == host_machine_id => {
                         let recovered = ManagedHostState::HostInit {
                             machine_state: MachineState::SetBootOrder {
                                 set_boot_order_info: Some(initial_set_boot_order_info()),
@@ -2214,12 +2214,16 @@ impl MachineStateHandler {
         }
     }
 
+    /// Enables Astra on a single NIC.
+    /// We pass in the expected interfaces and the NIC index to enable Astra on.
+    /// Returns `true` when the NIC was enabled and the caller
+    /// should AC-power-cycle the host for the change to take effect.
     async fn enable_astra_nic(
         &self,
         nic_index: u8,
         mh_snapshot: &ManagedHostStateSnapshot,
         ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-        expected_nic: &ExpectedInterface,
+        cx9_nics: &[&ExpectedInterface],
     ) -> Result<(), StateHandlerError> {
         tracing::info!(
             machine_id = %mh_snapshot.host_snapshot.id,
@@ -2250,16 +2254,22 @@ impl MachineStateHandler {
             StateHandlerError::GenericError(eyre!("invalid SPX NIC MAC address {mac_address}: {e}"))
         })?;
 
-        let expected_mac_address = expected_nic.mac_address;
-        // Does this mac address match the mac address in the passed in expected interface?
-        if mac_address != expected_nic.mac_address {
-            tracing::error!(
-                "Actual MAC address {mac_address} does not match expected MAC address {expected_mac_address} for NIC {nic_index}"
-            );
-            return Err(StateHandlerError::GenericError(eyre!(
-                "mac address mismatch: expected {expected_mac_address}, got {mac_address}"
-            )));
-        }
+        // Find the expected CX9 NIC whose MAC matches what Redfish reported for
+        // this card. If none matches, this card is not one we were told to
+        // enable, so error out.
+        let expected_nic = cx9_nics
+            .iter()
+            .copied()
+            .find(|nic| nic.mac_address == mac_address)
+            .ok_or_else(|| {
+                tracing::error!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "No expected CX9 NIC matches Redfish MAC address {mac_address} for NIC {nic_index}"
+                );
+                StateHandlerError::GenericError(eyre!(
+                    "no expected CX9 NIC matches MAC address {mac_address} for NIC {nic_index}"
+                ))
+            })?;
 
         // Now enable EastWestControlEnabled on this card.
         redfish_client
@@ -2396,9 +2406,9 @@ impl MachineStateHandler {
             .collect();
         let enabled_any_cx9 = !cx9_nics.is_empty();
 
-        for (nic_index, expected_nic) in cx9_nics.into_iter().enumerate() {
+        for nic_index in 0..cx9_nics.len() {
             if let Err(e) = self
-                .enable_astra_nic(nic_index as u8, mh_snapshot, ctx, expected_nic)
+                .enable_astra_nic(nic_index as u8, mh_snapshot, ctx, &cx9_nics)
                 .await
             {
                 tracing::error!(

@@ -588,6 +588,13 @@ impl Forge for Api {
         crate::handlers::instance::release(self, request).await
     }
 
+    async fn release_instances(
+        &self,
+        request: Request<rpc::BatchInstanceReleaseRequest>,
+    ) -> Result<Response<rpc::BatchInstanceReleaseResponse>, Status> {
+        crate::handlers::instance::batch_release(self, request).await
+    }
+
     async fn update_instance_phone_home_last_contact(
         &self,
         request: Request<rpc::InstancePhoneHomeLastContactRequest>,

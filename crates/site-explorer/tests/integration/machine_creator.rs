@@ -20,7 +20,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_rack::rms_client::test_support::RmsSim;
+use carbide_rack::test_support::RmsSim;
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_test_harness::network::segment::TestNetworkSegment;

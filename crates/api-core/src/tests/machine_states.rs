@@ -5849,9 +5849,13 @@ async fn test_polling_bios_setup_exhausted_enters_failed_and_recovers_when_bios_
     pool: sqlx::PgPool,
 ) {
     let env = create_test_env(pool).await;
-
-    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let host_config = env.managed_host_config();
+    common::api_fixtures::site_explorer::seed_bmc_root_credentials(&env, &host_config)
+        .await
+        .unwrap();
+    let mh = create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
     let host_id = mh.host().id;
+    assert!(host_id.machine_type().is_predicted_host());
 
     env.redfish_sim.set_is_bios_setup(false);
 

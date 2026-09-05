@@ -1626,6 +1626,6 @@ The DTS (`doca-telemetry`) and `doca-hbn` services, and the DPF operator and
 operand images, are NVIDIA-published on NGC and **pull anonymously by default**
 — no build or registry needed. To mirror them into your own registry (air-gapped
 or one-registry setups), refer to
-[helm-prereqs → DPF images and registries](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/README.md#dpf-images-and-registries)
+[helm-prereqs → DPF images and registries](https://github.com/dsx-ai-factory/infra-controller/blob/main/helm-prereqs/README.md#dpf-images-and-registries)
 (`NICO_DPF_IMAGE_REPO`/`_TAG`/`_PULL_SECRET` for the operator image;
 `NICO_DPF_HELM_REPO_*` for the operand/service charts).

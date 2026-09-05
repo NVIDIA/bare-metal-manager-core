@@ -42,7 +42,7 @@ Use `site_explorer.dpu_policy` instead.
 | `enable_route_servers` | `bool` | `false` | `networking` | Enables route server injection into DPU FRR configs for L2VPN. |
 | `deny_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IPv4 and IPv6 CIDR prefixes that tenant instances are blocked from reaching. FNN generates family-specific NVUE ACL policies; all non-FNN virtualizers apply the IPv4 prefixes only. |
 | `site_fabric_prefixes` | `Vec<IpNetwork>` | `[]` | `networking` | IP prefixes (v4/v6) assigned for tenant use within this site. |
-| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for [tenant prefix overlap checks](#tenant-prefix-overlap-checks). The existing `VpcPrefix` exclusion continues to prevent overlapping `VpcPrefix` persistence until the cutover tracked by [#3892](https://github.com/NVIDIA/infra-controller/issues/3892). |
+| `tenant_prefix_overlap_enabled` | `bool` | `false` | `networking` | Site opt-in for [tenant prefix overlap checks](#tenant-prefix-overlap-checks). The existing `VpcPrefix` exclusion continues to prevent overlapping `VpcPrefix` persistence until the cutover tracked by [#3892](https://github.com/dsx-ai-factory/infra-controller/issues/3892). |
 | `max_site_prefixes_per_tenant` | `u32` | `8` | `networking` | Maximum tenant-managed SitePrefixes retained for one tenant at this site. Prefixes awaiting removal still count against this limit and keep their CIDR reserved. |
 | `anycast_site_prefixes` | `Vec<Ipv4Network>` | `[]` | `networking` | Aggregate IPv4 prefixes containing tenant-announced prefixes (e.g., BYOIP). **Deprecated.** Use [`routing_profiles.allowed_anycast_prefixes`](#fnnroutingprofileconfig) instead. |
 | `common_tenant_host_asn` | `Option<u32>` | — | `networking` | ASN that tenants use to peer with the DPU. If unset, any ASN is accepted. |
@@ -766,16 +766,16 @@ not run these checks, but a later attachment does.
 These handlers do not validate changes to peering or VPC policy, or Instance
 paths that retain routing state. They also do not cover startup or audit every
 writer. Those checks are tracked in
-[#5114](https://github.com/NVIDIA/infra-controller/issues/5114) and
-[#5115](https://github.com/NVIDIA/infra-controller/issues/5115), while startup
+[#5114](https://github.com/dsx-ai-factory/infra-controller/issues/5114) and
+[#5115](https://github.com/dsx-ai-factory/infra-controller/issues/5115), while startup
 and complete writer coverage are tracked in
-[#5116](https://github.com/NVIDIA/infra-controller/issues/5116). All three must
+[#5116](https://github.com/dsx-ai-factory/infra-controller/issues/5116). All three must
 land before the database cutover in
-[#3892](https://github.com/NVIDIA/infra-controller/issues/3892).
+[#3892](https://github.com/dsx-ai-factory/infra-controller/issues/3892).
 
 Even when the application accepts an eligible pair, the existing `VpcPrefix`
 exclusion rejects overlapping `VpcPrefix` persistence until the cutover tracked
-by [#3892](https://github.com/NVIDIA/infra-controller/issues/3892).
+by [#3892](https://github.com/dsx-ai-factory/infra-controller/issues/3892).
 
 ### `VpcDefinition`
 
@@ -1108,7 +1108,18 @@ ufm_auth_by_fabric:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `active` | `String` | **required** | The provider that wraps DEKs for new writes. |
-| `providers` | `HashMap<String, KmsProviderConfig>` | **required** | Named provider configurations. |
+| `providers` | `HashMap<String, ProviderConfig>` | **required** | Named provider configurations (see [ProviderConfig](#providerconfig)). |
+
+### `ProviderConfig`
+
+Each entry in `providers` is tagged by `type`. Unknown fields are rejected.
+
+| Field | Type | Default | Description |
+| ----- | ---- | ------- | ----------- |
+| `type` | `"integrated"` or `"transit"` | **required** | `integrated` holds key material in the NICo process; `transit` wraps and unwraps DEKs in Vault/OpenBao Transit so KEK material never leaves the KMS. |
+| `keys` (`integrated`) | `HashMap<String, KeySource>` | **required, non-empty** | Maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "<base64>" }`. Each key must decode to exactly 32 bytes; a missing variable or unreadable file fails the boot, and a key file readable by group or others logs a warning. Inline `value` is development/test-only because the config is logged at startup and shown on the admin web page. |
+| `keys` (`transit`) | `Vec<String>` | **required** | Transit key names this provider answers for. |
+| `transit_mount` (`transit`) | `Option<String>` | `"transit"` | Secrets-engine mount path. Transit requires a static token in `VAULT_TOKEN`; the Kubernetes service-account login flow is not supported for Transit. |
 
 ### `CertificatesConfig`
 

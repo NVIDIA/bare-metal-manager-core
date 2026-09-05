@@ -628,19 +628,12 @@ impl ApiEndpointSource {
             ));
         };
         let addr = BmcAddr::try_from(bmc_info)?;
-        let serial = power_shelf
-            .config
-            .as_ref()
-            .map(|config| config.name.clone())
-            .ok_or(HealthError::GenericError(
-                "Power shelf endpoint does not have serial".to_string(),
-            ))?;
 
         self.endpoint_for(
             addr,
             Some(EndpointMetadata::PowerShelf(PowerShelfData {
                 id: power_shelf.id,
-                serial,
+                serial: None,
             })),
             power_shelf.rack_id.clone(),
             ApiCredentialKind::Bmc,
@@ -1027,6 +1020,10 @@ mod tests {
         })?;
 
         assert_eq!(endpoint.rack_id.as_ref(), Some(&rack_id));
+        let Some(EndpointMetadata::PowerShelf(power_shelf)) = endpoint.metadata.as_ref() else {
+            panic!("expected power shelf metadata");
+        };
+        assert_eq!(power_shelf.serial, None);
 
         Ok(())
     }

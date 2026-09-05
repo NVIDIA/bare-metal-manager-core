@@ -137,6 +137,13 @@ service Forge {
   rpc AllocateInstances(BatchInstanceAllocationRequest) returns (BatchInstanceAllocationResponse);
   // Releases an instance that has been allocated by a tenant
   rpc ReleaseInstance(InstanceReleaseRequest) returns (InstanceReleaseResult);
+  // Releases multiple instances in a single call. Best-effort per instance --
+  // one instance failing to release (e.g. already released, or blocked by a
+  // health check) does not roll back or block the release of the rest of the
+  // batch. Compare AllocateInstances, which is all-or-nothing: that semantic
+  // does not fit release, where callers need partial progress rather than a
+  // single bad ID aborting an entire large batch.
+  rpc ReleaseInstances(BatchInstanceReleaseRequest) returns (BatchInstanceReleaseResponse);
   // Updates the network interface configuration for an instance
   // The update will take effect asynchronously. Users should monitor `Instance.status.network_status.synced`
   // to determine whether all updates have been applied.
@@ -3756,6 +3763,71 @@ message InstanceReleaseRequest {
 }
 
 message InstanceReleaseResult {
+}
+
+// Batch instance release request
+message BatchInstanceReleaseRequest {
+  // List of instance release requests. Processed best-effort: a failure on
+  // one does not prevent the rest from being attempted. An empty list is not
+  // an error -- the response comes back with an empty `results`. An entry
+  // with no `id` set is reported as a failed result with `id` unset, rather
+  // than silently skipped.
+  repeated InstanceReleaseRequest release_requests = 1;
+}
+
+// Machine-readable outcome of one instance's release attempt within a batch.
+// Mirrors `ComponentManagerStatusCode`'s pattern of a stable status enum
+// instead of string-matching an error message, so callers can distinguish
+// retryable outcomes (e.g. INSTANCE_RELEASE_STATUS_CODE_UNAVAILABLE,
+// INSTANCE_RELEASE_STATUS_CODE_RESOURCE_EXHAUSTED) from terminal ones (e.g.
+// INSTANCE_RELEASE_STATUS_CODE_NOT_FOUND) without parsing free text.
+//
+// SUCCESS is deliberately NOT the zero value: proto3 sends no wire bytes for
+// a field equal to its default, so an omitted or accidentally-uninitialized
+// `status` is indistinguishable on the wire from one explicitly set to the
+// zero value. If SUCCESS were 0, that ambiguity would silently read as
+// success for a destructive, fleet-scale operation. UNSPECIFIED occupying 0
+// makes a missing status an obviously-wrong value instead.
+enum InstanceReleaseStatusCode {
+  INSTANCE_RELEASE_STATUS_CODE_UNSPECIFIED = 0;
+  INSTANCE_RELEASE_STATUS_CODE_SUCCESS = 1;
+  INSTANCE_RELEASE_STATUS_CODE_INVALID_ARGUMENT = 2;
+  INSTANCE_RELEASE_STATUS_CODE_NOT_FOUND = 3;
+  INSTANCE_RELEASE_STATUS_CODE_FAILED_PRECONDITION = 4;
+  INSTANCE_RELEASE_STATUS_CODE_RESOURCE_EXHAUSTED = 5;
+  INSTANCE_RELEASE_STATUS_CODE_PERMISSION_DENIED = 6;
+  INSTANCE_RELEASE_STATUS_CODE_UNAVAILABLE = 7;
+  INSTANCE_RELEASE_STATUS_CODE_INTERNAL_ERROR = 8;
+}
+
+// One ordered result per requested release, in the same order as
+// `BatchInstanceReleaseRequest.release_requests`. Mirrors
+// `ExpectedMachineOperationResult`'s one-result-per-operation shape so
+// callers get explicit request/result correlation instead of having to
+// search two separate lists by ID.
+//
+// Retry lifecycle: release only soft-deletes an instance (marks it deleted;
+// the row and its history persist while an async reconciler completes
+// secure-erase). Retrying the same id while that row still exists returns
+// SUCCESS again -- release is idempotent, safe to retry with the exact same
+// batch request after any failure, including a partial one. Only once the
+// row is eventually purged does the same id start returning NOT_FOUND
+// instead. There is no bound on how long that takes in practice, but callers
+// should not assume SUCCESS is available forever for an id already released.
+message InstanceReleaseOutcome {
+  // Echoes the request's id. Unset only when the corresponding request
+  // itself had no id set (see `status` in that case:
+  // INSTANCE_RELEASE_STATUS_CODE_INVALID_ARGUMENT).
+  common.InstanceId id = 1;
+  InstanceReleaseStatusCode status = 2;
+  // Human-readable detail. Empty on success.
+  string error = 3;
+}
+
+// Batch instance release response
+message BatchInstanceReleaseResponse {
+  // One result per requested release, in request order.
+  repeated InstanceReleaseOutcome results = 1;
 }
 
 message MachinesByIdsRequest {
