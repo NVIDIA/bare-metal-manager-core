@@ -2886,7 +2886,6 @@ dependencies = [
  "sqlx",
  "state-controller",
  "tokio",
- "tonic",
  "tracing",
 ]
 

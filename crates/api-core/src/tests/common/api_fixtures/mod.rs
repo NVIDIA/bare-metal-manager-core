@@ -48,7 +48,7 @@ use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
 use carbide_nvlink_manager::{
     NvlPartitionMonitor, SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult,
 };
-use carbide_rack::rms_client::test_support::RmsSim;
+use carbide_rack::test_support::RmsSim;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
@@ -146,6 +146,15 @@ use crate::test_support::network_segment::{
     create_underlay_network_segment,
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
+
+fn test_nvos_update_manager(
+    rms_sim: &RmsSim,
+) -> Option<Arc<dyn component_manager::NvosUpdateManager>> {
+    rms_sim.as_rms_client().map(|client| {
+        Arc::new(component_manager::rms::rms_nvos_update_manager(client))
+            as Arc<dyn component_manager::NvosUpdateManager>
+    })
+}
 
 pub(in crate::tests) mod dpu;
 pub(in crate::tests) mod host;
@@ -373,7 +382,7 @@ impl TestEnv {
                 rack_profiles: self.config.rack_profiles.clone(),
             }
             .into(),
-            switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
+            nvos_update_manager: test_nvos_update_manager(&self.rms_sim),
             credential_manager: self.test_credential_manager.clone(),
             component_manager: self.test_component_manager.clone(),
             nmx_cluster_switch_mtls_services:
@@ -1649,7 +1658,7 @@ pub(in crate::tests) async fn create_test_env_with_overrides(
                     rack_profiles: config.rack_profiles.clone(),
                 }
                 .into(),
-                switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
+                nvos_update_manager: test_nvos_update_manager(&rms_sim),
                 credential_manager: credential_manager.clone(),
                 component_manager: test_component_manager.clone(),
                 nmx_cluster_switch_mtls_services:
