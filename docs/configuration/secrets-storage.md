@@ -6,7 +6,7 @@ This page covers the `[secrets]` section of the `nico-api` config, how to supply
 
 Vault/OpenBao Transit is the available server-side KMS backend. The Integrated
 backend loads KEK material into the NICo process from an environment variable,
-file, or inline value. [#3253](https://github.com/NVIDIA/infra-controller/issues/3253)
+file, or inline value. [#3253](https://github.com/dsx-ai-factory/infra-controller/issues/3253)
 tracks qualification of a production non-Vault replacement and explicitly
 includes a hardened Integrated deployment backed by a CSI secrets-store or
 External-Secrets mount as a possible interim, alongside managed KMS, HSM, and
@@ -105,7 +105,7 @@ keys = { "site-kek-1" = { env = "NICO_SECRETS_KEK" } }
 
 Providers are named. The `active` provider wraps DEKs for new writes; every configured provider answers unwraps for the `kek_id`s it holds, which is what keeps old entries readable while keys move. Two provider types exist:
 
-- `integrated`: local key material. `keys` maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "..." }`. With `env` or `file`, the config contains only the locator. Inline `value` is development/test-only because the config is debug-logged at startup and served on the web debug page. A mounted `env` or `file` source is production-supported only if [#3253](https://github.com/NVIDIA/infra-controller/issues/3253) qualifies its custody, startup availability, controlled-restart rotation, and recovery model.
+- `integrated`: local key material. `keys` maps each `kek_id` to where its base64-encoded 256-bit key loads from: `{ env = "NAME" }`, `{ file = "/path" }`, or `{ value = "..." }`. With `env` or `file`, the config contains only the locator. Inline `value` is development/test-only because the config is debug-logged at startup and served on the web debug page. A mounted `env` or `file` source is production-supported only if [#3253](https://github.com/dsx-ai-factory/infra-controller/issues/3253) qualifies its custody, startup availability, controlled-restart rotation, and recovery model.
 - `transit`: Vault or OpenBao Transit, which wraps and unwraps DEKs server-side, so KEK material never leaves the KMS. `keys` lists the Transit key names this provider answers for, and `transit_mount` overrides the secrets-engine mount (default `"transit"`). Transit requires a static Vault token; the Kubernetes service-account login flow is not supported for Transit yet.
 
 Transit needs setup that `helm-prereqs` does not perform: its Vault policy covers only the KV and PKI paths. Before enabling a Transit provider, enable the engine at the mount, create each key named in `keys`, and grant the token `update` on the three paths NICo calls:

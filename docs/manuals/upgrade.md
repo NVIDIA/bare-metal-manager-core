@@ -143,7 +143,7 @@ Both should show `Initialized true` and `Sealed false`.
 
 ### Pull the new release
 
-Update your local checkout to the target release branch or tag. The commands below assume an `upstream` remote pointing at the main repository; add it once with `git remote add upstream https://github.com/NVIDIA/infra-controller.git` (or substitute `origin` if you cloned the main repository directly):
+Update your local checkout to the target release branch or tag. The commands below assume an `upstream` remote pointing at the main repository; add it once with `git remote add upstream https://github.com/dsx-ai-factory/infra-controller.git` (or substitute `origin` if you cloned the main repository directly):
 
 ```bash
 git fetch upstream
