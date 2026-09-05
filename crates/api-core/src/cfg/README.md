@@ -58,6 +58,7 @@ Use `site_explorer.dpu_policy` instead.
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | `machines` | Retry count when IPMI errors during DPU reboot. |
 | `bmc_session_lockout_threshold` | `u32` | `3` | `security` | Consecutive BMC HTTP 401/403 responses before session-token login attempts stop for that BMC. |
 | `bmc_max_sessions_per_caller` | `usize` | `4` | `security` | Cap on outstanding Redfish sessions per calling service identity per BMC; a `GetBmcCredentials` mint past the cap revokes that caller's oldest sessions. Values below 1 are treated as 1. |
+| `bmc_proxy` | `Option<BmcProxyConfig>` | — | `security` | Routes this instance's ordinary BMC Redfish traffic — including established-endpoint credentialed exploration — through nico-bmc-proxy. Credential setup and rotation, session minting, and exploration's anonymous vendor probes always stay direct. |
 | `ib_fabrics` | `HashMap<String, IbFabricDefinition>` | `{}` | `hardware` | InfiniBand fabrics managed by the site. Currently only one fabric is supported. |
 | `initial_domain_name` | `Option<String>` | — | `machines` | Domain to create if none exist. Most sites use a single domain. |
 | `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | `machines` | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |
@@ -304,6 +305,44 @@ available for topology-specific flows.
 ---
 
 ## Sub-Structs
+
+### `BmcProxyConfig` — `bmc_proxy`
+
+Routes core's own BMC Redfish traffic through nico-bmc-proxy, which
+authenticates upstream itself; clients from the proxied pools carry no BMC
+credentials. This covers machine-lifecycle traffic and the credentialed
+exploration of endpoints whose stored root credential is established (the
+proxy resolves the same per-BMC key). It is not a "proxy-only" guarantee
+for those BMCs: every exploration cycle still opens with a direct anonymous
+service-root probe (vendor detection has no proxy path), and the
+power-shelf vendor fallback authenticates directly. Credential-subject
+operations — first-contact exploration and credential setup with
+factory/expected credentials, BMC session minting, password rotation, UEFI
+password management — always use the direct pools regardless of this
+section: the proxied pool rejects explicit credentials, so misrouting
+fails loudly. The proxy, unlike a BMC, presents a verifiable certificate:
+connections to it keep certificate checking on.
+
+Three caveats. First, precedence: this static section is independent of the
+*dynamic* `site_explorer.bmc_proxy` dev redirect (`set bmc-proxy` CLI) — the
+proxied pool ignores the dynamic redirect, and the admin Redfish passthrough
+prefers this section when both are set; the dynamic redirect keeps applying to
+the direct pool's clients. Second, BMCs whose Redfish tree has no
+`SessionService`: the proxy reaches those with HTTP basic auth, which
+`GetBmcCredentials` only serves when `allow_bmc_basic_auth_fallback` is
+enabled — without it, such BMCs are unreachable through the proxied pool.
+Third, nico-bmc-proxy always dials the BMC's standard https port: a BMC whose
+recorded Redfish port is not 443 is unreachable through the proxied pool, and
+its operations fail loudly with a client-creation error naming the port
+rather than silently dropping it.
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `enabled` | `bool` | `false` | Master switch; `false` keeps all BMC traffic direct even when the rest of this section is filled in. |
+| `url` | `String` | `""` | Proxy endpoint as `host:port` or `host` (the port defaults to the BMC proxy's 1079). Required when `enabled` is true; startup fails on an enabled section with an empty `url`. |
+| `client_cert` | `String` | `/var/run/secrets/spiffe.io/tls.crt` | PEM client certificate presented to the proxy's mTLS listener. |
+| `client_key` | `String` | `/var/run/secrets/spiffe.io/tls.key` | PEM private key for `client_cert`. |
+| `root_ca` | `String` | `/var/run/secrets/spiffe.io/ca.crt` | PEM bundle that verifies the proxy's server certificate. |
 
 ### `ApiAdmissionControlConfig`
 

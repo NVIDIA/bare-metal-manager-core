@@ -22,7 +22,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use carbide_secrets::credentials::Credentials;
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::format_forwarded_host_parameter;
@@ -48,10 +48,130 @@ pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedf
     NvRedfishClientPool::new(proxy_address).into()
 }
 
+/// A pool whose every client targets nico-bmc-proxy over mTLS: the proxy
+/// resolves the BMC from the `Forwarded` header (reusing this pool's
+/// existing redirect machinery) and authenticates upstream itself, so
+/// callers pass empty credentials -- the proxy strips `Authorization`
+/// regardless. Certificates are re-read from disk on every client build
+/// (one per uncached service-root fetch), so SPIFFE rotation needs no
+/// reload machinery here.
+pub fn new_proxied_pool(
+    proxy: HostPortPair,
+    client_cert: impl Into<std::path::PathBuf>,
+    client_key: impl Into<std::path::PathBuf>,
+    root_ca: impl Into<std::path::PathBuf>,
+) -> Arc<NvRedfishClientPool> {
+    Arc::new(NvRedfishClientPool {
+        proxy_address: Arc::new(ArcSwap::from_pointee(Some(proxy))),
+        cache: Default::default(),
+        cache_ttl: DEFAULT_SERVICE_ROOT_CACHE_TTL,
+        client_tls: NvClientTls::Mutual {
+            client_cert: client_cert.into(),
+            client_key: client_key.into(),
+            root_ca: root_ca.into(),
+            cached: ArcSwapOption::empty(),
+        },
+    })
+}
+
+/// How this pool's HTTP clients authenticate the TLS layer.
+enum NvClientTls {
+    /// Direct-to-BMC: BMCs present self-signed certificates, so
+    /// verification is off (the pre-existing behavior).
+    AcceptInvalid,
+    /// To nico-bmc-proxy: present the client identity its mTLS listener
+    /// expects and verify its certificate against `root_ca`. Paths are
+    /// re-read on every client build so certificate rotation is picked up
+    /// without a reload mechanism.
+    Mutual {
+        client_cert: std::path::PathBuf,
+        client_key: std::path::PathBuf,
+        root_ca: std::path::PathBuf,
+        /// The built mTLS client, rebuilt from disk at most every
+        /// [`MUTUAL_CLIENT_REBUILD_INTERVAL`] off the request path (see
+        /// [`NvRedfishClientPool::refresh_mutual_client`]), so certificate
+        /// rotation is picked up without a per-fetch blocking file read.
+        cached: ArcSwapOption<CachedMutualClient>,
+    },
+}
+
+/// How often the proxied pool re-reads its certificates; the same cadence
+/// nico-api's other proxy-facing clients use.
+const MUTUAL_CLIENT_REBUILD_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+struct CachedMutualClient {
+    built_at: Instant,
+    client: libredfish::reqwest::Client,
+}
+
+/// Reads the three PEM files and builds the verified mTLS client. Blocking
+/// (file I/O): call from `spawn_blocking` on the async path.
+fn build_mutual_client(
+    client_cert: &std::path::Path,
+    client_key: &std::path::Path,
+    root_ca: &std::path::Path,
+) -> Result<libredfish::reqwest::Client, Error> {
+    let read = |what: &str, path: &std::path::Path| {
+        std::fs::read(path).map_err(|err| {
+            Error::Bmc(BmcError::InvalidRequest(format!(
+                "reading bmc-proxy {what} {}: {err}",
+                path.display()
+            )))
+        })
+    };
+    // Newline-separate the two PEM files: a file without a trailing newline
+    // would otherwise fuse END and BEGIN lines.
+    let mut identity_pem = read("client_cert", client_cert)?;
+    identity_pem.push(b'\n');
+    identity_pem.extend_from_slice(&read("client_key", client_key)?);
+    let identity = libredfish::reqwest::Identity::from_pem(&identity_pem).map_err(|err| {
+        Error::Bmc(BmcError::InvalidRequest(format!(
+            "building bmc-proxy client identity: {err}"
+        )))
+    })?;
+    let roots = libredfish::reqwest::Certificate::from_pem_bundle(&read("root_ca", root_ca)?)
+        .map_err(|err| {
+            Error::Bmc(BmcError::InvalidRequest(format!(
+                "reading bmc-proxy root_ca bundle: {err}"
+            )))
+        })?;
+    // `with_client` bypasses the same-origin redirect guard `with_params`
+    // installs, so replicate it: following a cross-origin redirect would
+    // present the SPIFFE client certificate and custom headers to an
+    // arbitrary host.
+    let redirect_policy = libredfish::reqwest::redirect::Policy::custom(move |attempt| {
+        let Some(original_url) = attempt.previous().first() else {
+            return attempt.error("redirect attempt is missing the original URL");
+        };
+        if attempt.url().origin() != original_url.origin() {
+            return attempt.error("cross-origin redirects are not allowed");
+        }
+        if attempt.previous().len() > 10 {
+            return attempt.error("too many redirects");
+        }
+        attempt.follow()
+    });
+    let mut builder = libredfish::reqwest::Client::builder()
+        .use_rustls_tls()
+        .identity(identity)
+        .redirect(redirect_policy)
+        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(5));
+    for root in roots {
+        builder = builder.add_root_certificate(root);
+    }
+    builder.build().map_err(|err| {
+        Error::Bmc(BmcError::InvalidRequest(format!(
+            "building bmc-proxy HTTP client: {err}"
+        )))
+    })
+}
+
 pub struct NvRedfishClientPool {
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
     cache: Arc<Mutex<ServiceRootCache>>,
     cache_ttl: Duration,
+    client_tls: NvClientTls,
 }
 
 #[derive(Default)]
@@ -132,6 +252,7 @@ impl NvRedfishClientPool {
             proxy_address,
             cache: Default::default(),
             cache_ttl,
+            client_tls: NvClientTls::AcceptInvalid,
         }
     }
 
@@ -153,6 +274,7 @@ impl NvRedfishClientPool {
         should_cache: impl FnOnce(&ServiceRoot) -> bool,
     ) -> Result<Arc<ServiceRoot>, Error> {
         self.remove_expired(Instant::now());
+        self.refresh_mutual_client().await?;
 
         let Credentials::UsernamePassword { username, password } = credentials;
         let bmc_credentials = BmcCredentials::new(username, password);
@@ -263,12 +385,73 @@ impl NvRedfishClientPool {
         }
     }
 
+    /// For the proxied pool: (re)build the mTLS client when none is cached
+    /// or the cached one is older than [`MUTUAL_CLIENT_REBUILD_INTERVAL`].
+    /// The file reads run on the blocking pool so a hung secret mount cannot
+    /// stall request threads; a failed rebuild keeps serving the previous
+    /// client and surfaces the error only when there is none yet.
+    async fn refresh_mutual_client(&self) -> Result<(), Error> {
+        let NvClientTls::Mutual {
+            client_cert,
+            client_key,
+            root_ca,
+            cached,
+        } = &self.client_tls
+        else {
+            return Ok(());
+        };
+        if let Some(current) = cached.load_full()
+            && current.built_at.elapsed() < MUTUAL_CLIENT_REBUILD_INTERVAL
+        {
+            return Ok(());
+        }
+        let (client_cert, client_key, root_ca) =
+            (client_cert.clone(), client_key.clone(), root_ca.clone());
+        let built = tokio::task::spawn_blocking(move || {
+            build_mutual_client(&client_cert, &client_key, &root_ca)
+        })
+        .await
+        .map_err(|err| {
+            Error::Bmc(BmcError::InvalidRequest(format!(
+                "bmc-proxy client rebuild task failed: {err}"
+            )))
+        })?;
+        match built {
+            Ok(client) => {
+                cached.store(Some(Arc::new(CachedMutualClient {
+                    built_at: Instant::now(),
+                    client,
+                })));
+                Ok(())
+            }
+            // Keep serving the previous client through a transient read
+            // failure; only a pool that has never built one must fail.
+            Err(err) if cached.load().is_some() => {
+                tracing::warn!(error = %err, "bmc-proxy nv-redfish client rebuild failed; keeping the previous client");
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     pub fn create_bmc(
         &self,
         bmc_address: SocketAddr,
         credentials: BmcCredentials,
         connection_close: bool,
     ) -> Result<Arc<RedfishBmc>, Error> {
+        // Mirrors the libredfish proxied pool: the Forwarded header carries
+        // only the BMC's host and nico-bmc-proxy dials the https default, so
+        // silently dropping a recorded non-443 Redfish port would strand
+        // that BMC -- fail loudly instead.
+        if matches!(self.client_tls, NvClientTls::Mutual { .. }) && bmc_address.port() != 443 {
+            return Err(Error::Bmc(BmcError::InvalidRequest(format!(
+                "BMC {} uses Redfish port {}, which bmc-proxy cannot address; \
+                 route it via the direct pool or standard port 443",
+                bmc_address.ip(),
+                bmc_address.port()
+            ))));
+        }
         let proxy_address = self.proxy_address.load();
         let bmc_url = build_bmc_url(proxy_address.as_ref(), bmc_address)
             .map_err(|e| Error::Bmc(BmcError::InvalidRequest(format!("invalid BMC URL: {e}"))))?;
@@ -289,10 +472,27 @@ impl NvRedfishClientPool {
             );
         }
 
-        let client = RedfishReqwestClient::with_params(
-            RedfishReqwestClientParams::new().accept_invalid_certs(true),
-        )
-        .map_err(|err| Error::Bmc(err.into()))?;
+        let client = match &self.client_tls {
+            NvClientTls::AcceptInvalid => RedfishReqwestClient::with_params(
+                RedfishReqwestClientParams::new().accept_invalid_certs(true),
+            )
+            .map_err(|err| Error::Bmc(err.into()))?,
+            NvClientTls::Mutual {
+                client_cert,
+                client_key,
+                root_ca,
+                cached,
+            } => {
+                let client = match cached.load_full() {
+                    Some(current) => current.client.clone(),
+                    // Direct callers that skipped `refresh_mutual_client`
+                    // still get a working client, at the cost of a
+                    // blocking build here.
+                    None => build_mutual_client(client_cert, client_key, root_ca)?,
+                };
+                RedfishReqwestClient::with_client(client)
+            }
+        };
         Ok(Arc::new(RedfishBmc::with_custom_headers(
             client,
             bmc_url,
@@ -456,5 +656,59 @@ mod tests {
             ))
             .expect("valid Forwarded header value");
         }
+    }
+
+    // --- proxied (Mutual mTLS) pool ----------------------------------------
+
+    fn proxied_pool_with_generated_pems(dir: &tempfile::TempDir) -> Arc<NvRedfishClientPool> {
+        let key = rcgen::KeyPair::generate().expect("test key generates");
+        let cert = rcgen::CertificateParams::default()
+            .self_signed(&key)
+            .expect("test cert self-signs");
+        let write = |name: &str, contents: &str| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, contents).expect("test PEM writes");
+            path
+        };
+        new_proxied_pool(
+            HostPortPair::HostAndPort("bmc-proxy.example".to_string(), 1079),
+            write("tls.crt", &cert.pem()),
+            write("tls.key", &key.serialize_pem()),
+            write("ca.crt", &cert.pem()),
+        )
+    }
+
+    /// The Mutual client build path: valid PEMs produce a client (the whole
+    /// identity/root/redirect construction succeeds), a missing file fails
+    /// naming its path, and a non-443 BMC port is rejected loudly -- the
+    /// proxy dials the https default, so dropping the port would silently
+    /// strand that BMC (mirrors the libredfish proxied pool's guard).
+    #[test]
+    fn proxied_pool_builds_clients_from_pems_and_rejects_non_standard_ports() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pool = proxied_pool_with_generated_pems(&dir);
+        let bmc: SocketAddr = "192.0.2.10:443".parse().unwrap();
+        let credentials = BmcCredentials::new(String::new(), String::new());
+
+        pool.create_bmc(bmc, credentials.clone(), false)
+            .expect("valid PEMs must build a proxied client");
+
+        let odd_port: SocketAddr = "192.0.2.10:8443".parse().unwrap();
+        let Err(err) = pool.create_bmc(odd_port, credentials.clone(), false) else {
+            panic!("a non-443 BMC port must fail loudly, not drop the port");
+        };
+        assert!(
+            err.to_string().contains("8443"),
+            "the error should name the unaddressable port: {err}"
+        );
+
+        std::fs::remove_file(dir.path().join("tls.key")).expect("remove key");
+        let Err(err) = pool.create_bmc(bmc, credentials, false) else {
+            panic!("a missing PEM must fail the client build");
+        };
+        assert!(
+            err.to_string().contains("tls.key"),
+            "the error should name the unreadable file: {err}"
+        );
     }
 }

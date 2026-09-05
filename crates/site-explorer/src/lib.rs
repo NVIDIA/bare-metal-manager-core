@@ -79,6 +79,7 @@ pub use metrics::{SiteExplorationMetrics, site_explorer_latency_histogram_view};
 mod bmc_endpoint_explorer;
 mod redfish;
 pub use bmc_endpoint_explorer::{AuthenticatedBmcClient, BmcEndpointExplorer};
+pub use redfish::{BmcAccess, EstablishedBmc, ProxiedPools};
 mod boot_order_tracker;
 use boot_order_tracker::BootOrderTracker;
 mod machine_creator;

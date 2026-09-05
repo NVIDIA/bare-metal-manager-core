@@ -18,7 +18,8 @@ Set bmc_proxy
 ## OPTIONS
 
 **--enabled** *\<ENABLED\>*  
-Enable site-explorer bmc_proxy\
+Enable the dynamic site-explorer bmc_proxy redirect (dev/integration;
+independent of the static \[bmc_proxy\] core-via-proxy routing)\
 
 \
 *Possible values:*

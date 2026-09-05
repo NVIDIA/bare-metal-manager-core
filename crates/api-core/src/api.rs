@@ -68,12 +68,17 @@ pub struct Api {
     pub database_connection: sqlx::PgPool,
     pub(crate) credential_manager: Arc<dyn CredentialManager>,
     pub(crate) certificate_provider: Arc<dyn CertificateProvider>,
+    /// Ordinary BMC Redfish traffic: nico-bmc-proxy when `[bmc_proxy]` is
+    /// enabled, the direct pool otherwise.
     pub(crate) redfish_pool: Arc<dyn RedfishClientPool>,
     /// Credential-lifecycle operations (password set/rotate/clear, candidate
     /// validation). A sealed trait implemented only by the direct pool, so
     /// handing these to a wrapper pool is a compile error (a wrong-pool
     /// guard, not a wire-path guarantee -- see [`BmcCredentialOps`]).
     pub(crate) bmc_credential_ops: Arc<dyn BmcCredentialOps>,
+    /// HTTP client for the raw Redfish passthrough when `[bmc_proxy]` is
+    /// enabled; `None` keeps the passthrough dialing BMCs directly.
+    pub(crate) bmc_proxy_passthrough: Option<Arc<crate::bmc_proxy::PassthroughClient>>,
     pub(crate) bmc_session_manager: Arc<crate::credentials::BmcSessionManager>,
     pub(crate) eth_data: EthVirtData,
     pub(crate) common_pools: Arc<CommonPools>,

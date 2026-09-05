@@ -11,6 +11,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_api_admission_pending_wait_duration_seconds</td><td>histogram</td><td>Duration API requests spent waiting for admission</td></tr>
 <tr><td>carbide_api_admission_rejected_total</td><td>counter</td><td>Number of API requests rejected before handler execution</td></tr>
 <tr><td>carbide_api_admission_work_in_flight</td><td>gauge</td><td>Number of API requests currently holding an execution slot</td></tr>
+<tr><td>carbide_api_bmc_proxy_client_reload_failures_total</td><td>counter</td><td>Number of failed rebuilds of the nico-bmc-proxy-facing client from on-disk certificates.</td></tr>
 <tr><td>carbide_api_db_queries_total</td><td>counter</td><td>Number of database queries that occurred inside a span</td></tr>
 <tr><td>carbide_api_db_span_query_time_milliseconds</td><td>histogram</td><td>Total time the request spent inside a span on database transactions</td></tr>
 <tr><td>carbide_api_grpc_server_duration_milliseconds</td><td>histogram</td><td>Processing time for a request on the carbide API server</td></tr>
@@ -43,6 +44,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_bmc_proxy_tls_connection_attempted_total</td><td>counter</td><td>Number of inbound TLS connection attempts</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_fail_total</td><td>counter</td><td>Number of failed inbound connections, by failure reason</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_success_total</td><td>counter</td><td>Number of successful TLS connections</td></tr>
+<tr><td>carbide_bmc_proxy_upstream_auth_retries_total</td><td>counter</td><td>Number of forwarded requests replayed once with freshly resolved BMC credentials after the BMC rejected the proxy&#39;s cached credential, by HTTP method</td></tr>
 <tr><td>carbide_bmc_proxy_upstream_request_duration_milliseconds</td><td>histogram</td><td>Duration of requests the proxy forwarded to BMCs, by HTTP method and upstream status class; the _count series, split by status, gives the request and outcome rates.</td></tr>
 <tr><td>carbide_bmc_session_cleanup_failures_total</td><td>counter</td><td>Number of BMC session cleanup failures, by operation.</td></tr>
 <tr><td>carbide_bmc_session_lockout_breaker_transitions_total</td><td>counter</td><td>Number of BMC session lockout-avoidance breaker transitions.</td></tr>
