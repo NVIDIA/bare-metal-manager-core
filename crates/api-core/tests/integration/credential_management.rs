@@ -153,7 +153,11 @@ async fn firmware_artifact_access_token_can_be_replaced_and_deleted(pool: PgPool
 async fn firmware_artifact_access_token_rejects_missing_name_or_token(pool: PgPool) {
     let (env, _) = init(pool).await;
 
+    let mut missing_name = firmware_artifact_token_create_request("repository-a", "token");
+    missing_name.credential_name = None;
+
     for request in [
+        missing_name,
         firmware_artifact_token_create_request("", "token"),
         firmware_artifact_token_create_request("repository-a", ""),
     ] {
@@ -166,18 +170,20 @@ async fn firmware_artifact_access_token_rejects_missing_name_or_token(pool: PgPo
         assert_eq!(error.code(), Code::InvalidArgument);
     }
 
-    let error = env
-        .api()
-        .delete_credential(tonic::Request::new(CredentialDeletionRequest {
-            credential_type: RpcCredentialType::FirmwareArtifactAccessToken.into(),
-            username: None,
-            mac_address: None,
-            credential_name: None,
-        }))
-        .await
-        .expect_err("missing firmware artifact credential name must fail");
+    for credential_name in [None, Some(String::new())] {
+        let error = env
+            .api()
+            .delete_credential(tonic::Request::new(CredentialDeletionRequest {
+                credential_type: RpcCredentialType::FirmwareArtifactAccessToken.into(),
+                username: None,
+                mac_address: None,
+                credential_name,
+            }))
+            .await
+            .expect_err("invalid firmware artifact credential name must fail");
 
-    assert_eq!(error.code(), Code::InvalidArgument);
+        assert_eq!(error.code(), Code::InvalidArgument);
+    }
 }
 
 #[sqlx_test]

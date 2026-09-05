@@ -12,11 +12,11 @@ use super::args::{DeleteArgs, SetArgs};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-fn read_token(args: &SetArgs) -> CarbideCliResult<String> {
+fn read_token(args: &SetArgs, mut stdin: impl Read) -> CarbideCliResult<String> {
     let token = if args.token_file.as_os_str() == "-" {
         let mut token = String::new();
 
-        std::io::stdin().read_to_string(&mut token).wrap_err(
+        stdin.read_to_string(&mut token).wrap_err(
             "while attempting to read the firmware artifact access token from standard input",
         )?;
 
@@ -42,7 +42,7 @@ fn read_token(args: &SetArgs) -> CarbideCliResult<String> {
 }
 
 pub(super) async fn set(args: SetArgs, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let token = read_token(&args)?;
+    let token = read_token(&args, std::io::stdin())?;
     api_client
         .0
         .create_credential(CredentialCreationRequest {
@@ -88,10 +88,31 @@ mod tests {
             token_file: path.clone(),
         };
 
-        let token = read_token(&args).expect("read token");
+        let token = read_token(&args, std::io::empty()).expect("read token");
         fs::remove_file(path).expect("remove token fixture");
 
         assert_eq!(token, " token value \r\n");
+    }
+
+    #[test]
+    fn standard_input_tokens_are_preserved_and_must_not_be_empty() {
+        let args = SetArgs {
+            name: "repository-a".to_string(),
+            token_file: "-".into(),
+        };
+
+        let token = read_token(&args, " standard input token \r\n".as_bytes())
+            .expect("read token from standard input");
+
+        let error =
+            read_token(&args, "".as_bytes()).expect_err("empty standard input token must fail");
+
+        assert_eq!(token, " standard input token \r\n");
+
+        assert_eq!(
+            error.to_string(),
+            "generic error: firmware artifact access token must not be empty"
+        );
     }
 
     #[test]
@@ -108,7 +129,7 @@ mod tests {
             token_file: path.clone(),
         };
 
-        let error = read_token(&args).expect_err("missing token file must fail");
+        let error = read_token(&args, std::io::empty()).expect_err("missing token file must fail");
 
         assert_eq!(
             error.to_string(),

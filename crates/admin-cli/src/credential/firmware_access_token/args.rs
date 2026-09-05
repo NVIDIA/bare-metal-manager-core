@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use clap::builder::NonEmptyStringValueParser;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) enum Args {
@@ -27,7 +28,11 @@ Set a token from standard input:
 
 ")]
 pub(crate) struct SetArgs {
-    #[arg(long, help = "Non-secret credential name")]
+    #[arg(
+        long,
+        help = "Non-secret credential name",
+        value_parser = NonEmptyStringValueParser::new()
+    )]
     pub(super) name: String,
 
     #[arg(
@@ -46,6 +51,26 @@ Delete a token:
 
 ")]
 pub(crate) struct DeleteArgs {
-    #[arg(long, help = "Non-secret credential name")]
+    #[arg(
+        long,
+        help = "Non-secret credential name",
+        value_parser = NonEmptyStringValueParser::new()
+    )]
     pub(super) name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credential_name_parser_rejects_empty_values() {
+        for (name, valid) in [("repository-a", true), ("", false)] {
+            let set = SetArgs::try_parse_from(["set", "--name", name, "--token-file", "token.txt"]);
+            let delete = DeleteArgs::try_parse_from(["delete", "--name", name]);
+
+            assert_eq!(set.is_ok(), valid, "set command with name {name:?}");
+            assert_eq!(delete.is_ok(), valid, "delete command with name {name:?}");
+        }
+    }
 }
