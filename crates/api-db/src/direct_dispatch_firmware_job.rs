@@ -138,7 +138,7 @@ mod tests {
     // row-migration behavior, and the `ON CONFLICT DO NOTHING` in the file makes
     // the second application safe.
     const BACKFILL_MIGRATION: &str = include_str!(
-        "../migrations/20260904160001_backfill_direct_dispatch_firmware_update_jobs.sql"
+        "../migrations/20260904214537_backfill_direct_dispatch_firmware_update_jobs.sql"
     );
 
     const SEGMENT_ID: &str = "20000000-0000-0000-0000-000000000001";
