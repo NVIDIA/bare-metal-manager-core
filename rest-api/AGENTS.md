@@ -920,7 +920,7 @@ make pre-commit-update      # update hooks to latest versions
 ## Further Reading
 
 - [`README.md`](README.md) — Project overview and getting started
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contribution workflow and DCO process
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — Contribution workflow and DCO process
 - [`openapi/README.md`](openapi/README.md) — OpenAPI schema development
 - [`cli/README.md`](cli/README.md) — CLI client reference
 - [`deploy/README.md`](deploy/README.md) — Deployment quickstart guide
