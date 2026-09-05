@@ -4,7 +4,9 @@
 
 This is a **prescriptive, BYO-Kubernetes bring-up guide** for the NICo REST cloud components. It encodes the **order of operations**, the **exact manifest paths** from this repository, and what you must configure for your environment.
 
-> **Experimental:** This software is a preview release. Features, APIs, and configurations may change without notice. Thoroughly test in non-critical environments before production use.
+> The software is provided "as is" without warranties of any kind. Features,
+> APIs, and configurations may change in future releases. For production
+> deployments, please test thoroughly in non-critical environments first.
 
 ### Deployment topology
 

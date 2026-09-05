@@ -1,9 +1,9 @@
 # Security Policy: NVIDIA Infra Controller (NICo)
 
-NVIDIA Infra Controller (NICo) is an experimental/preview control plane for
-site-local bare-metal lifecycle management. This policy covers the repository at
-the root of this clone, including the Rust Core services, Go REST services,
-managed-host and DPU agents, deployment charts, and supporting build artifacts.
+NVIDIA Infra Controller (NICo) is a control plane for site-local bare-metal
+lifecycle management. This policy covers the repository at the root of this
+clone, including the Rust Core services, Go REST services, managed-host and DPU
+agents, deployment charts, and supporting build artifacts.
 
 ## Reporting a Vulnerability
 
@@ -245,18 +245,19 @@ and support scripts.
 - Operators validate site-specific Helm values, bootstrap scripts, and generated
   configuration before applying them to production clusters. Examples and local
   development defaults are not production hardening guidance.
-- NICo is experimental/preview software. Production use requires additional
-  threat modeling, deployment review, secret scanning, vulnerability scanning,
-  backup/restore validation, and rollback planning for the specific site.
+- The software is provided "as is" without warranties of any kind. Features,
+  APIs, and configurations may change in future releases. For production
+  deployments, please test thoroughly in non-critical environments first.
 
 ## Supported Versions and Security Updates
 
-NICo is experimental/preview software. APIs, configurations, deployment
-artifacts, and security controls may change without notice between releases.
-Security fixes should be consumed from maintained release branches, tagged
-container images, or commits designated by the NICo maintainers and NVIDIA
-PSIRT. Operators should test updates in a non-critical environment before
-upgrading production control planes.
+The software is provided "as is" without warranties of any kind. Features,
+APIs, and configurations may change in future releases. For production
+deployments, please test thoroughly in non-critical environments first. Security
+fixes should be consumed from maintained release branches, tagged container
+images, or commits designated by the NICo maintainers and NVIDIA PSIRT.
+Operators should test updates in a non-critical environment before upgrading
+production control planes.
 
 ## Deployment Hardening Checklist
 

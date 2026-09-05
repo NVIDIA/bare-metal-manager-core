@@ -85,10 +85,8 @@ cd helm-prereqs
 
 See [helm-prereqs/README.md](helm-prereqs/README.md) for the full reference: PKI architecture, PostgreSQL setup, phase-by-phase description, secrets reference, and troubleshooting.
 
-## Experimental Notice
+## Release Notice
 
-This software is considered *experimental* and is a preview release. Use at
-your own risk in production environments. The software is provided "as is"
-without warranties of any kind. Features, APIs, and configurations may change
-without notice in future releases. For production deployments, thoroughly test
-in non-critical environments first.
+The software is provided "as is" without warranties of any kind. Features,
+APIs, and configurations may change in future releases. For production
+deployments, please test thoroughly in non-critical environments first.
