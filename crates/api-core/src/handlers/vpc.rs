@@ -164,9 +164,24 @@ pub(crate) async fn update(
     request: Request<rpc::VpcUpdateRequest>,
 ) -> Result<Response<rpc::VpcUpdateResult>, Status> {
     log_request_data(&request);
+    let request = request.into_inner();
+    let cleanup_metadata_supplied = request.metadata.is_some();
+    let cleanup_nsg_supplied = request.network_security_group_id.is_some();
+    let cleanup_requested = request.release_inactive_vni.unwrap_or(false);
+    if cleanup_requested
+        && (request.default_nvlink_logical_partition_id.is_some()
+            || request.routing_profile_overrides.is_some()
+            || request.power_resource_group.is_some())
+    {
+        return Err(CarbideError::InvalidArgument(
+            "release_inactive_vni cannot be combined with other VPC updates".to_string(),
+        )
+        .into());
+    }
+
     // Preserve operator errors previously returned by handler-level validation
     // without changing how unrelated request-conversion errors are represented.
-    let vpc_update = UpdateVpc::try_from(request.into_inner()).map_err(|error| match error {
+    let vpc_update = UpdateVpc::try_from(request).map_err(|error| match error {
         RpcDataConversionError::MissingArgument("id") => {
             CarbideError::InvalidArgument("VPC ID is required".to_string()).into()
         }
@@ -175,6 +190,16 @@ pub(crate) async fn update(
         }
         error => Status::from(error),
     })?;
+
+    if cleanup_requested {
+        return release_inactive_vni(
+            api,
+            vpc_update,
+            cleanup_metadata_supplied,
+            cleanup_nsg_supplied,
+        )
+        .await;
+    }
 
     let mut txn = api.txn_begin().await?;
 
@@ -256,7 +281,152 @@ pub(crate) async fn update(
 
     Ok(Response::new(rpc::VpcUpdateResult {
         vpc: Some(vpc_to_rpc(vpc, api.runtime_config.fnn.as_ref())),
+        released_inactive_vni: None,
     }))
+}
+
+async fn release_inactive_vni(
+    api: &Api,
+    mut vpc_update: UpdateVpc,
+    metadata_supplied: bool,
+    nsg_supplied: bool,
+) -> Result<Response<rpc::VpcUpdateResult>, Status> {
+    let expected_version = vpc_update.if_version_match.ok_or_else(|| {
+        CarbideError::InvalidArgument(
+            "if_version_match is required to release an inactive VNI".to_string(),
+        )
+    })?;
+
+    let mut txn = api.txn_begin().await?;
+    let vpc = db::vpc::find_by_with_lock(
+        txn.as_mut(),
+        ObjectColumnFilter::One(vpc::IdColumn, &vpc_update.id),
+        db::vpc::VpcRowLock::Mutation,
+    )
+    .await?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "Vpc",
+        id: vpc_update.id.to_string(),
+    })?;
+
+    // Preserve the update contract: a stale snapshot is a concurrency failure,
+    // even when one of its echoed replacement-style fields is also stale.
+    if vpc.version != expected_version {
+        return Err(
+            CarbideError::ConcurrentModificationError("vpc", expected_version.to_string()).into(),
+        );
+    }
+
+    if (metadata_supplied && vpc_update.metadata != vpc.metadata)
+        || (nsg_supplied
+            && vpc_update.network_security_group_id != vpc.config.network_security_group_id)
+    {
+        return Err(CarbideError::InvalidArgument(
+            "release_inactive_vni cannot change VPC metadata or network security group".to_string(),
+        )
+        .into());
+    }
+
+    // Cleanup is a standalone action. Preserve replacement-style fields while
+    // the normal update path checks the version and advances it. Callers may
+    // echo their current values for older-server safety.
+    vpc_update.metadata = vpc.metadata.clone();
+    vpc_update.network_security_group_id = vpc.config.network_security_group_id.clone();
+    let updated_vpc = db::vpc::update(&vpc_update, &mut txn).await?;
+
+    let released_inactive_vni = release_inactive_vpc_vni(api, &mut txn, &vpc)
+        .await?
+        .try_into()
+        .map_err(|_| {
+            CarbideError::internal(
+                "released VPC VNI cannot be represented by the RPC API".to_string(),
+            )
+        })?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::VpcUpdateResult {
+        vpc: Some(vpc_to_rpc(updated_vpc, api.runtime_config.fnn.as_ref())),
+        released_inactive_vni: Some(released_inactive_vni),
+    }))
+}
+
+async fn release_inactive_vpc_vni(
+    api: &Api,
+    txn: &mut PgConnection,
+    vpc: &model::vpc::Vpc,
+) -> Result<i32, CarbideError> {
+    let active_vni = vpc.status.vni.ok_or_else(|| {
+        CarbideError::FailedPrecondition(format!("VPC `{}` does not have an active VNI", vpc.id))
+    })?;
+
+    let internal_pool = &api.common_pools.ethernet.pool_vpc_vni;
+    let external_pool = &api.common_pools.ethernet.pool_external_vpc_vni;
+    let owner_id = vpc.id.to_string();
+    let internal_vni = db::resource_pool::find_owned_allocation(
+        internal_pool,
+        txn,
+        resource_pool::OwnerType::Vpc,
+        &owner_id,
+    )
+    .await
+    .map_err(db::DatabaseError::from)?;
+    let external_vni = db::resource_pool::find_owned_allocation(
+        external_pool,
+        txn,
+        resource_pool::OwnerType::Vpc,
+        &owner_id,
+    )
+    .await
+    .map_err(db::DatabaseError::from)?;
+
+    let (inactive_pool, inactive_vni) = match (internal_vni, external_vni) {
+        (Some(internal_vni), Some(external_vni))
+            if internal_vni == active_vni && external_vni != active_vni =>
+        {
+            (external_pool, external_vni)
+        }
+        (Some(internal_vni), Some(external_vni))
+            if external_vni == active_vni && internal_vni != active_vni =>
+        {
+            (internal_pool, internal_vni)
+        }
+        (Some(internal_vni), None) if internal_vni == active_vni => {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC `{}` does not have an inactive VNI allocation (active VNI `{active_vni}`)",
+                vpc.id,
+            )));
+        }
+        (None, Some(external_vni)) if external_vni == active_vni => {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC `{}` does not have an inactive VNI allocation (active VNI `{active_vni}`)",
+                vpc.id,
+            )));
+        }
+        _ => {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC `{}` has inconsistent VNI allocations: active VNI `{active_vni}`, internal allocation {internal_vni:?}, external allocation {external_vni:?}",
+                vpc.id,
+            )));
+        }
+    };
+
+    let released = db::resource_pool::release_all_owned(
+        inactive_pool,
+        txn,
+        resource_pool::OwnerType::Vpc,
+        &owner_id,
+    )
+    .await?;
+    if released != 1 {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC `{}` has inconsistent inactive VNI allocation state",
+            vpc.id
+        )));
+    }
+
+    Ok(inactive_vni)
 }
 
 pub(crate) async fn update_virtualization(
@@ -352,55 +522,28 @@ pub(crate) async fn delete(
         .into());
     }
 
-    let vpc = match db::vpc::try_delete(&mut txn, vpc_id).await? {
-        Some(vpc) => vpc,
-        None => {
-            // VPC didn't exist or was deleted in the past. We are not allowed
-            // to free the VNI again
-            return Err(CarbideError::NotFoundError {
-                kind: "vpc",
-                id: vpc_id.to_string(),
-            }
-            .into());
+    if db::vpc::try_delete(&mut txn, vpc_id).await?.is_none() {
+        // VPC didn't exist or was deleted in the past. We are not allowed to
+        // free any VNI allocation again.
+        return Err(CarbideError::NotFoundError {
+            kind: "vpc",
+            id: vpc_id.to_string(),
         }
-    };
+        .into());
+    }
 
-    if let Some(vni) = vpc.status.vni {
-        // We can just keep deriving int/ext from the routing profile
-        // because a VPC is not allowed to change its profile after
-        // creation. VPC types that don't carry a routing profile
-        // (ETV, Flat) land in the internal pool on create -- mirror
-        // that here so the VNI is released back to the same pool.
-        let internal = match (
-            api.runtime_config.fnn.as_ref(),
-            vpc.config.routing_profile_type,
-        ) {
-            (None, _) | (Some(_), None) => true,
-            (Some(f), Some(profile_type)) => {
-                let Some(profile) = f.routing_profiles.get(&profile_type) else {
-                    return Err(CarbideError::NotFoundError {
-                        kind: "routing_profile_type",
-                        id: profile_type,
-                    }
-                    .into());
-                };
-                profile.internal.unwrap_or_default()
-            }
-        };
-
-        if internal {
-            db::resource_pool::release(&api.common_pools.ethernet.pool_vpc_vni, &mut txn, vni)
-                .await
-                .map_err(CarbideError::from)?;
-        } else {
-            db::resource_pool::release(
-                &api.common_pools.ethernet.pool_external_vpc_vni,
-                &mut txn,
-                vni,
-            )
-            .await
-            .map_err(CarbideError::from)?;
-        }
+    let owner_id = vpc_id.to_string();
+    for pool in [
+        &api.common_pools.ethernet.pool_vpc_vni,
+        &api.common_pools.ethernet.pool_external_vpc_vni,
+    ] {
+        db::resource_pool::release_all_owned(
+            pool,
+            &mut txn,
+            resource_pool::OwnerType::Vpc,
+            &owner_id,
+        )
+        .await?;
     }
 
     // Delete associated VPC peerings

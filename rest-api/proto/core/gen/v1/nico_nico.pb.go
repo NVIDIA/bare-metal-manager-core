@@ -10987,6 +10987,20 @@ type VpcUpdateRequest struct {
 	// preserve the current association, send an empty string to remove it, or
 	// send a non-empty value to replace it.
 	PowerResourceGroup *string `protobuf:"bytes,20,opt,name=power_resource_group,json=powerResourceGroup,proto3,oneof" json:"power_resource_group,omitempty"`
+	// `release_inactive_vni = true` is a standalone action. It requires
+	// `if_version_match` and fails unless exactly one inactive VPC-owned
+	// allocation can be identified. `default_nvlink_logical_partition_id`,
+	// `routing_profile_overrides`, and `power_resource_group` must be absent.
+	// `metadata` and `network_security_group_id` may be omitted. When supplied,
+	// each must match the VPC's current value rather than changing it.
+	//
+	// During a rolling upgrade, callers must echo current `metadata` and any
+	// attached `network_security_group_id`, because an older Core ignores this
+	// action and applies their replacement semantics. Callers must require
+	// `released_inactive_vni` in the result. If it is absent, refetch the VPC
+	// before retrying. Omit this field or set it to false to preserve every VNI
+	// allocation owned by the VPC.
+	ReleaseInactiveVni *bool `protobuf:"varint,21,opt,name=release_inactive_vni,json=releaseInactiveVni,proto3,oneof" json:"release_inactive_vni,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -11077,11 +11091,22 @@ func (x *VpcUpdateRequest) GetPowerResourceGroup() string {
 	return ""
 }
 
+func (x *VpcUpdateRequest) GetReleaseInactiveVni() bool {
+	if x != nil && x.ReleaseInactiveVni != nil {
+		return *x.ReleaseInactiveVni
+	}
+	return false
+}
+
 type VpcUpdateResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Vpc           *Vpc                   `protobuf:"bytes,1,opt,name=vpc,proto3" json:"vpc,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Vpc   *Vpc                   `protobuf:"bytes,1,opt,name=vpc,proto3" json:"vpc,omitempty"`
+	// The inactive VNI released by this update. This is present only after a
+	// requested cleanup succeeds; callers requesting cleanup must require this
+	// acknowledgement.
+	ReleasedInactiveVni *uint32 `protobuf:"varint,2,opt,name=released_inactive_vni,json=releasedInactiveVni,proto3,oneof" json:"released_inactive_vni,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *VpcUpdateResult) Reset() {
@@ -11119,6 +11144,13 @@ func (x *VpcUpdateResult) GetVpc() *Vpc {
 		return x.Vpc
 	}
 	return nil
+}
+
+func (x *VpcUpdateResult) GetReleasedInactiveVni() uint32 {
+	if x != nil && x.ReleasedInactiveVni != nil {
+		return *x.ReleasedInactiveVni
+	}
+	return 0
 }
 
 type VpcUpdateVirtualizationRequest struct {
@@ -66258,7 +66290,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x15_routing_profile_typeB\x1c\n" +
 	"\x1a_routing_profile_overridesB\x17\n" +
 	"\x15_power_resource_groupB\x10\n" +
-	"\x0e_slaac_enabledJ\x04\b\x10\x10\x11\"\x8f\x05\n" +
+	"\x0e_slaac_enabledJ\x04\b\x10\x10\x11\"\xdf\x05\n" +
 	"\x10VpcUpdateRequest\x12\x1d\n" +
 	"\x02id\x18\x01 \x01(\v2\r.common.VpcIdR\x02id\x12-\n" +
 	"\x10if_version_match\x18\x02 \x01(\tH\x00R\x0eifVersionMatch\x88\x01\x01\x12\x12\n" +
@@ -66267,15 +66299,19 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x19network_security_group_id\x18\x11 \x01(\tH\x01R\x16networkSecurityGroupId\x88\x01\x01\x12s\n" +
 	"#default_nvlink_logical_partition_id\x18\x12 \x01(\v2 .common.NVLinkLogicalPartitionIdH\x02R\x1fdefaultNvlinkLogicalPartitionId\x88\x01\x01\x12b\n" +
 	"\x19routing_profile_overrides\x18\x13 \x01(\v2!.forge.VpcRoutingProfileOverridesH\x03R\x17routingProfileOverrides\x88\x01\x01\x125\n" +
-	"\x14power_resource_group\x18\x14 \x01(\tH\x04R\x12powerResourceGroup\x88\x01\x01B\x13\n" +
+	"\x14power_resource_group\x18\x14 \x01(\tH\x04R\x12powerResourceGroup\x88\x01\x01\x125\n" +
+	"\x14release_inactive_vni\x18\x15 \x01(\bH\x05R\x12releaseInactiveVni\x88\x01\x01B\x13\n" +
 	"\x11_if_version_matchB\x1c\n" +
 	"\x1a_network_security_group_idB&\n" +
 	"$_default_nvlink_logical_partition_idB\x1c\n" +
 	"\x1a_routing_profile_overridesB\x17\n" +
-	"\x15_power_resource_groupJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06\"/\n" +
+	"\x15_power_resource_groupB\x17\n" +
+	"\x15_release_inactive_vniJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06\"\x82\x01\n" +
 	"\x0fVpcUpdateResult\x12\x1c\n" +
 	"\x03vpc\x18\x01 \x01(\v2\n" +
-	".forge.VpcR\x03vpc\"\x86\x02\n" +
+	".forge.VpcR\x03vpc\x127\n" +
+	"\x15released_inactive_vni\x18\x02 \x01(\rH\x00R\x13releasedInactiveVni\x88\x01\x01B\x18\n" +
+	"\x16_released_inactive_vni\"\x86\x02\n" +
 	"\x1eVpcUpdateVirtualizationRequest\x12\x1d\n" +
 	"\x02id\x18\x01 \x01(\v2\r.common.VpcIdR\x02id\x12-\n" +
 	"\x10if_version_match\x18\x02 \x01(\tH\x00R\x0eifVersionMatch\x88\x01\x01\x12a\n" +
@@ -75775,6 +75811,7 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[69].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[70].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[71].OneofWrappers = []any{}
+	file_nico_nico_proto_msgTypes[72].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[73].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[81].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[82].OneofWrappers = []any{}

@@ -26,6 +26,7 @@ use config_version::ConfigVersion;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use model::metadata::Metadata;
+use model::resource_pool::{OwnerType, ResourcePoolEntryState};
 use model::vpc::{
     NewVpc, PowerResourceGroupUpdate, UpdateVpc, UpdateVpcVirtualization, VpcDefinition,
     VpcRoutingProfileOverrides, VpcStatus,
@@ -36,14 +37,72 @@ use crate::test_support::metadata;
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::tenant::create_fixture_tenant;
-use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
+use crate::tests::common::api_fixtures::vpc::create_vpc as create_fixture_vpc;
+use crate::tests::common::api_fixtures::{
+    TestEnv, TestEnvOverrides, create_test_env_with_overrides,
+};
 use crate::tests::common::rpc_builder::{VpcCreationRequest, VpcDeletionRequest, VpcUpdateRequest};
 use crate::{DatabaseError, db_init};
+
+type VpcVniPoolState = Vec<(String, String, sqlx::types::Json<ResourcePoolEntryState>)>;
 
 fn forge_vpc_config(vpc: &rpc::forge::Vpc) -> &rpc::forge::VpcConfig {
     vpc.config
         .as_ref()
         .expect("structured config must be populated")
+}
+
+async fn find_test_vpc(env: &TestEnv, vpc_id: VpcId) -> Result<rpc::forge::Vpc, tonic::Status> {
+    Ok(env
+        .api
+        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+            vpc_ids: vec![vpc_id],
+        }))
+        .await?
+        .into_inner()
+        .vpcs
+        .pop()
+        .expect("persisted VPC"))
+}
+
+async fn allocate_external_vni(env: &TestEnv, owner_id: VpcId) -> Result<i32, eyre::Report> {
+    let mut txn = env.pool.begin().await?;
+    let vni = db::resource_pool::allocate(
+        &env.common_pools.ethernet.pool_external_vpc_vni,
+        &mut txn,
+        OwnerType::Vpc,
+        &owner_id.to_string(),
+        None,
+    )
+    .await?;
+    txn.commit().await?;
+    Ok(vni)
+}
+
+async fn resource_pool_entry_state(
+    env: &TestEnv,
+    pool_name: &str,
+    vni: i32,
+) -> Result<ResourcePoolEntryState, sqlx::Error> {
+    let state = sqlx::query_scalar::<_, sqlx::types::Json<ResourcePoolEntryState>>(
+        "SELECT state FROM resource_pool WHERE name = $1 AND value = $2",
+    )
+    .bind(pool_name)
+    .bind(vni.to_string())
+    .fetch_one(&env.pool)
+    .await?;
+    Ok(state.0)
+}
+
+async fn vpc_vni_pool_state(env: &TestEnv) -> Result<VpcVniPoolState, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT name, value, state FROM resource_pool
+         WHERE name IN ($1, $2) ORDER BY name, value::integer",
+    )
+    .bind(env.common_pools.ethernet.pool_vpc_vni.name())
+    .bind(env.common_pools.ethernet.pool_external_vpc_vni.name())
+    .fetch_all(&env.pool)
+    .await
 }
 
 #[crate::sqlx_test]
@@ -367,6 +426,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
             default_nvlink_logical_partition_id: None,
             routing_profile_overrides: None,
             power_resource_group: Some("power-group".to_string()),
+            release_inactive_vni: Some(false),
         }))
         .await
         .expect_err("updating an unknown VPC should fail");
@@ -384,6 +444,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 default_nvlink_logical_partition_id: None,
                 routing_profile_overrides: None,
                 power_resource_group: None,
+                release_inactive_vni: None,
             }))
             .await;
 
@@ -1625,6 +1686,333 @@ async fn test_vpc_with_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         .into_inner();
 
     assert_eq!(forge_vpc.id.unwrap(), id);
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn update_vpc_releases_only_the_inactive_vni_from_either_pool(
+    pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    #[derive(Clone, Copy)]
+    enum ActivePool {
+        Internal,
+        External,
+    }
+
+    let env = create_test_env(pool).await;
+    populate_network_security_groups(env.api.clone()).await;
+    let network_security_group_id = "fd3ab096-d811-11ef-8fe9-7be4b2483448";
+
+    for (scenario, active_pool) in [
+        ("release retained external VNI", ActivePool::Internal),
+        ("release retained internal VNI", ActivePool::External),
+    ] {
+        let (vpc_id, mut created) =
+            create_fixture_vpc(&env, scenario.to_string(), None, None).await;
+
+        if matches!(active_pool, ActivePool::Internal) {
+            created = env
+                .api
+                .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+                    id: Some(vpc_id),
+                    metadata: created.metadata.clone(),
+                    network_security_group_id: Some(network_security_group_id.to_string()),
+                    ..Default::default()
+                }))
+                .await?
+                .into_inner()
+                .vpc
+                .expect("updated VPC");
+        }
+
+        let internal_vni = i32::try_from(
+            created
+                .status
+                .as_ref()
+                .and_then(|status| status.vni)
+                .expect("created VPC has an active VNI"),
+        )?;
+        let external_vni = allocate_external_vni(&env, vpc_id).await?;
+
+        if matches!(active_pool, ActivePool::External) {
+            // Model a completed internal-to-external transition that retained
+            // the previous internal allocation for rollback.
+            let mut txn = env.pool.begin().await?;
+            let vpc = db::vpc::find_by(
+                txn.as_mut(),
+                ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+            )
+            .await?
+            .pop()
+            .expect("persisted VPC");
+            db::vpc::set_vni(&vpc, &mut txn, external_vni).await?;
+            txn.commit().await?;
+        }
+        let current = find_test_vpc(&env, vpc_id).await?;
+
+        let (active_vni, inactive_vni, active_pool_name, inactive_pool_name) = match active_pool {
+            ActivePool::Internal => (
+                internal_vni,
+                external_vni,
+                env.common_pools.ethernet.pool_vpc_vni.name(),
+                env.common_pools.ethernet.pool_external_vpc_vni.name(),
+            ),
+            ActivePool::External => (
+                external_vni,
+                internal_vni,
+                env.common_pools.ethernet.pool_external_vpc_vni.name(),
+                env.common_pools.ethernet.pool_vpc_vni.name(),
+            ),
+        };
+
+        let initial_version: ConfigVersion = current.version.parse()?;
+        let result = env
+            .api
+            .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+                id: Some(vpc_id),
+                if_version_match: Some(current.version.clone()),
+                metadata: current.metadata.clone(),
+                network_security_group_id: forge_vpc_config(&current)
+                    .network_security_group_id
+                    .clone(),
+                release_inactive_vni: Some(true),
+                ..Default::default()
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(
+            result.released_inactive_vni,
+            Some(u32::try_from(inactive_vni)?),
+            "{scenario}"
+        );
+
+        let updated = result.vpc.expect("updated VPC");
+        let updated_version: ConfigVersion = updated.version.parse()?;
+        assert_eq!(
+            updated_version.version_nr(),
+            initial_version.version_nr() + 1,
+            "{scenario}"
+        );
+        assert_eq!(updated.metadata, current.metadata, "{scenario}");
+        assert_eq!(updated.config, current.config, "{scenario}");
+        assert_eq!(updated.status, current.status, "{scenario}");
+        assert_eq!(find_test_vpc(&env, vpc_id).await?, updated, "{scenario}");
+
+        assert_eq!(
+            resource_pool_entry_state(&env, active_pool_name, active_vni).await?,
+            ResourcePoolEntryState::Allocated {
+                owner: vpc_id.to_string(),
+                owner_type: OwnerType::Vpc.to_string(),
+            },
+            "{scenario}"
+        );
+        assert_eq!(
+            resource_pool_entry_state(&env, inactive_pool_name, inactive_vni).await?,
+            ResourcePoolEntryState::Free,
+            "{scenario}"
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn update_vpc_cleanup_failures_are_atomic(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    #[derive(Clone, Copy)]
+    enum CleanupFailure {
+        MissingVersion,
+        StaleVersion,
+        NoInactiveVni,
+        ActiveAllocationMismatch,
+        DuplicateInactiveVni,
+        ChangedMetadata,
+        ChangedNetworkSecurityGroup,
+        CombinedUpdate,
+    }
+
+    let env = create_test_env(pool).await;
+    let cases = [
+        ("missing current version", CleanupFailure::MissingVersion),
+        ("stale current version", CleanupFailure::StaleVersion),
+        ("no inactive allocation", CleanupFailure::NoInactiveVni),
+        (
+            "active allocation owned by another VPC",
+            CleanupFailure::ActiveAllocationMismatch,
+        ),
+        (
+            "duplicate inactive allocations",
+            CleanupFailure::DuplicateInactiveVni,
+        ),
+        ("changed metadata", CleanupFailure::ChangedMetadata),
+        (
+            "changed network security group",
+            CleanupFailure::ChangedNetworkSecurityGroup,
+        ),
+        ("combined VPC update", CleanupFailure::CombinedUpdate),
+    ];
+
+    for (scenario, failure) in cases {
+        let (vpc_id, created) = create_fixture_vpc(&env, scenario.to_string(), None, None).await;
+        let active_vni = created
+            .status
+            .as_ref()
+            .and_then(|status| status.vni)
+            .expect("created VPC has an active VNI");
+
+        if !matches!(failure, CleanupFailure::NoInactiveVni) {
+            allocate_external_vni(&env, vpc_id).await?;
+        }
+        if matches!(failure, CleanupFailure::DuplicateInactiveVni) {
+            allocate_external_vni(&env, vpc_id).await?;
+        }
+
+        if matches!(failure, CleanupFailure::ActiveAllocationMismatch) {
+            let foreign_owner_state = ResourcePoolEntryState::Allocated {
+                owner: VpcId::new().to_string(),
+                owner_type: OwnerType::Vpc.to_string(),
+            };
+            sqlx::query(
+                "UPDATE resource_pool SET state = $1
+                 WHERE name = $2 AND value = $3",
+            )
+            .bind(sqlx::types::Json(foreign_owner_state))
+            .bind(env.common_pools.ethernet.pool_vpc_vni.name())
+            .bind(active_vni.to_string())
+            .execute(&env.pool)
+            .await?;
+        }
+
+        let stale_version = created.version.clone();
+        let current = if matches!(failure, CleanupFailure::StaleVersion) {
+            let mut changed_metadata = created.metadata.clone().expect("VPC metadata");
+            changed_metadata.description = "changed concurrently".to_string();
+            env.api
+                .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+                    id: Some(vpc_id),
+                    metadata: Some(changed_metadata),
+                    ..Default::default()
+                }))
+                .await?
+                .into_inner()
+                .vpc
+                .expect("updated VPC")
+        } else {
+            created.clone()
+        };
+
+        let request_version = match failure {
+            CleanupFailure::MissingVersion => None,
+            CleanupFailure::StaleVersion => Some(stale_version.clone()),
+            CleanupFailure::NoInactiveVni
+            | CleanupFailure::ActiveAllocationMismatch
+            | CleanupFailure::DuplicateInactiveVni
+            | CleanupFailure::ChangedMetadata
+            | CleanupFailure::ChangedNetworkSecurityGroup
+            | CleanupFailure::CombinedUpdate => Some(current.version.clone()),
+        };
+        let pool_state_before = vpc_vni_pool_state(&env).await?;
+
+        let request_metadata = match failure {
+            CleanupFailure::StaleVersion => created.metadata.clone(),
+            CleanupFailure::ChangedMetadata => Some(rpc::forge::Metadata {
+                name: "unexpected replacement".to_string(),
+                ..Default::default()
+            }),
+            _ => None,
+        };
+        let request_network_security_group_id =
+            matches!(failure, CleanupFailure::ChangedNetworkSecurityGroup)
+                .then(|| "fd3ab096-d811-11ef-8fe9-7be4b2483448".to_string());
+        let request_power_resource_group =
+            matches!(failure, CleanupFailure::CombinedUpdate).then(|| "power-group".to_string());
+
+        let error = env
+            .api
+            .update_vpc(tonic::Request::new(rpc::forge::VpcUpdateRequest {
+                id: Some(vpc_id),
+                if_version_match: request_version,
+                metadata: request_metadata,
+                network_security_group_id: request_network_security_group_id,
+                power_resource_group: request_power_resource_group,
+                release_inactive_vni: Some(true),
+                ..Default::default()
+            }))
+            .await
+            .expect_err(scenario);
+        let expected_code = match failure {
+            CleanupFailure::MissingVersion
+            | CleanupFailure::ChangedMetadata
+            | CleanupFailure::ChangedNetworkSecurityGroup
+            | CleanupFailure::CombinedUpdate => tonic::Code::InvalidArgument,
+            CleanupFailure::StaleVersion
+            | CleanupFailure::NoInactiveVni
+            | CleanupFailure::ActiveAllocationMismatch
+            | CleanupFailure::DuplicateInactiveVni => tonic::Code::FailedPrecondition,
+        };
+        assert_eq!(error.code(), expected_code, "{scenario}: {error}");
+        if matches!(failure, CleanupFailure::StaleVersion) {
+            assert!(
+                error.message().contains(&format!(
+                    "did not have the expected version {stale_version}"
+                )),
+                "{scenario}: {error}"
+            );
+        }
+
+        assert_eq!(find_test_vpc(&env, vpc_id).await?, current, "{scenario}");
+        assert_eq!(
+            vpc_vni_pool_state(&env).await?,
+            pool_state_before,
+            "{scenario}"
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn vpc_deletion_releases_every_owned_vni(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    let env = create_test_env(pool).await;
+    let (vpc_id, created) =
+        create_fixture_vpc(&env, "delete all owned VNIs".to_string(), None, None).await;
+    let active_vni = i32::try_from(
+        created
+            .status
+            .as_ref()
+            .and_then(|status| status.vni)
+            .expect("created VPC has an active VNI"),
+    )?;
+    let sentinel_owner = VpcId::new();
+
+    // Model corrupt retained-allocation cardinality across the two pools.
+    let first_inactive_vni = allocate_external_vni(&env, vpc_id).await?;
+    let second_inactive_vni = allocate_external_vni(&env, vpc_id).await?;
+    let sentinel_vni = allocate_external_vni(&env, sentinel_owner).await?;
+
+    env.api
+        .delete_vpc(VpcDeletionRequest::builder().id(vpc_id).tonic_request())
+        .await?;
+
+    let internal_pool = env.common_pools.ethernet.pool_vpc_vni.name();
+    let external_pool = env.common_pools.ethernet.pool_external_vpc_vni.name();
+    for (pool_name, vni) in [
+        (internal_pool, active_vni),
+        (external_pool, first_inactive_vni),
+        (external_pool, second_inactive_vni),
+    ] {
+        assert_eq!(
+            resource_pool_entry_state(&env, pool_name, vni).await?,
+            ResourcePoolEntryState::Free
+        );
+    }
+    assert_eq!(
+        resource_pool_entry_state(&env, external_pool, sentinel_vni).await?,
+        ResourcePoolEntryState::Allocated {
+            owner: sentinel_owner.to_string(),
+            owner_type: OwnerType::Vpc.to_string(),
+        }
+    );
+
     Ok(())
 }
 

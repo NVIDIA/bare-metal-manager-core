@@ -1945,10 +1945,30 @@ message VpcUpdateRequest {
   // preserve the current association, send an empty string to remove it, or
   // send a non-empty value to replace it.
   optional string power_resource_group = 20;
+
+  // `release_inactive_vni = true` is a standalone action. It requires
+  // `if_version_match` and fails unless exactly one inactive VPC-owned
+  // allocation can be identified. `default_nvlink_logical_partition_id`,
+  // `routing_profile_overrides`, and `power_resource_group` must be absent.
+  // `metadata` and `network_security_group_id` may be omitted. When supplied,
+  // each must match the VPC's current value rather than changing it.
+  //
+  // During a rolling upgrade, callers must echo current `metadata` and any
+  // attached `network_security_group_id`, because an older Core ignores this
+  // action and applies their replacement semantics. Callers must require
+  // `released_inactive_vni` in the result. If it is absent, refetch the VPC
+  // before retrying. Omit this field or set it to false to preserve every VNI
+  // allocation owned by the VPC.
+  optional bool release_inactive_vni = 21;
 }
 
 message VpcUpdateResult {
   Vpc vpc = 1;
+
+  // The inactive VNI released by this update. This is present only after a
+  // requested cleanup succeeds; callers requesting cleanup must require this
+  // acknowledgement.
+  optional uint32 released_inactive_vni = 2;
 }
 
 message VpcUpdateVirtualizationRequest {
