@@ -806,7 +806,6 @@ stateDiagram-v2
 
 ## Failed State
 
-
 ```mermaid
 stateDiagram-v2
     direction LR
