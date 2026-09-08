@@ -316,6 +316,13 @@ impl DpaInterface {
         instance: &Option<InstanceSnapshot>,
         spx_status_observation: &Option<MachineSpxStatusObservation>,
     ) -> bool {
+        // If the instance has no SPX attachments, there is nothing to sync.
+        if let Some(instance) = instance
+            && instance.config.spxconfig.spx_attachments.is_empty()
+        {
+            return true;
+        }
+
         let mut dpa_expected_version = self.network_config.version;
 
         // If we haven't yet seen any observations, we are not synced
