@@ -32,9 +32,9 @@ use bmc_mock::mac_address_pool::{
     RangesConfig as MacAddressRangesConfig,
 };
 use bmc_mock::{
-    BmcCommand, BmcState, Callbacks, DpuMachineInfo, DpuSettings, HardwareType, HostMachineInfo,
-    ListenerOrAddress, MachineInfo, MachineRouterOptions, MockPowerState, SetSystemPowerError,
-    SystemPowerControl, VirtualMediaDeviceConfig,
+    BmcCommand, BmcState, Callbacks, DpuFirmwareVersions, DpuMachineInfo, DpuSettings,
+    HardwareType, HostMachineInfo, ListenerOrAddress, MachineInfo, MachineRouterOptions,
+    MockPowerState, SetSystemPowerError, SystemPowerControl, VirtualMediaDeviceConfig,
 };
 use command_line::{MachineRole, StateBackend};
 use mac_address::MacAddress;
@@ -86,7 +86,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         || args.state_backend.is_some()
         || args.dpu_count.is_some()
         || args.dpu_index.is_some()
-        || args.instance_index != 0;
+        || args.instance_index != 0
+        || args.dpu_bmc_firmware.is_some()
+        || args.dpu_uefi_firmware.is_some()
+        || args.dpu_bsp_firmware.is_some()
+        || args.dpu_cec_firmware.is_some()
+        || args.dpu_nic_firmware.is_some();
     if has_generated_options && (args.targz.is_some() || args.ip_router.is_some()) {
         return Err(
             "generated-machine options cannot be combined with archive-backed routers".into(),
@@ -223,6 +228,8 @@ struct GeneratedMockConfig {
     dpu_count: u8,
     dpu_index: usize,
     instance_index: u8,
+    dpu_firmware: DpuFirmwareVersions,
+    dpu_bsp_firmware: Option<String>,
     libvirt_config: Option<bmc_mock::libvirt::Config>,
     use_channel_callbacks: bool,
 }
@@ -246,6 +253,8 @@ fn generated_mock_config(args: &command_line::Args) -> Result<GeneratedMockConfi
             dpu_count: 2,
             dpu_index: 0,
             instance_index: 0,
+            dpu_firmware: DpuFirmwareVersions::default(),
+            dpu_bsp_firmware: None,
             libvirt_config: None,
             use_channel_callbacks: true,
         });
@@ -325,6 +334,13 @@ fn generated_mock_config(args: &command_line::Args) -> Result<GeneratedMockConfi
         dpu_count,
         dpu_index,
         instance_index: args.instance_index,
+        dpu_firmware: DpuFirmwareVersions {
+            bmc: args.dpu_bmc_firmware.clone(),
+            uefi: args.dpu_uefi_firmware.clone(),
+            cec: args.dpu_cec_firmware.clone(),
+            nic: args.dpu_nic_firmware.clone(),
+        },
+        dpu_bsp_firmware: args.dpu_bsp_firmware.clone(),
         libvirt_config,
         use_channel_callbacks: false,
     })
@@ -349,6 +365,8 @@ fn generated_mock(config: GeneratedMockConfig) -> (Router, BmcState) {
         config.dpu_count,
         config.dpu_index,
         config.instance_index,
+        config.dpu_firmware,
+        config.dpu_bsp_firmware,
     );
     let result = if config.machine_role == MachineRole::Host
         && config.state_backend == StateBackend::Libvirt
@@ -397,6 +415,8 @@ fn generated_machine_info(
     dpu_count: u8,
     dpu_index: usize,
     instance_index: u8,
+    dpu_firmware: DpuFirmwareVersions,
+    dpu_bsp_firmware: Option<String>,
 ) -> MachineInfo {
     let mut pool = MacAddressPool::new(MacAddressConfig {
         pool: Some(
@@ -413,7 +433,17 @@ fn generated_machine_info(
         .allocate_range_config()
         .expect("MAC address pool should be allocated");
     let dpus = (0..dpu_count)
-        .map(|_| DpuMachineInfo::new(hardware_type, &mut pool, DpuSettings::default()))
+        .map(|_| {
+            DpuMachineInfo::new(
+                hardware_type,
+                &mut pool,
+                DpuSettings {
+                    firmware_versions: dpu_firmware.clone(),
+                    bsp_version: dpu_bsp_firmware.clone(),
+                    ..DpuSettings::default()
+                },
+            )
+        })
         .collect::<Vec<_>>();
     match machine_role {
         MachineRole::Host => MachineInfo::Host(HostMachineInfo::new(
@@ -534,8 +564,24 @@ mod tests {
 
     #[test]
     fn host_and_dpu_endpoints_share_deterministic_dpu_identity() {
-        let host = generated_machine_info(MachineRole::Host, HardwareType::WiwynnGB200Nvl, 2, 0, 3);
-        let dpu = generated_machine_info(MachineRole::Dpu, HardwareType::WiwynnGB200Nvl, 2, 1, 3);
+        let host = generated_machine_info(
+            MachineRole::Host,
+            HardwareType::WiwynnGB200Nvl,
+            2,
+            0,
+            3,
+            DpuFirmwareVersions::default(),
+            None,
+        );
+        let dpu = generated_machine_info(
+            MachineRole::Dpu,
+            HardwareType::WiwynnGB200Nvl,
+            2,
+            1,
+            3,
+            DpuFirmwareVersions::default(),
+            None,
+        );
         let MachineInfo::Host(host) = host else {
             panic!("expected host machine info");
         };
@@ -545,5 +591,78 @@ mod tests {
 
         assert_eq!(host.dpus[1].serial, dpu.serial);
         assert_eq!(host.dpus[1].bmc_mac_address, dpu.bmc_mac_address);
+    }
+
+    #[test]
+    fn reports_configured_dpu_firmware_versions() {
+        for machine_role in ["host", "dpu"] {
+            let config = config(&[
+                "bmc-mock",
+                "--machine-role",
+                machine_role,
+                "--state-backend",
+                "internal",
+                "--hardware-profile",
+                "hpe_proliant_dl380a_gen11",
+                "--dpu-count",
+                "1",
+                "--dpu-bmc-firmware",
+                "BF-25.10-20",
+                "--dpu-uefi-firmware",
+                "4.13.2-12-g943a91640d",
+                "--dpu-bsp-firmware",
+                "4.13.2",
+                "--dpu-cec-firmware",
+                "00.02.0195.0000_n02",
+                "--dpu-nic-firmware",
+                "32.47.2682",
+            ])
+            .unwrap();
+            let (_, state) = generated_mock(config);
+
+            for (inventory_id, expected) in [
+                ("BMC_Firmware", "BF-25.10-20"),
+                ("DPU_UEFI", "4.13.2-12-g943a91640d"),
+                ("DPU_BSP", "4.13.2"),
+                ("Bluefield_FW_ERoT", "00.02.0195.0000_n02"),
+                ("DPU_NIC", "32.47.2682"),
+            ] {
+                let inventory = state
+                    .update_service_state
+                    .find_firmware_inventory(inventory_id)
+                    .unwrap_or_else(|| {
+                        panic!("missing {inventory_id} firmware inventory for {machine_role}")
+                    });
+                assert_eq!(inventory["Version"].as_str(), Some(expected));
+            }
+        }
+    }
+
+    #[test]
+    fn bsp_inventory_is_optional_and_can_be_configured_independently() {
+        for bsp in [None, Some("4.13.2")] {
+            let mut arguments = vec![
+                "bmc-mock",
+                "--machine-role",
+                "dpu",
+                "--state-backend",
+                "internal",
+                "--hardware-profile",
+                "hpe_proliant_dl380a_gen11",
+                "--dpu-count",
+                "1",
+            ];
+            if let Some(version) = bsp {
+                arguments.extend(["--dpu-bsp-firmware", version]);
+            }
+            let (_, state) = generated_mock(config(&arguments).unwrap());
+            let inventory = state
+                .update_service_state
+                .find_firmware_inventory("DPU_BSP");
+            assert_eq!(
+                inventory.as_ref().and_then(|item| item["Version"].as_str()),
+                bsp
+            );
+        }
     }
 }

@@ -125,6 +125,41 @@ pub(super) struct Args {
 
     #[clap(
         long,
+        requires = "hardware_profile",
+        help = "DPU BMC firmware version reported by generated Redfish inventory"
+    )]
+    pub(super) dpu_bmc_firmware: Option<String>,
+
+    #[clap(
+        long,
+        requires = "hardware_profile",
+        help = "DPU UEFI firmware version reported by generated Redfish inventory"
+    )]
+    pub(super) dpu_uefi_firmware: Option<String>,
+
+    #[clap(
+        long,
+        requires = "hardware_profile",
+        help = "DPU BSP version reported by generated Redfish inventory"
+    )]
+    pub(super) dpu_bsp_firmware: Option<String>,
+
+    #[clap(
+        long,
+        requires = "hardware_profile",
+        help = "DPU CEC firmware version reported by generated Redfish inventory"
+    )]
+    pub(super) dpu_cec_firmware: Option<String>,
+
+    #[clap(
+        long,
+        requires = "hardware_profile",
+        help = "DPU NIC firmware version reported by generated Redfish inventory"
+    )]
+    pub(super) dpu_nic_firmware: Option<String>,
+
+    #[clap(
+        long,
         default_value_t = 0,
         help = "Stable instance number used to make generated identities unique"
     )]

@@ -121,6 +121,9 @@ pub struct DpuFirmwareVersions {
 pub struct DpuSettings {
     pub nic_mode: bool,
     pub firmware_versions: DpuFirmwareVersions,
+    /// Optional BSP version exposed as DPU_BSP firmware inventory; omitted by default.
+    #[serde(default)]
+    pub bsp_version: Option<String>,
     #[serde(default = "default_true")]
     pub exposes_oob_eth: bool,
 }
@@ -139,6 +142,7 @@ impl Default for DpuSettings {
         Self {
             nic_mode: false,
             firmware_versions: Default::default(),
+            bsp_version: None,
             exposes_oob_eth: true,
         }
     }
@@ -290,10 +294,20 @@ impl DpuMachineInfo {
     }
 
     fn update_service_config(&self) -> UpdateServiceConfig {
-        match self.dpu_type() {
+        let mut config = match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().update_service_config(),
             DpuType::Bluefield4 => self.bluefield4().update_service_config(),
+        };
+        if let Some(bsp) = &self.settings.bsp_version {
+            config.firmware_inventory.push(
+                redfish::software_inventory::builder(
+                    &redfish::software_inventory::firmware_inventory_resource("DPU_BSP"),
+                )
+                .version(bsp)
+                .build(),
+            );
         }
+        config
     }
 
     fn oem_state(&self) -> redfish::oem::State {
@@ -599,6 +613,29 @@ impl HostMachineInfo {
         // carbide needs to upgrade from.
         if let Some(ref fw) = self.initial_host_firmware {
             config.apply_host_firmware_versions(fw);
+        }
+
+        // Generated host and DPU endpoints model two BMC views of the same
+        // BlueField. When explicit DPU versions are configured, expose that
+        // inventory through the host endpoint as well so both views agree.
+        if let Some(dpu) = self.primary_dpu().filter(|dpu| {
+            let fw = &dpu.settings.firmware_versions;
+            fw.bmc.is_some()
+                || fw.uefi.is_some()
+                || dpu.settings.bsp_version.is_some()
+                || fw.cec.is_some()
+                || fw.nic.is_some()
+        }) {
+            for inventory in dpu.update_service_config().firmware_inventory {
+                let inventory_id = inventory.id.as_ref();
+                if !config
+                    .firmware_inventory
+                    .iter()
+                    .any(|existing| existing.id.as_ref() == inventory_id)
+                {
+                    config.firmware_inventory.push(inventory);
+                }
+            }
         }
 
         // Populate the ordered pending_upgrades map so UpdateServiceState knows
