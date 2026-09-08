@@ -111,6 +111,13 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
         )
     })
     .await;
+
+    // The reboot request has already selected the one-time custom iPXE boot,
+    // but the host has not yet reported that the restart completed. The PXE
+    // request made during that window must still receive the requested script.
+    let pxe = host_interface.get_pxe_instructions(host_arch).await;
+    assert_eq!(pxe.pxe_script, "SomeRandomiPxe");
+
     env.run_machine_state_controller_iteration().await;
     mh.host().reboot_completed().await;
     env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {

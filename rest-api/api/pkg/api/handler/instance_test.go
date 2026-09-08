@@ -4341,6 +4341,11 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	inst10 := testInstanceBuildInstance(t, dbSession, "test-instance-10", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst10)
 
+	// Used only to characterize REST reboot status reporting after a successful
+	// site workflow completion.
+	instRebootStatus := testInstanceBuildInstance(t, dbSession, "test-instance-reboot-status", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os2.ID, nil, cdbm.InstanceStatusReady)
+	assert.NotNil(t, instRebootStatus)
+
 	instsub1 := testInstanceBuildInstanceInterface(t, dbSession, inst1.ID, &subnet1.ID, nil, nil, cdbm.InterfaceStatusReady)
 	assert.NotNil(t, instsub1)
 
@@ -4884,8 +4889,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 		// When true with nvlinkInterfacesToDelete, still assert those rows are Deleting but skip Pending-row count/order checks.
 		nvLinkSkipPendingDBAssertions bool
 		// Optional hook after building the echo context and before Handle (e.g. adjust DB timestamps for time-sensitive branches).
-		beforeHandle           func(t *testing.T)
-		ethernetReconciliation *ethernetReconciliationExpectation
+		beforeHandle                         func(t *testing.T)
+		ethernetReconciliation               *ethernetReconciliationExpectation
+		assertRebootStatusRemainsNonTerminal bool
 	}
 
 	tests := []struct {
@@ -5773,6 +5779,30 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:                tnOrg1,
 				reqUser:               tnu1,
 				respCode:              http.StatusOK,
+			},
+			wantErr: false,
+		},
+		{
+			// The mocked site workflow's Get call returns successfully. This
+			// characterizes the REST API reporting gap: its only resulting
+			// status is still Rebooting, with no terminal provider outcome.
+			name: "test Instance reboot remains non-terminal after successful site workflow",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceUpdateRequest{
+					TriggerReboot: cutil.GetPtr(true),
+				},
+				reqInstance:                          instRebootStatus.ID.String(),
+				cleanInstanceToStatus:                instRebootStatus.Status,
+				reqOrg:                               tnOrg1,
+				reqUser:                              tnu1,
+				respCode:                             http.StatusOK,
+				assertRebootStatusRemainsNonTerminal: true,
 			},
 			wantErr: false,
 		},
@@ -7440,6 +7470,30 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			}
 
 			reqIns, _ := insDAO.GetByID(ec.Request().Context(), nil, uuid.MustParse(tt.args.reqInstance), nil)
+			if tt.args.assertRebootStatusRemainsNonTerminal {
+				require.NotNil(t, reqIns.PowerStatus)
+				assert.Equal(t, cdbm.InstancePowerStatusRebooting, *reqIns.PowerStatus)
+
+				sdDAO := cdbm.NewStatusDetailDAO(tt.fields.dbSession)
+				statusDetails, _, statusDetailsErr := sdDAO.GetAll(
+					ec.Request().Context(),
+					nil,
+					cdbm.StatusDetailFilterInput{EntityIDs: []string{reqIns.ID.String()}},
+					cdbp.PageInput{},
+				)
+				require.NoError(t, statusDetailsErr)
+				require.NotEmpty(t, statusDetails)
+
+				foundRebootingDetail := false
+				for _, statusDetail := range statusDetails {
+					if statusDetail.Status == cdbm.InstancePowerStatusRebooting {
+						foundRebootingDetail = true
+						require.NotNil(t, statusDetail.Message)
+						assert.Equal(t, "received Instance reboot request, processing", *statusDetail.Message)
+					}
+				}
+				assert.True(t, foundRebootingDetail, "successful reboot workflow did not record a terminal status")
+			}
 
 			if len(tt.expectedControllerVpcIDs) > 0 && len(tt.args.reqData.Interfaces) > 0 {
 				require.Len(t, rst.Interfaces, len(tt.args.reqData.Interfaces))
