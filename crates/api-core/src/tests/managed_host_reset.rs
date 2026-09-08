@@ -21,9 +21,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_dpf::{DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
+use model::machine::{DpuDiscoveringState, ManagedHostState, ResetState};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::managed_host_reset_request::Mode;
 use rpc::forge::{ManagedHostResetListRequest, ManagedHostResetRequest, UpdateInitiator};
@@ -38,10 +40,8 @@ use crate::tests::common::api_fixtures::{
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A reset is only offered to DPF-ingested hosts, and `create_managed_host_with_dpf`
-/// drives the real provisioning flow, so these tests need DPF enabled in config plus an
-/// SDK for it to register against. Same starting point as the `dpf` suites.
-async fn dpf_test_env(pool: sqlx::PgPool) -> TestEnv {
+/// Expectations for the initial provisioning flow, shared by every env below.
+fn provisioning_mock() -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
     mock.expect_register_dpu_device().returning(|_, _| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
@@ -52,6 +52,62 @@ async fn dpf_test_env(pool: sqlx::PgPool) -> TestEnv {
     mock.expect_deployment_type_for_dpu()
         .returning(|_, _| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
+    mock
+}
+
+/// A reset is only offered to DPF-ingested hosts, and `create_managed_host_with_dpf`
+/// drives the real provisioning flow, so these tests need DPF enabled in config plus an
+/// SDK for it to register against. Same starting point as the `dpf` suites.
+async fn dpf_test_env(pool: sqlx::PgPool) -> TestEnv {
+    env_with_dpf_mock(pool, provisioning_mock()).await
+}
+
+/// What `snapshot_host` reports for the host's DPF CRs, which is the only thing
+/// `DeletingCrs` polls on.
+#[derive(Clone, Copy)]
+enum DpfCrs {
+    Present,
+    Gone,
+}
+
+async fn reset_controller_env(pool: sqlx::PgPool, crs: DpfCrs) -> TestEnv {
+    let mut mock = provisioning_mock();
+    mock.expect_force_delete_host().returning(|_, _| Ok(()));
+    mock.expect_snapshot_host()
+        .returning(move |_| Ok(host_dpf_snapshot(crs)));
+
+    env_with_dpf_mock(pool, mock).await
+}
+
+/// `create_managed_host_with_dpf` provisions a single DPU, so a present CR set is the
+/// DPUNode plus exactly one DPUDevice. Any other count reads as a half-drained set.
+fn host_dpf_snapshot(crs: DpfCrs) -> HostDpfSnapshot {
+    match crs {
+        DpfCrs::Gone => HostDpfSnapshot {
+            dpu_node: None,
+            dpu_devices: Vec::new(),
+            dpus: Vec::new(),
+        },
+        DpfCrs::Present => HostDpfSnapshot {
+            dpu_node: Some(DpuNodeSummary {
+                name: "node-mock".to_string(),
+                labels: Default::default(),
+                annotations: Default::default(),
+                dpu_device_refs: vec!["device-0".to_string()],
+            }),
+            dpu_devices: vec![DpuDeviceSummary {
+                name: "device-0".to_string(),
+                labels: Default::default(),
+                bmc_ip: None,
+                bmc_port: None,
+                serial_number: String::new(),
+            }],
+            dpus: Vec::new(),
+        },
+    }
+}
+
+async fn env_with_dpf_mock(pool: sqlx::PgPool, mock: MockDpfOperations) -> TestEnv {
     let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
 
     let mut config = get_config();
@@ -87,6 +143,13 @@ fn reset_request(machine_id: MachineId, mode: Mode) -> Request<ManagedHostResetR
         initiator: UpdateInitiator::AdminCli.into(),
         allow_reset_with_instance: false,
     })
+}
+
+/// The operator's acknowledgement that the reset may destroy a live instance.
+fn reset_request_allowing_instance(machine_id: MachineId) -> Request<ManagedHostResetRequest> {
+    let mut request = reset_request(machine_id, Mode::Set);
+    request.get_mut().allow_reset_with_instance = true;
+    request
 }
 
 /// A `Set` has to land in `machines.reset_requested` and become visible to both the
@@ -224,6 +287,103 @@ async fn reset_set_rejects_a_host_not_ingested_through_dpf(pool: sqlx::PgPool) {
     );
 }
 
+/// A reset destroys a live instance and its data, so the flag is the only thing allowing it.
+#[crate::sqlx_test]
+async fn reset_set_destroys_a_live_instance_only_when_the_operator_allows_it(pool: sqlx::PgPool) {
+    let env = dpf_test_env(pool).await;
+    let managed_host = dpf_ingested_host(&env).await;
+    let host_id: MachineId = managed_host.id.into();
+
+    // The required alert prevents allocation, so allocate before marking for updates.
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let _instance = managed_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+    managed_host.mark_machine_for_updates().await;
+
+    let error = env
+        .api
+        .trigger_managed_host_reset(reset_request(host_id, Mode::Set))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert!(
+        error.message().contains("--allow-reset-with-instance"),
+        "the refusal has to name the flag that overrides it: {}",
+        error.message()
+    );
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        managed_host
+            .host()
+            .db_machine(&mut txn)
+            .await
+            .reset_requested
+            .is_none()
+    );
+    drop(txn);
+
+    // Same host, same live instance: the acknowledgement is the only thing that changes.
+    env.api
+        .trigger_managed_host_reset(reset_request_allowing_instance(host_id))
+        .await
+        .unwrap();
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        managed_host
+            .host()
+            .db_machine(&mut txn)
+            .await
+            .reset_requested
+            .is_some(),
+        "an acknowledged reset has to be recorded for the controller to act on"
+    );
+}
+
+/// The controller stops managing a force-deleting host, so a reset recorded there never runs.
+#[crate::sqlx_test]
+async fn reset_set_rejects_a_force_deleting_host(pool: sqlx::PgPool) {
+    let env = dpf_test_env(pool).await;
+    let managed_host = dpf_ingested_host(&env).await;
+    // Every other precondition is satisfied, so force-deletion is the only one left to fail.
+    managed_host.mark_machine_for_updates().await;
+
+    let mut txn = env.db_txn().await;
+    let host = managed_host.host().db_machine(&mut txn).await;
+    assert!(
+        db::machine::advance(&host, &mut txn, &ManagedHostState::ForceDeletion, None)
+            .await
+            .unwrap()
+    );
+    txn.commit().await.unwrap();
+
+    let error = env
+        .api
+        .trigger_managed_host_reset(reset_request(managed_host.id.into(), Mode::Set))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert!(
+        error.message().contains("force-deleted"),
+        "unexpected message: {}",
+        error.message()
+    );
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        managed_host
+            .host()
+            .db_machine(&mut txn)
+            .await
+            .reset_requested
+            .is_none()
+    );
+}
+
 /// `Clear` is the withdrawal path, and it closes once the controller stamps `started_at`
 /// and begins tearing the host down. Both halves matter: an operator has to be able to take
 /// back a request that has not started, and a late clear must not cancel a teardown that is
@@ -287,4 +447,105 @@ async fn reset_clear_withdraws_only_a_reset_that_has_not_started(pool: sqlx::PgP
         .reset_requested
         .expect("the started reset should survive a refused clear");
     assert!(request.started_at.is_some());
+}
+
+/// Records a reset the way an operator would, then drops the host straight into
+/// `DeletingCrs` so a single iteration exercises that substate on its own. `started_at` is
+/// stamped because the hinge fires on any unstarted request and would otherwise pull the
+/// host back to `DeletingInstance`.
+async fn enter_deleting_crs(env: &TestEnv, managed_host: &TestManagedHost) {
+    managed_host.mark_machine_for_updates().await;
+    let host_id: MachineId = managed_host.id.into();
+    env.api
+        .trigger_managed_host_reset(reset_request(host_id, Mode::Set))
+        .await
+        .unwrap();
+
+    let mut txn = env.db_txn().await;
+    db::machine::update_managed_host_reset_start_time(&mut txn, &host_id)
+        .await
+        .unwrap();
+    let host = managed_host.host().db_machine(&mut txn).await;
+    let deleting_crs = ManagedHostState::Reset {
+        reset_state: ResetState::DeletingCrs,
+    };
+    assert!(
+        db::machine::advance(&host, &mut txn, &deleting_crs, None)
+            .await
+            .unwrap()
+    );
+    txn.commit().await.unwrap();
+}
+
+async fn host_state(env: &TestEnv, managed_host: &TestManagedHost) -> ManagedHostState {
+    let mut txn = env.db_txn().await;
+    managed_host
+        .host()
+        .db_machine(&mut txn)
+        .await
+        .current_state()
+        .clone()
+}
+
+/// Registration refuses a CR that still carries a `deletionTimestamp`, so `DeletingCrs`
+/// waits for the delete to drain rather than for it to be accepted. Re-ingesting early
+/// would recreate nothing and strand the host.
+#[crate::sqlx_test]
+async fn reset_holds_in_deleting_crs_while_the_dpf_crs_remain(pool: sqlx::PgPool) {
+    let env = reset_controller_env(pool, DpfCrs::Present).await;
+    let managed_host = dpf_ingested_host(&env).await;
+    enter_deleting_crs(&env, &managed_host).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out during state controller iteration");
+
+    let state = host_state(&env, &managed_host).await;
+    assert!(
+        matches!(
+            state,
+            ManagedHostState::Reset {
+                reset_state: ResetState::DeletingCrs
+            }
+        ),
+        "an undrained CR set has to hold the reset, got {state:?}"
+    );
+}
+
+/// A drained host has to re-enter discovery at `Initializing`, the only substate that
+/// reaches `DpfState::Provisioning` and so the only path that recreates the CRs this
+/// state just deleted. The request is cleared with the handoff, or the hinge re-fires.
+#[crate::sqlx_test]
+async fn reset_re_enters_dpu_discovery_once_the_dpf_crs_are_gone(pool: sqlx::PgPool) {
+    let env = reset_controller_env(pool, DpfCrs::Gone).await;
+    let managed_host = dpf_ingested_host(&env).await;
+    enter_deleting_crs(&env, &managed_host).await;
+
+    timeout(TEST_TIMEOUT, env.run_machine_state_controller_iteration())
+        .await
+        .expect("timed out during state controller iteration");
+
+    match host_state(&env, &managed_host).await {
+        ManagedHostState::DpuDiscoveringState { dpu_states } => {
+            assert!(!dpu_states.states.is_empty());
+            for (dpu_id, dpu_state) in &dpu_states.states {
+                assert_eq!(
+                    *dpu_state,
+                    DpuDiscoveringState::Initializing,
+                    "DPU {dpu_id} has to re-enter discovery from the start"
+                );
+            }
+        }
+        other => panic!("a drained reset re-enters DPU discovery, got {other:?}"),
+    }
+
+    let mut txn = env.db_txn().await;
+    assert!(
+        managed_host
+            .host()
+            .db_machine(&mut txn)
+            .await
+            .reset_requested
+            .is_none()
+    );
 }

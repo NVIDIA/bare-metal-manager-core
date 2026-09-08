@@ -2191,6 +2191,7 @@ pub async fn trigger_managed_host_reset_request(
 }
 
 /// Marks the reset as started, which closes it to `Clear` and stops the hinge re-firing.
+/// Guarded on `IS NOT NULL` because `jsonb_set` on a `NULL` column reports success unchanged.
 pub async fn update_managed_host_reset_start_time(
     txn: &mut PgConnection,
     machine_id: &MachineId,
@@ -2198,7 +2199,7 @@ pub async fn update_managed_host_reset_start_time(
     let query = r#"UPDATE machines
                         SET reset_requested=
                                     jsonb_set(reset_requested, '{started_at}', $2, true)
-                       WHERE id=$1 RETURNING id"#;
+                       WHERE id=$1 AND reset_requested IS NOT NULL RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id)
         .bind(sqlx::types::Json(chrono::Utc::now()))
