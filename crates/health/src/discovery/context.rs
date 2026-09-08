@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use carbide_uuid::nvlink::NvLinkDomainId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use prometheus::{Histogram, HistogramOpts};
 
 use super::reachability::ReachabilitySpec;
@@ -94,6 +95,7 @@ pub(super) struct CollectorState {
     reachability: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
     switch_domain_uuids: HashMap<Cow<'static, str>, Option<NvLinkDomainId>>,
+    power_shelf_ids: HashMap<Cow<'static, str>, Option<PowerShelfId>>,
     pub(super) reachability_specs: HashMap<Cow<'static, str>, ReachabilitySpec>,
 }
 
@@ -115,6 +117,7 @@ impl CollectorState {
             reachability: HashMap::new(),
             inventories: HashMap::new(),
             switch_domain_uuids: HashMap::new(),
+            power_shelf_ids: HashMap::new(),
             reachability_specs: HashMap::new(),
         }
     }
@@ -203,6 +206,38 @@ impl CollectorState {
     ) {
         self.switch_domain_uuids
             .retain(|key, _| active_switch_endpoints.contains(key));
+    }
+
+    /// Records the latest PowerShelf ID and reports whether it changed.
+    ///
+    /// Running collectors retain their startup metadata, so a changed ID
+    /// requires a restart before sinks can publish the updated identity.
+    pub(super) fn observe_power_shelf_id(
+        &mut self,
+        key: &str,
+        power_shelf_id: Option<PowerShelfId>,
+    ) -> bool {
+        match self.power_shelf_ids.get_mut(key) {
+            Some(previous) if *previous != power_shelf_id => {
+                *previous = power_shelf_id;
+                true
+            }
+            Some(_) => false,
+            None => {
+                self.power_shelf_ids
+                    .insert(Cow::Owned(key.to_string()), power_shelf_id);
+                false
+            }
+        }
+    }
+
+    /// Removes saved PowerShelf IDs for endpoints absent from the discovery pass.
+    pub(super) fn retain_power_shelf_ids(
+        &mut self,
+        active_power_shelf_endpoints: &HashSet<Cow<'static, str>>,
+    ) {
+        self.power_shelf_ids
+            .retain(|key, _| active_power_shelf_endpoints.contains(key));
     }
 
     pub(super) fn contains(&self, kind: CollectorKind, key: &str) -> bool {

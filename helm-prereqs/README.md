@@ -107,8 +107,52 @@ config it edits.
    vars only for your own/mirrored registry. See *DPF* below. Sites with no
    DPUs (or still on iPXE) run `./setup.sh -y --skip-dpf` and can ignore these.
 
+9. **[RMS (Rack Management Service)](https://docs.nvidia.com/rms/documentation/home/) - on by default.**
+   Unless you pass `--skip-rms`, export `NICO_RMS_IMAGE_TAG` (required; the
+   image tag is decoupled from the chart).
+
+   Phase 5c installs the rack-manager chart from the `helm-prereqs/nv-rms` git
+   submodule (pinned to a reviewed
+   [nv-rms](https://github.com/dsx-ai-factory/nv-rms) commit; initialized
+   automatically) with mTLS issued from `vault-nico-issuer`, and provisions the
+   `rms` database on `nico-pg-cluster`.
+
+   Airgapped sites clone nv-rms out-of-band and set
+   `NICO_RMS_CHART=<clone>/helm` instead. Refer to *Building the RMS image*
+   below.
+
+   NICo Core's chart defaults already point the component manager at
+   `rms-api-server.rack-manager.svc.cluster.local:8801`; the namespace is fixed
+   to `rack-manager` to match, so no Core config change is needed. Set
+   `NICO_RMS_IMAGE_REPO` only for a mirrored or self-built image (the default
+   NGC image is entitlement-gated).
+
+### Building the RMS image
+
+The default `rms-api` image on NGC is entitlement-gated. Most sites build it
+themselves and push it to the same registry as the other NICo images:
+
+```bash
+git submodule update --init helm-prereqs/nv-rms   # or your own nv-rms clone
+cd helm-prereqs/nv-rms
+# One version for the binary metadata, the image tag, and NICO_RMS_IMAGE_TAG,
+# derived from the pinned checkout (for example, v0.10.0-rc2):
+RMS_VERSION="$(git describe --tags --always)"
+docker build \
+  --build-arg VERGEN_GIT_SHA="$(git rev-parse HEAD)" \
+  --build-arg VERGEN_GIT_DESCRIBE="${RMS_VERSION}" \
+  -t "${NICO_IMAGE_REGISTRY}/rms-api:${RMS_VERSION}" .
+docker push "${NICO_IMAGE_REGISTRY}/rms-api:${RMS_VERSION}"
+export NICO_RMS_IMAGE_REPO="${NICO_IMAGE_REGISTRY}/rms-api"
+export NICO_RMS_IMAGE_TAG="${RMS_VERSION}"
+```
+
+Build from the submodule commit (or your pinned clone) so the image matches
+the chart. The `VERGEN_*` build args stamp version metadata; the build works
+without a `.git` directory because of them.
+
 Once the above is done, run `./setup.sh -y` (DPF installs by default; add
-`--skip-dpf` to opt out).
+`--skip-dpf` / `--skip-rms` to opt out of those stacks).
 
 ## Configuration reference
 
@@ -131,6 +175,8 @@ The tables below summarize the keys that must be set per site.
 | `NICO_STORAGE_CLASS` | No | StorageClass used by Vault data/audit PVCs. Defaults to `local-path-persistent`. |
 | `PREFLIGHT_CHECK_IMAGE` | No | Image used for preflight per-node checks. Defaults to `busybox:1.36`; set to a local mirror for air-gapped clusters. |
 | `NICO_SKIP_DPF` | No | Skip the DPF (DOCA Platform Framework) DPU provisioning stack, which installs **by default**. Same as `--skip-dpf`. Defaults to `false`. |
+| `NICO_SKIP_RMS` | No | Skip the Rack Management Service (rack-manager chart, phase 5c), which installs **by default**. Same as `--skip-rms`. Defaults to `false`. |
+| `NICO_RMS_IMAGE_TAG` | Unless RMS is skipped (`--skip-rms` / `NICO_SKIP_RMS=true`) | RMS API server image tag (git-describe style, e.g. `v0.10.0-rc2`). No default - the chart fails at render without one. See `setup.sh` header for the full `NICO_RMS_*` family (chart override, image repo, NGC key). The namespace is fixed to `rack-manager` - NICo Core dials the service by that name. |
 | `NICO_DPF_VERSION` | No | `NVIDIA/doca-platform` tag that setup.sh clones and installs. Defaults to `v26.4.0`. |
 | `NICO_DPF_SRC_DIR` | No | Cache directory for the doca-platform clone. Defaults to `helm-prereqs/.dpf-src`. |
 | `NICO_DPF_NGC_API_KEY` | No | NGC API key for `dpf-pull-secret` and the Argo CD helm repository secrets. Defaults to `REGISTRY_PULL_SECRET`. |

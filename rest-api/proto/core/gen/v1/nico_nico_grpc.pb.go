@@ -85,6 +85,7 @@ const (
 	Forge_AllocateInstance_FullMethodName                                   = "/forge.Forge/AllocateInstance"
 	Forge_AllocateInstances_FullMethodName                                  = "/forge.Forge/AllocateInstances"
 	Forge_ReleaseInstance_FullMethodName                                    = "/forge.Forge/ReleaseInstance"
+	Forge_ReleaseInstances_FullMethodName                                   = "/forge.Forge/ReleaseInstances"
 	Forge_UpdateInstanceOperatingSystem_FullMethodName                      = "/forge.Forge/UpdateInstanceOperatingSystem"
 	Forge_UpdateInstanceConfig_FullMethodName                               = "/forge.Forge/UpdateInstanceConfig"
 	Forge_FindInstanceIds_FullMethodName                                    = "/forge.Forge/FindInstanceIds"
@@ -615,6 +616,13 @@ type ForgeClient interface {
 	AllocateInstances(ctx context.Context, in *BatchInstanceAllocationRequest, opts ...grpc.CallOption) (*BatchInstanceAllocationResponse, error)
 	// Releases an instance that has been allocated by a tenant
 	ReleaseInstance(ctx context.Context, in *InstanceReleaseRequest, opts ...grpc.CallOption) (*InstanceReleaseResult, error)
+	// Releases multiple instances in a single call. Best-effort per instance --
+	// one instance failing to release (e.g. already released, or blocked by a
+	// health check) does not roll back or block the release of the rest of the
+	// batch. Compare AllocateInstances, which is all-or-nothing: that semantic
+	// does not fit release, where callers need partial progress rather than a
+	// single bad ID aborting an entire large batch.
+	ReleaseInstances(ctx context.Context, in *BatchInstanceReleaseRequest, opts ...grpc.CallOption) (*BatchInstanceReleaseResponse, error)
 	// Updates the network interface configuration for an instance
 	// The update will take effect asynchronously. Users should monitor `Instance.status.network_status.synced`
 	// to determine whether all updates have been applied.
@@ -2030,6 +2038,16 @@ func (c *forgeClient) ReleaseInstance(ctx context.Context, in *InstanceReleaseRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InstanceReleaseResult)
 	err := c.cc.Invoke(ctx, Forge_ReleaseInstance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) ReleaseInstances(ctx context.Context, in *BatchInstanceReleaseRequest, opts ...grpc.CallOption) (*BatchInstanceReleaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchInstanceReleaseResponse)
+	err := c.cc.Invoke(ctx, Forge_ReleaseInstances_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6413,6 +6431,13 @@ type ForgeServer interface {
 	AllocateInstances(context.Context, *BatchInstanceAllocationRequest) (*BatchInstanceAllocationResponse, error)
 	// Releases an instance that has been allocated by a tenant
 	ReleaseInstance(context.Context, *InstanceReleaseRequest) (*InstanceReleaseResult, error)
+	// Releases multiple instances in a single call. Best-effort per instance --
+	// one instance failing to release (e.g. already released, or blocked by a
+	// health check) does not roll back or block the release of the rest of the
+	// batch. Compare AllocateInstances, which is all-or-nothing: that semantic
+	// does not fit release, where callers need partial progress rather than a
+	// single bad ID aborting an entire large batch.
+	ReleaseInstances(context.Context, *BatchInstanceReleaseRequest) (*BatchInstanceReleaseResponse, error)
 	// Updates the network interface configuration for an instance
 	// The update will take effect asynchronously. Users should monitor `Instance.status.network_status.synced`
 	// to determine whether all updates have been applied.
@@ -7394,6 +7419,9 @@ func (UnimplementedForgeServer) AllocateInstances(context.Context, *BatchInstanc
 }
 func (UnimplementedForgeServer) ReleaseInstance(context.Context, *InstanceReleaseRequest) (*InstanceReleaseResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseInstance not implemented")
+}
+func (UnimplementedForgeServer) ReleaseInstances(context.Context, *BatchInstanceReleaseRequest) (*BatchInstanceReleaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseInstances not implemented")
 }
 func (UnimplementedForgeServer) UpdateInstanceOperatingSystem(context.Context, *InstanceOperatingSystemUpdateRequest) (*Instance, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateInstanceOperatingSystem not implemented")
@@ -9808,6 +9836,24 @@ func _Forge_ReleaseInstance_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).ReleaseInstance(ctx, req.(*InstanceReleaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_ReleaseInstances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchInstanceReleaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ReleaseInstances(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ReleaseInstances_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ReleaseInstances(ctx, req.(*BatchInstanceReleaseRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17741,6 +17787,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseInstance",
 			Handler:    _Forge_ReleaseInstance_Handler,
+		},
+		{
+			MethodName: "ReleaseInstances",
+			Handler:    _Forge_ReleaseInstances_Handler,
 		},
 		{
 			MethodName: "UpdateInstanceOperatingSystem",

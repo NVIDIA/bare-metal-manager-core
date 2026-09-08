@@ -379,6 +379,7 @@ impl StaticBmcEndpoint {
             "machine_slot_number",
             "machine_tray_index",
             "nvlink_domain_uuid",
+            "power_shelf_id",
             "rack_id",
             "serial_number",
             "switch_id",
@@ -4958,7 +4959,11 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
     #[test]
     fn test_static_endpoint_rejects_invalid_or_reserved_label_names() {
-        for (name, expected) in [("bad-label", "must match"), ("system_uuid", "is reserved")] {
+        for (name, expected) in [
+            ("bad-label", "must match"),
+            ("power_shelf_id", "is reserved"),
+            ("system_uuid", "is reserved"),
+        ] {
             let toml_content = format!(
                 r#"
 [endpoint_sources.nico_api]

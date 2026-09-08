@@ -136,6 +136,7 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
         x.perm("ReleaseInstance", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("ReleaseInstances", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateInstanceOperatingSystem", vec![SiteAgent]);
         x.perm("UpdateInstanceConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindInstanceIds", vec![ForgeAdminCLI, SiteAgent]);
