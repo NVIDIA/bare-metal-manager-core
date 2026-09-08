@@ -21,11 +21,11 @@
 //! lookups, and `get_all_instances`'s internal paged fetches) should go
 //! through [`retry_on_admission_exhaustion`] rather than reimplementing the
 //! loop, so a fix like honoring a negative pushback as a stop-retrying
-//! signal only has to happen in one place. (`release_with_retry` in
+//! signal only has to happen in one place. (`release_batch_with_retry` in
 //! `instance/release/cmd.rs` is the one exception -- it retries a call
-//! returning `Result<(), tonic::Status>` rather than `CarbideCliResult<T>`,
-//! so it still parses pushback via [`resolve_backoff_delay`] directly but
-//! keeps its own loop.)
+//! returning `Result<BatchInstanceReleaseResponse, tonic::Status>` rather
+//! than `CarbideCliResult<T>`, so it still parses pushback via
+//! [`resolve_backoff_delay`] directly but keeps its own loop.)
 
 use std::future::Future;
 use std::time::Duration;
