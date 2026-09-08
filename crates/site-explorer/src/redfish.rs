@@ -486,25 +486,22 @@ impl RedfishClient {
 
     /// Picks the nv-redfish pool and credentials for one report fetch.
     ///
-    /// Established with `[bmc_proxy]` enabled: the proxied pool, sending no
+    /// Established with `[bmc_proxy]` enabled: the proxied pool with no
     /// credentials (the proxy resolves them). Established otherwise: the
     /// direct pool with the credential the caller already resolved --
     /// exactly the pre-split behavior. Direct: the caller's explicit
     /// credentials on the direct pool.
-    fn nv_pool_and_credentials(&self, access: BmcAccess) -> (&NvRedfishClientPool, Credentials) {
+    fn nv_pool_and_credentials(
+        &self,
+        access: BmcAccess,
+    ) -> (&NvRedfishClientPool, Option<Credentials>) {
         match (access, &self.proxied) {
-            (BmcAccess::Established(_), Some(proxied)) => (
-                proxied.nv_redfish.as_ref(),
-                Credentials::UsernamePassword {
-                    username: String::new(),
-                    password: String::new(),
-                },
-            ),
+            (BmcAccess::Established(_), Some(proxied)) => (proxied.nv_redfish.as_ref(), None),
             (BmcAccess::Established(bmc), None) => {
-                (self.nv_redfish_client_pool.as_ref(), bmc.credentials)
+                (self.nv_redfish_client_pool.as_ref(), Some(bmc.credentials))
             }
             (BmcAccess::Direct(credentials), _) => {
-                (self.nv_redfish_client_pool.as_ref(), credentials)
+                (self.nv_redfish_client_pool.as_ref(), Some(credentials))
             }
         }
     }
@@ -2306,7 +2303,10 @@ mod tests {
         let (pool, credentials) = client
             .nv_pool_and_credentials(BmcAccess::Established(established(mac, stored.clone())));
         assert!(std::ptr::eq(pool, proxied_nv.as_ref()));
-        assert_eq!(credentials, Credentials::new("", ""));
+        assert!(
+            credentials.is_none(),
+            "the proxy resolves the BMC's credentials itself"
+        );
 
         let direct_client = RedfishClient::new(Arc::new(RedfishSim::default()), nv_pool(), None);
         let (pool, credentials) = direct_client
@@ -2316,7 +2316,8 @@ mod tests {
             direct_client.nv_redfish_client_pool.as_ref()
         ));
         assert_eq!(
-            credentials, stored,
+            credentials,
+            Some(stored),
             "disabled mode carries the resolved credential through"
         );
 
@@ -2324,6 +2325,6 @@ mod tests {
         let (pool, credentials) =
             client.nv_pool_and_credentials(BmcAccess::Direct(explicit.clone()));
         assert!(std::ptr::eq(pool, client.nv_redfish_client_pool.as_ref()));
-        assert_eq!(credentials, explicit);
+        assert_eq!(credentials, Some(explicit));
     }
 }

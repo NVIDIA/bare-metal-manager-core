@@ -51,7 +51,7 @@ pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedf
 /// A pool whose every client targets nico-bmc-proxy over mTLS: the proxy
 /// resolves the BMC from the `Forwarded` header (reusing this pool's
 /// existing redirect machinery) and authenticates upstream itself, so
-/// callers pass empty credentials -- the proxy strips `Authorization`
+/// callers pass `None` for credentials -- the proxy strips `Authorization`
 /// regardless. Certificates are re-read from disk at most once per
 /// [`MUTUAL_CLIENT_REBUILD_INTERVAL`], off the request path (see
 /// [`NvRedfishClientPool::refresh_mutual_client`]), so a rotated SPIFFE
@@ -256,10 +256,15 @@ impl NvRedfishClientPool {
         }
     }
 
+    /// The BMC's service root, from cache when fresh.
+    ///
+    /// `credentials` is `None` only on the proxied pool, where
+    /// nico-bmc-proxy authenticates upstream itself; a direct pool given
+    /// `None` fails rather than dialing the BMC anonymously.
     pub async fn service_root(
         &self,
         bmc_address: SocketAddr,
-        credentials: Credentials,
+        credentials: Option<Credentials>,
     ) -> Result<Arc<ServiceRoot>, Error> {
         self.service_root_with_cache_predicate(bmc_address, credentials, |_| true)
             .await
@@ -270,14 +275,12 @@ impl NvRedfishClientPool {
     pub async fn service_root_with_cache_predicate(
         &self,
         bmc_address: SocketAddr,
-        credentials: Credentials,
+        credentials: Option<Credentials>,
         should_cache: impl FnOnce(&ServiceRoot) -> bool,
     ) -> Result<Arc<ServiceRoot>, Error> {
+        let bmc_credentials = self.bmc_credentials(credentials)?;
         self.remove_expired(Instant::now());
         self.refresh_mutual_client().await?;
-
-        let Credentials::UsernamePassword { username, password } = credentials;
-        let bmc_credentials = BmcCredentials::new(username, password);
 
         if let Some(sevice_root) = self.cached_root(bmc_address, bmc_credentials.clone()) {
             Ok(sevice_root)
@@ -311,6 +314,24 @@ impl NvRedfishClientPool {
                 self.update_cache(bmc_address, bmc_credentials, service_root.clone());
             }
             Ok(service_root)
+        }
+    }
+
+    /// The credential nv-redfish's client type carries for one BMC. `None`
+    /// is valid only on the proxied pool: nico-bmc-proxy authenticates
+    /// upstream and strips any `Authorization` header, so an empty
+    /// credential stands in for the type's sake and nothing else.
+    fn bmc_credentials(&self, credentials: Option<Credentials>) -> Result<BmcCredentials, Error> {
+        match credentials {
+            Some(Credentials::UsernamePassword { username, password }) => {
+                Ok(BmcCredentials::new(username, password))
+            }
+            None if matches!(self.client_tls, NvClientTls::Mutual { .. }) => {
+                Ok(BmcCredentials::new(String::new(), String::new()))
+            }
+            None => Err(Error::Bmc(BmcError::InvalidRequest(
+                "BMC credentials are required for a direct (non-proxied) connection".to_string(),
+            ))),
         }
     }
 
@@ -718,6 +739,21 @@ mod tests {
         assert!(
             err.to_string().contains("tls.key"),
             "the error should name the unreadable file: {err}"
+        );
+    }
+
+    /// A direct pool cannot dial a BMC anonymously: `None` credentials are
+    /// only meaningful where nico-bmc-proxy authenticates upstream.
+    #[tokio::test]
+    async fn direct_pool_rejects_absent_credentials() {
+        let pool = NvRedfishClientPool::new(Arc::new(ArcSwap::from_pointee(None)));
+        let bmc: SocketAddr = "192.0.2.10:443".parse().unwrap();
+        let Err(err) = pool.service_root(bmc, None).await else {
+            panic!("a direct pool must not dial a BMC without credentials");
+        };
+        assert!(
+            err.to_string().contains("credentials"),
+            "the error should name the missing credentials: {err}"
         );
     }
 
