@@ -14,15 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-lease_time_secs: 604800  # Seconds
-renewal_time_secs: 3600  # Seconds
-rebinding_time_secs: 432000  # Seconds
-dhcpv6_preferred_lifetime_secs: 3600  # Seconds
-dhcpv6_valid_lifetime_secs: 7200  # Seconds
-carbide_nameservers:
-  - 10.217.126.20
-carbide_api_url: https://carbide-api.forge-system.svc.cluster.local:1079
-carbide_ntpservers:
-  - 10.180.37.3
-carbide_provisioning_server_ipv4: 10.217.126.17
-carbide_dhcp_server: 10.217.126.16
+[package]
+name = "carbide-dhcpv6"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shared DHCPv6 wire-decoding primitives for NVIDIA Infra Controller"
+
+[dependencies]
+dhcproto = { workspace = true }
+mac_address = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
+[lints]
+workspace = true

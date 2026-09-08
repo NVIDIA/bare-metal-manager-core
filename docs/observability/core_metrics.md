@@ -55,12 +55,15 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_database_transaction_rollback_failures_total</td><td>counter</td><td>Number of database transaction rollback failures, by trigger.</td></tr>
 <tr><td>carbide_db_pool_idle_conns</td><td>gauge</td><td>Number of idle connections in the carbide database pool</td></tr>
 <tr><td>carbide_db_pool_total_conns</td><td>gauge</td><td>Number of (active + idle) connections in the carbide database pool</td></tr>
-<tr><td>carbide_dhcp_dropped_requests_total</td><td>counter</td><td>Number of DHCP packets dropped without a reply, by drop reason.</td></tr>
-<tr><td>carbide_dhcp_replies_sent_total</td><td>counter</td><td>Number of DHCP replies sent, by reply message type.</td></tr>
-<tr><td>carbide_dhcp_requests_total</td><td>counter</td><td>Number of DHCP packets received and decoded, by DHCP message type.</td></tr>
+<tr><td>carbide_dhcp_dropped_requests_total</td><td>counter</td><td>Number of DHCPv4 packets dropped without a reply, by drop reason.</td></tr>
+<tr><td>carbide_dhcp_replies_sent_total</td><td>counter</td><td>Number of DHCPv4 replies sent, by reply message type.</td></tr>
+<tr><td>carbide_dhcp_requests_total</td><td>counter</td><td>Number of DHCPv4 packets received and decoded, by DHCP message type.</td></tr>
 <tr><td>carbide_dhcp_socket_setup_failures_total</td><td>counter</td><td>Number of DHCP socket setup failures, by operation and next action.</td></tr>
 <tr><td>carbide_dhcp_timestamp_file_failures_total</td><td>counter</td><td>Number of DHCP timestamp file failures, by operation</td></tr>
+<tr><td>carbide_dhcp_v6_listener_unavailable_total</td><td>counter</td><td>Number of DHCPv6 listeners made unavailable by socket setup failure, by reason.</td></tr>
 <tr><td>carbide_dhcp_v6_replies_sent_total</td><td>counter</td><td>Number of DHCPv6 replies sent, by response message type.</td></tr>
+<tr><td>carbide_dhcp_v6_requests_dropped_total</td><td>counter</td><td>Number of DHCPv6 requests dropped or refused, by reason.</td></tr>
+<tr><td>carbide_dhcp_v6_requests_total</td><td>counter</td><td>Number of DHCPv6 requests received, by DHCP message type.</td></tr>
 <tr><td>carbide_dns_negative_cache_hit_count_total</td><td>counter</td><td>Number of negative DNS cache hits, by response code</td></tr>
 <tr><td>carbide_dns_negative_cache_miss_count_total</td><td>counter</td><td>Number of negative DNS cache misses, by response code</td></tr>
 <tr><td>carbide_dns_queries_total</td><td>counter</td><td>Number of DNS queries received, by query type</td></tr>
@@ -77,7 +80,6 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dpu_uefi_password_setup_skips_total</td><td>counter</td><td>Number of DPU UEFI password setup operations skipped, by reason.</td></tr>
 <tr><td>carbide_dpus_healthy_count</td><td>gauge</td><td>Number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.</td></tr>
 <tr><td>carbide_dpus_up_count</td><td>gauge</td><td>Number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.</td></tr>
-<tr><td>carbide_dropped_v6_requests_total</td><td>counter</td><td>Number of dropped DHCPv6 requests, by reason.</td></tr>
 <tr><td>carbide_dsx_event_bus_publish_count_total</td><td>counter</td><td>Number of MQTT publish attempts</td></tr>
 <tr><td>carbide_dsx_exchange_consumer_alerts_detected_total</td><td>counter</td><td>Number of leak alerts detected</td></tr>
 <tr><td>carbide_dsx_exchange_consumer_dedup_skipped_total</td><td>counter</td><td>Number of messages skipped due to deduplication</td></tr>
