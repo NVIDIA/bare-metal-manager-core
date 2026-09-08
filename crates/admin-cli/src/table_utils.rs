@@ -64,7 +64,7 @@ pub(crate) struct MaxWidthArgs {
                 Repeatable. A bare WIDTH applies to every column; COLUMN=WIDTH limits just \
                 that column, where COLUMN must exactly match the column's displayed header \
                 text (case-insensitive), e.g. State=40. For a header containing spaces, \
-                quote the whole COLUMN=WIDTH argument, e.g. \"State Version=40\". An \
+                quote the whole COLUMN=WIDTH argument, e.g. \"COLUMN NAME=40\". An \
                 unmatched COLUMN is ignored with a warning listing the valid headers for \
                 this invocation."
     )]
