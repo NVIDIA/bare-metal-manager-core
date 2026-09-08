@@ -1453,6 +1453,7 @@ where
 
     /// Set `mac_address` on results from the reused id path, keyed by the
     /// `component_id` (id string) each result carries.
+    fn echo_mac_by_component_id(
         &self,
         mut results: Vec<rpc::ComponentResult>,
     ) -> Vec<rpc::ComponentResult> {
@@ -1467,7 +1468,7 @@ where
 
 /// Compute (machine) MAC resolution. Ingested MACs reuse the machine id path;
 /// `uningested` MACs are reachable only before ingestion completes.
-type ComputeMacResolution = MacResolution<MachineId>;
+type ComputeMacResolution = MacResolution<HostMachineId>;
 
 /// Resolve each caller-supplied compute BMC MAC to an ingested machine id or
 /// classify it as having no row yet. Parse failures are collected as per-MAC
@@ -4095,7 +4096,7 @@ pub(crate) async fn get_component_firmware_status(
                 let sub = rpc::GetComponentFirmwareStatusRequest {
                     target: Some(
                         rpc::get_component_firmware_status_request::Target::MachineIds(
-                            ::rpc::common::MachineIdList {
+                            ::rpc::common::HostMachineIdList {
                                 machine_ids: resolution.ingested_ids(),
                             },
                         ),
