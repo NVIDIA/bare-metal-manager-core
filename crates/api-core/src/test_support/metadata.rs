@@ -21,7 +21,7 @@
 /// The function returns a tuple of
 /// 1. Metadata to check
 /// 2. Expected part of error message
-pub(in crate::tests) fn invalid_metadata_testcases(
+pub fn invalid_metadata_testcases(
     include_min_length_test_cases: bool,
 ) -> Vec<(rpc::forge::Metadata, String)> {
     let mut results = [

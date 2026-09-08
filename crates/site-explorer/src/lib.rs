@@ -200,6 +200,26 @@ pub fn enrich_endpoint_exploration_report(
     }
 }
 
+fn topology_firmware_versions(report: &EndpointExplorationReport) -> Option<(&str, &str)> {
+    let bmc_version = report
+        .versions
+        .get(&FirmwareComponentType::Bmc)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .or_else(|| report.observed_host_bmc_version())?;
+
+    let bios_version = report
+        .versions
+        .get(&FirmwareComponentType::Uefi)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .or_else(|| report.system_bios_version())?;
+
+    Some((bmc_version, bios_version))
+}
+
 /// Ensures a rack row exists for the given `rack_id`.
 ///
 /// If the rack already exists, returns it. Otherwise creates a new rack only
@@ -2943,9 +2963,11 @@ impl SiteExplorer {
             }
 
             // Update possible stale machine versions
+            // Configured firmware versions remain the preferred source. Hosts
+            // without firmware-management configuration, such as Lenovo GB300
+            // RMS systems, can use versions observed directly from Redfish.
             if let Ok(report) = &result
-                && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
-                && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
+                && let Some((bmc_version, bios_version)) = topology_firmware_versions(report)
             {
                 let machine_id = match report.machine_id.as_ref().copied() {
                     Some(machine_id) => Some(machine_id),
@@ -2957,7 +2979,7 @@ impl SiteExplorer {
                         &mut txn,
                         &machine_id,
                         bmc_version,
-                        uefi_version,
+                        bios_version,
                     )
                     .await?;
                     firmware_version_update_attempts += 1;
@@ -4748,9 +4770,122 @@ mod tests {
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
     use model::expected_machine::ExpectedInterfaceRole;
-    use model::site_explorer::{ComputerSystem, NetworkAdapter, PreingestionState};
+    use model::site_explorer::{
+        ComputerSystem, Inventory, NetworkAdapter, PreingestionState, Service,
+    };
 
     use super::*;
+
+    fn observed_firmware_report(
+        bmc_version: Option<&str>,
+        bios_version: Option<&str>,
+    ) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            service: vec![Service {
+                id: "FirmwareInventory".to_string(),
+                inventories: bmc_version
+                    .map(|version| Inventory {
+                        id: "BMC".to_string(),
+                        version: Some(version.to_string()),
+                        ..Default::default()
+                    })
+                    .into_iter()
+                    .collect(),
+            }],
+            systems: vec![ComputerSystem {
+                id: "System_0".to_string(),
+                bios_version: bios_version.map(str::to_string),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn topology_firmware_versions_uses_observed_values_without_configuration() {
+        let report = observed_firmware_report(Some("1.0.0"), Some("GBHC01A_01.05.0"));
+
+        assert_eq!(
+            topology_firmware_versions(&report),
+            Some(("1.0.0", "GBHC01A_01.05.0")),
+            "topology persistence should use directly observed BMC and BIOS versions"
+        );
+        assert!(
+            report.versions.is_empty(),
+            "topology fallback must not populate the config-shaped versions map"
+        );
+    }
+
+    #[test]
+    fn topology_firmware_versions_prefers_configured_values() {
+        let mut report = observed_firmware_report(Some("observed-bmc"), Some("observed-bios"));
+        report
+            .versions
+            .insert(FirmwareComponentType::Bmc, "configured-bmc".to_string());
+        report
+            .versions
+            .insert(FirmwareComponentType::Uefi, "configured-uefi".to_string());
+
+        assert_eq!(
+            topology_firmware_versions(&report),
+            Some(("configured-bmc", "configured-uefi")),
+            "configured firmware versions must remain preferred"
+        );
+    }
+
+    #[test]
+    fn topology_firmware_versions_prefers_configured_values_per_component() {
+        let mut report = observed_firmware_report(Some("observed-bmc"), Some("observed-bios"));
+        report
+            .versions
+            .insert(FirmwareComponentType::Bmc, "configured-bmc".to_string());
+        assert_eq!(
+            topology_firmware_versions(&report),
+            Some(("configured-bmc", "observed-bios")),
+            "a configured BMC version should be combined with the observed BIOS version"
+        );
+
+        let mut report = observed_firmware_report(Some("observed-bmc"), Some("observed-bios"));
+        report
+            .versions
+            .insert(FirmwareComponentType::Uefi, "configured-uefi".to_string());
+        assert_eq!(
+            topology_firmware_versions(&report),
+            Some(("observed-bmc", "configured-uefi")),
+            "the observed BMC version should be combined with a configured UEFI version"
+        );
+    }
+
+    #[test]
+    fn topology_firmware_versions_rejects_blank_configured_values() {
+        let mut report = observed_firmware_report(Some("observed-bmc"), Some("observed-bios"));
+        report
+            .versions
+            .insert(FirmwareComponentType::Bmc, " \t ".to_string());
+        report
+            .versions
+            .insert(FirmwareComponentType::Uefi, String::new());
+
+        assert_eq!(
+            topology_firmware_versions(&report),
+            Some(("observed-bmc", "observed-bios")),
+            "blank configured values should fall back to observed firmware versions"
+        );
+    }
+
+    #[test]
+    fn topology_firmware_versions_requires_both_components() {
+        assert_eq!(
+            topology_firmware_versions(&observed_firmware_report(None, Some("GBHC01A_01.05.0"))),
+            None,
+            "a BIOS version without a BMC version is incomplete"
+        );
+        assert_eq!(
+            topology_firmware_versions(&observed_firmware_report(Some("1.0.0"), None)),
+            None,
+            "a BMC version without a BIOS version is incomplete"
+        );
+    }
 
     #[test]
     fn rms_location_value_preserves_valid_and_absent_values_and_returns_out_of_range_input() {

@@ -2533,14 +2533,32 @@ pub async fn find_dpu_infos(txn: &mut PgConnection) -> Result<Vec<DpuInfo>, Data
 
 /// Allocate a value from the loopback IP resource pool.
 ///
+/// Reuses the DPU's existing reservation before allocating a new value, so a
+/// surviving pool ownership record and a missing `network_config.loopback_ip`
+/// field cannot give one DPU two `lo-ip` values. A duplicate reservation for
+/// the same owner is reported as inconsistent state rather than picking one.
+///
 /// If the pool exists but is empty or has en error, return that.
 pub async fn allocate_loopback_ip(
     common_pools: &CommonPools,
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<IpAddr, DatabaseError> {
+    let pool = &common_pools.ethernet.pool_loopback_ip;
+
+    if let Some(value) = crate::resource_pool::find_owned_allocation(
+        pool,
+        txn,
+        resource_pool::OwnerType::Machine,
+        owner_id,
+    )
+    .await?
+    {
+        return Ok(value);
+    }
+
     match crate::resource_pool::allocate(
-        &common_pools.ethernet.pool_loopback_ip,
+        pool,
         txn,
         resource_pool::OwnerType::Machine,
         owner_id,
@@ -2555,7 +2573,7 @@ pub async fn allocate_loopback_ip(
             ),
         ) => {
             crate::resource_pool::emit_allocation_failure(
-                common_pools.ethernet.pool_loopback_ip.value_type,
+                pool.value_type,
                 owner_id,
                 false,
                 "lo-ip",
@@ -2565,7 +2583,7 @@ pub async fn allocate_loopback_ip(
         }
         Err(err) => {
             crate::resource_pool::emit_allocation_failure(
-                common_pools.ethernet.pool_loopback_ip.value_type,
+                pool.value_type,
                 owner_id,
                 false,
                 "lo-ip",
@@ -3459,40 +3477,6 @@ pub async fn find_rms_identities_by_bmc_ips(
     Ok(rows)
 }
 
-/// Persist the backend firmware-object job ID for a machine that was updated via
-/// --bypass-state-controller. This survives nico-api restarts so that
-/// get_firmware_status can keep querying the backend even after the in-memory map is
-/// cleared.
-pub async fn save_backend_firmware_object_job_id(
-    db: &sqlx::PgPool,
-    machine_id: &str,
-    job_id: &str,
-) -> DatabaseResult<()> {
-    let sql =
-        "UPDATE machines SET backend_firmware_object_job_id = $1 WHERE id::text = $2 RETURNING id";
-    sqlx::query(sql)
-        .bind(job_id)
-        .bind(machine_id)
-        .execute(db)
-        .await
-        .map_err(|e| DatabaseError::new(sql, e))?;
-    Ok(())
-}
-
-/// Fetch the persisted backend firmware-object job ID for a machine, if any.
-pub async fn get_backend_firmware_object_job_id(
-    db: &sqlx::PgPool,
-    machine_id: &str,
-) -> DatabaseResult<Option<String>> {
-    let sql = "SELECT backend_firmware_object_job_id FROM machines WHERE id::text = $1";
-    let row: Option<(Option<String>,)> = sqlx::query_as(sql)
-        .bind(machine_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| DatabaseError::new(sql, e))?;
-    Ok(row.and_then(|(job_id,)| job_id))
-}
-
 pub fn count_healthy_unhealthy_host_machines(
     all_machines: &HashMap<HostMachineId, model::machine::ManagedHostStateSnapshot>,
 ) -> (i32, i32) {
@@ -4080,6 +4064,65 @@ mod test {
         let stats = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
         assert_eq!(stats.used, 1);
         assert_eq!(stats.free, 0);
+        Ok(())
+    }
+
+    /// A surviving `lo-ip` pool reservation must satisfy the next allocation for
+    /// the same DPU. Otherwise a cleared `network_config.loopback_ip` field lets
+    /// one DPU consume a second IPv4 loopback, matching the IPv6 reuse contract.
+    #[crate::sqlx_test]
+    async fn ipv4_loopback_reservation_is_reused_and_leaves_one_owned_entry(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, None).await?;
+        let dpu_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+
+        let mut txn = pool.begin().await?;
+        let allocated =
+            super::allocate_loopback_ip(&common_pools, txn.as_mut(), &dpu_id.to_string()).await?;
+        let reused =
+            super::allocate_loopback_ip(&common_pools, txn.as_mut(), &dpu_id.to_string()).await?;
+        assert_eq!(allocated, reused);
+
+        let stats = crate::resource_pool::stats(txn.as_mut(), LOOPBACK_IP).await?;
+        assert_eq!(stats.used, 1);
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    /// Two `lo-ip` rows owned by one DPU is corrupted state: allocation must
+    /// surface it as inconsistent rather than silently hand back one value and
+    /// leave the DPU still owning a second.
+    #[crate::sqlx_test]
+    async fn ipv4_loopback_rejects_multiple_reservations_for_one_dpu(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, None).await?;
+        let dpu_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+        let owner_id = dpu_id.to_string();
+
+        let mut txn = pool.begin().await?;
+        // Seed two reservations for the same owner so the ownership lookup sees
+        // more than one owned value.
+        for _ in 0..2 {
+            crate::resource_pool::allocate(
+                &common_pools.ethernet.pool_loopback_ip,
+                txn.as_mut(),
+                model::resource_pool::OwnerType::Machine,
+                &owner_id,
+                None,
+            )
+            .await?;
+        }
+
+        let error = super::allocate_loopback_ip(&common_pools, txn.as_mut(), &owner_id)
+            .await
+            .expect_err("two lo-ip values owned by one DPU must be rejected as inconsistent state");
+        assert!(matches!(error, crate::DatabaseError::FailedPrecondition(_)));
+
+        txn.rollback().await?;
         Ok(())
     }
 

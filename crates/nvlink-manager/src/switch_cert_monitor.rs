@@ -1278,7 +1278,7 @@ fn switch_cert_monitor_error_kind(error: &str) -> SwitchCertMonitorErrorKind {
 #[cfg(test)]
 mod tests {
     use carbide_instrument::emit;
-    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_instrument::testing::{ApproxHistogramSum, MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
     use rcgen::{CertifiedKey, generate_simple_self_signed};
     use rustls_pki_types::UnixTime;
@@ -1492,7 +1492,7 @@ mod tests {
             log_count: usize,
             log: Option<LogObservation>,
             histogram_count_delta: u64,
-            histogram_sum_delta: f64,
+            histogram_sum_delta: ApproxHistogramSum,
         }
 
         check_values(
@@ -1507,7 +1507,7 @@ mod tests {
                         log_count: 0,
                         log: None,
                         histogram_count_delta: 1,
-                        histogram_sum_delta: 225.0,
+                        histogram_sum_delta: ApproxHistogramSum(225.0),
                     },
                 },
                 Check {
@@ -1530,7 +1530,7 @@ mod tests {
                             error: Some("certificate query failed".to_string()),
                         }),
                         histogram_count_delta: 1,
-                        histogram_sum_delta: 425.0,
+                        histogram_sum_delta: ApproxHistogramSum(425.0),
                     },
                 },
             ],

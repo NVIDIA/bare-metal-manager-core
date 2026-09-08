@@ -15,18 +15,33 @@
  * limitations under the License.
  */
 
-use common::api_fixtures::{create_managed_host, create_test_env};
+use carbide_api_core::CarbideError;
+use carbide_api_core::test_support::metadata::invalid_metadata_testcases;
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 
-use crate::CarbideError;
-use crate::tests::common;
+#[sqlx_test]
+async fn test_machine_metadata(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool)
+        .with_resource_pools(ResourcePoolBuilder::default().build())
+        .build()
+        .await;
+    let network_controller = env.network_controller();
+    let domain = env.test_domain().await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let site_explorer = env.default_test_site_explorer();
+    let mut mh = env
+        .managed_host_builder(&site_explorer, underlay_segment)
+        .with_config(ManagedHostConfig::default())
+        .build()
+        .await
+        .0;
+    mh.host.discover_primary_iface(admin_segment).await;
 
-#[crate::sqlx_test]
-async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
-
-    let host_machine = mh.host().rpc_machine().await;
+    let host_machine = mh.host.rpc_machine().await;
     let version1: config_version::ConfigVersion = host_machine.version.parse().unwrap();
 
     let expected_metadata = rpc::forge::Metadata {
@@ -40,11 +55,11 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         name: "ASDF".to_string(),
         description: "LL1".to_string(),
         labels: vec![
-            ::rpc::forge::Label {
+            rpc::forge::Label {
                 key: "A".to_string(),
                 value: None,
             },
-            ::rpc::forge::Label {
+            rpc::forge::Label {
                 key: "B".to_string(),
                 value: Some("BB".to_string()),
             },
@@ -53,9 +68,9 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // Update with missing Metadata fails
     let err = env
-        .api
+        .api()
         .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
+            rpc::forge::MachineMetadataUpdateRequest {
                 machine_id: host_machine.id,
                 if_version_match: None,
                 metadata: None,
@@ -66,9 +81,9 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
     // Update succeeds
-    env.api
+    env.api()
         .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
+            rpc::forge::MachineMetadataUpdateRequest {
                 machine_id: host_machine.id,
                 if_version_match: None,
                 metadata: Some(new_metadata.clone()),
@@ -77,7 +92,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .await
         .unwrap();
 
-    let mut host_machine = mh.host().rpc_machine().await;
+    let mut host_machine = mh.host.rpc_machine().await;
     let version2: config_version::ConfigVersion = host_machine.version.parse().unwrap();
     assert_eq!(version2.version_nr(), version1.version_nr() + 1);
     host_machine
@@ -93,16 +108,16 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let new_metadata = rpc::forge::Metadata {
         name: "CONDITIONAL".to_string(),
         description: "".to_string(),
-        labels: vec![::rpc::forge::Label {
+        labels: vec![rpc::forge::Label {
             key: "D".to_string(),
             value: None,
         }],
     };
 
     let err = env
-        .api
+        .api()
         .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
+            rpc::forge::MachineMetadataUpdateRequest {
                 machine_id: host_machine.id,
                 if_version_match: Some(version1.to_string()),
                 metadata: Some(new_metadata.clone()),
@@ -116,9 +131,9 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         CarbideError::ConcurrentModificationError("machine", version1.to_string()).to_string()
     );
 
-    env.api
+    env.api()
         .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
+            rpc::forge::MachineMetadataUpdateRequest {
                 machine_id: host_machine.id,
                 if_version_match: Some(version2.to_string()),
                 metadata: Some(new_metadata.clone()),
@@ -127,7 +142,7 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .await
         .unwrap();
 
-    let mut host_machine = mh.host().rpc_machine().await;
+    let mut host_machine = mh.host.rpc_machine().await;
     let version3: config_version::ConfigVersion = host_machine.version.parse().unwrap();
     assert_eq!(version3.version_nr(), version2.version_nr() + 1);
     host_machine
@@ -140,11 +155,11 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert_eq!(host_machine.metadata.as_ref().unwrap(), &new_metadata);
 
     // Updates with invalid metadata fail
-    for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
+    for (invalid_metadata, expected_err) in invalid_metadata_testcases(true) {
         let err = env
-            .api
+            .api()
             .update_machine_metadata(tonic::Request::new(
-                ::rpc::forge::MachineMetadataUpdateRequest {
+                rpc::forge::MachineMetadataUpdateRequest {
                     machine_id: host_machine.id,
                     if_version_match: None,
                     metadata: Some(invalid_metadata.clone()),
