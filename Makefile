@@ -79,7 +79,7 @@ bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, 
 #
 #   make images        Build the deployable service stack: NICo Core + REST images
 #   make images-arm    Build the deployable service stack for ARM64 only
-#   make images-all-arm Build every ARM64 image and boot artifact natively on ARM64
+#   make images-all-arm Build 13 native ARM64 outputs (omits boot-artifacts-x86_64)
 #   make images-all    Build everything: the stack plus machine-validation and
 #                       boot-artifact images (needs the full mkosi build host)
 #   make images-core   NICo Core image (nico) only
@@ -149,7 +149,7 @@ images-all: ## Build every image (stack + machine validation + boot artifacts; n
 	$(MAKE) images-all-validate
 	$(MAKE) images images-machine-validation images-boot-artifacts images-bfb
 
-images-all-arm: ## Build every ARM64 image and boot artifact natively on an ARM64 host
+images-all-arm: ## Build 13 native ARM64 outputs; omits the x86 boot-artifact image
 	@arch="$$(docker info --format '{{.Architecture}}')"; \
 		case "$$arch" in \
 			arm64|aarch64) ;; \
@@ -290,22 +290,29 @@ images-bfb-arm: ## Build the aarch64 DPU BFB boot-artifact image in a native ARM
 	$(MAKE) images-registry
 	docker buildx build --platform linux/arm64 --builder default --load -t carbide-pxe-builder -f dev/docker/Dockerfile.pxe-build-container dev/docker
 	docker buildx build --platform linux/arm64 --builder default --load -t carbide-pxe-builder-aarch64 -f dev/docker/Dockerfile.pxe-build-container-aarch64 dev/docker
+	# carbide-pxe.forge is deployment-local, so the portable native build masks it with an empty regular file.
 	@set -e; \
 		cargo_home="$${CARGO_HOME:-$$HOME/.cargo}"; \
 		sccache_home="$${SCCACHE_DIR:-$$HOME/.sccache}"; \
+		host_uid="$$(id -u)"; \
+		host_gid="$$(id -g)"; \
+		empty_forge_list="$$(mktemp)"; \
+		trap 'rm -f "$$empty_forge_list"' EXIT; \
 		mkdir -p "$$cargo_home" "$$sccache_home"; \
 		docker run --platform linux/arm64 --rm --privileged \
 			-v /var/run/docker.sock:/var/run/docker.sock \
-			-v "$(CURDIR)":"$(CURDIR)" \
-			-v /dev/null:"$(CURDIR)/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/etc/apt/sources.list.d/forge.list":ro \
-			-v "$$cargo_home":"$$cargo_home" \
-			-v "$$sccache_home":"$$sccache_home" \
-			-w "$(CURDIR)" \
-			-e CARGO_HOME="$$cargo_home" \
-			-e SCCACHE_DIR="$$sccache_home" \
+			-v "$(CURDIR)":/code \
+			-v "$$empty_forge_list":/code/pxe/mkosi.profiles/scout-oss-aarch64/mkosi.extra/etc/apt/sources.list.d/forge.list:ro \
+			-v "$$cargo_home":/cargo \
+			-v "$$sccache_home":/sccache \
+			-w /code \
+			-e CARGO_HOME=/cargo \
+			-e SCCACHE_DIR=/sccache \
 			-e VERSION="$(VERSION)" \
+			-e HOST_UID="$$host_uid" \
+			-e HOST_GID="$$host_gid" \
 			carbide-pxe-builder-aarch64 \
-			sh -c 'git config --global --add safe.directory "$(CURDIR)" && git config --global --add safe.directory "$(CURDIR)/pxe/ipxe/upstream" && cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa'
+			sh -c 'git config --global --add safe.directory /code && git config --global --add safe.directory /code/pxe/ipxe/upstream && r=0; cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa || r=$$?; chown -R $${HOST_UID}:$${HOST_GID} /code 2>/dev/null || true; exit $$r'
 	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
 		-t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-arm64 \
 		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
