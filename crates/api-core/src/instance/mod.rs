@@ -204,6 +204,8 @@ fn validate_vf_ids_against_effective_dpu_inventory(
 /// Default instance VF count when no representor selection is configured.
 const DEFAULT_INSTANCE_VF_COUNT: u8 = 14;
 
+const PF0_VF_SELECTOR_PREFIX: &str = "pf0vf";
+
 /// Returns the configured tenant-facing VF IDs, capped by the hardware VF count.
 fn configured_instance_vf_ids(config: &CarbideConfig) -> CarbideResult<BTreeSet<u8>> {
     let representors = config
@@ -235,7 +237,7 @@ fn instance_vf_ids_from_representors(representors: &str) -> CarbideResult<BTreeS
             return Err(invalid_vf_selector(representor));
         }
 
-        let Some(vf_selector) = representor.strip_prefix("pf0vf") else {
+        let Some(vf_selector) = representor.strip_prefix(PF0_VF_SELECTOR_PREFIX) else {
             // Other HBN endpoints do not select tenant VFs from PF0.
             continue;
         };
@@ -248,7 +250,7 @@ fn instance_vf_ids_from_representors(representors: &str) -> CarbideResult<BTreeS
             );
             continue;
         };
-        let Some(end) = end_representor.strip_prefix("pf0vf") else {
+        let Some(end) = end_representor.strip_prefix(PF0_VF_SELECTOR_PREFIX) else {
             return Err(invalid_vf_selector(representor));
         };
         let start = start
