@@ -633,9 +633,8 @@ fn normalize_dpf_intercept_bridging(
         .map_err(|error| eyre::eyre!("invalid DPF intercept-bridging configuration: {error}"))
 }
 
-/// Initialize the DPF SDK and create all required Kubernetes CRs.
-///
-/// Returns `None` (with a deprecation warning) when DPF is disabled.
+/// This function rejects setting deployment_scoped_service_interfaces
+/// to false if there are scoped interfaces present.
 async fn reject_unscoped_initialization_with_scoped_interfaces<R: DpuServiceInterfaceRepository>(
     repo: &R,
 ) -> eyre::Result<()> {
@@ -685,6 +684,9 @@ fn scoped_service_interface_names(
         .collect()
 }
 
+/// Initialize the DPF SDK and create all required Kubernetes CRs.
+///
+/// Returns `None` (with a deprecation warning) when DPF is disabled.
 async fn initialize_dpf_sdk(
     carbide_config: &CarbideConfig,
     credential_manager: Arc<dyn CredentialManager>,

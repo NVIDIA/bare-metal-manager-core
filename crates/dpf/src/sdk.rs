@@ -121,7 +121,8 @@ const MAX_HBN_SERVICE_INTERFACES: usize = 32;
 /// DPU-cluster Node. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
 const SERVICE_INTERFACE_MIGRATION_BLOCKED_LOG_DELAY: Duration = Duration::from_secs(10 * 60);
-const SERVICE_INTERFACE_DELETE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const SERVICE_INTERFACE_DELETE_INITIAL_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const SERVICE_INTERFACE_DELETE_MAX_POLL_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Returns DPF's canonical ownership-label value for one DPUDeployment.
 fn dpu_deployment_owner_label_value(namespace: &str, deployment_name: &str) -> String {
@@ -1893,6 +1894,7 @@ async fn wait_for_service_interface_deletions<
     names: &[String],
     namespace: &str,
 ) -> Result<(), DpfError> {
+    let mut poll_interval = SERVICE_INTERFACE_DELETE_INITIAL_POLL_INTERVAL;
     loop {
         let remaining_names = futures::future::try_join_all(names.iter().map(|name| async move {
             crate::repository::DpuServiceInterfaceRepository::get(repo, name, namespace)
@@ -1906,7 +1908,10 @@ async fn wait_for_service_interface_deletions<
         if remaining_names.is_empty() {
             return Ok(());
         }
-        tokio::time::sleep(SERVICE_INTERFACE_DELETE_POLL_INTERVAL).await;
+        tokio::time::sleep(poll_interval).await;
+        poll_interval = poll_interval
+            .saturating_mul(2)
+            .min(SERVICE_INTERFACE_DELETE_MAX_POLL_INTERVAL);
     }
 }
 
