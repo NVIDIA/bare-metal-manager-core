@@ -530,6 +530,27 @@ impl SingleSystemState {
         }
     }
 
+    pub(crate) fn resolve_persistent_boot_selection(&self) -> Option<BootOptionKind> {
+        self.boot_order_override()
+            .and_then(|overrides| {
+                overrides.first().and_then(|optref| {
+                    self.config
+                        .boot_options
+                        .iter()
+                        .flatten()
+                        .find(|v| v.boot_reference() == optref)
+                        .map(|opt| opt.kind)
+                })
+            })
+            .or_else(|| {
+                self.config
+                    .boot_options
+                    .as_ref()?
+                    .first()
+                    .map(|opt| opt.kind)
+            })
+    }
+
     fn resolve_current_boot_selection(&self) -> Option<BootOptionKind> {
         let src = self.boot_source_override.lock().unwrap();
         if src.enabled.as_ref().is_some_and(|v| v != "Disabled")
@@ -551,25 +572,7 @@ impl SingleSystemState {
         } else {
             None
         }
-        .or_else(|| {
-            self.boot_order_override().and_then(|overrides| {
-                overrides.first().and_then(|optref| {
-                    self.config
-                        .boot_options
-                        .iter()
-                        .flatten()
-                        .find(|v| v.boot_reference() == optref)
-                        .map(|opt| opt.kind)
-                })
-            })
-        })
-        .or_else(|| {
-            self.config
-                .boot_options
-                .as_ref()?
-                .first()
-                .map(|opt| opt.kind)
-        })
+        .or_else(|| self.resolve_persistent_boot_selection())
     }
 }
 
