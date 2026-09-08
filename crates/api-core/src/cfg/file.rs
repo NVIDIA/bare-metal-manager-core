@@ -1734,8 +1734,16 @@ pub struct DpfConfig {
     #[serde(default)]
     pub enabled: bool,
     /// Opts the DPF namespace into deployment-scoped DPUServiceInterfaces.
-    /// Changing modes requires operators to remove old-mode NICo resources and
-    /// re-ingest DPUs; NICo neither detects nor deletes those resources.
+    /// BF3 sites (including BF3 GB200) and generic BF4 use the default
+    /// unscoped mode; BF4 Astra requires this to be enabled. When enabled, initialization
+    /// removes legacy unscoped ServiceInterfaces before creating
+    /// scoped replacements. If cleanup remains incomplete for ten minutes, NICo logs an error and
+    /// continues waiting. If an operator manually completes unscoped cleanup, NICo creates scoped
+    /// replacements. The setting is read only at startup. To return to unscoped interfaces, stop
+    /// NICo, delete scoped ServiceInterfaces and wait for their deletion, then restart with this
+    /// set to false.
+    /// DPF initialization rejects disabling this value while scoped
+    /// ServiceInterfaces exist.
     #[serde(default)]
     pub deployment_scoped_service_interfaces: bool,
     /// SF capacity reserved beyond configured NICo-managed service endpoints.

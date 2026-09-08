@@ -24,6 +24,7 @@ use arc_swap::ArcSwap;
 use carbide_dpa::DpaInfo;
 use carbide_dpa_manager::DpaMonitor;
 use carbide_dpf::DpuDeploymentType;
+use carbide_dpf::repository::DpuServiceInterfaceRepository;
 use carbide_extension_service_controller::context::ExtensionServiceStateHandlerServices;
 use carbide_extension_service_controller::handler::ExtensionServiceStateHandler;
 use carbide_extension_service_controller::io::ExtensionServiceStateControllerIO;
@@ -632,6 +633,57 @@ fn normalize_dpf_intercept_bridging(
         .map_err(|error| eyre::eyre!("invalid DPF intercept-bridging configuration: {error}"))
 }
 
+/// This function rejects setting deployment_scoped_service_interfaces
+/// to false if there are scoped interfaces present.
+async fn reject_unscoped_initialization_with_scoped_interfaces<R: DpuServiceInterfaceRepository>(
+    repo: &R,
+) -> eyre::Result<()> {
+    tracing::info!(
+        namespace = carbide_dpf::NAMESPACE,
+        "Checking for scoped DPUServiceInterfaces before initializing unscoped interfaces"
+    );
+    let scoped_interfaces = scoped_service_interface_names(
+        DpuServiceInterfaceRepository::list(repo, carbide_dpf::NAMESPACE)
+            .await
+            .map_err(|error| eyre::eyre!("failed to list DPF service interfaces: {error}"))?
+            .into_iter()
+            .map(|interface| {
+                (
+                    interface.metadata.name,
+                    interface.spec.template.spec.node_selector.is_some(),
+                )
+            }),
+    );
+    if !scoped_interfaces.is_empty() {
+        tracing::warn!(
+            service_interfaces = ?scoped_interfaces,
+            "Rejecting unscoped DPF initialization because scoped service interfaces exist"
+        );
+        return Err(eyre::eyre!(
+            "dpf.deployment_scoped_service_interfaces cannot be disabled while scoped DPUServiceInterfaces exist: {}",
+            scoped_interfaces.join(", "),
+        ));
+    }
+
+    Ok(())
+}
+
+fn scoped_service_interface_names(
+    interfaces: impl IntoIterator<Item = (Option<String>, bool)>,
+) -> Vec<String> {
+    interfaces
+        .into_iter()
+        .filter_map(|(name, has_node_selector)| {
+            let name = name?;
+            (has_node_selector
+                && ["bf3", "bf3gb200", "bf4", "astra"]
+                    .iter()
+                    .any(|suffix| name.ends_with(&format!("-{suffix}"))))
+            .then_some(name)
+        })
+        .collect()
+}
+
 /// Initialize the DPF SDK and create all required Kubernetes CRs.
 ///
 /// Returns `None` (with a deprecation warning) when DPF is disabled.
@@ -704,6 +756,12 @@ async fn initialize_dpf_sdk(
     let repo = carbide_dpf::KubeRepository::new()
         .await
         .map_err(|e| eyre::eyre!("failed to create DPF repository: {e}"))?;
+
+    // Scoped interfaces are authoritative: their presence means unscoped initialization would
+    // recreate global resources that can bind deployments incorrectly.
+    if !carbide_config.dpf.deployment_scoped_service_interfaces {
+        reject_unscoped_initialization_with_scoped_interfaces(&repo).await?;
+    }
 
     let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
 
@@ -1994,6 +2052,21 @@ mod tests {
         InitialObjectsConfig, VmaasConfig, default_hbn_bridge,
     };
     use crate::cfg::load::{merged_carbide_config_figment, parse_carbide_config};
+
+    #[test]
+    fn scoped_service_interface_detection_requires_a_scoped_name_and_selector() {
+        assert_eq!(
+            scoped_service_interface_names([
+                (Some("p0-bf3".to_string()), true),
+                (Some("p1-bf3gb200".to_string()), true),
+                (Some("p2-bf4".to_string()), false),
+                (Some("p3".to_string()), true),
+                (Some("p4-astra".to_string()), true),
+                (None, true),
+            ]),
+            vec!["p0-bf3", "p1-bf3gb200", "p4-astra"],
+        );
+    }
 
     /// Provides one intercept-bridging config entry for DPF normalization tests.
     fn test_intercept_config(interface: HostInterceptBridging) -> VmaasConfig {

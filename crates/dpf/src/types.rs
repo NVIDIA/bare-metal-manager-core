@@ -101,9 +101,16 @@ pub struct InitDpfResourcesConfig {
     pub additional_managed_sf: u32,
     /// Enables deployment-scoped DPUServiceInterface names and node selectors.
     /// False preserves the legacy global resource naming and selector mode for
-    /// BF3 and generic BF4; BF4 Astra requires this to be true.
-    /// Mode transitions require manual old-resource cleanup and DPU re-ingestion;
-    /// the SDK neither detects nor deletes the previous generation.
+    /// BF3 (including BF3 GB200) and generic BF4. BF4 Astra requires this to be true for the
+    /// whole namespace so
+    /// legacy match-all resources do not bind Astra nodes. When enabled, initialization removes
+    /// legacy unscoped ServiceInterfaces before creating scoped replacements. If cleanup remains
+    /// incomplete for ten minutes, NICo logs an error and continues waiting. If an operator
+    /// manually completes unscoped cleanup, NICo creates scoped replacements. The setting is read
+    /// only at startup. To return to unscoped interfaces, callers must stop NICo, delete scoped
+    /// ServiceInterfaces and wait for their deletion, then restart with this disabled.
+    /// API-core rejects a disabled value during DPF initialization while scoped
+    /// ServiceInterfaces exist.
     pub deployment_scoped_service_interfaces: bool,
     /// Optional intercept-bridging topology for BF3 and generic BF4. `Some` replaces the
     /// ordinary static PF/VF inventory and contains exactly one configured PF.
