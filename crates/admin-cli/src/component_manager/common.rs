@@ -76,8 +76,10 @@ impl From<ComputeTrayComponentArg> for rpc::forge::ComputeTrayComponent {
     }
 }
 
+/// Switch-id-only target for operations that have no pre-ingestion MAC path
+/// (e.g. `configure-switch-certificate`).
 #[derive(ClapArgs, Debug)]
-pub(super) struct SwitchTargetArgs {
+pub(super) struct SwitchIdArgs {
     #[clap(
         long = "switch-id",
         required = true,
@@ -88,10 +90,51 @@ pub(super) struct SwitchTargetArgs {
     switch_ids: Vec<SwitchId>,
 }
 
-impl From<SwitchTargetArgs> for rpc::forge::SwitchIdList {
-    fn from(args: SwitchTargetArgs) -> Self {
+impl From<SwitchIdArgs> for rpc::forge::SwitchIdList {
+    fn from(args: SwitchIdArgs) -> Self {
         Self {
             ids: args.switch_ids,
+        }
+    }
+}
+
+/// Switch target: either switch ids or BMC MAC addresses, exactly one of which
+/// must be supplied. MACs let operators target switches before ingestion has
+/// assigned a switch id.
+#[derive(ClapArgs, Debug)]
+#[clap(group(
+    clap::ArgGroup::new("switch_target")
+        .required(true)
+        .args(["switch_ids", "mac_addresses"])
+))]
+pub(super) struct SwitchTargetArgs {
+    #[clap(
+        long = "switch-id",
+        num_args = 1..,
+        value_delimiter = ',',
+        help = "Switch IDs to target"
+    )]
+    switch_ids: Vec<SwitchId>,
+
+    #[clap(flatten)]
+    macs: MacTargetArgs,
+}
+
+/// The resolved switch selection, mapped by each command into the proto oneof
+/// variant for its request type.
+pub(super) enum SwitchSelection {
+    SwitchIds(rpc::forge::SwitchIdList),
+    Macs(rpc::forge::MacAddressList),
+}
+
+impl SwitchTargetArgs {
+    pub(super) fn into_selection(self) -> SwitchSelection {
+        if !self.macs.is_present() {
+            SwitchSelection::SwitchIds(rpc::forge::SwitchIdList {
+                ids: self.switch_ids,
+            })
+        } else {
+            SwitchSelection::Macs(self.macs.into())
         }
     }
 }

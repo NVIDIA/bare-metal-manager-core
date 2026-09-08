@@ -9552,6 +9552,7 @@ message GetComponentInventoryRequest {
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     MacAddressList compute_bmc_macs = 4;
+    MacAddressList switch_bmc_macs = 5;
   }
 }
 
@@ -9572,6 +9573,7 @@ message ComponentPowerControlRequest {
     SwitchIdList switch_ids = 2;
     PowerShelfIdList power_shelf_ids = 3;
     MacAddressList compute_bmc_macs = 6;
+    MacAddressList switch_bmc_macs = 7;
   }
   common.SystemPowerControl action = 4;
   // When true, bypass the state controller and dispatch directly to the
@@ -9654,8 +9656,14 @@ message UpdateComputeTrayFirmwareTarget {
 }
 
 message UpdateSwitchFirmwareTarget {
+  // Exactly one of switch_ids or bmc_macs must be set (the server rejects
+  // neither/both). switch_ids targets ingested switches; bmc_macs targets by
+  // BMC MAC, including pre-ingestion. These are plain fields rather than a oneof
+  // so field 1 stays wire-compatible with earlier releases that predate
+  // bmc_macs.
   SwitchIdList switch_ids = 1;
   repeated NvSwitchComponent components = 2;
+  MacAddressList bmc_macs = 3;
 }
 
 message UpdatePowerShelfFirmwareTarget {
@@ -9703,6 +9711,7 @@ message GetComponentFirmwareStatusRequest {
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
     MacAddressList compute_bmc_macs = 5;
+    MacAddressList switch_bmc_macs = 6;
   }
 }
 
@@ -9717,6 +9726,7 @@ message ListComponentFirmwareVersionsRequest {
     PowerShelfIdList power_shelf_ids = 3;
     RackIdList rack_ids = 4;
     MacAddressList compute_bmc_macs = 5;
+    MacAddressList switch_bmc_macs = 6;
   }
 }
 
