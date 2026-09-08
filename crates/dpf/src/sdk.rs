@@ -1168,7 +1168,7 @@ pub fn build_deployment(
                     rolling_update: None,
                     r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
                 },
-                secure_boot: None,
+                secure_boot: Some(false),
                 astra_enabled: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
                     .then_some(true),
                 blue_field_software: match source {
@@ -4651,6 +4651,22 @@ mod tests {
                 DpuDeploymentType::Bf4Astra => ("bf4astra", Some(true)),
             }
         );
+    }
+
+    #[test]
+    fn deployment_disables_secure_boot() {
+        let deployment = build_deployment(
+            &[],
+            "deployment",
+            &DpuProvisioningSource::Bfb("bfb".to_string()),
+            "flavor",
+            TEST_NAMESPACE,
+            &[],
+            BTreeMap::new(),
+            DpuDeploymentType::Bf3,
+        );
+
+        assert_eq!(deployment.spec.dpus.secure_boot, Some(false));
     }
 
     #[derive(Clone, Default)]
