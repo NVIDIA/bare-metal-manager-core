@@ -516,6 +516,221 @@ async fn lookup_ptr(api: &Api, qname: &str) -> Vec<rpc::protos::dns::DnsResource
     .records
 }
 
+// test_dns_lookup_outcomes checks the `outcome`, `authoritative`, and
+// `authority_soa` fields on a lookup response, not just the records.
+//
+// One DHCP discovery publishes a single A record under `dwrt1.com`. Each case
+// then queries a name and expects one of:
+//
+// - Records: the requested type exists at the name.
+// - NoData: the name exists (records of another type, or the zone apex) but
+//   not the requested type. Carries the zone SOA.
+// - NoSuchName: nothing at the name and nothing below it. Carries the zone SOA.
+// - NotAuthoritative: no zone we hold contains the name. No SOA, AA clear.
+//
+// A managed host adds `<machine-id>.adm.dwrt1.com`, which makes
+// `adm.dwrt1.com` an empty non-terminal: a name with nothing published at it
+// but records below it (RFC 8020 §2). It must be NoData, not NoSuchName.
+//
+// Three cases exist to guard specific regressions: SOA at a non-apex name must
+// be NoData rather than the A records at that name, `_dmarc.dwrt1.com` must
+// classify like any other name rather than fail to parse, and a PTR question
+// for a forward name that has an A record must be NoData rather than
+// NoSuchName (a cached NXDOMAIN there would suppress the A lookup too).
+//
+// The PTR case runs inside the /24 reverse zone the admin segment creates. The
+// fallback for an address with no enclosing reverse zone
+// (`ptr_forward_authority`) needs a non-octet-aligned segment and is not
+// covered here.
+#[sqlx_test]
+async fn test_dns_lookup_outcomes(pool: PgPool) {
+    use rpc::protos::dns::DnsLookupOutcome;
+
+    let DnsTestEnv {
+        env,
+        admin_segment,
+        underlay_segment,
+    } = init(pool).await;
+    let api = env.api();
+
+    create_managed_host(&env, underlay_segment, admin_segment).await;
+
+    let interface = api
+        .discover_dhcp(
+            DhcpDiscovery::builder("FF:FF:FF:FF:FF:FF", admin_segment.relay_address)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    let fqdn = format!("{}.", interface.fqdn);
+    let address: IpAddr = interface
+        .address
+        .split('/')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    struct OutcomeCase {
+        description: &'static str,
+        qname: String,
+        qtype: &'static str,
+        outcome: DnsLookupOutcome,
+        authoritative: bool,
+        has_soa: bool,
+        record_count: usize,
+    }
+
+    let cases = [
+        OutcomeCase {
+            description: "published A record is Records",
+            qname: fqdn.clone(),
+            qtype: "A",
+            outcome: DnsLookupOutcome::Records,
+            authoritative: true,
+            has_soa: false,
+            record_count: 1,
+        },
+        OutcomeCase {
+            description: "name exists but has no AAAA is NoData with SOA",
+            qname: fqdn.clone(),
+            qtype: "AAAA",
+            outcome: DnsLookupOutcome::NoData,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "SOA at a non-apex name is NoData, not the zone SOA",
+            qname: fqdn.clone(),
+            qtype: "SOA",
+            outcome: DnsLookupOutcome::NoData,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "PTR at a forward name that exists is NoData, not NoSuchName",
+            qname: fqdn.clone(),
+            qtype: "PTR",
+            outcome: DnsLookupOutcome::NoData,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "empty non-terminal with records below it is NoData",
+            qname: format!("{DNS_ADM_SUBDOMAIN}."),
+            qtype: "A",
+            outcome: DnsLookupOutcome::NoData,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "apex SOA is the zone SOA",
+            qname: format!("{DOMAIN_NAME}."),
+            qtype: "SOA",
+            outcome: DnsLookupOutcome::Records,
+            authoritative: true,
+            has_soa: false,
+            record_count: 1,
+        },
+        OutcomeCase {
+            description: "apex NS is NoData because NS is not published",
+            qname: format!("{DOMAIN_NAME}."),
+            qtype: "NS",
+            outcome: DnsLookupOutcome::NoData,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "missing in-zone name is NoSuchName with SOA",
+            qname: format!("no-such-host.{DOMAIN_NAME}."),
+            qtype: "A",
+            outcome: DnsLookupOutcome::NoSuchName,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "non-hostname label classifies instead of failing to parse",
+            qname: format!("_dmarc.{DOMAIN_NAME}."),
+            qtype: "TXT",
+            outcome: DnsLookupOutcome::NoSuchName,
+            authoritative: true,
+            has_soa: true,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "name outside every held zone is NotAuthoritative",
+            qname: "www.example.org.".to_string(),
+            qtype: "A",
+            outcome: DnsLookupOutcome::NotAuthoritative,
+            authoritative: false,
+            has_soa: false,
+            record_count: 0,
+        },
+        OutcomeCase {
+            description: "PTR inside the held reverse zone is Records",
+            qname: ip_to_arpa(address),
+            qtype: "PTR",
+            outcome: DnsLookupOutcome::Records,
+            authoritative: true,
+            has_soa: false,
+            record_count: 1,
+        },
+    ];
+
+    for case in cases {
+        let response = api
+            .lookup_record(Request::new(
+                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                    qname: case.qname.clone(),
+                    zone_id: uuid::Uuid::new_v4().to_string(),
+                    local: None,
+                    remote: None,
+                    qtype: case.qtype.to_string(),
+                    real_remote: None,
+                },
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            response.outcome, case.outcome as i32,
+            "{}: outcome",
+            case.description
+        );
+        assert_eq!(
+            response.authoritative, case.authoritative,
+            "{}: authoritative",
+            case.description
+        );
+        assert_eq!(
+            response.authority_soa.is_some(),
+            case.has_soa,
+            "{}: authority SOA",
+            case.description
+        );
+        assert_eq!(
+            response.records.len(),
+            case.record_count,
+            "{}: record count",
+            case.description
+        );
+        for record in &response.records {
+            assert_eq!(
+                record.qtype, case.qtype,
+                "{}: record type",
+                case.description
+            );
+        }
+    }
+}
+
 /// Build the reverse-DNS qname for an address: the octets (IPv4) or nibbles
 /// (IPv6) in reverse order, each as its own label, then the arpa suffix.
 fn ip_to_arpa(addr: IpAddr) -> String {
