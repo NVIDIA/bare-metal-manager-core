@@ -121,11 +121,13 @@ histogram_quantile(0.95,
 ) / 1000 < 1
 ```
 
-**State update / reconciliation** uses `carbide_machines_handler_latency_in_state_milliseconds`
-histogram. The production alert threshold (120s) is more lenient than the SLO target (60s) to
-reduce noise. Related metrics include `carbide_machines_iteration_latency_milliseconds` for
-full iteration time and `carbide_machines_per_state_above_sla` for objects exceeding configured
-per-state thresholds.
+**State controller iteration latency** uses `carbide_machines_iteration_latency_milliseconds`,
+`carbide_network_segments_iteration_latency_milliseconds`, and
+`carbide_ib_partitions_iteration_latency_milliseconds` histograms. The production alert
+(`NicoStateHandlerLatency`) fires when p95 iteration latency exceeds 120 seconds (120000ms) for
+10 minutes. Related metrics include `carbide_machines_handler_latency_in_state_milliseconds` for
+per-state handler time and `carbide_machines_per_state_above_sla` for objects exceeding
+configured per-state thresholds.
 
 ## 3. Site-related thresholds
 

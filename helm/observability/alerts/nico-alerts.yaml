@@ -34,17 +34,17 @@ spec:
             summary: "NICo API is fluctuating"
             description: "nico-api ready state changed more than 5 times in 15 minutes."
 
-        # Production-validated: State-handler latency >120s for 10m
+        # Production-validated: State-controller iteration latency p95 >120s for 10m
         - alert: NicoStateHandlerLatency
           expr: |
-            avg(carbide_machines_state_handler_latency_seconds) > 120
-            or avg(carbide_network_segments_state_handler_latency_seconds) > 120
-            or avg(carbide_ib_partitions_state_handler_latency_seconds) > 120
+            histogram_quantile(0.95, sum(rate(carbide_machines_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
+            or histogram_quantile(0.95, sum(rate(carbide_network_segments_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
+            or histogram_quantile(0.95, sum(rate(carbide_ib_partitions_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "State handler latency exceeds 120 seconds"
+            summary: "State controller iteration latency p95 exceeds 120 seconds"
             description: "State controller iteration latency is high, indicating processing bottlenecks."
 
     - name: nico-sla
