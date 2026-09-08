@@ -4667,6 +4667,10 @@ mod tests {
         );
 
         assert_eq!(deployment.spec.dpus.secure_boot, Some(false));
+        assert_eq!(
+            serde_json::to_value(deployment).unwrap()["spec"]["dpus"]["secureBoot"],
+            false,
+        );
     }
 
     #[derive(Clone, Default)]

@@ -4745,7 +4745,7 @@ impl DpuMachineStateHandler {
                     DpuDiscoveringState::next_substate_based_on_bfb_support(
                         self.enable_secure_boot,
                         state,
-                        ctx.services.site_config.dpf_enabled,
+                        ctx.services.site_config.dpf_enabled && self.dpf_sdk.is_some(),
                     );
 
                 tracing::info!(

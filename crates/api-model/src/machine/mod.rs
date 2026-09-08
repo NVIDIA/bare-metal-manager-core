@@ -4212,6 +4212,7 @@ mod tests {
     #[derive(Clone, Copy)]
     struct DpuProvisioningRouteInput {
         dpf: DpfProvisioningInput,
+        dpf_available: bool,
         enable_secure_boot: bool,
     }
 
@@ -4226,6 +4227,7 @@ mod tests {
                             used_for_ingestion: true,
                             ..dpf_input(&[BF3_SUPPORTED])
                         },
+                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4236,12 +4238,30 @@ mod tests {
                     ),
                 },
                 Check {
+                    scenario: "unavailable DPF uses secure boot fallback",
+                    input: DpuProvisioningRouteInput {
+                        dpf: dpf_input(&[BF3_SUPPORTED]),
+                        dpf_available: false,
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::EnableSecureBoot {
+                            count: 0,
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
                     scenario: "Redfish BFB is selected when site DPF is disabled",
                     input: DpuProvisioningRouteInput {
                         dpf: DpfProvisioningInput {
                             dpf_enabled_at_site: false,
                             ..dpf_input(&[BF3_SUPPORTED])
                         },
+                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4261,6 +4281,7 @@ mod tests {
                             dpf_enabled_at_site: false,
                             ..dpf_input(&[BF3_SUPPORTED])
                         },
+                        dpf_available: true,
                         enable_secure_boot: false,
                     },
                     expect: (
@@ -4281,6 +4302,7 @@ mod tests {
                             dpus: &[BF3_SUPPORTED, BF3_UNSUPPORTED_BFB],
                             ..dpf_input(&[])
                         },
+                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4300,6 +4322,7 @@ mod tests {
                             dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
                             ..dpf_input(&[])
                         },
+                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4313,6 +4336,7 @@ mod tests {
                     scenario: "BF2 falls back to Redfish BFB installation",
                     input: DpuProvisioningRouteInput {
                         dpf: dpf_input(&[BF2_SUPPORTED]),
+                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4329,6 +4353,7 @@ mod tests {
                     scenario: "an empty DPU set cannot select aggregate routes",
                     input: DpuProvisioningRouteInput {
                         dpf: dpf_input(&[]),
+                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4348,7 +4373,7 @@ mod tests {
                     DpuDiscoveringState::next_substate_based_on_bfb_support(
                         input.enable_secure_boot,
                         &state,
-                        input.dpf.dpf_enabled_at_site,
+                        input.dpf.dpf_enabled_at_site && input.dpf_available,
                     ),
                     ReprovisionState::next_substate_based_on_bfb_support(
                         input.enable_secure_boot,
