@@ -408,10 +408,9 @@ impl Callbacks for LibvirtCallbacks {
         reset_type: SystemPowerControl,
     ) -> Result<(), SetSystemPowerError> {
         use SystemPowerControl::*;
-        if matches!(
-            reset_type,
-            On | ForceOn | GracefulRestart | ForceRestart | PowerCycle
-        ) {
+        // Only a cold start loads the saved domain XML. Reboot and reset keep
+        // the running domain's boot configuration and their existing semantics.
+        if matches!(reset_type, On | ForceOn | PowerCycle) {
             self.reapply_effective_boot_order()?;
         }
         match reset_type {
@@ -766,6 +765,7 @@ esac
         let log_path = directory.path().join("virsh.log");
         let defined_xml_path = directory.path().join("defined.xml");
         let attached_xml_path = directory.path().join("attached.xml");
+        let active_xml_path = directory.path().join("active.xml");
         let state_path = directory.path().join("domain-state");
         fs::write(&state_path, "shut off\n").unwrap();
         let script = format!(
@@ -773,8 +773,8 @@ esac
 printf '%s\n' "$*" >> '{}'
 case "$3" in
   domstate) cat '{}' ;;
-  start) printf 'running\n' > '{}' ;;
-  reset) [ "$(cat '{}')" = running ] ;;
+  start) printf 'running\n' > '{}'; cp '{}' '{}' ;;
+  reset|reboot) [ "$(cat '{}')" = running ] ;;
   destroy) printf 'shut off\n' > '{}' ;;
   dumpxml) printf '<domain><os><type>hvm</type><boot dev="hd"/></os><devices/></domain>\n' ;;
   domblklist) printf 'Type Device Target Source\nnetwork cdrom sdb http://example/old.iso\n' ;;
@@ -785,6 +785,8 @@ esac
             log_path.display(),
             state_path.display(),
             state_path.display(),
+            defined_xml_path.display(),
+            active_xml_path.display(),
             state_path.display(),
             state_path.display(),
             defined_xml_path.display(),
@@ -839,24 +841,6 @@ esac
         let start = power_log.find(" start ").expect("start was not sent");
         assert!(define < start);
 
-        for _ in 0..2 {
-            fs::write(&log_path, "").unwrap();
-            let status = request(
-                &router,
-                Method::POST,
-                &format!("{system}/Actions/ComputerSystem.Reset"),
-                json!({"ResetType": "ForceRestart"}),
-            )
-            .await;
-            assert_eq!(status, StatusCode::OK);
-            let power_log = fs::read_to_string(&log_path).unwrap();
-            let define = power_log
-                .find(" define ")
-                .expect("persistent boot order was not re-applied before reset");
-            let reset = power_log.find(" reset ").expect("reset was not sent");
-            assert!(define < reset);
-        }
-
         let status = request(
             &router,
             Method::PATCH,
@@ -868,6 +852,58 @@ esac
         let defined_xml = fs::read_to_string(&defined_xml_path).unwrap();
         assert!(defined_xml.contains("<boot dev=\"hd\"/>"));
         assert!(!defined_xml.contains("<boot dev=\"network\"/>"));
+
+        // The saved disk-first selection must not turn a warm restart into a
+        // cold start. The fixture loads saved XML only when start is called.
+        for (reset_type, command) in [("ForceRestart", "reset"), ("GracefulRestart", "reboot")] {
+            fs::write(&log_path, "").unwrap();
+            let status = request(
+                &router,
+                Method::POST,
+                &format!("{system}/Actions/ComputerSystem.Reset"),
+                json!({"ResetType": reset_type}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            let power_log = fs::read_to_string(&log_path).unwrap();
+            assert!(power_log.contains(&format!(" {command} dsx-node")));
+            for unexpected in [" define ", " destroy ", " start "] {
+                assert!(
+                    !power_log.contains(unexpected),
+                    "unexpected {unexpected} during {reset_type}"
+                );
+            }
+            assert!(
+                fs::read_to_string(&active_xml_path)
+                    .unwrap()
+                    .contains("<boot dev=\"network\"/><boot dev=\"hd\"/>")
+            );
+            assert!(
+                !fs::read_to_string(&defined_xml_path)
+                    .unwrap()
+                    .contains("<boot dev=\"network\"/>")
+            );
+        }
+
+        fs::write(&log_path, "").unwrap();
+        let status = request(
+            &router,
+            Method::POST,
+            &format!("{system}/Actions/ComputerSystem.Reset"),
+            json!({"ResetType": "PowerCycle"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let power_log = fs::read_to_string(&log_path).unwrap();
+        let define = power_log
+            .find(" define ")
+            .expect("boot order was not reapplied");
+        let destroy = power_log.find(" destroy ").expect("power off was not sent");
+        let start = power_log.find(" start ").expect("power on was not sent");
+        assert!(define < destroy && destroy < start);
+        let active_xml = fs::read_to_string(&active_xml_path).unwrap();
+        assert!(active_xml.contains("<boot dev=\"hd\"/>"));
+        assert!(!active_xml.contains("<boot dev=\"network\"/>"));
 
         let status = request(
             &router,
@@ -897,7 +933,7 @@ esac
             &router,
             Method::POST,
             &format!("{system}/Actions/ComputerSystem.Reset"),
-            json!({"ResetType": "ForceRestart"}),
+            json!({"ResetType": "PowerCycle"}),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -937,7 +973,7 @@ esac
 
         let log = fs::read_to_string(log_path).unwrap();
         assert!(log.contains("--connect qemu:///system dumpxml --inactive dsx-node"));
-        assert!(log.contains("--connect qemu:///system reset dsx-node"));
+        assert!(log.contains("--connect qemu:///system start dsx-node"));
         assert!(log.contains("--connect qemu:///system detach-disk dsx-node sdb --persistent"));
         assert!(log.contains("--connect qemu:///system attach-device dsx-node"));
         let attached_xml = fs::read_to_string(attached_xml_path).unwrap();
