@@ -38,7 +38,7 @@ History count. Valid if \`machine\` argument is passed.
 
 **--max-width** *\<\[COLUMN=\]WIDTH\>*  
 Limit displayed column width to WIDTH characters, truncating longer
-values with .... Repeatable. A bare WIDTH applies to every column;
+values with an ellipsis ('...'). Repeatable. A bare WIDTH applies to every column;
 COLUMN=WIDTH limits just that column, where COLUMN must exactly match
 the columns displayed header text (case-insensitive), e.g. State=40. For
 a header containing spaces, quote the whole COLUMN=WIDTH argument, e.g.
@@ -50,7 +50,9 @@ Only show these columns, in the order given. Comma-separated and/or
 repeatable. COLUMN must exactly match the columns displayed header text
 (case-insensitive), e.g. --columns id,state. For a header containing
 spaces, quote it, e.g. --columns "id,state version". Omit to show every
-column in the table's normal order. An unmatched COLUMN is ignored with a
+column in the table's normal order. The unlabeled health-flag column
+(U/H) is always shown first and can't be filtered out, since it has no
+header text to select by. An unmatched COLUMN is ignored with a
 warning listing the valid headers for this invocation.
 
 **--extended**  

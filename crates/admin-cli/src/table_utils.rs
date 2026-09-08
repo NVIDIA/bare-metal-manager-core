@@ -56,7 +56,7 @@ pub(crate) struct MaxWidthArgs {
         long = "max-width",
         value_name = "[COLUMN=]WIDTH",
         help = "Limit displayed column width to WIDTH characters, truncating longer values \
-                with '...'. A column never narrows below its header's length, so WIDTH is \
+                with an ellipsis ('...'). A column never narrows below its header's length, so WIDTH is \
                 an upper bound on values, not a guaranteed rendered width: a WIDTH shorter \
                 than the header still lets values fill the header's width for free, and \
                 WIDTH 0 means no limit (the same as not specifying that column at all; \
@@ -177,8 +177,10 @@ pub(crate) struct ColumnsArgs {
                 repeatable. COLUMN must exactly match the column's displayed header text \
                 (case-insensitive), e.g. --columns id,state. For a header containing spaces, \
                 quote it, e.g. --columns \"id,state version\". Omit to show every column in the \
-                table's normal order. An unmatched COLUMN is ignored with a warning listing the \
-                valid headers for this invocation."
+                table's normal order. The unlabeled health-flag column (U/H) is always shown \
+                first and can't be filtered out, since it has no header text to select by. An \
+                unmatched COLUMN is ignored with a warning listing the valid headers for this \
+                invocation."
     )]
     pub(crate) columns: Vec<String>,
 }
@@ -191,19 +193,14 @@ impl ColumnsArgs {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ColumnSelection {
-    // `None` means no filter was requested: show every column.
-    selected: Option<HashSet<String>>,
     // As typed by the user, for building the unmatched-column warning.
+    // Empty means no filter was requested: show every column.
     requested: Vec<String>,
 }
 
 impl ColumnSelection {
     pub(crate) fn new(requested: &[String]) -> Self {
-        if requested.is_empty() {
-            return Self::default();
-        }
         Self {
-            selected: Some(requested.iter().map(|c| c.to_lowercase()).collect()),
             requested: requested.to_vec(),
         }
     }
@@ -215,9 +212,9 @@ impl ColumnSelection {
     /// and duplicates are silently skipped (the former is reported
     /// separately by `describe_unmatched_columns`).
     pub(crate) fn ordered_headers<'a>(&self, headers: &[&'a str]) -> Vec<&'a str> {
-        let Some(_) = &self.selected else {
+        if self.requested.is_empty() {
             return headers.to_vec();
-        };
+        }
 
         let mut ordered = Vec::new();
         if let Some(blank) = headers.iter().find(|h| h.is_empty()) {

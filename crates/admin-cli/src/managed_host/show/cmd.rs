@@ -151,6 +151,12 @@ fn build_row(src: ManagedHostOutputWrapper, headers: &[&str], widths: &ColumnWid
             .unwrap_or_default()]);
     }
 
+    assert_eq!(
+        row_data.len(),
+        headers.len(),
+        "row cells must match headers_for() output"
+    );
+
     Row::new(
         row_data
             .into_iter()

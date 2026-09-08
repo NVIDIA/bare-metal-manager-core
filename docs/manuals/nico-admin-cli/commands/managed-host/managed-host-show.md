@@ -41,7 +41,7 @@ Show only hosts in quarantine
 
 **--max-width** *\<\[COLUMN=\]WIDTH\>*  
 Limit displayed column width to WIDTH characters, truncating longer
-values with .... Repeatable. A bare WIDTH applies to every column;
+values with an ellipsis ('...'). Repeatable. A bare WIDTH applies to every column;
 COLUMN=WIDTH limits just that column, where COLUMN must exactly match
 the columns displayed header text (case-insensitive), e.g. State=40. For
 a header containing spaces, quote the whole COLUMN=WIDTH argument, e.g.
