@@ -3462,40 +3462,6 @@ pub async fn find_rms_identities_by_bmc_ips(
     Ok(rows)
 }
 
-/// Persist the backend firmware-object job ID for a machine that was updated via
-/// --bypass-state-controller. This survives nico-api restarts so that
-/// get_firmware_status can keep querying the backend even after the in-memory map is
-/// cleared.
-pub async fn save_backend_firmware_object_job_id(
-    db: &sqlx::PgPool,
-    machine_id: &str,
-    job_id: &str,
-) -> DatabaseResult<()> {
-    let sql =
-        "UPDATE machines SET backend_firmware_object_job_id = $1 WHERE id::text = $2 RETURNING id";
-    sqlx::query(sql)
-        .bind(job_id)
-        .bind(machine_id)
-        .execute(db)
-        .await
-        .map_err(|e| DatabaseError::new(sql, e))?;
-    Ok(())
-}
-
-/// Fetch the persisted backend firmware-object job ID for a machine, if any.
-pub async fn get_backend_firmware_object_job_id(
-    db: &sqlx::PgPool,
-    machine_id: &str,
-) -> DatabaseResult<Option<String>> {
-    let sql = "SELECT backend_firmware_object_job_id FROM machines WHERE id::text = $1";
-    let row: Option<(Option<String>,)> = sqlx::query_as(sql)
-        .bind(machine_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| DatabaseError::new(sql, e))?;
-    Ok(row.and_then(|(job_id,)| job_id))
-}
-
 pub fn count_healthy_unhealthy_host_machines(
     all_machines: &HashMap<impl MachineIdSubtypeTrait, model::machine::ManagedHostStateSnapshot>,
 ) -> (i32, i32) {

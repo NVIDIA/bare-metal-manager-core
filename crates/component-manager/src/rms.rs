@@ -96,16 +96,6 @@ enum RmsTrackedFirmwareJob {
     SwitchSystemImage(String),
 }
 
-/// Where a dispatched compute firmware-object job id is persisted so status
-/// queries survive a nico-api restart (which clears the in-memory job map).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FirmwareJobStore {
-    /// Ingested tray: the `machines` row, keyed by machine id (`node_id`).
-    MachineRow,
-    /// Pre-ingestion tray: the `explored_endpoints` row, keyed by BMC IP.
-    ExploredEndpoint,
-}
-
 // The direct RMS path matches the rack-maintenance flow and applies production
 // firmware artifacts only.
 const RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE: &str = "prod";
@@ -3268,11 +3258,10 @@ impl RmsBackend {
 
     /// Apply a firmware object to one compute node and record the resulting job.
     ///
-    /// Shared by the ingested and pre-ingestion paths of `update_firmware`.
-    /// `store` selects where the backend job id is persisted so status queries
-    /// survive a restart: the `machines` row for ingested trays, or the
-    /// `explored_endpoints` row (keyed by BMC IP) for pre-ingestion trays that
-    /// have no machine row yet.
+    /// Shared by the ingested and pre-ingestion paths of `update_firmware`. The
+    /// resulting backend job id is persisted to `compute_firmware_object_jobs`
+    /// keyed by BMC MAC so status queries survive a nico-api restart, whether or
+    /// not the tray has a `machines` row yet.
     async fn apply_compute_firmware_object(
         &self,
         ep: &ComputeTrayEndpoint,
@@ -3280,7 +3269,6 @@ impl RmsBackend {
         target_version: &str,
         options: &FirmwareUpdateOptions,
         component_filters: &[String],
-        store: FirmwareJobStore,
     ) -> ComputeTrayResult {
         let resolved = match self.resolve_compute_node(identity) {
             Ok(resolved) => resolved,
@@ -3327,41 +3315,31 @@ impl RmsBackend {
 
                 if success {
                     if let Some(ref job_id) = job_id {
+                        // Track both in memory and in the DB keyed by BMC MAC so
+                        // status queries survive a nico-api restart, for both
+                        // ingested and pre-ingestion trays.
                         self.firmware_jobs.lock().unwrap().insert(
-                            identity.bmc_mac,
+                            ep.bmc_mac,
                             vec![RmsTrackedFirmwareJob::FirmwareObject(job_id.clone())],
                         );
-                        // Persist to DB so status queries survive nico-api restarts.
-                        let persisted = match store {
-                            FirmwareJobStore::MachineRow => {
-                                db::machine::save_backend_firmware_object_job_id(
-                                    &self.db,
-                                    &identity.identity.node_id,
-                                    job_id,
-                                )
+                        if let Err(e) =
+                            db::direct_dispatch_firmware_job::save(&self.db, ep.bmc_mac, job_id)
                                 .await
-                            }
-                            FirmwareJobStore::ExploredEndpoint => {
-                                db::explored_endpoints::save_backend_firmware_object_job_id_by_ip(
-                                    &self.db, ep.bmc_ip, job_id,
-                                )
-                                .await
-                            }
-                        };
-                        if let Err(e) = persisted {
+                        {
                             tracing::warn!(
                                 node_id = %identity.identity.node_id,
                                 bmc_ip_address = %ep.bmc_ip,
+                                bmc_mac_address = %ep.bmc_mac,
                                 job_id = %job_id,
                                 error = %e,
                                 "failed to persist backend firmware job ID to database"
                             );
                         }
                     } else {
-                        self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+                        self.firmware_jobs.lock().unwrap().remove(&ep.bmc_mac);
                     }
                 } else {
-                    self.firmware_jobs.lock().unwrap().remove(&identity.bmc_mac);
+                    self.firmware_jobs.lock().unwrap().remove(&ep.bmc_mac);
                 }
 
                 ComputeTrayResult {
@@ -3533,26 +3511,27 @@ impl ComputeTrayManager for RmsBackend {
         let mut results = Vec::with_capacity(endpoints.len());
 
         for ep in endpoints {
-            // Ingested trays persist their backend job id to the machine row so
-            // status survives restarts; pre-ingestion trays have no row and
-            // persist to explored_endpoints (keyed by BMC IP) instead.
-            let (identity, store) = match ingested.get(&ep.bmc_ip) {
-                Some(identity) => (identity, FirmwareJobStore::MachineRow),
-                None => match pre_ingestion.get(&ep.bmc_mac) {
-                    Some(identity) => (identity, FirmwareJobStore::ExploredEndpoint),
-                    None => {
-                        results.push(ComputeTrayResult {
-                            bmc_ip: ep.bmc_ip,
-                            bmc_mac: ep.bmc_mac,
-                            success: false,
-                            error: Some(
-                                "could not resolve RMS identity from database or expected inventory"
-                                    .into(),
-                            ),
-                        });
-                        continue;
-                    }
-                },
+            // Ingested trays resolve their RMS identity from the machine row by
+            // BMC IP; pre-ingestion trays fall back to expected inventory by BMC
+            // MAC. Either way the resulting job id is persisted uniformly to
+            // compute_firmware_object_jobs (keyed by BMC MAC).
+            let identity = match ingested
+                .get(&ep.bmc_ip)
+                .or_else(|| pre_ingestion.get(&ep.bmc_mac))
+            {
+                Some(identity) => identity,
+                None => {
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        bmc_mac: ep.bmc_mac,
+                        success: false,
+                        error: Some(
+                            "could not resolve RMS identity from database or expected inventory"
+                                .into(),
+                        ),
+                    });
+                    continue;
+                }
             };
 
             results.push(
@@ -3562,7 +3541,6 @@ impl ComputeTrayManager for RmsBackend {
                     target_version,
                     options,
                     &component_filters,
-                    store,
                 )
                 .await,
             );
@@ -3576,32 +3554,14 @@ impl ComputeTrayManager for RmsBackend {
         &self,
         endpoints: &[ComputeTrayEndpoint],
     ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError> {
-        let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
-        let ingested = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
-
-        // Trays with no machines row may be pre-ingestion rack-scale nodes whose
-        // RMS identity is derivable from expected inventory, keyed by BMC MAC.
-        let pre_ingestion_macs: Vec<MacAddress> = endpoints
-            .iter()
-            .filter(|ep| !ingested.contains_key(&ep.bmc_ip))
-            .map(|ep| ep.bmc_mac)
-            .collect();
-        let pre_ingestion = self
-            .resolve_pre_ingestion_compute_identities(&pre_ingestion_macs)
-            .await?;
-
-        // Snapshot the in-memory job id per endpoint (keyed by BMC MAC via the
-        // resolved identity) before any awaits, so the lock is not held across
-        // the RMS calls below.
+        // Snapshot the in-memory job id per endpoint (keyed by BMC MAC) before
+        // any awaits, so the lock is not held across the RMS calls below.
         let in_memory_jobs: Vec<Option<String>> = {
             let jobs = self.firmware_jobs.lock().unwrap();
             endpoints
                 .iter()
                 .map(|ep| {
-                    let identity = ingested
-                        .get(&ep.bmc_ip)
-                        .or_else(|| pre_ingestion.get(&ep.bmc_mac))?;
-                    jobs.get(&identity.bmc_mac).and_then(|jobs| {
+                    jobs.get(&ep.bmc_mac).and_then(|jobs| {
                         jobs.iter().find_map(|job| match job {
                             RmsTrackedFirmwareJob::FirmwareObject(job_id) => Some(job_id.clone()),
                             RmsTrackedFirmwareJob::SwitchSystemImage(_) => None,
@@ -3615,46 +3575,23 @@ impl ComputeTrayManager for RmsBackend {
 
         for (ep, in_memory_job) in endpoints.iter().zip(in_memory_jobs) {
             // When the in-memory map has no job (e.g. after a pod restart), fall
-            // back to the DB-persisted job id written by update_firmware: the
-            // machines row for ingested trays, or the explored_endpoints row
-            // (keyed by BMC IP) for pre-ingestion trays.
+            // back to the DB-persisted job id written by update_firmware, keyed
+            // by BMC MAC for both ingested and pre-ingestion trays.
             let resolved_job_id: Option<String> = if in_memory_job.is_some() {
                 in_memory_job
-            } else if let Some(identity) = ingested.get(&ep.bmc_ip) {
-                match db::machine::get_backend_firmware_object_job_id(
-                    &self.db,
-                    &identity.identity.node_id,
-                )
-                .await
-                {
+            } else {
+                match db::direct_dispatch_firmware_job::get(&self.db, ep.bmc_mac).await {
                     Ok(db_job_id) => db_job_id,
                     Err(e) => {
                         tracing::warn!(
                             bmc_ip_address = %ep.bmc_ip,
+                            bmc_mac_address = %ep.bmc_mac,
                             error = %e,
                             "failed to fetch persisted backend firmware job ID from database"
                         );
                         None
                     }
                 }
-            } else if pre_ingestion.contains_key(&ep.bmc_mac) {
-                match db::explored_endpoints::get_backend_firmware_object_job_id_by_ip(
-                    &self.db, ep.bmc_ip,
-                )
-                .await
-                {
-                    Ok(db_job_id) => db_job_id,
-                    Err(e) => {
-                        tracing::warn!(
-                            bmc_ip_address = %ep.bmc_ip,
-                            error = %e,
-                            "failed to fetch persisted pre-ingestion firmware job ID from database"
-                        );
-                        None
-                    }
-                }
-            } else {
-                None
             };
             let Some(job_id) = resolved_job_id else {
                 statuses.push(ComputeTrayFirmwareUpdateStatus {
