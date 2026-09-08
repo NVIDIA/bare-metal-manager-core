@@ -25,7 +25,7 @@ use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{DpuMachineId, MachineId, MachineInterfaceId};
 use config_version::ConfigVersion;
 use eyre::Context;
 use forge_dpu_agent_utils::utils::create_forge_client;
@@ -186,7 +186,7 @@ impl PeriodicConfigFetcher {
 pub(super) struct PeriodicConfigFetcherConfig {
     /// The interval in which the config is fetched
     pub(super) config_fetch_interval: Duration,
-    pub(super) machine_id: MachineId,
+    pub(super) machine_id: DpuMachineId,
     pub(super) forge_api: String,
     pub(super) forge_client_config: Arc<ForgeClientConfig>,
 }
@@ -483,7 +483,7 @@ fn instance_metadata_from_instance(
         instance_name,
         sitename,
         instance_id,
-        machine_id,
+        machine_id: machine_id.map(Into::into),
         user_data,
         ib_devices: devices,
         config_version: instance

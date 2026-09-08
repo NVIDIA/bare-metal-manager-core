@@ -162,7 +162,7 @@ fn convert_machine_to_nice_format(
                     interface
                         .attached_dpu_machine_id
                         .as_ref()
-                        .map(MachineId::to_string)
+                        .map(ToString::to_string)
                         .unwrap_or_default(),
                 ),
                 (

@@ -36,7 +36,7 @@ use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{HostMachineId, MachineId, MachineIdSubtypeTrait, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
@@ -786,12 +786,12 @@ impl ApiClient {
 
     pub(crate) async fn machine_insert_health_report_override(
         &self,
-        id: MachineId,
+        id: &MachineId,
         report: ::rpc::health::HealthReport,
         replace: bool,
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::InsertMachineHealthReportRequest {
-            machine_id: Some(id),
+            machine_id: Some(*id),
             health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
                 mode: if replace {
@@ -994,10 +994,10 @@ impl ApiClient {
 
     pub(crate) async fn get_machines_by_ids(
         &self,
-        machine_ids: &[MachineId],
+        machine_ids: &[impl MachineIdSubtypeTrait],
     ) -> CarbideCliResult<rpc::MachineList> {
         let request = ::rpc::forge::MachinesByIdsRequest {
-            machine_ids: Vec::from(machine_ids),
+            machine_ids: machine_ids.iter().copied().map(Into::into).collect(),
             ..Default::default()
         };
         Ok(self.0.find_machines_by_ids(request).await?)
@@ -2102,7 +2102,11 @@ impl ApiClient {
 
         let instance_request = rpc::InstanceAllocationRequest {
             instance_id: None,
-            machine_id: machine.id,
+            machine_id: machine
+                .id
+                .map(carbide_uuid::machine::StableHostMachineId::try_from)
+                .transpose()
+                .map_err(|error| CarbideCliError::GenericError(error.to_string()))?,
 
             instance_type_id: allocate_instance.instance_type_id.clone(),
             config: Some(instance_config),
@@ -2638,7 +2642,7 @@ impl ApiClient {
 
     pub(crate) async fn get_power_options(
         &self,
-        machine_id: Vec<MachineId>,
+        machine_id: Vec<carbide_uuid::machine::HostMachineId>,
     ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
         let all_options = self
             .0
@@ -2897,7 +2901,7 @@ impl ApiClient {
 
     pub(crate) async fn modify_dpf_state(
         &self,
-        machine_id: MachineId,
+        machine_id: HostMachineId,
         state: bool,
     ) -> CarbideCliResult<()> {
         let request = ModifyDpfStateRequest {
@@ -2910,7 +2914,7 @@ impl ApiClient {
 
     pub(crate) async fn get_dpf_state(
         &self,
-        machine_ids: Vec<MachineId>,
+        machine_ids: Vec<HostMachineId>,
         page_size: usize,
     ) -> CarbideCliResult<Vec<rpc::dpf_state_response::DpfState>> {
         let mut all_dpf_states = Vec::with_capacity(machine_ids.len());
@@ -2928,7 +2932,7 @@ impl ApiClient {
 
     pub(crate) async fn get_dpf_host_snapshot(
         &self,
-        host_machine_id: MachineId,
+        host_machine_id: HostMachineId,
     ) -> CarbideCliResult<String> {
         let request = GetDpfHostSnapshotRequest {
             host_machine_id: Some(host_machine_id),
@@ -2969,7 +2973,7 @@ impl ApiClient {
     /// needs no paging.
     pub(crate) async fn list_dpu_service_sync_history(
         &self,
-        machine_id: MachineId,
+        machine_id: carbide_uuid::machine::StableHostMachineId,
     ) -> CarbideCliResult<Vec<PendingDpuServiceSync>> {
         let response = self
             .0

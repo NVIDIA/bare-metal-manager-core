@@ -28,7 +28,7 @@ use std::time::Duration;
 use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
-use carbide_uuid::machine::{DpuMachineId, HostMachineId};
+use carbide_uuid::machine::{AsMachineId, DpuMachineId, HostMachineId};
 use carbide_uuid::rack::RackId;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
@@ -164,7 +164,7 @@ async fn test_gb200_deployment_migration_rechecks_after_attachment_updates(pool:
     let mut request_task = tokio::spawn(async move {
         api.trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(requested_dpu_id.into()),
+                dpu_id: Some(requested_dpu_id.to_machine_id()),
                 machine_id: None,
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
@@ -247,7 +247,7 @@ async fn assert_dpu_reprovision_set_rechecks_request_updates(
     let request_task = tokio::spawn(async move {
         api.trigger_dpu_reprovisioning(tonic::Request::new(
             ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: Some(requested_dpu_id.into()),
+                dpu_id: Some(requested_dpu_id.to_machine_id()),
                 machine_id: None,
                 mode: Mode::Set as i32,
                 initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
@@ -900,7 +900,7 @@ async fn test_gb200_b3240_pair_uses_specialized_deployment_from_report_or_rack(p
     assert_eq!(classified.len(), mh.dpu_ids.len());
     assert_eq!(
         classified.into_iter().collect::<HashSet<_>>(),
-        mh.dpu_ids.iter().copied().map(Into::into).collect()
+        mh.dpu_ids.iter().copied().collect()
     );
     assert_eq!(
         *verified_deployments.lock().unwrap(),

@@ -27,6 +27,7 @@ use carbide_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialReader, CredentialType,
     Credentials, NicLockdownIkm,
 };
+use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use model::ConfigValidationError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
@@ -423,7 +424,7 @@ pub(crate) async fn update_machine_credentials(
     tracing::Span::current().record("request", "MachineCredentialsUpdateRequest { }");
 
     let request = request.into_inner();
-    let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+    let machine_id: MachineId = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let mac_address = match request.mac_address {
         Some(v) => Some(v.parse().map_err(|_| {

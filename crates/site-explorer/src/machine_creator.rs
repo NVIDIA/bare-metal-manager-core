@@ -34,7 +34,7 @@ use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    CURRENT_STATE_MODEL_VERSION, ConfigureAstraState, Machine, MachineInterfaceSnapshot,
+    AnyMachine, CURRENT_STATE_MODEL_VERSION, ConfigureAstraState, MachineInterfaceSnapshot,
     ManagedHostState, pick_boot_interface, pick_boot_prediction,
 };
 use model::machine_boot_interface::{
@@ -590,13 +590,8 @@ impl MachineCreator {
             {
                 match prediction.machine_id.machine_id_subtype() {
                     MachineIdSubtype::StableHost(stable_machine_id) => {
-                        reconcile_desired_boot_interface(
-                            txn,
-                            stable_machine_id.as_host_machine_id(),
-                            None,
-                            None,
-                        )
-                        .await?;
+                        reconcile_desired_boot_interface(txn, &stable_machine_id, None, None)
+                            .await?;
                         return Ok(None);
                     }
                     MachineIdSubtype::PredictedHost(predicted_machine_id) => {
@@ -665,13 +660,7 @@ impl MachineCreator {
                 primary_mac,
             )
             .await?;
-            reconcile_desired_boot_interface(
-                txn,
-                machine_id.as_host_machine_id(),
-                None,
-                declared_primary,
-            )
-            .await?;
+            reconcile_desired_boot_interface(txn, &machine_id, None, declared_primary).await?;
             return Ok(None);
         }
 
@@ -712,8 +701,7 @@ impl MachineCreator {
                 predicted_host_mac_addresses = ?mac_addresses,
                 "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
             );
-            reconcile_desired_boot_interface(txn, &existing_machine.id.try_into()?, None, None)
-                .await?;
+            reconcile_desired_boot_interface(txn, &existing_machine.id, None, None).await?;
             return Ok(None);
         }
 
@@ -1039,7 +1027,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-    ) -> SiteExplorerResult<Option<Machine>> {
+    ) -> SiteExplorerResult<Option<AnyMachine>> {
         if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
             self.configure_dpu_interface(txn, explored_dpu).await?;
             let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
@@ -1174,7 +1162,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-    ) -> SiteExplorerResult<Option<Machine>> {
+    ) -> SiteExplorerResult<Option<AnyMachine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
         match db::machine::find_one(&mut *txn, dpu_machine_id, MachineSearchConfig::default())
             .await?
@@ -1287,7 +1275,7 @@ impl MachineCreator {
     async fn update_dpu_network_config(
         &self,
         txn: &mut PgConnection,
-        dpu_machine: &Machine,
+        dpu_machine: &AnyMachine,
     ) -> SiteExplorerResult<()> {
         let (mut network_config, version) = dpu_machine.network_config.clone().take();
         if network_config.loopback_ip.is_none() {

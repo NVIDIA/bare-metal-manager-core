@@ -245,7 +245,7 @@ async fn test_dpf_inventory_uses_host_context_and_preserves_last_good_value(pool
     // Report an incomplete agent inventory and confirm the operator value wins.
     let report = || {
         Request::new(rpc::DpuAgentInventoryReport {
-            machine_id: Some(managed_host.dpu_ids[0].into()),
+            machine_id: Some(managed_host.dpu_ids[0]),
             inventory: Some(rpc::MachineInventory {
                 components: vec![rpc::MachineInventorySoftwareComponent {
                     name: "agent-only".to_string(),
