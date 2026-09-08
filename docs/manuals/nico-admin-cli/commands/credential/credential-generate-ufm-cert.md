@@ -1,6 +1,6 @@
 # `nico-admin-cli credential generate-ufm-cert`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **generate-ufm-cert**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **generate-ufm-cert***
 
 ## NAME
 

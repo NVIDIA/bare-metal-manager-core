@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu-remediation list-applied`
 
-_[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **list-applied**_
+*[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **list-applied***
 
 ## NAME
 

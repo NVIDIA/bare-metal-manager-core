@@ -1,6 +1,6 @@
 # `nico-admin-cli route-server remove`
 
-_[Network commands](../../network.md) › [route-server](./route-server.md) › **remove**_
+*[Network commands](../../network.md) › [route-server](./route-server.md) › **remove***
 
 ## NAME
 

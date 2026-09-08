@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf enable`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **enable**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **enable***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli dpa`
 
-_[Hardware commands](../../hardware.md) › **dpa**_
+*[Hardware commands](../../hardware.md) › **dpa***
 
 ## NAME
 

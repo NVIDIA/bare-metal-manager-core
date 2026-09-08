@@ -1,6 +1,6 @@
 # `nico-admin-cli domain show`
 
-_[Network commands](../../network.md) › [domain](./domain.md) › **show**_
+*[Network commands](../../network.md) › [domain](./domain.md) › **show***
 
 ## NAME
 

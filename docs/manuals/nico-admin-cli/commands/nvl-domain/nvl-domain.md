@@ -1,6 +1,6 @@
 # `nico-admin-cli nvl-domain`
 
-_[Network commands](../../network.md) › **nvl-domain**_
+*[Network commands](../../network.md) › **nvl-domain***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli instance-type update`
 
-_[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **update**_
+*[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **update***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli logical-partition create`
 
-_[Network commands](../../network.md) › [logical-partition](./logical-partition.md) › **create**_
+*[Network commands](../../network.md) › [logical-partition](./logical-partition.md) › **create***
 
 ## NAME
 

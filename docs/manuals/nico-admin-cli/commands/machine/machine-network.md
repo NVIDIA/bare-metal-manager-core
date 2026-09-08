@@ -1,6 +1,6 @@
 # `nico-admin-cli machine network`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **network**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **network***
 
 ## NAME
 

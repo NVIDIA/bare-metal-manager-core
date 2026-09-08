@@ -1,6 +1,6 @@
 # `nico-admin-cli switch health-report`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › **health-report**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › **health-report***
 
 ## NAME
 

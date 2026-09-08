@@ -1,6 +1,6 @@
 # `nico-admin-cli version`
 
-_[Admin commands](../../admin.md) › **version**_
+*[Admin commands](../../admin.md) › **version***
 
 ## NAME
 

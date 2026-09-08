@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu versions`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **versions**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **versions***
 
 ## NAME
 

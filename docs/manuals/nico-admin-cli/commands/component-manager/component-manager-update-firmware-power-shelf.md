@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager update-firmware power-shelf`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [update-firmware](./component-manager-update-firmware.md) › **power-shelf**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [update-firmware](./component-manager-update-firmware.md) › **power-shelf***
 
 ## NAME
 

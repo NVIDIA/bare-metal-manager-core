@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf metadata remove-labels`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **remove-labels**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **remove-labels***
 
 ## NAME
 

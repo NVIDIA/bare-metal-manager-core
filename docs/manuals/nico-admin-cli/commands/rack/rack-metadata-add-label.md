@@ -1,6 +1,6 @@
 # `nico-admin-cli rack metadata add-label`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [metadata](./rack-metadata.md) › **add-label**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [metadata](./rack-metadata.md) › **add-label***
 
 ## NAME
 

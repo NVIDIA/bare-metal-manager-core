@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish thermal-metrics`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **thermal-metrics**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **thermal-metrics***
 
 ## NAME
 

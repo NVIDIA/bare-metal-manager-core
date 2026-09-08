@@ -1,6 +1,6 @@
 # `nico-admin-cli vpc-prefix`
 
-_[Network commands](../../network.md) › **vpc-prefix**_
+*[Network commands](../../network.md) › **vpc-prefix***
 
 ## NAME
 

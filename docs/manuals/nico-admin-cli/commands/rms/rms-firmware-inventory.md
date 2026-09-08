@@ -1,6 +1,6 @@
 # `nico-admin-cli rms firmware-inventory`
 
-_[Hardware commands](../../hardware.md) › [rms](./rms.md) › **firmware-inventory**_
+*[Hardware commands](../../hardware.md) › [rms](./rms.md) › **firmware-inventory***
 
 ## NAME
 

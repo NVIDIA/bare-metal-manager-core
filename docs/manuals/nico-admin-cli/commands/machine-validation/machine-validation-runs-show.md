@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-validation runs show`
 
-_[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [runs](./machine-validation-runs.md) › **show**_
+*[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [runs](./machine-validation-runs.md) › **show***
 
 ## NAME
 

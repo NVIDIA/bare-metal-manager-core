@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish set-boot-order-dpu-first`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **set-boot-order-dpu-first**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **set-boot-order-dpu-first***
 
 ## NAME
 

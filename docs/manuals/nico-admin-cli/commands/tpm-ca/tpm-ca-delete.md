@@ -1,6 +1,6 @@
 # `nico-admin-cli tpm-ca delete`
 
-_[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **delete***
 
 ## NAME
 

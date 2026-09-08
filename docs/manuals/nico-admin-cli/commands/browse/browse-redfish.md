@@ -1,6 +1,6 @@
 # `nico-admin-cli browse redfish`
 
-_[Hardware commands](../../hardware.md) › [browse](./browse.md) › **redfish**_
+*[Hardware commands](../../hardware.md) › [browse](./browse.md) › **redfish***
 
 ## NAME
 

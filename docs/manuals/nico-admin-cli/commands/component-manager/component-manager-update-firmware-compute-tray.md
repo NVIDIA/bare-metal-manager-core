@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager update-firmware compute-tray`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [update-firmware](./component-manager-update-firmware.md) › **compute-tray**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [update-firmware](./component-manager-update-firmware.md) › **compute-tray***
 
 ## NAME
 
@@ -10,7 +10,7 @@ firmware on compute trays
 ## SYNOPSIS
 
 **nico-admin-cli component-manager update-firmware compute-tray**
-\<**--machine-id**\|**--mac-address**\> \[**--target-version**\]
+\[**--machine-id**\] \[**--mac-address**\] \[**--target-version**\]
 \[**--sot-json-file**\] \[**--access-token**\] \[**--force-update**\]
 \[**--component**\] \[**--bypass-state-controller**\] \[**--extended**\]
 \[**--sort-by**\] \[**-h**\|**--help**\]
@@ -32,7 +32,7 @@ power shelf)
 Firmware target version for legacy direct-update paths
 
 **--sot-json-file** *\<PATH\>*  
-SOT JSON file for RMS ApplyFirmwareObjectFromJSON
+SOT JSON file for RMS ApplyFirmwareObject
 
 **--access-token** *\<ACCESS_TOKEN\>*  
 Artifact access token for RMS SOT JSON downloads; omit or pass empty for

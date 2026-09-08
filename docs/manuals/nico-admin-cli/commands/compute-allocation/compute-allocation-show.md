@@ -1,6 +1,6 @@
 # `nico-admin-cli compute-allocation show`
 
-_[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **show**_
+*[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **show***
 
 ## NAME
 

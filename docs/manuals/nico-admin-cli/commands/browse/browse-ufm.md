@@ -1,6 +1,6 @@
 # `nico-admin-cli browse ufm`
 
-_[Hardware commands](../../hardware.md) › [browse](./browse.md) › **ufm**_
+*[Hardware commands](../../hardware.md) › [browse](./browse.md) › **ufm***
 
 ## NAME
 

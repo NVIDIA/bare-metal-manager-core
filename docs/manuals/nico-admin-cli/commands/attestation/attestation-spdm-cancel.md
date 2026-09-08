@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation spdm cancel`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [spdm](./attestation-spdm.md) › **cancel**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [spdm](./attestation-spdm.md) › **cancel***
 
 ## NAME
 

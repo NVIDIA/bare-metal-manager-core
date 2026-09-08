@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf disable`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **disable**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **disable***
 
 ## NAME
 

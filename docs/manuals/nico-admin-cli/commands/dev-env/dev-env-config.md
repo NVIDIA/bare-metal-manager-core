@@ -1,6 +1,6 @@
 # `nico-admin-cli dev-env config`
 
-_[Admin commands](../../admin.md) › [dev-env](./dev-env.md) › **config**_
+*[Admin commands](../../admin.md) › [dev-env](./dev-env.md) › **config***
 
 ## NAME
 

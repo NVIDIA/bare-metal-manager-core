@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu health-report remove`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [health-report](./dpu-health-report.md) › **remove**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [health-report](./dpu-health-report.md) › **remove***
 
 ## NAME
 

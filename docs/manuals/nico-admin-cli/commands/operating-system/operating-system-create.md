@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system create`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **create**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **create***
 
 ## NAME
 
@@ -10,7 +10,7 @@ definition.
 ## SYNOPSIS
 
 **nico-admin-cli operating-system create** \<**-n**\|**--name**\>
-\<**-o**\|**--org**\> \[**--id**\] \[**-d**\|**--description**\]
+\[**-o**\|**--org**\] \[**--id**\] \[**-d**\|**--description**\]
 \[**--is-active**\] \[**--allow-override**\]
 \[**--phone-home-enabled**\] \[**--user-data**\] \[**--ipxe-script**\]
 \[**--ipxe-template-id**\] \[**--param**\] \[**--extended**\]
@@ -26,7 +26,8 @@ Create a new operating system definition.
 Name of the operating system definition.
 
 **-o**, **--org** *\<ORG\>*  
-Organization identifier for this OS definition.
+Optional tenant organization identifier for this OS definition. Omit for
+OS definitions owned by provider.
 
 **--id** *\<ID\>*  
 Optional UUID for the new OS definition (default: server-generated).
@@ -45,16 +46,17 @@ Whether this OS definition is active (default: true).\
 - false
 
 **--allow-override**  
-Allow users to override OS parameters.
+Allow instance requests to override the raw iPXE boot script stored by
+this OS definition. Applies only when the definition stores a raw iPXE
+script; does not affect templated definitions or user data.
 
 **--phone-home-enabled**  
-Hold the instance in a provisioning state until the booted OS calls back
-("phones home") to NICo's metadata service, instead of reporting it ready as
-soon as provisioning finishes. NICo injects the cloud-init `phone_home` block
-into your user-data for you, so your `userData` must be valid cloud-init YAML
-when this is enabled. Refer to
-[Phone-home](../../../../configuration/tenant_management.md#phone-home) for
-what it injects, the endpoint, and usage guidance.
+Whether instances using this OS definition wait for a guest phone-home
+callback before reporting ready. If the callback never arrives, the
+instance remains in a provisioning state. REST workflows inject the
+cloud-init phone_home block and require valid cloud-init YAML; callers
+using Core directly must arrange the callback. See
+[Phone-home](../../../../configuration/tenant_management.md#phone-home).
 
 **--user-data** *\<USER_DATA\>*  
 Optional cloud-init / user-data script.
@@ -92,9 +94,9 @@ Print help (see a summary with -h)
 
 ```sh
 nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a
-nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a --description "Ubuntu 22.04 base" --is-active false --allow-override
+nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a --description "Ubuntu 22.04 base" --is-active false
 ```
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)

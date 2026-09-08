@@ -1,6 +1,6 @@
 # `nico-admin-cli vpc`
 
-_[Network commands](../../network.md) › **vpc**_
+*[Network commands](../../network.md) › **vpc***
 
 ## NAME
 
@@ -41,6 +41,7 @@ Print help (see a summary with -h)
 
 | Subcommand | Description |
 |---|---|
+| [`create`](./vpc-create.md) | Create VPC |
 | [`show`](./vpc-show.md) | Display VPC information |
 | [`set-virtualizer`](./vpc-set-virtualizer.md) |  |
 

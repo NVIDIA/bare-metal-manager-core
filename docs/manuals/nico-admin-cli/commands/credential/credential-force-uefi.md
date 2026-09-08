@@ -1,11 +1,11 @@
 # `nico-admin-cli credential force-uefi`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **force-uefi**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **force-uefi***
 
 ## NAME
 
-nico-admin-cli-credential-force-uefi - Force-converge a single machines
-UEFI credential now (operator escape hatch)
+nico-admin-cli-credential-force-uefi - Force-converge the UEFI
+credential for a single machine now (operator escape hatch)
 
 ## SYNOPSIS
 
@@ -14,8 +14,8 @@ UEFI credential now (operator escape hatch)
 
 ## DESCRIPTION
 
-Force-converge a single machines UEFI credential now (operator escape
-hatch)
+Force-converge the UEFI credential for a single machine now (operator
+escape hatch)
 
 ## OPTIONS
 
@@ -27,9 +27,9 @@ probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field  
+Sort output by specified field\
 
-  
+\
 *Possible values:*
 
 - primary-id: Sort by the primary ID

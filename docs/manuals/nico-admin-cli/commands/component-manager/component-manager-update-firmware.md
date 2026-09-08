@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager update-firmware`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **update-firmware**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **update-firmware***
 
 ## NAME
 

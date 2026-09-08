@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation spdm list`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [spdm](./attestation-spdm.md) › **list**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [spdm](./attestation-spdm.md) › **list***
 
 ## NAME
 

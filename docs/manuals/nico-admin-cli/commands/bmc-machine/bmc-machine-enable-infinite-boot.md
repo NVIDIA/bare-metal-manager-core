@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine enable-infinite-boot`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **enable-infinite-boot**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **enable-infinite-boot***
 
 ## NAME
 

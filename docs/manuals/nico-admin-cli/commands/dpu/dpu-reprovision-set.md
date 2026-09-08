@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu reprovision set`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **set**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **set***
 
 ## NAME
 

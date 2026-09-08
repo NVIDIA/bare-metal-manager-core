@@ -1,6 +1,6 @@
 # `nico-admin-cli rms`
 
-_[Hardware commands](../../hardware.md) › **rms**_
+*[Hardware commands](../../hardware.md) › **rms***
 
 ## NAME
 

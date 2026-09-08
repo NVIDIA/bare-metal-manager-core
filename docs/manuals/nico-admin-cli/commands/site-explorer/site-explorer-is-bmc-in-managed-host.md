@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer is-bmc-in-managed-host`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **is-bmc-in-managed-host**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **is-bmc-in-managed-host***
 
 ## NAME
 

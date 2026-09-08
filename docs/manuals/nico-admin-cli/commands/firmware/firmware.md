@@ -1,6 +1,6 @@
 # `nico-admin-cli firmware`
 
-_[Hardware commands](../../hardware.md) › **firmware**_
+*[Hardware commands](../../hardware.md) › **firmware***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer clear-error`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **clear-error**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **clear-error***
 
 ## NAME
 

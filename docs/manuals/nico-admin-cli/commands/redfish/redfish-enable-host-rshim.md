@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish enable-host-rshim`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **enable-host-rshim**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **enable-host-rshim***
 
 ## NAME
 

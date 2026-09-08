@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish enable-infinite-boot`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **enable-infinite-boot**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **enable-infinite-boot***
 
 ## NAME
 

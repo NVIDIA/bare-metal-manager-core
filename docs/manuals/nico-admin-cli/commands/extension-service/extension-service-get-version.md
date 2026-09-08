@@ -1,6 +1,6 @@
 # `nico-admin-cli extension-service get-version`
 
-_[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **get-version**_
+*[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **get-version***
 
 ## NAME
 

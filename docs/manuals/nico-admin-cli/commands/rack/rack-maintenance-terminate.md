@@ -1,6 +1,6 @@
 # `nico-admin-cli rack maintenance terminate`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **terminate**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **terminate***
 
 ## NAME
 

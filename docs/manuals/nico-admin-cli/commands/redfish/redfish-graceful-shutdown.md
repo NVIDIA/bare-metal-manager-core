@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish graceful-shutdown`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **graceful-shutdown**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **graceful-shutdown***
 
 ## NAME
 

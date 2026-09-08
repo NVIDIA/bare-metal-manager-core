@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-validation tests verify`
 
-_[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [tests](./machine-validation-tests.md) › **verify**_
+*[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [tests](./machine-validation-tests.md) › **verify***
 
 ## NAME
 

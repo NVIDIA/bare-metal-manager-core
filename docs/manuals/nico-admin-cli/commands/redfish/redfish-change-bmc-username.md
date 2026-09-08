@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish change-bmc-username`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **change-bmc-username**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **change-bmc-username***
 
 ## NAME
 

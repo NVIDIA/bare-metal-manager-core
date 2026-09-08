@@ -1,6 +1,6 @@
 # `nico-admin-cli switch metadata remove-labels`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [metadata](./switch-metadata.md) › **remove-labels**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › [metadata](./switch-metadata.md) › **remove-labels***
 
 ## NAME
 

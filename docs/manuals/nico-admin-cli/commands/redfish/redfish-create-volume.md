@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish create-volume`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **create-volume**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **create-volume***
 
 ## NAME
 

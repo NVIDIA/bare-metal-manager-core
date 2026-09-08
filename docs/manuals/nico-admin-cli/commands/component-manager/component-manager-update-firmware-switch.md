@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager update-firmware switch`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [update-firmware](./component-manager-update-firmware.md) › **switch**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [update-firmware](./component-manager-update-firmware.md) › **switch***
 
 ## NAME
 
@@ -28,7 +28,7 @@ Switch IDs to target
 Firmware target version for legacy direct-update paths
 
 **--sot-json-file** *\<PATH\>*  
-SOT JSON file for RMS ApplyFirmwareObjectFromJSON
+SOT JSON file for RMS ApplyFirmwareObject
 
 **--access-token** *\<ACCESS_TOKEN\>*  
 Artifact access token for RMS SOT JSON downloads; omit or pass empty for

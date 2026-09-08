@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx profile sync`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [profile](./mlx-profile.md) › **sync**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [profile](./mlx-profile.md) › **sync***
 
 ## NAME
 

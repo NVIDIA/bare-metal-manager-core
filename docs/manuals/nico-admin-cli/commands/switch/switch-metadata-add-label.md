@@ -1,6 +1,6 @@
 # `nico-admin-cli switch metadata add-label`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [metadata](./switch-metadata.md) › **add-label**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › [metadata](./switch-metadata.md) › **add-label***
 
 ## NAME
 

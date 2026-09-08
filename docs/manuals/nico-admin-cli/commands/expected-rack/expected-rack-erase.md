@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-rack erase`
 
-_[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **erase**_
+*[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **erase***
 
 ## NAME
 

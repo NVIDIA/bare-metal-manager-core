@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager get-firmware-update-status compute-tray`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-update-status](./component-manager-get-firmware-update-status.md) › **compute-tray**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-update-status](./component-manager-get-firmware-update-status.md) › **compute-tray***
 
 ## NAME
 
@@ -10,7 +10,7 @@ Target compute trays
 ## SYNOPSIS
 
 **nico-admin-cli component-manager get-firmware-update-status
-compute-tray** \<**--machine-id**\|**--mac-address**\>
+compute-tray** \[**--machine-id**\] \[**--mac-address**\]
 \[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION

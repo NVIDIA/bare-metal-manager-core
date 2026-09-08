@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-base-mac-address`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-base-mac-address**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-base-mac-address***
 
 ## NAME
 

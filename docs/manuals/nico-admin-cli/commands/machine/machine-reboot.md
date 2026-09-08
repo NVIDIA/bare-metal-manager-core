@@ -1,6 +1,6 @@
 # `nico-admin-cli machine reboot`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **reboot**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **reboot***
 
 ## NAME
 

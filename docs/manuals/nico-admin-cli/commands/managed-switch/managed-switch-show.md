@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-switch show`
 
-_[Hardware commands](../../hardware.md) › [managed-switch](./managed-switch.md) › **show**_
+*[Hardware commands](../../hardware.md) › [managed-switch](./managed-switch.md) › **show***
 
 ## NAME
 

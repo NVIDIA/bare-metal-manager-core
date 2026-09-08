@@ -1,6 +1,6 @@
 # `nico-admin-cli credential delete-bmc`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **delete-bmc**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **delete-bmc***
 
 ## NAME
 

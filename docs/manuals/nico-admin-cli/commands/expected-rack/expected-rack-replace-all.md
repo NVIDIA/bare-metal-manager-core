@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-rack replace-all`
 
-_[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **replace-all**_
+*[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **replace-all***
 
 ## NAME
 

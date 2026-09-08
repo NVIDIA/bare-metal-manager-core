@@ -1,6 +1,6 @@
 # `nico-admin-cli rack metadata remove-labels`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [metadata](./rack-metadata.md) › **remove-labels**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [metadata](./rack-metadata.md) › **remove-labels***
 
 ## NAME
 

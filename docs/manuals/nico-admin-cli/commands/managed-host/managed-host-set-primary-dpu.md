@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host set-primary-dpu`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **set-primary-dpu**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **set-primary-dpu***
 
 ## NAME
 
@@ -24,11 +24,11 @@ Admin segment when the host has a DPU-backed Admin interface. The
 machine-controller converges the BMC to the desired target when the host
 is eligible. Use set-primary-interface with an INTERFACE_ID
 (machine-interface ID):
-[set-primary-interface reference](https://github.com/NVIDIA/infra-controller/blob/main/docs/manuals/nico-admin-cli/commands/managed-host/managed-host-set-primary-interface.md)
+[primary-interface command documentation](https://github.com/NVIDIA/infra-controller/blob/main/docs/manuals/nico-admin-cli/commands/managed-host/managed-host-set-primary-interface.md)
 
 ## OPTIONS
 
-**--force-reconcile**\
+**--force-reconcile**  
 Request a fresh machine-controller reconciliation even when this DPU is
 already selected. Sends only force_reconcile=true; servers without
 force_reconcile support ignore it, while supporting servers leave any

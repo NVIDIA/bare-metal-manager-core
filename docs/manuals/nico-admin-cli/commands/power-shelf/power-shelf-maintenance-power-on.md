@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf maintenance power-on`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [maintenance](./power-shelf-maintenance.md) › **power-on**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [maintenance](./power-shelf-maintenance.md) › **power-on***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-power-shelf update`
 
-_[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **update**_
+*[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **update***
 
 ## NAME
 

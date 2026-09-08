@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf`
 
-_[Hardware commands](../../hardware.md) › **dpf**_
+*[Hardware commands](../../hardware.md) › **dpf***
 
 ## NAME
 

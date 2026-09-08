@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-switch decommission`
 
-_[Hardware commands](../../hardware.md) › [managed-switch](./managed-switch.md) › **decommission**_
+*[Hardware commands](../../hardware.md) › [managed-switch](./managed-switch.md) › **decommission***
 
 ## NAME
 
@@ -31,7 +31,7 @@ Sort output by specified field\
 \
 *Possible values:*
 
-- primary-id: Sort by the primary id
+- primary-id: Sort by the primary ID
 
 - state: Sort by state
 

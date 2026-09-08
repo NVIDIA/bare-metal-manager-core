@@ -1,6 +1,6 @@
 # `nico-admin-cli machine metadata add-label`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [metadata](./machine-metadata.md) › **add-label**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [metadata](./machine-metadata.md) › **add-label***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish delete-bmc-user`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **delete-bmc-user**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **delete-bmc-user***
 
 ## NAME
 

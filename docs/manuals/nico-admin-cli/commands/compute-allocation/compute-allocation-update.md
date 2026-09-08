@@ -1,6 +1,6 @@
 # `nico-admin-cli compute-allocation update`
 
-_[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **update**_
+*[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **update***
 
 ## NAME
 

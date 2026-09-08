@@ -1,6 +1,6 @@
 # `nico-admin-cli switch`
 
-_[Hardware commands](../../hardware.md) › **switch**_
+*[Hardware commands](../../hardware.md) › **switch***
 
 ## NAME
 

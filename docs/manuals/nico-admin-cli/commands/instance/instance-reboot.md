@@ -1,6 +1,6 @@
 # `nico-admin-cli instance reboot`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **reboot**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **reboot***
 
 ## NAME
 

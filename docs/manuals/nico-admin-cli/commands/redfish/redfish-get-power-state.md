@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-power-state`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-power-state**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-power-state***
 
 ## NAME
 

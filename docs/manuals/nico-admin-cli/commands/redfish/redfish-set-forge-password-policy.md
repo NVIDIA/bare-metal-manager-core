@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish set-forge-password-policy`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **set-forge-password-policy**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **set-forge-password-policy***
 
 ## NAME
 

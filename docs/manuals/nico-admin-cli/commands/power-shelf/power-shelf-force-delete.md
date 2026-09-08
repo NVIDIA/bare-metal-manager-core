@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf force-delete`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **force-delete**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **force-delete***
 
 ## NAME
 
@@ -10,9 +10,9 @@ optionally its interfaces and BMC suppressions
 ## SYNOPSIS
 
 **nico-admin-cli power-shelf force-delete**
-\[**-d**\|**--delete-interfaces**\]
-\[**--delete-bmc-suppressions**\] \[**--extended**\] \[**--sort-by**\]
-\[**-h**\|**--help**\] \<*POWER_SHELF_ID*\>
+\[**-d**\|**--delete-interfaces**\] \[**--delete-bmc-suppressions**\]
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
+\<*POWER_SHELF_ID*\>
 
 ## DESCRIPTION
 

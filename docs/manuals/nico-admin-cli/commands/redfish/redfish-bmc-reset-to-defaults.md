@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish bmc-reset-to-defaults`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bmc-reset-to-defaults**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bmc-reset-to-defaults***
 
 ## NAME
 

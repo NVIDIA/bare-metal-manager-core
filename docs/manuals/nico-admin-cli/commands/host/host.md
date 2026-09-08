@@ -1,6 +1,6 @@
 # `nico-admin-cli host`
 
-_[Hardware commands](../../hardware.md) › **host**_
+*[Hardware commands](../../hardware.md) › **host***
 
 ## NAME
 

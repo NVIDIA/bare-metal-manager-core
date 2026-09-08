@@ -1,6 +1,6 @@
 # `nico-admin-cli vpc-peering create`
 
-_[Network commands](../../network.md) › [vpc-peering](./vpc-peering.md) › **create**_
+*[Network commands](../../network.md) › [vpc-peering](./vpc-peering.md) › **create***
 
 ## NAME
 

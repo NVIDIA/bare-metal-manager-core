@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host power-options update`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **update**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **update***
 
 ## NAME
 

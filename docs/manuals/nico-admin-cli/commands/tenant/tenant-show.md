@@ -1,6 +1,6 @@
 # `nico-admin-cli tenant show`
 
-_[Tenant commands](../../tenant.md) › [tenant](./tenant.md) › **show**_
+*[Tenant commands](../../tenant.md) › [tenant](./tenant.md) › **show***
 
 ## NAME
 

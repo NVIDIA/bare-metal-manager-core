@@ -1,6 +1,6 @@
 # `nico-admin-cli credential bgp set-sitewide`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › [bgp](./credential-bgp.md) › **set-sitewide**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › [bgp](./credential-bgp.md) › **set-sitewide***
 
 ## NAME
 

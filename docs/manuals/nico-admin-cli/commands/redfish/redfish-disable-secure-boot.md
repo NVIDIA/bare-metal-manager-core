@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish disable-secure-boot`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **disable-secure-boot**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **disable-secure-boot***
 
 ## NAME
 

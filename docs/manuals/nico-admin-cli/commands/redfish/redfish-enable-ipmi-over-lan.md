@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish enable-ipmi-over-lan`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **enable-ipmi-over-lan**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **enable-ipmi-over-lan***
 
 ## NAME
 

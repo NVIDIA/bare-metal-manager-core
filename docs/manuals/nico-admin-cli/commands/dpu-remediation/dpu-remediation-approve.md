@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu-remediation approve`
 
-_[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **approve**_
+*[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **approve***
 
 ## NAME
 

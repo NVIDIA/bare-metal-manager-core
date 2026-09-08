@@ -1,6 +1,6 @@
 # `nico-admin-cli tpm-ca add-bulk`
 
-_[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **add-bulk**_
+*[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **add-bulk***
 
 ## NAME
 

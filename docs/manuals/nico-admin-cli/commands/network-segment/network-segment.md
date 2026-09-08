@@ -1,6 +1,6 @@
 # `nico-admin-cli network-segment`
 
-_[Network commands](../../network.md) › **network-segment**_
+*[Network commands](../../network.md) › **network-segment***
 
 ## NAME
 
@@ -42,7 +42,9 @@ Print help (see a summary with -h)
 | Subcommand | Description |
 |---|---|
 | [`show`](./network-segment-show.md) | Display Network Segment information |
+| [`attach-vpc`](./network-segment-attach-vpc.md) | Attach Network Segment to VPC |
 | [`delete`](./network-segment-delete.md) | Delete Network Segment |
+| [`create`](./network-segment-create.md) | Create Network Segment |
 
 ---
 

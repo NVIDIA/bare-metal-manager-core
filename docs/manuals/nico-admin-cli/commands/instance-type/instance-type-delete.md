@@ -1,6 +1,6 @@
 # `nico-admin-cli instance-type delete`
 
-_[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **delete***
 
 ## NAME
 

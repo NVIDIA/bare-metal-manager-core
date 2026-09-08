@@ -1,6 +1,6 @@
 # `nico-admin-cli ssh copy-bfb`
 
-_[Admin commands](../../admin.md) › [ssh](./ssh.md) › **copy-bfb**_
+*[Admin commands](../../admin.md) › [ssh](./ssh.md) › **copy-bfb***
 
 ## NAME
 

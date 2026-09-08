@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-switch delete`
 
-_[Hardware commands](../../hardware.md) › [managed-switch](./managed-switch.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [managed-switch](./managed-switch.md) › **delete***
 
 ## NAME
 

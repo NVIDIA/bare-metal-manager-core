@@ -1,6 +1,6 @@
 # `nico-admin-cli switch metadata from-expected-switch`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [metadata](./switch-metadata.md) › **from-expected-switch**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › [metadata](./switch-metadata.md) › **from-expected-switch***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer explore`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **explore**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **explore***
 
 ## NAME
 

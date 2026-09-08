@@ -1,6 +1,6 @@
 # `nico-admin-cli instance-type`
 
-_[Tenant commands](../../tenant.md) › **instance-type**_
+*[Tenant commands](../../tenant.md) › **instance-type***
 
 ## NAME
 

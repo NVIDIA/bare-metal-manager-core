@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer get-report managed-host`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › [get-report](./site-explorer-get-report.md) › **managed-host**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › [get-report](./site-explorer-get-report.md) › **managed-host***
 
 ## NAME
 

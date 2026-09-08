@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish lockdown-status`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **lockdown-status**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **lockdown-status***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli ssh disable-rshim`
 
-_[Admin commands](../../admin.md) › [ssh](./ssh.md) › **disable-rshim**_
+*[Admin commands](../../admin.md) › [ssh](./ssh.md) › **disable-rshim***
 
 ## NAME
 

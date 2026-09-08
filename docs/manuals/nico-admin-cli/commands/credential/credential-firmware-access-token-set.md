@@ -1,6 +1,6 @@
 # `nico-admin-cli credential firmware-access-token set`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › [firmware-access-token](./credential-firmware-access-token.md) › **set**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › [firmware-access-token](./credential-firmware-access-token.md) › **set***
 
 ## NAME
 

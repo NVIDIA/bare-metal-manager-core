@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer have-credentials`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **have-credentials**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **have-credentials***
 
 ## NAME
 

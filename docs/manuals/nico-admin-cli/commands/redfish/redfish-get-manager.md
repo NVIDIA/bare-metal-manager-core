@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-manager`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-manager**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-manager***
 
 ## NAME
 

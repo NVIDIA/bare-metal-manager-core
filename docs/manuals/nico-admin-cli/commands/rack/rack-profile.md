@@ -1,6 +1,6 @@
 # `nico-admin-cli rack profile`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **profile**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › **profile***
 
 ## NAME
 

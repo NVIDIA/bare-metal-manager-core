@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish chassis-reset-card1-powercycle`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **chassis-reset-card1-powercycle**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **chassis-reset-card1-powercycle***
 
 ## NAME
 

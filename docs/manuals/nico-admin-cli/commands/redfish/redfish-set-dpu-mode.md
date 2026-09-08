@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish set-dpu-mode`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **set-dpu-mode**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **set-dpu-mode***
 
 ## NAME
 

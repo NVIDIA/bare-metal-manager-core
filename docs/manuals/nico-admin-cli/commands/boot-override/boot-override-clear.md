@@ -1,6 +1,6 @@
 # `nico-admin-cli boot-override clear`
 
-_[Hardware commands](../../hardware.md) › [boot-override](./boot-override.md) › **clear**_
+*[Hardware commands](../../hardware.md) › [boot-override](./boot-override.md) › **clear***
 
 ## NAME
 

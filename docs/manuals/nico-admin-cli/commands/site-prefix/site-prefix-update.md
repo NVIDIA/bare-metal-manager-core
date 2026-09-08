@@ -1,6 +1,6 @@
 # `nico-admin-cli site-prefix update`
 
-_[Network commands](../../network.md) › [site-prefix](./site-prefix.md) › **update**_
+*[Network commands](../../network.md) › [site-prefix](./site-prefix.md) › **update***
 
 ## NAME
 
@@ -47,14 +47,14 @@ probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field  
+Sort output by specified field\
 
-  
+\
 *Possible values:*
 
-> -   primary-id: Sort by the primary id
->
-> -   state: Sort by state
+- primary-id: Sort by the primary ID
+
+- state: Sort by state
 
 **-h**, **--help**  
 Print help (see a summary with -h)

@@ -1,6 +1,6 @@
 # `nico-admin-cli instance allocate`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **allocate**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **allocate***
 
 ## NAME
 
@@ -13,7 +13,7 @@ nico-admin-cli-instance-allocate - Allocate instance
 \<**-p**\|**--prefix-name**\> \[**--label-key**\] \[**--label-value**\]
 \[**--network-security-group-id**\] \[**--instance-type-id**\]
 \[**--os**\] \[**--spxconfig**\] \[**--vf-subnet**\]
-\[**-v**\|**--vpc-prefix-id**\] \[**--zero-dpu**\] \[**--extended**\]
+\[**-v**\|**--vpc-prefix-id**\] \[**--flat-vpc-id**\] \[**--extended**\]
 \[**--vf-vpc-prefix-id**\] \[**--ip-address**\] \[**--vf-ip-address**\]
 \[**--ipv6-vpc-prefix-id**\] \[**--ipv6-vf-prefix-id**\]
 \[**--ipv6-ip-address**\] \[**--ipv6-vf-ip-address**\]
@@ -58,8 +58,8 @@ The subnet to assign to a VF
 **-v**, **--vpc-prefix-id** *\<VPC_PREFIX_ID\>*  
 The VPC prefix to assign to a PF
 
-**--zero-dpu**  
-Allocate a zero-dpu host
+**--flat-vpc-id** *\<FLAT_VPC_ID\>*  
+Create an instance in the given "flat" VPC, for machines without DPUs
 
 **--extended**  
 Extended result output.

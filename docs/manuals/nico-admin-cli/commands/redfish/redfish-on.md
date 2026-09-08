@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish on`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **on**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **on***
 
 ## NAME
 

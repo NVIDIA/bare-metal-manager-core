@@ -1,6 +1,6 @@
 # `nico-admin-cli nvl-domain health-report`
 
-_[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › **health-report**_
+*[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › **health-report***
 
 ## NAME
 

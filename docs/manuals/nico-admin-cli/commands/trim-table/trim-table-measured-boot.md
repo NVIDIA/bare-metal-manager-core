@@ -1,6 +1,6 @@
 # `nico-admin-cli trim-table measured-boot`
 
-_[Hardware commands](../../hardware.md) › [trim-table](./trim-table.md) › **measured-boot**_
+*[Hardware commands](../../hardware.md) › [trim-table](./trim-table.md) › **measured-boot***
 
 ## NAME
 

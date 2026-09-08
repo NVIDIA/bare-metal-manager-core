@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation spdm trigger`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [spdm](./attestation-spdm.md) › **trigger**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [spdm](./attestation-spdm.md) › **trigger***
 
 ## NAME
 

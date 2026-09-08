@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf metadata from-expected-power-shelf`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **from-expected-power-shelf**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **from-expected-power-shelf***
 
 ## NAME
 

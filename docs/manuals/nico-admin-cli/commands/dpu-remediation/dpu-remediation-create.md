@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu-remediation create`
 
-_[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **create**_
+*[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **create***
 
 ## NAME
 

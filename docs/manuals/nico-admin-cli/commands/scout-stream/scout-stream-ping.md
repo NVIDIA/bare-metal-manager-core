@@ -1,6 +1,6 @@
 # `nico-admin-cli scout-stream ping`
 
-_[Hardware commands](../../hardware.md) › [scout-stream](./scout-stream.md) › **ping**_
+*[Hardware commands](../../hardware.md) › [scout-stream](./scout-stream.md) › **ping***
 
 ## NAME
 

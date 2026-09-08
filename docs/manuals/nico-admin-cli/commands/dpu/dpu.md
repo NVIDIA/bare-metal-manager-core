@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu`
 
-_[Hardware commands](../../hardware.md) › **dpu**_
+*[Hardware commands](../../hardware.md) › **dpu***
 
 ## NAME
 
@@ -47,6 +47,7 @@ Print help (see a summary with -h)
 | [`status`](./dpu-status.md) | View DPU Status |
 | [`network`](./dpu-network.md) | Networking information |
 | [`health-report`](./dpu-health-report.md) | Manage DPU health report sources |
+| [`set-uefi-password`](./dpu-set-uefi-password.md) | Set DPU UEFI password directly on the device (via Redfish) |
 
 ---
 

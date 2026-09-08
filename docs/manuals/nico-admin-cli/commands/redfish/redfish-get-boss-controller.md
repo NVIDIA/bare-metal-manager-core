@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-boss-controller`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-boss-controller**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-boss-controller***
 
 ## NAME
 

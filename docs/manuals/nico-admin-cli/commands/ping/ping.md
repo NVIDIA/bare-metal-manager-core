@@ -1,6 +1,6 @@
 # `nico-admin-cli ping`
 
-_[Admin commands](../../admin.md) › **ping**_
+*[Admin commands](../../admin.md) › **ping***
 
 ## NAME
 

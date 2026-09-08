@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish boot-hdd`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-hdd**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-hdd***
 
 ## NAME
 

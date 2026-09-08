@@ -1,6 +1,6 @@
 # `nico-admin-cli machine hardware-info`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **hardware-info**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **hardware-info***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli rack list`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **list**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › **list***
 
 ## NAME
 

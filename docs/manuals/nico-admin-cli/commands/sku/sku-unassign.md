@@ -1,6 +1,6 @@
 # `nico-admin-cli sku unassign`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **unassign**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **unassign***
 
 ## NAME
 

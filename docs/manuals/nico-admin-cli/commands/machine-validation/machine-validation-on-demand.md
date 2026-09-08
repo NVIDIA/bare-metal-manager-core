@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-validation on-demand`
 
-_[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › **on-demand**_
+*[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › **on-demand***
 
 ## NAME
 

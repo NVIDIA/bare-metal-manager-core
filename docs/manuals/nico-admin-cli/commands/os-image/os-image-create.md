@@ -1,6 +1,6 @@
 # `nico-admin-cli os-image create`
 
-_[Tenant commands](../../tenant.md) › [os-image](./os-image.md) › **create**_
+*[Tenant commands](../../tenant.md) › [os-image](./os-image.md) › **create***
 
 ## NAME
 

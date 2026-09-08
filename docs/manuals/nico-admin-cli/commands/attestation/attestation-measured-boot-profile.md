@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation measured-boot profile`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › **profile**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › **profile***
 
 ## NAME
 

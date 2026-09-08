@@ -1,6 +1,6 @@
 # `nico-admin-cli machine metadata from-expected-machine`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [metadata](./machine-metadata.md) › **from-expected-machine**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [metadata](./machine-metadata.md) › **from-expected-machine***
 
 ## NAME
 

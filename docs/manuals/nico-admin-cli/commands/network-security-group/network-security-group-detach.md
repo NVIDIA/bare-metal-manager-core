@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group detach`
 
-_[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **detach**_
+*[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **detach***
 
 ## NAME
 

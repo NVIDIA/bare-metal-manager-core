@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-rack show`
 
-_[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **show**_
+*[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **show***
 
 ## NAME
 

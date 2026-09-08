@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf health-report remove`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **remove**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **remove***
 
 ## NAME
 

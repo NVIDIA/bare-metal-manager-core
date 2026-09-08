@@ -1,6 +1,6 @@
 # `nico-admin-cli host reprovision mark-manual-upgrade-complete`
 
-_[Hardware commands](../../hardware.md) › [host](./host.md) › [reprovision](./host-reprovision.md) › **mark-manual-upgrade-complete**_
+*[Hardware commands](../../hardware.md) › [host](./host.md) › [reprovision](./host-reprovision.md) › **mark-manual-upgrade-complete***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-machine update`
 
-_[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **update**_
+*[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **update***
 
 ## NAME
 

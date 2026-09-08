@@ -1,6 +1,6 @@
 # `nico-admin-cli scout-stream disconnect`
 
-_[Hardware commands](../../hardware.md) › [scout-stream](./scout-stream.md) › **disconnect**_
+*[Hardware commands](../../hardware.md) › [scout-stream](./scout-stream.md) › **disconnect***
 
 ## NAME
 

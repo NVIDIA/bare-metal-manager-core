@@ -1,6 +1,6 @@
 # `nico-admin-cli generate-shell-complete`
 
-_[Admin commands](../../admin.md) › **generate-shell-complete**_
+*[Admin commands](../../admin.md) › **generate-shell-complete***
 
 ## NAME
 

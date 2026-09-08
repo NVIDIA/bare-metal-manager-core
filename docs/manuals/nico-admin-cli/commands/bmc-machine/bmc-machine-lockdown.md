@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine lockdown`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **lockdown**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **lockdown***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli machine network status`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [network](./machine-network.md) › **status**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [network](./machine-network.md) › **status***
 
 ## NAME
 

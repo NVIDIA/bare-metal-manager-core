@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system delete`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **delete***
 
 ## NAME
 

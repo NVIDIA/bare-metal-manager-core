@@ -1,6 +1,6 @@
 # `nico-admin-cli nvl-domain health-report remove`
 
-_[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › [health-report](./nvl-domain-health-report.md) › **remove**_
+*[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › [health-report](./nvl-domain-health-report.md) › **remove***
 
 ## NAME
 
@@ -40,7 +40,6 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*DOMAIN_ID*\>  
-
 \<*REPORT_SOURCE*\>
 
 ---

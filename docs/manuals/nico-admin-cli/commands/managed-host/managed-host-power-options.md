@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host power-options`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **power-options**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **power-options***
 
 ## NAME
 

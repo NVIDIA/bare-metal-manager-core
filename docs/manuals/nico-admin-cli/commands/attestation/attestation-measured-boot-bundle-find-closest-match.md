@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation measured-boot bundle find-closest-match`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [bundle](./attestation-measured-boot-bundle.md) › **find-closest-match**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [bundle](./attestation-measured-boot-bundle.md) › **find-closest-match***
 
 ## NAME
 

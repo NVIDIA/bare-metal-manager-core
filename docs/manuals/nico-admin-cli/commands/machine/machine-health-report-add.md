@@ -1,6 +1,6 @@
 # `nico-admin-cli machine health-report add`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [health-report](./machine-health-report.md) › **add**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [health-report](./machine-health-report.md) › **add***
 
 ## NAME
 

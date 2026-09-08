@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish force-off`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **force-off**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **force-off***
 
 ## NAME
 

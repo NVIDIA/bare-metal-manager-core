@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager get-firmware-versions power-shelf`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-versions](./component-manager-get-firmware-versions.md) › **power-shelf**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-versions](./component-manager-get-firmware-versions.md) › **power-shelf***
 
 ## NAME
 

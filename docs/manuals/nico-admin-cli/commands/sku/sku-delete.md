@@ -1,6 +1,6 @@
 # `nico-admin-cli sku delete`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **delete***
 
 ## NAME
 

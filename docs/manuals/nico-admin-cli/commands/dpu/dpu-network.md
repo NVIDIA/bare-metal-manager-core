@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu network`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **network**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **network***
 
 ## NAME
 

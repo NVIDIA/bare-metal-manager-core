@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-interfaces assign-address`
 
-_[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **assign-address**_
+*[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **assign-address***
 
 ## NAME
 

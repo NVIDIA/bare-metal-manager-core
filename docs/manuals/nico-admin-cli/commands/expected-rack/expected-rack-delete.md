@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-rack delete`
 
-_[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **delete***
 
 ## NAME
 

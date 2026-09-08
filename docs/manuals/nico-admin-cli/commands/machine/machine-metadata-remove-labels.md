@@ -1,6 +1,6 @@
 # `nico-admin-cli machine metadata remove-labels`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [metadata](./machine-metadata.md) › **remove-labels**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [metadata](./machine-metadata.md) › **remove-labels***
 
 ## NAME
 

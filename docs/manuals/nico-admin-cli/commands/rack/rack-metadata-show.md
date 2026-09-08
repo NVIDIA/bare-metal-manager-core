@@ -1,6 +1,6 @@
 # `nico-admin-cli rack metadata show`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [metadata](./rack-metadata.md) › **show**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [metadata](./rack-metadata.md) › **show***
 
 ## NAME
 

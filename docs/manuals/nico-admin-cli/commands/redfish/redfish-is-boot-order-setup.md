@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish is-boot-order-setup`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **is-boot-order-setup**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **is-boot-order-setup***
 
 ## NAME
 

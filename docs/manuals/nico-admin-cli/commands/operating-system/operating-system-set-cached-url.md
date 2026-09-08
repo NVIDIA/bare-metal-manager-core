@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system set-cached-url`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **set-cached-url**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **set-cached-url***
 
 ## NAME
 

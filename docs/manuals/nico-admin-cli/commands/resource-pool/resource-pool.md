@@ -1,6 +1,6 @@
 # `nico-admin-cli resource-pool`
 
-_[Network commands](../../network.md) › **resource-pool**_
+*[Network commands](../../network.md) › **resource-pool***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation`
 
-_[Hardware commands](../../hardware.md) › **attestation**_
+*[Hardware commands](../../hardware.md) › **attestation***
 
 ## NAME
 

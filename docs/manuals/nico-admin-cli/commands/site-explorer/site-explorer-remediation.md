@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer remediation`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **remediation**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **remediation***
 
 ## NAME
 

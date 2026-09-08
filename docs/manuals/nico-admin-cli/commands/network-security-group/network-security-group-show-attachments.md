@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group show-attachments`
 
-_[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **show-attachments**_
+*[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **show-attachments***
 
 ## NAME
 

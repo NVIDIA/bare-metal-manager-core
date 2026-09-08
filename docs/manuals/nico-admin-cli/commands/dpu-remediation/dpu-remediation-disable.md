@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu-remediation disable`
 
-_[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **disable**_
+*[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **disable***
 
 ## NAME
 

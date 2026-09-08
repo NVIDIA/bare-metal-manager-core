@@ -1,6 +1,6 @@
 # `nico-admin-cli machine show`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **show**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **show***
 
 ## NAME
 

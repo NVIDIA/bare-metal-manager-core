@@ -1,6 +1,6 @@
 # `nico-admin-cli set create-machines`
 
-_[Hardware commands](../../hardware.md) › [set](./set.md) › **create-machines**_
+*[Hardware commands](../../hardware.md) › [set](./set.md) › **create-machines***
 
 ## NAME
 

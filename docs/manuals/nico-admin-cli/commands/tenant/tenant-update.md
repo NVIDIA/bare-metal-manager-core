@@ -1,6 +1,6 @@
 # `nico-admin-cli tenant update`
 
-_[Tenant commands](../../tenant.md) › [tenant](./tenant.md) › **update**_
+*[Tenant commands](../../tenant.md) › [tenant](./tenant.md) › **update***
 
 ## NAME
 

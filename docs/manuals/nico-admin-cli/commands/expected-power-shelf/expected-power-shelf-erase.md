@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-power-shelf erase`
 
-_[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **erase**_
+*[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **erase***
 
 ## NAME
 

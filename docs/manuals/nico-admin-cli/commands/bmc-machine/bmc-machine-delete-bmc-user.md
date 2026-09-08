@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine delete-bmc-user`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **delete-bmc-user**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **delete-bmc-user***
 
 ## NAME
 

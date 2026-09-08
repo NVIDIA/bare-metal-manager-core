@@ -1,6 +1,6 @@
 # `nico-admin-cli instance-type associate`
 
-_[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **associate**_
+*[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **associate***
 
 ## NAME
 

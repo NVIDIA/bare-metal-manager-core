@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish pcie-devices`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **pcie-devices**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **pcie-devices***
 
 ## NAME
 

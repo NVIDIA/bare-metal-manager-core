@@ -1,6 +1,6 @@
 # `nico-admin-cli rack force-delete`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **force-delete**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › **force-delete***
 
 ## NAME
 

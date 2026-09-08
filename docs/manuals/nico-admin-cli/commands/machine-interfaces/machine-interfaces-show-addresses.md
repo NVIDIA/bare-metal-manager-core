@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-interfaces show-addresses`
 
-_[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **show-addresses**_
+*[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **show-addresses***
 
 ## NAME
 

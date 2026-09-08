@@ -1,6 +1,6 @@
 # `nico-admin-cli trim-table`
 
-_[Hardware commands](../../hardware.md) › **trim-table**_
+*[Hardware commands](../../hardware.md) › **trim-table***
 
 ## NAME
 

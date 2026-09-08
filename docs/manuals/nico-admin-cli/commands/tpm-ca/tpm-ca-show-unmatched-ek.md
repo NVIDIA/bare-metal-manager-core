@@ -1,6 +1,6 @@
 # `nico-admin-cli tpm-ca show-unmatched-ek`
 
-_[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **show-unmatched-ek**_
+*[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **show-unmatched-ek***
 
 ## NAME
 

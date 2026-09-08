@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-power-shelf replace-all`
 
-_[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **replace-all**_
+*[Tenant commands](../../tenant.md) › [expected-power-shelf](./expected-power-shelf.md) › **replace-all***
 
 ## NAME
 

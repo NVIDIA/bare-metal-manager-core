@@ -1,6 +1,6 @@
 # `nico-admin-cli credential delete-nmx-m`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **delete-nmx-m**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **delete-nmx-m***
 
 ## NAME
 

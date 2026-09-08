@@ -1,22 +1,23 @@
 # `nico-admin-cli redfish reset-bios`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **reset-bios**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **reset-bios***
 
 ## NAME
 
 nico-admin-cli-redfish-reset-bios - Reset BIOS settings to factory
-defaults
+defaults. Returns once the BMC accepts the reset request. A system
+restart is required for the settings to take effect
 
 ## SYNOPSIS
 
 **nico-admin-cli redfish reset-bios** \[**-r**\|**--reboot**\]
-\[**--extended**\] \[**--sort-by** *\<SORT_BY\>*\] \[**-h**\|**--help**\]
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
 Reset BIOS settings to factory defaults. Returns once the BMC accepts
 the reset request. A system restart is required for the settings to take
-effect.
+effect
 
 ## OPTIONS
 
@@ -26,7 +27,7 @@ Perform a forced restart after the BMC accepts the BIOS reset request
 **--extended**  
 Extended result output.
 
-This is used by measured boot, where basic output contains just what you
+This used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 

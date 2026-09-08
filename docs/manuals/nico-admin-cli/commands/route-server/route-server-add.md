@@ -1,6 +1,6 @@
 # `nico-admin-cli route-server add`
 
-_[Network commands](../../network.md) › [route-server](./route-server.md) › **add**_
+*[Network commands](../../network.md) › [route-server](./route-server.md) › **add***
 
 ## NAME
 
