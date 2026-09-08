@@ -629,6 +629,80 @@ mod tests {
     use crate::test_support::host_info;
     use crate::{HardwareType, MachineRouterOptions, VirtualMediaDeviceConfig, machine_router};
 
+    #[tokio::test]
+    async fn hpe_persistent_boot_settings_reconcile_libvirt() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let virsh_path = directory.path().join("virsh");
+        let defined_xml_path = directory.path().join("defined.xml");
+        fs::write(
+            &virsh_path,
+            format!(
+                r#"#!/bin/sh
+case "$3" in
+  dumpxml) printf '<domain><os><type>hvm</type><boot dev="hd"/></os><devices/></domain>\n' ;;
+  define) cp "$4" '{}' ;;
+  *) exit 1 ;;
+esac
+"#,
+                defined_xml_path.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&virsh_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let callbacks = Arc::new(LibvirtCallbacks::new(Config {
+            virsh_path,
+            uri: "qemu:///system".to_string(),
+            domain: "hpe-node".to_string(),
+            virtual_media_targets: BTreeMap::new(),
+        }));
+        let (router, state) = machine_router(
+            &host_info(HardwareType::HpeProliantDl380aGen11),
+            callbacks.clone(),
+            "test-host-id".to_string(),
+            false,
+            MachineRouterOptions::default(),
+        );
+        callbacks.bind_state(&state).unwrap();
+        assert!(
+            fs::read_to_string(&defined_xml_path)
+                .unwrap()
+                .contains("<boot dev=\"network\"/><boot dev=\"hd\"/>")
+        );
+
+        for (order, expected_xml, expected_selection) in [
+            (
+                ["HD.BootOption.Boot0001", "NIC.BootOption.Boot0000"],
+                "<boot dev=\"hd\"/>",
+                BootOptionKind::Disk,
+            ),
+            (
+                ["NIC.BootOption.Boot0000", "HD.BootOption.Boot0001"],
+                "<boot dev=\"network\"/><boot dev=\"hd\"/>",
+                BootOptionKind::Network,
+            ),
+        ] {
+            let status = request(
+                &router,
+                Method::PATCH,
+                "/redfish/v1/Systems/1/Bios/oem/hpe/boot/settings",
+                json!({"PersistentBootConfigOrder": order}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(
+                state.system_state.resolve_current_boot_selection(),
+                Some(expected_selection)
+            );
+            let xml = fs::read_to_string(&defined_xml_path).unwrap();
+            assert!(xml.contains(expected_xml), "unexpected domain XML: {xml}");
+            if expected_selection == BootOptionKind::Disk {
+                assert!(!xml.contains("<boot dev=\"network\"/>"));
+            }
+        }
+    }
+
     async fn request(
         router: &Router,
         method: Method,
