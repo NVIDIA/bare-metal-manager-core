@@ -45,8 +45,9 @@ create_machines = true
 [bmc_proxy]
 # Ordinary BMC Redfish traffic -- including established-endpoint
 # credentialed exploration -- goes through nico-bmc-proxy; credential
-# setup, session minting, password rotation, and exploration's anonymous
-# vendor probes stay direct.
+# setup, session minting, password rotation, exploration's anonymous
+# vendor probes, and component-manager compute-tray power control stay
+# direct.
 enabled = true
 address = "{{ .Values.bmcProxy.address | default (printf "nico-bmc-proxy.%s.svc.cluster.local:1079" (include "nico-api.namespace" .)) }}"
 # Client identity presented to the proxy's mTLS listener; the defaults are the

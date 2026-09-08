@@ -336,9 +336,10 @@ pub struct CarbideConfig {
     /// and established-endpoint credentialed exploration -- targets the
     /// proxy, which authenticates upstream itself. Credential-subject work
     /// (credential setup with factory/expected credentials, BMC session
-    /// minting, password rotation) and exploration's anonymous vendor
-    /// probes stay direct. Absent or `enabled = false` keeps every call
-    /// direct.
+    /// minting, password rotation), exploration's anonymous vendor probes,
+    /// and component-manager compute-tray power control (explicit
+    /// per-endpoint credentials) stay direct. Absent or `enabled = false`
+    /// keeps every call direct.
     pub bmc_proxy: Option<BmcProxyConfig>,
 
     /// When `true`, `GetBmcCredentials` may return
