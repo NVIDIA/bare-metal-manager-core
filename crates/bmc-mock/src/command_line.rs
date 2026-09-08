@@ -126,35 +126,35 @@ pub(super) struct Args {
     #[clap(
         long,
         requires = "hardware_profile",
-        help = "DPU BMC firmware version reported by generated Redfish inventory"
+        help = "DPU BMC firmware version reported by generated Redfish inventory. Requires --hardware-profile and at least one generated DPU (set --dpu-count for variable-count profiles). Cannot be combined with --targz or --ip-router."
     )]
     pub(super) dpu_bmc_firmware: Option<String>,
 
     #[clap(
         long,
         requires = "hardware_profile",
-        help = "DPU UEFI firmware version reported by generated Redfish inventory"
+        help = "DPU UEFI firmware version reported by generated Redfish inventory. Requires --hardware-profile and at least one generated DPU (set --dpu-count for variable-count profiles). Cannot be combined with --targz or --ip-router."
     )]
     pub(super) dpu_uefi_firmware: Option<String>,
 
     #[clap(
         long,
         requires = "hardware_profile",
-        help = "DPU BSP version reported by generated Redfish inventory"
+        help = "DPU BSP version reported by generated Redfish inventory. Requires --hardware-profile and at least one generated DPU (set --dpu-count for variable-count profiles). Cannot be combined with --targz or --ip-router. Omission leaves DPU_BSP absent."
     )]
     pub(super) dpu_bsp_firmware: Option<String>,
 
     #[clap(
         long,
         requires = "hardware_profile",
-        help = "DPU CEC firmware version reported by generated Redfish inventory"
+        help = "DPU CEC firmware version reported by generated Redfish inventory. Requires --hardware-profile and at least one generated DPU (set --dpu-count for variable-count profiles). Cannot be combined with --targz or --ip-router."
     )]
     pub(super) dpu_cec_firmware: Option<String>,
 
     #[clap(
         long,
         requires = "hardware_profile",
-        help = "DPU NIC firmware version reported by generated Redfish inventory"
+        help = "DPU NIC firmware version reported by generated Redfish inventory. Requires --hardware-profile and at least one generated DPU (set --dpu-count for variable-count profiles). Cannot be combined with --targz or --ip-router."
     )]
     pub(super) dpu_nic_firmware: Option<String>,
 
