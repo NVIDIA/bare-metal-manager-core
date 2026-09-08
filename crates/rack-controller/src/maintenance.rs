@@ -2902,7 +2902,7 @@ mod tests {
         summarize_firmware_outcomes, validate_complete_nmx_fabric_inventory,
     };
 
-    fn test_machine_id(seed: u8) -> MachineId {
+    fn test_machine_id(seed: u8) -> HostMachineId {
         let mut hash = [0u8; 32];
         hash[0] = seed;
         MachineId::new(MachineIdSource::Tpm, hash, MachineType::Host)

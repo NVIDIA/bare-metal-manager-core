@@ -29,7 +29,7 @@ use std::time::Duration;
 use carbide_machine_controller::dpf::DpfOperations;
 use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_utils::periodic_timer::PeriodicTimer;
-use carbide_uuid::machine::{HostMachineId, MachineId};
+use carbide_uuid::machine::HostMachineId;
 use db::Transaction;
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use host_firmware::HostFirmwareUpdate;
@@ -220,7 +220,7 @@ impl MachineUpdateManager {
         }
 
         // current host machines in maintenance
-        let mut current_updating_machines = HashSet::<MachineId>::new();
+        let mut current_updating_machines = HashSet::<HostMachineId>::new();
 
         for update_module in self.update_modules.iter() {
             current_updating_machines

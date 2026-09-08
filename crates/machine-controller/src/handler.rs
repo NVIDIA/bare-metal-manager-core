@@ -1966,7 +1966,9 @@ impl MachineStateHandler {
                             None => Ok(StateHandlerOutcome::do_nothing()),
                         }
                     }
-                    FailureCause::BiosSetupFailed { .. } if machine_id == host_machine_id => {
+                    FailureCause::BiosSetupFailed { .. }
+                        if machine_id == host_machine_id.as_machine_id() =>
+                    {
                         let recovered = ManagedHostState::HostInit {
                             machine_state: MachineState::SetBootOrder {
                                 set_boot_order_info: Some(initial_set_boot_order_info()),

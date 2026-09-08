@@ -5198,16 +5198,12 @@ mod tests {
 
         let mut machine_a = machine_with_id(standalone_machine(), id_a);
         machine_a.status.bmc_info.mac = Some(mac_a);
-        let mut machine_b = machine_with_id(standalone_machine(), id_b.into());
+        let mut machine_b = machine_with_id(standalone_machine(), id_b);
         machine_b.status.bmc_info.mac = Some(mac_b);
-        let mut machine_c = machine_with_id(standalone_machine(), id_c.into());
+        let mut machine_c = machine_with_id(standalone_machine(), id_c);
         machine_c.status.bmc_info.mac = Some(mac_c);
 
-        let machines = HashMap::from([
-            (id_a, machine_a),
-            (id_b.into(), machine_b),
-            (id_c.into(), machine_c),
-        ]);
+        let machines = HashMap::from([(id_a, machine_a), (id_b, machine_b), (id_c, machine_c)]);
 
         // Only machine A has an in-flight direct-dispatch firmware job.
         let bmc_macs_with_direct_fw_updates: HashSet<MacAddress> = HashSet::from([mac_a]);
