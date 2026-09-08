@@ -500,6 +500,54 @@ fn select_persisted_switch_firmware_status(
     }
 }
 
+/// Retains the terminal per-switch result of the latest rack job as a fallback.
+/// A component-manager backend result takes precedence over this status.
+fn retained_rack_switch_firmware_status(
+    switch: &model::switch::Switch,
+    rack: Option<&model::rack::Rack>,
+) -> Option<rpc::FirmwareUpdateStatus> {
+    let job = rack?.firmware_upgrade_job.as_ref()?;
+    if !matches!(
+        firmware_job_state(job),
+        rpc::FirmwareUpdateState::FwStateCompleted | rpc::FirmwareUpdateState::FwStateFailed
+    ) {
+        return None;
+    }
+
+    let persisted_status = switch
+        .firmware_upgrade_status
+        .as_ref()
+        .filter(|status| status.is_terminal())?;
+
+    if job
+        .started_at
+        .is_some_and(|started_at| !persisted_status.is_current_for(started_at))
+    {
+        return None;
+    }
+
+    let mut status = persisted_firmware_status(switch.id, persisted_status);
+    status.target_version = job
+        .firmware_id
+        .as_deref()
+        .map(safe_firmware_target_display)
+        .unwrap_or_default();
+
+    Some(status)
+}
+
+fn untracked_switch_firmware_status(switch_id: SwitchId) -> rpc::FirmwareUpdateStatus {
+    rpc::FirmwareUpdateStatus {
+        result: Some(error_result(
+            &switch_id.to_string(),
+            "no firmware job tracked for this switch".into(),
+        )),
+        state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+        target_version: String::new(),
+        updated_at: None,
+    }
+}
+
 async fn switch_firmware_statuses(
     api: &Api,
     switch_ids: &[SwitchId],
@@ -546,6 +594,8 @@ async fn switch_firmware_statuses(
 
     let mut statuses = Vec::new();
     let mut backend_switch_ids = Vec::new();
+    let mut persisted_fallbacks = HashMap::new();
+
     for switch_id in switch_ids {
         let Some(switch) = switch_by_id.get(switch_id) else {
             backend_switch_ids.push(*switch_id);
@@ -562,6 +612,10 @@ async fn switch_firmware_statuses(
         ) {
             statuses.push(status);
         } else {
+            if let Some(fallback) = retained_rack_switch_firmware_status(switch, rack) {
+                persisted_fallbacks.insert(switch.id, fallback);
+            }
+
             backend_switch_ids.push(*switch_id);
         }
     }
@@ -580,7 +634,15 @@ async fn switch_firmware_statuses(
             .get_firmware_status(&endpoints.resolved.endpoints)
             .await
             .map_err(component_manager_error_to_status)?;
+
+        let mut observed_switch_ids = HashSet::new();
+
         statuses.extend(backend_statuses.into_iter().map(|s| {
+            if let Some(switch_id) = endpoints.resolved.mac_to_id.get(&s.bmc_mac) {
+                observed_switch_ids.insert(*switch_id);
+                persisted_fallbacks.remove(switch_id);
+            }
+
             let id = switch_mac_to_id_str(&s.bmc_mac, &endpoints.resolved.mac_to_id);
             rpc::FirmwareUpdateStatus {
                 result: Some(if s.error.is_none() {
@@ -593,6 +655,22 @@ async fn switch_firmware_statuses(
                 updated_at: None,
             }
         }));
+
+        for endpoint in &endpoints.resolved.endpoints {
+            let Some(switch_id) = endpoints.resolved.mac_to_id.get(&endpoint.bmc_mac) else {
+                continue;
+            };
+
+            if observed_switch_ids.contains(switch_id) {
+                continue;
+            }
+
+            statuses.push(
+                persisted_fallbacks
+                    .remove(switch_id)
+                    .unwrap_or_else(|| untracked_switch_firmware_status(*switch_id)),
+            );
+        }
     }
 
     Ok(statuses)

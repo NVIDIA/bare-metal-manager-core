@@ -182,20 +182,27 @@ pub struct FirmwareUpgradeDeviceInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FirmwareProgressState {
+    /// The backend accepted the upgrade but has not started it.
     Pending,
+
+    /// The backend is applying the upgrade.
     InProgress,
+
+    /// The upgrade completed successfully.
     Completed,
+
+    /// The upgrade completed unsuccessfully.
     Failed,
+
+    /// A state written by a newer producer that this revision does not recognize.
     #[serde(untagged)]
     Unknown(String),
 }
 
 impl FirmwareProgressState {
     /// Returns `true` once the upgrade has settled and will not advance again
-    /// without a new request, so callers can stop polling the backend for this
-    /// device and treat its `ended_at` as final. `Unknown` is not terminal: an
-    /// unrecognized value is treated as still in flight rather than silently
-    /// completed.
+    /// without a new request. `Unknown` is not terminal: an unrecognized value
+    /// is treated as still in flight rather than silently completed.
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Completed | Self::Failed)
     }
