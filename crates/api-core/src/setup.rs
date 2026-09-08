@@ -3083,15 +3083,15 @@ attributes = { attribute1 = "site", additional_attribute3 = "site" }
         let (mut config, credential_manager, direct) = selection_fixtures();
         config.bmc_proxy = Some(
             serde_json::from_value(serde_json::json!({ "enabled": true }))
-                .expect("the section parses; the empty default url is rejected later"),
+                .expect("the section parses; the empty default address is rejected later"),
         );
 
         let Err(err) = create_bmc_proxy_pools(&config, credential_manager, &direct) else {
-            panic!("an enabled section with no url must fail startup");
+            panic!("an enabled section with no address must fail startup");
         };
         assert!(
             err.to_string().contains("required"),
-            "the error should name the missing url, got: {err}"
+            "the error should name the missing address, got: {err}"
         );
     }
 }

@@ -22,18 +22,18 @@ tests:
           pattern: '\[bmc_proxy\]'
       - matchRegex:
           path: data["nico-api-config.toml"]
-          pattern: 'url = "nico-bmc-proxy\.nico-system\.svc\.cluster\.local:1079"'
+          pattern: 'address = "nico-bmc-proxy\.nico-system\.svc\.cluster\.local:1079"'
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: 'client_cert = "/var/run/secrets/spiffe\.io/tls\.crt"'
 
-  - it: honors an explicit proxy url
+  - it: honors an explicit proxy address
     documentIndex: 0
     set:
       bmcProxy:
         enabled: true
-        url: "bmc-proxy.example:2079"
+        address: "bmc-proxy.example:2079"
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
-          pattern: 'url = "bmc-proxy\.example:2079"'
+          pattern: 'address = "bmc-proxy\.example:2079"'

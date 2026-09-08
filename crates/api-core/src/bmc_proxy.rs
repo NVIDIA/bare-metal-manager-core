@@ -272,7 +272,7 @@ pub(crate) fn test_config_with_generated_pems(
     };
     crate::cfg::file::BmcProxyConfig {
         enabled: true,
-        url: "bmc-proxy.example:1079".to_string(),
+        address: "bmc-proxy.example:1079".to_string(),
         client_cert: write("tls.crt", &cert.pem()),
         client_key: write("tls.key", &key.serialize_pem()),
         root_ca: write("ca.crt", &cert.pem()),

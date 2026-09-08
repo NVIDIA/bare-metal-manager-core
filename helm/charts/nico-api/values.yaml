@@ -422,13 +422,13 @@ perObjectStateMetricsServiceMonitor:
 ## regardless of this setting.
 bmcProxy:
   enabled: false
-  ## Proxy endpoint as host:port. Empty derives the in-cluster address of
+  ## Proxy address as host:port. Empty derives the in-cluster address of
   ## the nico-bmc-proxy chart's Service, which is named "nico-bmc-proxy"
   ## regardless of release name: nico-bmc-proxy.<namespace>.svc.cluster.local:1079,
   ## using this chart's namespace. Set explicitly when that chart uses
   ## nameOverride, or when namespaceOverride (on either chart) puts the proxy
   ## in a different namespace.
-  url: ""
+  address: ""
 
 auth:
   ## Namespace component accepted in service (/<ns>/sa/) and machine

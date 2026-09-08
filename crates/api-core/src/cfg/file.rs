@@ -3709,11 +3709,11 @@ pub struct BmcProxyConfig {
     /// rest of this section is filled in.
     #[serde(default)]
     pub enabled: bool,
-    /// Proxy endpoint as `host:port` or `host` (port defaults to the BMC
+    /// Proxy address as `host:port` or `host` (port defaults to the BMC
     /// proxy's 1079). Required when `enabled` is true; the serde default
     /// (empty) only lets a disabled section omit it.
     #[serde(default)]
-    pub url: String,
+    pub address: String,
     /// PEM client certificate presented to the proxy.
     #[serde(default = "default_bmc_proxy_client_cert")]
     pub client_cert: String,
@@ -3725,24 +3725,24 @@ pub struct BmcProxyConfig {
     pub root_ca: String,
 }
 
-/// The port nico-bmc-proxy listens on, applied when `bmc_proxy.url` names
+/// The port nico-bmc-proxy listens on, applied when `bmc_proxy.address` names
 /// only a host.
 const BMC_PROXY_DEFAULT_PORT: u16 = 1079;
 
 impl BmcProxyConfig {
-    /// The proxy endpoint as a host-and-port pair.
+    /// The proxy address as a host-and-port pair.
     ///
-    /// A host-only `url` gets the BMC proxy's default port; a URL without a
-    /// host (e.g. `":1079"`) is rejected here rather than producing a client
-    /// that silently dials the BMC itself.
+    /// A host-only `address` gets the BMC proxy's default port; an address
+    /// without a host (e.g. `":1079"`) is rejected here rather than producing
+    /// a client that silently dials the BMC itself.
     pub(crate) fn proxy_target(&self) -> Result<carbide_utils::HostPortPair, String> {
-        if self.url.trim().is_empty() {
-            return Err("bmc_proxy.url is required when bmc_proxy.enabled is true".to_string());
+        if self.address.trim().is_empty() {
+            return Err("bmc_proxy.address is required when bmc_proxy.enabled is true".to_string());
         }
         let parsed: carbide_utils::HostPortPair = self
-            .url
+            .address
             .parse()
-            .map_err(|err| format!("bmc_proxy.url {:?}: {err}", self.url))?;
+            .map_err(|err| format!("bmc_proxy.address {:?}: {err}", self.address))?;
         match parsed {
             carbide_utils::HostPortPair::HostAndPort(host, port) => {
                 Ok(carbide_utils::HostPortPair::HostAndPort(host, port))
@@ -3751,8 +3751,8 @@ impl BmcProxyConfig {
                 carbide_utils::HostPortPair::HostAndPort(host, BMC_PROXY_DEFAULT_PORT),
             ),
             carbide_utils::HostPortPair::PortOnly(_) => Err(format!(
-                "bmc_proxy.url {:?} names no host; expected \"host\" or \"host:port\"",
-                self.url
+                "bmc_proxy.address {:?} names no host; expected \"host\" or \"host:port\"",
+                self.address
             )),
         }
     }
@@ -5986,15 +5986,15 @@ path = "credentials.yaml"
         );
     }
 
-    // The url contract: host-only gets the BMC proxy's default port, a
-    // host-less url is rejected at parse time rather than producing a client
+    // The address contract: host-only gets the BMC proxy's default port, a
+    // host-less address is rejected at parse time rather than producing a client
     // that silently dials the BMC itself.
     #[test]
     fn bmc_proxy_target_requires_a_host_and_defaults_the_port() {
-        let target = |url: &str| {
+        let target = |address: &str| {
             BmcProxyConfig {
                 enabled: true,
-                url: url.to_string(),
+                address: address.to_string(),
                 client_cert: default_bmc_proxy_client_cert(),
                 client_key: default_bmc_proxy_client_key(),
                 root_ca: default_bmc_proxy_root_ca(),
@@ -6012,20 +6012,20 @@ path = "credentials.yaml"
         );
         assert!(
             target(":1079").unwrap_err().contains("names no host"),
-            "a port-only url must be rejected"
+            "a port-only address must be rejected"
         );
         assert!(
             target("").unwrap_err().contains("required"),
-            "an omitted url must be rejected on an enabled section, not \
+            "an omitted address must be rejected on an enabled section, not \
              parsed as a host"
         );
     }
 
-    // `url` carries a serde default so a disabled `[bmc_proxy]` section can
+    // `address` carries a serde default so a disabled `[bmc_proxy]` section can
     // omit it; the empty default is only rejected when the section is
     // actually enabled (see the `proxy_target` case above).
     #[test]
-    fn bmc_proxy_section_parses_without_url_when_disabled() {
+    fn bmc_proxy_section_parses_without_address_when_disabled() {
         let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .merge(Toml::string("[bmc_proxy]\nenabled = false"))
@@ -6033,7 +6033,7 @@ path = "credentials.yaml"
             .unwrap();
         let bmc_proxy = config.bmc_proxy.expect("section should parse");
         assert!(!bmc_proxy.enabled);
-        assert_eq!(bmc_proxy.url, "");
+        assert_eq!(bmc_proxy.address, "");
     }
 
     fn rendered_helm_api_config() -> String {
@@ -6106,7 +6106,7 @@ path = "credentials.yaml"
             ),
             ("{{ .Values.rms.enforceTls }}", "true"),
             (
-                r#"{{ .Values.bmcProxy.url | default (printf "nico-bmc-proxy.%s.svc.cluster.local:1079" (include "nico-api.namespace" .)) }}"#,
+                r#"{{ .Values.bmcProxy.address | default (printf "nico-bmc-proxy.%s.svc.cluster.local:1079" (include "nico-api.namespace" .)) }}"#,
                 "nico-bmc-proxy.nico-system.svc.cluster.local:1079",
             ),
             ("{{ . | quote }}", r#""/tmp/test.pem""#),

@@ -339,7 +339,7 @@ rather than silently dropping it.
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
 | `enabled` | `bool` | `false` | Master switch; `false` keeps all BMC traffic direct even when the rest of this section is filled in. |
-| `url` | `String` | `""` | Proxy endpoint as `host:port` or `host` (the port defaults to the BMC proxy's 1079). Required when `enabled` is true; startup fails on an enabled section with an empty `url`. |
+| `address` | `String` | `""` | Proxy address as `host:port` or `host` (the port defaults to the BMC proxy's 1079). Required when `enabled` is true; startup fails on an enabled section with an empty `address`. |
 | `client_cert` | `String` | `/var/run/secrets/spiffe.io/tls.crt` | PEM client certificate presented to the proxy's mTLS listener. |
 | `client_key` | `String` | `/var/run/secrets/spiffe.io/tls.key` | PEM private key for `client_cert`. |
 | `root_ca` | `String` | `/var/run/secrets/spiffe.io/ca.crt` | PEM bundle that verifies the proxy's server certificate. |
