@@ -26,7 +26,7 @@ use eyre::WrapErr;
 
 use crate::weave_ew_vpc_client::proto::state::Phase;
 use crate::weave_ew_vpc_client::proto::{
-    AttachmentOvn, AttachmentPf, AttachmentType, AttachmentVf,
+    AttachmentOvs, AttachmentPf, AttachmentType, AttachmentVf,
     CreateVirtualNetworkAttachmentRequest, CreateVirtualNetworkRequest,
     DeleteVirtualNetworkAttachmentRequest, DeleteVirtualNetworkRequest,
     ListVirtualNetworkAttachmentsRequest, ListVirtualNetworksRequest, ObjectMetadata, State,
@@ -48,6 +48,7 @@ const WEAVE_EW_VPC_REVISION_USER_DATA_KEY: &str = "revision";
 fn weave_ew_vpc_object_metadata(id: Option<String>, revision: &str) -> ObjectMetadata {
     ObjectMetadata {
         id,
+        resource_version: Some(revision.to_string()),
         creation_timestamp: None,
         deletion_timestamp: None,
         user_data: HashMap::from([(
@@ -84,7 +85,7 @@ fn weave_ew_virtual_network_attachment_spec_from_astra_attachment(
         attachment_type: AttachmentType::Unspecified.into(),
         attachment_pf: None,
         attachment_vf: None,
-        attachment_ovn: None,
+        attachment_ovs: None,
     };
 
     match astra_attachment_type {
@@ -116,7 +117,7 @@ fn weave_ew_virtual_network_attachment_spec_from_astra_attachment(
                 vf_index,
             });
         }
-        SpxAttachmentType::Ovn => {
+        SpxAttachmentType::Ovs => {
             let Some(network_name) = astra_attachment_status
                 .network_name
                 .as_ref()
@@ -129,9 +130,10 @@ fn weave_ew_virtual_network_attachment_spec_from_astra_attachment(
                 });
             };
 
-            spec.attachment_type = AttachmentType::Ovn.into();
-            spec.attachment_ovn = Some(AttachmentOvn {
-                network_name: network_name.clone(),
+            spec.attachment_type = AttachmentType::Ovs.into();
+            spec.attachment_ovs = Some(AttachmentOvs {
+                ovn_network_name: Some(network_name.clone()),
+                bridge_name: String::new(),
             });
         }
     }
@@ -1529,7 +1531,7 @@ mod tests {
                 attachment_type: proto::AttachmentType::Pf.into(),
                 attachment_pf: None,
                 attachment_vf: None,
-                attachment_ovn: None,
+                attachment_ovs: None,
             }),
             status: Some(proto::VirtualNetworkAttachmentStatus {
                 state: Some(State {

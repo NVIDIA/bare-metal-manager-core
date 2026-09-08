@@ -223,7 +223,7 @@ impl NetworkIsolationService for DummyNetworkIsolationService {
                     pf_id: "02:aa:bb:cc:dd:ee".to_string(),
                 }),
                 attachment_vf: None,
-                attachment_ovn: None,
+                attachment_ovs: None,
             }),
             status: Some(proto::VirtualNetworkAttachmentStatus {
                 state: Some(proto::State {
@@ -264,7 +264,7 @@ impl NetworkIsolationService for DummyNetworkIsolationService {
                     pf_id: "02:aa:bb:cc:dd:ee".to_string(),
                 }),
                 attachment_vf: None,
-                attachment_ovn: None,
+                attachment_ovs: None,
             }),
             status: Some(proto::VirtualNetworkAttachmentStatus {
                 state: Some(proto::State {
