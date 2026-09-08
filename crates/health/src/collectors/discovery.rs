@@ -26,7 +26,7 @@ use nv_redfish::{Resource, ServiceRoot};
 
 use crate::HealthError;
 use crate::collectors::inventory::{
-    DiscoveredEntity, EntityInventory, GpuIdentity, SharedInventory,
+    DiscoveredEntity, EntityInventory, GpuIdentity, SharedInventory, ShelfPower,
 };
 use crate::collectors::runtime::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
@@ -38,6 +38,9 @@ pub struct EntityDiscoveryCollectorConfig<B: Bmc> {
     /// Bounds local fan-out to the endpoint Redfish operation limit.
     pub request_concurrency: NonZeroUsize,
 
+    /// Collect chassis and power-subsystem status. Enabled for power-shelf
+    /// endpoints only.
+    pub collect_shelf_power: bool,
     /// Label GPU telemetry with the identity of the device that produced it.
     ///
     /// Read from resources discovery already fetches, so this adds no Redfish
@@ -50,6 +53,7 @@ pub struct EntityDiscoveryCollector<B: Bmc> {
     bmc: Arc<B>,
     shared: SharedInventory<B>,
     request_concurrency: usize,
+    collect_shelf_power: bool,
     gpu_identity: bool,
     generation: u64,
 }
@@ -67,6 +71,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for EntityDiscoveryCollector<B> {
             bmc,
             shared: config.shared,
             request_concurrency: config.request_concurrency.get(),
+            collect_shelf_power: config.collect_shelf_power,
             gpu_identity: config.gpu_identity,
             generation: 0,
         })
@@ -395,6 +400,12 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
             .filter(|sensor| sensor_ids.insert(sensor.odata_id().to_string()))
             .collect();
 
+        let shelf_power = if self.collect_shelf_power {
+            Some(self.discover_shelf_power(chassis, fetch_failures).await)
+        } else {
+            None
+        };
+
         let gpu = if self.gpu_identity {
             gpu_identity_from_chassis(chassis, gpu_processors)
         } else {
@@ -402,16 +413,34 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
         };
 
         // A sensorless chassis is normally not worth tracking, but one holding a
-        // GPU is still needed to attribute SSE log records.
-        if sensors.is_empty() && gpu.is_none() {
+        // GPU is still needed to attribute SSE log records, and a power-shelf
+        // chassis carries the shelf power evidence.
+        if sensors.is_empty() && gpu.is_none() && shelf_power.is_none() {
             return;
         }
 
         entities.push(DiscoveredEntity::Chassis {
             entity: chassis.clone(),
             sensors,
+            shelf_power,
             gpu,
         });
+    }
+
+    async fn discover_shelf_power(
+        &self,
+        chassis: &nv_redfish::chassis::Chassis<B>,
+        fetch_failures: &AtomicUsize,
+    ) -> ShelfPower {
+        let Some(power_subsystem_ref) = &chassis.raw().power_subsystem else {
+            return ShelfPower { subsystem: None };
+        };
+        let subsystem = self.record_failure(
+            power_subsystem_ref.get(self.bmc.as_ref()).await,
+            "get power subsystem",
+            fetch_failures,
+        );
+        ShelfPower { subsystem }
     }
 }
 

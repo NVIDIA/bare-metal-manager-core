@@ -59,11 +59,12 @@ pub(super) enum CollectorKind {
     NvueRest,
     NvueGnmi,
     GpuInventory,
+    Manager,
     Reachability,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 12] = [
+    pub(super) const ALL: [CollectorKind; 13] = [
         CollectorKind::Discovery,
         CollectorKind::Sensor,
         CollectorKind::Metrics,
@@ -76,6 +77,7 @@ impl CollectorKind {
         CollectorKind::NvueRest,
         CollectorKind::NvueGnmi,
         CollectorKind::GpuInventory,
+        CollectorKind::Manager,
     ];
 }
 
@@ -92,6 +94,7 @@ pub(super) struct CollectorState {
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
     gpu_inventory: HashMap<Cow<'static, str>, Collector>,
+    manager: HashMap<Cow<'static, str>, Collector>,
     reachability: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
     switch_domain_uuids: HashMap<Cow<'static, str>, Option<NvLinkDomainId>>,
@@ -114,6 +117,7 @@ impl CollectorState {
             nvue_rest: HashMap::new(),
             nvue_gnmi: HashMap::new(),
             gpu_inventory: HashMap::new(),
+            manager: HashMap::new(),
             reachability: HashMap::new(),
             inventories: HashMap::new(),
             switch_domain_uuids: HashMap::new(),
@@ -136,6 +140,7 @@ impl CollectorState {
             CollectorKind::NvueRest => &self.nvue_rest,
             CollectorKind::NvueGnmi => &self.nvue_gnmi,
             CollectorKind::GpuInventory => &self.gpu_inventory,
+            CollectorKind::Manager => &self.manager,
             CollectorKind::Reachability => &self.reachability,
         }
     }
@@ -157,6 +162,7 @@ impl CollectorState {
             CollectorKind::NvueRest => &mut self.nvue_rest,
             CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
             CollectorKind::GpuInventory => &mut self.gpu_inventory,
+            CollectorKind::Manager => &mut self.manager,
             CollectorKind::Reachability => &mut self.reachability,
         }
     }
@@ -274,6 +280,7 @@ impl CollectorState {
             .chain(self.nvue_rest.keys())
             .chain(self.nvue_gnmi.keys())
             .chain(self.gpu_inventory.keys())
+            .chain(self.manager.keys())
             .filter(|key| !active_keys.contains(*key))
             .cloned()
             .collect()
