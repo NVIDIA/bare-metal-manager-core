@@ -797,10 +797,17 @@ impl MaintenanceScope {
     /// scope never does; comparing it would make every resubmission look like a
     /// different request and turn an idempotent retry into a spurious `Busy`.
     pub fn same_request(&self, other: &Self) -> bool {
-        self.machine_ids == other.machine_ids
-            && self.switch_ids == other.switch_ids
-            && self.power_shelf_ids == other.power_shelf_ids
-            && self.activities == other.activities
+        let Self {
+            machine_ids,
+            switch_ids,
+            power_shelf_ids,
+            activities,
+            requested_at: _,
+        } = self;
+        *machine_ids == other.machine_ids
+            && *switch_ids == other.switch_ids
+            && *power_shelf_ids == other.power_shelf_ids
+            && *activities == other.activities
     }
 }
 

@@ -467,8 +467,10 @@ fn switch_firmware_request(
 }
 
 /// Selects the persisted result only when it belongs to the active request.
-/// A pending request with no current result is queued; no request and no persisted
-/// result means the caller must query the component-manager backend.
+/// A pending request with no current result is queued. Once the request is gone the
+/// persisted result is not served at all, it records a cycle that has already ended and
+/// would otherwise shadow the backend for as long as the row survives, so the caller
+/// queries the component-manager backend instead.
 fn select_persisted_switch_firmware_status(
     switch_id: SwitchId,
     persisted_status: Option<&model::rack::RackFirmwareUpgradeStatus>,
@@ -494,41 +496,7 @@ fn select_persisted_switch_firmware_status(
                 ..status
             })
         }
-        None => persisted_status.map(|status| persisted_firmware_status(switch_id, status)),
-    }
-}
-
-/// Drops the state-controller's persisted per-device result for switches whose firmware
-/// update was just queued directly, so status polling stops serving the superseded result
-/// and falls through to the backend running the new update.
-///
-/// Best effort on purpose: the backend has already accepted the update, so a bookkeeping
-/// failure must not be reported as a failed dispatch. A switch that fails to clear keeps
-/// serving its previous status until the next write.
-///
-/// This deliberately leaves `switch_reprovisioning_requested` alone. A switch still under an
-/// active state-controller firmware request keeps reporting that request's view; reconciling
-/// a direct dispatch against a pending controller request is a separate concern and is not
-/// resolved here.
-async fn clear_switch_firmware_upgrade_status(api: &Api, switch_ids: &[SwitchId]) {
-    if switch_ids.is_empty() {
-        return;
-    }
-    let mut conn = match api.database_connection.acquire().await {
-        Ok(conn) => conn,
-        Err(error) => {
-            tracing::warn!(
-                %error,
-                "failed to acquire a connection to clear superseded switch firmware status"
-            );
-            return;
-        }
-    };
-
-    if let Err(error) =
-        db::switch::clear_firmware_upgrade_status_for_switches(conn.as_mut(), switch_ids).await
-    {
-        tracing::warn!(%error, "failed to clear superseded switch firmware status");
+        None => None,
     }
 }
 
@@ -3202,18 +3170,6 @@ pub(crate) async fn update_component_firmware(
                     .await
                     .map_err(component_manager_error_to_status)?;
 
-                // A direct update supersedes whatever the rack state controller
-                // last recorded. Leaving that terminal result in place would make
-                // status polling keep reporting the previous cycle and never ask
-                // the backend about the update just queued; clearing it routes the
-                // switch to backend polling instead.
-                let superseded: Vec<SwitchId> = backend_results
-                    .iter()
-                    .filter(|r| r.success)
-                    .filter_map(|r| endpoints.resolved.mac_to_id.get(&r.bmc_mac).copied())
-                    .collect();
-                clear_switch_firmware_upgrade_status(api, &superseded).await;
-
                 results.extend(backend_results.into_iter().map(|r| {
                     let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
                     if r.success {
@@ -5232,17 +5188,11 @@ mod tests {
                 rpc::FirmwareUpdateState::FwStateCompleted,
                 "fw-42",
             ),
-            (
-                Some(&stale_status),
-                None,
-                rpc::FirmwareUpdateState::FwStateFailed,
-                "",
-            ),
         ];
 
         for (persisted, request, expected, expected_version) in cases {
             let actual = select_persisted_switch_firmware_status(switch_id, persisted, request)
-                .expect("a request or a persisted status yields a status");
+                .expect("an active request always yields a status");
             assert_eq!(
                 actual.state,
                 expected as i32,
@@ -5255,10 +5205,13 @@ mod tests {
             );
         }
 
-        assert!(
-            select_persisted_switch_firmware_status(switch_id, None, None).is_none(),
-            "the backend is required when neither request nor persisted status exists"
-        );
+        for persisted in [None, Some(&stale_status), Some(&current_status)] {
+            assert!(
+                select_persisted_switch_firmware_status(switch_id, persisted, None).is_none(),
+                "with no active request the backend answers; a finished cycle's result must \
+                 not shadow it: {persisted:?}"
+            );
+        }
     }
 
     #[test]
