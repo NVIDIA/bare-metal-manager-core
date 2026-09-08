@@ -1464,6 +1464,7 @@ mod tests {
             let system = get_json(&router, &resource(system_id).odata_id).await;
             assert_eq!(system["SerialConsole"]["SSH"]["ServiceEnabled"], true);
             assert_eq!(system["SerialConsole"]["SSH"]["Port"], 3222);
+            assert_eq!(system["SerialConsole"]["IPMI"]["ServiceEnabled"], false);
         }
     }
 }
