@@ -452,11 +452,8 @@ mod tests {
 
     #[test]
     fn ordered_headers_skips_unmatched_and_duplicate_requests() {
-        let selection = ColumnSelection::new(&[
-            "State".to_string(),
-            "Sate".to_string(),
-            "State".to_string(),
-        ]);
+        let selection =
+            ColumnSelection::new(&["State".to_string(), "Sate".to_string(), "State".to_string()]);
         assert_eq!(
             selection.ordered_headers(&["", "Id", "State"]),
             vec!["", "State"]
