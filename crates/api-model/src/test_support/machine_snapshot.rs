@@ -501,7 +501,6 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         power_options: None,
         hw_sku_device_type: Some("compute".to_string()),
         update_complete: true,
-        backend_firmware_object_job_id: None,
         nvlink_info: None,
         dpf: Dpf {
             enabled: false,
