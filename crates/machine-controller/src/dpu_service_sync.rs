@@ -151,8 +151,7 @@ pub async fn release_hold_if_dpus_are_current(
     // instead. That narrows the window to this query plus the patch rather than
     // closing it; the pending action survives, so a host that slips through is
     // caught once its instance is gone.
-    let assigned = match db::instance::find_id_by_machine_id(db_pool, &host.id).await
-    {
+    let assigned = match db::instance::find_id_by_machine_id(db_pool, &host.id).await {
         Ok(assigned) => assigned,
         Err(error) => {
             return ReleaseOutcome::Failed {
@@ -193,13 +192,8 @@ pub async fn release_hold_if_dpus_are_current(
             };
         }
     };
-    if let Err(error) = db::machine_pending_action::complete(
-        &mut conn,
-        &host.id,
-        DpuServiceSync,
-        actor,
-    )
-    .await
+    if let Err(error) =
+        db::machine_pending_action::complete(&mut conn, &host.id, DpuServiceSync, actor).await
     {
         return ReleaseOutcome::Failed {
             reason: format!("released the hold but could not record it as completed: {error}"),
