@@ -1645,6 +1645,7 @@ version = "0.0.0"
 dependencies = [
  "carbide-dhcp",
  "carbide-dhcp-common",
+ "carbide-dhcpv6",
  "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
@@ -1688,6 +1689,7 @@ name = "carbide-dhcp-server"
 version = "0.1.0"
 dependencies = [
  "carbide-dhcp-common",
+ "carbide-dhcpv6",
  "carbide-instrument",
  "carbide-rpc",
  "carbide-rpc-utils",
@@ -1698,7 +1700,11 @@ dependencies = [
  "clap",
  "dhcproto",
  "futures",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "ipnetwork",
+ "libc",
  "logfmt",
  "lru",
  "metrics-endpoint",
@@ -1715,6 +1721,16 @@ dependencies = [
  "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "carbide-dhcpv6"
+version = "0.1.0"
+dependencies = [
+ "carbide-test-support",
+ "dhcproto",
+ "mac_address",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
