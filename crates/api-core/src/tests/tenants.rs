@@ -404,6 +404,65 @@ async fn test_tenant(pool: sqlx::PgPool) {
     );
 }
 
+/// Verifies an FNN tenant update cannot clear its routing profile because subsequent VPCs must
+/// always inherit a data-plane policy that Core can resolve.
+#[crate::sqlx_test]
+async fn update_tenant_requires_routing_profile_with_fnn(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+
+    // Create through the public API so the tenant receives the site's default FNN profile.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "fnn-update-profile".to_string(),
+            routing_profile_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "FNN update profile".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await?
+        .into_inner()
+        .tenant
+        .expect("created tenant");
+
+    // Omitting the replacement profile must fail even before the tenant owns any VPCs.
+    let error = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: tenant.organization_id.clone(),
+            routing_profile_type: None,
+            metadata: tenant.metadata.clone(),
+            if_version_match: Some(tenant.version),
+        }))
+        .await
+        .expect_err("an FNN tenant update without a routing profile must fail");
+    assert_eq!(error.code(), Code::InvalidArgument);
+    assert!(
+        error
+            .message()
+            .contains("`routing_profile_type` is required")
+    );
+
+    // Reload through the public API to prove the rejected update preserved the default profile.
+    let persisted = env
+        .api
+        .find_tenant(tonic::Request::new(rpc::forge::FindTenantRequest {
+            tenant_organization_id: tenant.organization_id,
+        }))
+        .await?
+        .into_inner()
+        .tenant
+        .expect("persisted tenant");
+    assert_eq!(persisted.routing_profile_type.as_deref(), Some("EXTERNAL"));
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_find_tenant_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;

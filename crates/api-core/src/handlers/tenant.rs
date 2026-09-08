@@ -210,6 +210,14 @@ pub(crate) async fn update(
         .into());
     };
 
+    // FNN tenant policy must always have a named profile from which VPC policy can inherit.
+    if api.runtime_config.fnn.is_some() && routing_profile_type.is_none() {
+        return Err(CarbideError::InvalidArgument(
+            "`routing_profile_type` is required when FNN is enabled".to_string(),
+        )
+        .into());
+    }
+
     // We won't use it if FNN isn't enabled, but we can still map so a caller integrating
     // with us before FNN is enabled on a site will be told if they're sending invalid values.
     if let Some(profile) = routing_profile_type.as_ref() {
