@@ -142,7 +142,7 @@ impl ProxiedRedfishPool {
                 )
                 .add_root_certificates(read("root_ca", &proxy_config.root_ca)?)
                 .build()
-                .map_err(|err| eyre::eyre!("building bmc-proxy Redfish pool: {err}"))?;
+                .map_err(|err| eyre::eyre!("building bmc-proxy redfish pool: {err}"))?;
             Ok(carbide_redfish::libredfish::new_proxied_pool(
                 reader.clone(),
                 pool,
