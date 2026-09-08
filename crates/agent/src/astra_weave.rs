@@ -1285,6 +1285,13 @@ mod tests {
             Err(Status::unimplemented("not used by astra config tests"))
         }
 
+        async fn update_virtual_network(
+            &self,
+            _request: Request<proto::UpdateVirtualNetworkRequest>,
+        ) -> Result<Response<proto::UpdateVirtualNetworkResponse>, Status> {
+            Err(Status::unimplemented("not used by astra config tests"))
+        }
+
         async fn list_virtual_networks(
             &self,
             _request: Request<proto::ListVirtualNetworksRequest>,
@@ -1371,6 +1378,13 @@ mod tests {
             &self,
             _request: Request<proto::GetVirtualNetworkAttachmentRequest>,
         ) -> Result<Response<proto::GetVirtualNetworkAttachmentResponse>, Status> {
+            Err(Status::unimplemented("not used by astra config tests"))
+        }
+
+        async fn update_virtual_network_attachment(
+            &self,
+            _request: Request<proto::UpdateVirtualNetworkAttachmentRequest>,
+        ) -> Result<Response<proto::UpdateVirtualNetworkAttachmentResponse>, Status> {
             Err(Status::unimplemented("not used by astra config tests"))
         }
 
