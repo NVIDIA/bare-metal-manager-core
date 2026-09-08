@@ -242,6 +242,17 @@ func (ca *apiKeyCache) setAllowed(dg [32]byte, userID uuid.UUID, orgName string)
 	})
 }
 
+// unsetAllowedForOrg drops an allow entry recorded for org, and leaves an entry
+// recorded for another org in place: a verification speaks only for the org it
+// named, so it cannot invalidate a grant it did not check. Peek rather than Get,
+// since an entry that stays is not being used here.
+func (ca *apiKeyCache) unsetAllowedForOrg(dg [32]byte, org string) {
+	entry, found := ca.allowLRU.Peek(dg)
+	if found && strings.EqualFold(entry.orgName, org) {
+		ca.allowLRU.Remove(dg)
+	}
+}
+
 func (ca *apiKeyCache) isBlocked(dg [32]byte) bool {
 	_, found := ca.blockLRU.Get(dg)
 	return found
@@ -345,12 +356,19 @@ func (r *resolver) refresh(ctx context.Context, dg [32]byte, raw, urlOrg string)
 	resolved, err, _ := r.fetchGroup.Do(fetchKey, func() (interface{}, error) {
 		id, err := r.fetchIdentity(fetchCtx, raw, urlOrg)
 		if err != nil {
+			// A failed verification for this org leaves no entry claiming it. A
+			// reload failure on the cache-hit path can reach here with an entry
+			// for this org that is still inside the stale period
+			r.cache.unsetAllowedForOrg(dg, urlOrg)
+
 			switch {
 			case errors.Is(err, errOrgNotGranted):
-				// NGC accepted the credential, so it stays usable for the orgs it does
-				// hold. Neither cache is touched and the user record is left alone
+				// The credential was accepted, so it is not blocked and the user
+				// record is left alone
 				return nil, err
 			case errors.Is(err, errNgcUnauthorized):
+				// The credential itself is dead, so setBlocked drops the entry
+				// whichever org it was recorded for
 				r.cache.setBlocked(dg)
 				return nil, fmt.Errorf("%w: %w", err, errKeyRejected)
 			}

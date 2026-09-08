@@ -366,6 +366,81 @@ func TestResolverResolveUsesVerifiedAt(t *testing.T) {
 	assert.Equal(t, 2, requests)
 }
 
+func TestResolverResolveUnsetsAllowedOnFailure(t *testing.T) {
+	const notGranted = `{"userId":"service-user-id","orgName":"unrelated-org",` +
+		`"type":"SERVICE_KEY","products":["forge-provider"]}`
+
+	tests := []struct {
+		name         string
+		statusCode   int
+		body         string
+		cachedOrg    string
+		wantErr      error
+		wantRetained bool
+	}{
+		{
+			name:       "the route org is no longer granted",
+			statusCode: http.StatusOK,
+			body:       notGranted,
+			cachedOrg:  "provider-org",
+			wantErr:    errOrgNotGranted,
+		},
+		{
+			name:         "another org keeps its verification",
+			statusCode:   http.StatusOK,
+			body:         notGranted,
+			cachedOrg:    "other-org",
+			wantErr:      errOrgNotGranted,
+			wantRetained: true,
+		},
+		{
+			name:       "NGC is unreachable for the route org",
+			statusCode: http.StatusBadGateway,
+			cachedOrg:  "provider-org",
+			wantErr:    errUnresolvable,
+		},
+		{
+			name:         "NGC is unreachable and the entry is for another org",
+			statusCode:   http.StatusBadGateway,
+			cachedOrg:    "other-org",
+			wantErr:      errUnresolvable,
+			wantRetained: true,
+		},
+		{
+			name:       "the credential itself is rejected",
+			statusCode: http.StatusUnauthorized,
+			cachedOrg:  "other-org",
+			wantErr:    errKeyRejected,
+		},
+	}
+	dbSession := testKasResolverDB(t)
+	defer dbSession.Close()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, _ *http.Request) {
+				res.WriteHeader(tt.statusCode)
+				_, _ = res.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			res := newResolver(dbSession, server.URL, nil)
+			res.ngc.http = server.Client()
+
+			// A fresh entry the cache-hit path cannot serve, because the row it
+			// names is gone. Resolution falls through to NGC with it still in place
+			digest := res.getDigest(testStarfleetKey)
+			res.cache.setAllowed(digest, uuid.New(), tt.cachedOrg)
+
+			_, err := res.resolve(context.Background(), testStarfleetKey, "provider-org")
+			assert.ErrorIs(t, err, tt.wantErr)
+
+			_, found := res.cache.isAllowed(digest)
+			assert.Equal(t, tt.wantRetained, found)
+		})
+	}
+}
+
 func TestResolverResolveBlocksRejectedKeys(t *testing.T) {
 	tests := []struct {
 		name       string
