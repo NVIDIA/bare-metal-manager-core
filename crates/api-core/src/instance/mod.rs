@@ -166,20 +166,80 @@ pub(crate) fn validate_instance_vfs_against_effective_dpu_inventory(
     )
 }
 
+/// Returns whether a wire request asks NICo to choose every VF identity.
+///
+/// Mixed explicit and omitted VF identities are rejected during RPC conversion, so finding one
+/// omitted virtual identity is sufficient for requests that successfully convert.
+pub(crate) fn requests_implicit_vf_allocation(config: &rpc::InstanceConfig) -> bool {
+    config.network.as_ref().is_some_and(|network| {
+        network.interfaces.iter().any(|interface| {
+            interface.function_type() == rpc::InterfaceFunctionType::Virtual
+                && interface.virtual_function_id.is_none()
+        })
+    })
+}
+
+/// Replaces the RPC converter's sequential placeholder IDs with the host's effective VF IDs.
+///
+/// VF allocation remains independent for each device locator, matching the RPC converter's
+/// historical behavior. DPF-managed hosts without a topology retain their sequential placeholders.
+pub(crate) fn assign_implicit_instance_vfs_from_effective_dpu_inventory(
+    network: &mut InstanceNetworkConfig,
+    config: &CarbideConfig,
+    is_dpf_managed_host: bool,
+) -> CarbideResult<()> {
+    let Some(selected_vfs) = effective_instance_vf_ids(config, is_dpf_managed_host)? else {
+        return Ok(());
+    };
+    let selected_vfs = selected_vfs.into_iter().collect_vec();
+    let mut next_vf_index_by_device = HashMap::new();
+
+    for interface in &mut network.interfaces {
+        if !matches!(&interface.function_id, InterfaceFunctionId::Virtual { .. }) {
+            continue;
+        }
+
+        let device_locator = interface.device_locator.clone();
+        let next_vf_index = next_vf_index_by_device
+            .entry(device_locator.clone())
+            .or_insert(0usize);
+        let Some(selected_vf) = selected_vfs.get(*next_vf_index).copied() else {
+            let device = device_locator
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "the default device".to_string());
+            let inventory = if is_dpf_managed_host {
+                "configured DPF intercept-bridging topology"
+            } else {
+                "configured instance VF inventory"
+            };
+            return Err(ConfigValidationError::InvalidValue(format!(
+                "cannot implicitly allocate {} virtual functions for {device}; the {inventory} exposes only {}",
+                *next_vf_index + 1,
+                selected_vfs.len(),
+            ))
+            .into());
+        };
+
+        let InterfaceFunctionId::Virtual { id } = &mut interface.function_id else {
+            unreachable!("the interface function was checked above");
+        };
+        *id = selected_vf;
+        *next_vf_index += 1;
+    }
+
+    Ok(())
+}
+
 /// Applies exact effective-inventory membership to an already structurally validated VF sequence.
 fn validate_vf_ids_against_effective_dpu_inventory(
     vf_ids: impl IntoIterator<Item = u8>,
     config: &CarbideConfig,
     is_dpf_managed_host: bool,
 ) -> CarbideResult<()> {
-    let selected_vfs = if is_dpf_managed_host {
-        let Some(selected_vfs) = dpf_topology_vf_ids(config) else {
-            // DPF without a replacement topology retains its historical admission behavior.
-            return Ok(());
-        };
-        selected_vfs
-    } else {
-        configured_instance_vf_ids(config)?
+    let Some(selected_vfs) = effective_instance_vf_ids(config, is_dpf_managed_host)? else {
+        // DPF without a replacement topology retains its historical admission behavior.
+        return Ok(());
     };
 
     if let Some(unselected_vf) = vf_ids
@@ -199,6 +259,18 @@ fn validate_vf_ids_against_effective_dpu_inventory(
     }
 
     Ok(())
+}
+
+/// Returns the authoritative VF inventory, or `None` for topology-free DPF compatibility mode.
+fn effective_instance_vf_ids(
+    config: &CarbideConfig,
+    is_dpf_managed_host: bool,
+) -> CarbideResult<Option<BTreeSet<u8>>> {
+    if is_dpf_managed_host {
+        Ok(dpf_topology_vf_ids(config))
+    } else {
+        configured_instance_vf_ids(config).map(Some)
+    }
 }
 
 /// Default instance VF count when no representor selection is configured.
@@ -335,6 +407,9 @@ pub(crate) struct InstanceAllocationRequest {
     /// Desired configuration of the instance
     pub(crate) config: InstanceConfig,
 
+    /// Whether NICo must replace converter-assigned VF placeholders with effective inventory IDs.
+    pub(crate) implicit_vf_allocation: bool,
+
     pub(crate) metadata: Metadata,
 
     /// Allow allocation on unhealthy machines
@@ -365,6 +440,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             .config
             .ok_or(RpcDataConversionError::MissingArgument("config"))?;
 
+        let implicit_vf_allocation = requests_implicit_vf_allocation(&config);
         let mut config = InstanceConfig::try_from(config)?;
         // Empty power-policy values are clear sentinels only on update. During
         // creation there is no association to clear, so persist them as unset.
@@ -388,6 +464,7 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
             instance_type_id,
             machine_id,
             config,
+            implicit_vf_allocation,
             metadata,
             allow_unhealthy_machine,
         })
@@ -2158,7 +2235,7 @@ pub(crate) async fn batch_allocate_instances(
     let mut processed_requests: Vec<(InstanceAllocationRequest, ManagedHostStateSnapshot)> =
         Vec::with_capacity(request_count);
 
-    for request in requests {
+    for mut request in requests {
         let machine_id = request.machine_id;
         let mh_snapshot = snapshot_map
             .remove(&machine_id)
@@ -2167,7 +2244,15 @@ pub(crate) async fn batch_allocate_instances(
                 id: machine_id.to_string(),
             })?;
 
-        // Validate config (after network allocation sets network_segment_id)
+        if request.implicit_vf_allocation {
+            assign_implicit_instance_vfs_from_effective_dpu_inventory(
+                &mut request.config.network,
+                &api.runtime_config,
+                mh_snapshot.host_snapshot.config.dpf.used_for_ingestion,
+            )?;
+        }
+
+        // Validate config (after network allocation sets network_segment_id and implicit VFs)
         request.config.validate(
             true,
             api.runtime_config
@@ -3007,6 +3092,95 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "invalid configuration: invalid value: virtual function VF14 is not available in the configured instance VF inventory"
+        );
+    }
+
+    fn implicit_vf_network(device_instances: &[u32]) -> InstanceNetworkConfig {
+        rpc::InstanceNetworkConfig {
+            interfaces: device_instances
+                .iter()
+                .map(|device_instance| rpc::InstanceInterfaceConfig {
+                    function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                    network_segment_id: Some(NetworkSegmentId::new()),
+                    device: Some("pf0".to_string()),
+                    device_instance: *device_instance,
+                    virtual_function_id: None,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+        .try_into()
+        .unwrap()
+    }
+
+    #[test]
+    fn implicit_instance_vfs_follow_sparse_effective_inventory_per_device() {
+        let mut config = crate::test_support::default_config::get();
+        config.dpu_config.num_of_vfs = 16;
+        config
+            .vmaas_config
+            .as_mut()
+            .expect("the default test configuration includes VMaaS")
+            .hbn_reps = Some("pf0hpf,pf0vf2,pf0vf5,pf1hpf".to_string());
+        let mut network = implicit_vf_network(&[0, 0, 1]);
+
+        assign_implicit_instance_vfs_from_effective_dpu_inventory(&mut network, &config, false)
+            .unwrap();
+
+        assert_eq!(
+            network
+                .interfaces
+                .iter()
+                .filter_map(|interface| match &interface.function_id {
+                    InterfaceFunctionId::Physical {} => None,
+                    InterfaceFunctionId::Virtual { id } => Some(*id),
+                })
+                .collect_vec(),
+            vec![2, 5, 2],
+        );
+    }
+
+    #[test]
+    fn implicit_instance_vf_allocation_rejects_inventory_exhaustion() {
+        let mut config = crate::test_support::default_config::get();
+        config.dpu_config.num_of_vfs = 16;
+        config
+            .vmaas_config
+            .as_mut()
+            .expect("the default test configuration includes VMaaS")
+            .hbn_reps = Some("pf0hpf,pf0vf2,pf1hpf".to_string());
+        let mut network = implicit_vf_network(&[0, 0]);
+
+        let error =
+            assign_implicit_instance_vfs_from_effective_dpu_inventory(&mut network, &config, false)
+                .expect_err("one selected VF cannot satisfy two implicit VF requests");
+
+        assert_eq!(
+            error.to_string(),
+            "invalid configuration: invalid value: cannot implicitly allocate 2 virtual functions for pf0/0; the configured instance VF inventory exposes only 1"
+        );
+    }
+
+    #[test]
+    fn topology_free_dpf_keeps_legacy_implicit_vf_ids() {
+        let mut config = crate::test_support::default_config::get();
+        config.vmaas_config = None;
+        let mut network = implicit_vf_network(&[0, 0]);
+
+        assign_implicit_instance_vfs_from_effective_dpu_inventory(&mut network, &config, true)
+            .unwrap();
+
+        assert_eq!(
+            network
+                .interfaces
+                .iter()
+                .filter_map(|interface| match &interface.function_id {
+                    InterfaceFunctionId::Physical {} => None,
+                    InterfaceFunctionId::Virtual { id } => Some(*id),
+                })
+                .collect_vec(),
+            vec![0, 1],
         );
     }
 

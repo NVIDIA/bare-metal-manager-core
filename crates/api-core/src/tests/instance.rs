@@ -54,7 +54,7 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     DeviceLocator, InstanceInterfaceIpFamilyMode, InstanceInterfaceVpcSelection,
-    InstanceNetworkConfig, Ipv6InterfaceConfig, NetworkDetails,
+    InstanceNetworkConfig, InterfaceFunctionId, Ipv6InterfaceConfig, NetworkDetails,
 };
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::config::spx::InstanceSpxConfig;
@@ -1889,6 +1889,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             extension_services: InstanceExtensionServicesConfig::default(),
             power_profile: None,
         },
+        implicit_vf_allocation: false,
         metadata: Metadata {
             name: "test_instance".to_string(),
             description: "tests/instance".to_string(),
@@ -6718,6 +6719,110 @@ async fn test_instance_vf_inventory_rejects_unavailable_vf_on_create_and_update(
             .update_network_config_request
             .is_none()
     );
+    txn.rollback().await.unwrap();
+}
+
+/// Verifies older callers that omit VF IDs use sparse HBN inventory on create and update.
+#[crate::sqlx_test]
+async fn test_implicit_instance_vfs_follow_sparse_hbn_inventory_on_create_and_update(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let mut config = get_config();
+    config.dpu_config.num_of_vfs = 16;
+    config
+        .vmaas_config
+        .as_mut()
+        .expect("the default test configuration includes VMaaS")
+        .hbn_reps = Some("pf0hpf,pf0vf2,pf0vf5,pf1hpf".to_string());
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+    let create_host = create_managed_host(&env).await;
+    let update_host = create_managed_host(&env).await;
+    let segment_ids = env.create_vpc_and_tenant_segments(3).await;
+
+    let implicit_network = || {
+        let mut network = single_interface_network_config_with_vfs(segment_ids.clone());
+        for interface in &mut network.interfaces {
+            if interface.function_type() == rpc::InterfaceFunctionType::Virtual {
+                interface.virtual_function_id = None;
+            }
+        }
+        network
+    };
+
+    let created_instance = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(create_host.id)
+                .config(InstanceConfig::default_tenant_and_os().network(implicit_network()))
+                .tonic_request(),
+        )
+        .await
+        .expect("implicit VFs from a sparse inventory must be allocated")
+        .into_inner();
+    let created_vfs = created_instance
+        .config
+        .expect("the allocated instance includes its config")
+        .network
+        .expect("the allocated instance includes its network config")
+        .interfaces
+        .into_iter()
+        .filter(|interface| interface.function_type() == rpc::InterfaceFunctionType::Virtual)
+        .map(|interface| {
+            interface
+                .virtual_function_id
+                .expect("NICo resolves every implicit VF ID")
+        })
+        .collect_vec();
+    assert_eq!(created_vfs, vec![2, 5]);
+
+    let update_instance = update_host
+        .instance_builer(&env)
+        .single_interface_network_config(segment_ids[0])
+        .build()
+        .await;
+    env.api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: update_instance.rpc_instance().await.rpc_id(),
+            if_version_match: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(implicit_network()),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+                power_profile: None,
+            }),
+            metadata: Some(rpc::forge::Metadata {
+                name: "implicit-vf-update".to_string(),
+                description: String::new(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .expect("an update with implicit VFs must use the sparse inventory");
+
+    let mut txn = env.db_txn().await;
+    let staged_update = update_instance
+        .db_instance(&mut txn)
+        .await
+        .update_network_config_request
+        .expect("the replacement network config must be staged");
+    let staged_vfs = staged_update
+        .new_config
+        .interfaces
+        .iter()
+        .filter_map(|interface| match &interface.function_id {
+            InterfaceFunctionId::Physical {} => None,
+            InterfaceFunctionId::Virtual { id } => Some(*id),
+        })
+        .collect_vec();
+    assert_eq!(staged_vfs, vec![2, 5]);
     txn.rollback().await.unwrap();
 }
 
