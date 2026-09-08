@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_mock::HostnameQuerying;
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType, StableHostMachineId};
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use eyre::Context;
 use futures::future::join_all;
 use futures_util::future::BoxFuture;
@@ -85,13 +85,20 @@ mod fixtures {
 pub(crate) async fn run_baseline_test_environment(
     machines: Vec<MockBmcType>,
 ) -> eyre::Result<Option<BaselineTestEnvironment>> {
-    let mock_bmc_handles: Vec<(MockBmcHandle, StableHostMachineId, MockBmcType)> =
+    let mock_bmc_handles: Vec<(MockBmcHandle, MachineId, MockBmcType)> =
         join_all(machines.iter().map(|bmc_type| {
             // Generate random machine ID's for each mocked host
-            let machine_id: StableHostMachineId =
-                MachineId::new(MachineIdSource::Tpm, rand::random(), MachineType::Host)
-                    .try_into()
-                    .expect("mock host ID should have a stable-host subtype");
+            let machine_id = MachineId::new(
+                MachineIdSource::Tpm,
+                rand::random(),
+                match bmc_type {
+                    MockBmcType::Ssh
+                    | MockBmcType::LenovoSr650Ssh
+                    | MockBmcType::LenovoAmiSsh
+                    | MockBmcType::Ipmi => MachineType::Host,
+                    MockBmcType::DpuSsh => MachineType::Dpu,
+                },
+            );
 
             async move {
                 let bmc_handle = match bmc_type {
@@ -280,6 +287,10 @@ impl BaselineTestEnvironment {
                         }
                     }
                     BaselineTestAssertion::ConnectAsInstanceId => {
+                        // Instances are assigned to stable hosts, never directly to DPUs.
+                        if mock_host.machine_id.machine_type().is_dpu() {
+                            continue;
+                        }
                         let connection_config = ConnectionConfig {
                             connection_name: &format!("{connection_name} to instance").to_string(),
                             user: &mock_host.instance_id.to_string(),

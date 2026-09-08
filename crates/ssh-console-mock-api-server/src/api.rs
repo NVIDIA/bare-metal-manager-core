@@ -95,15 +95,19 @@ impl Forge for MockApiServer {
                     .find(|h| {
                         h.instance_id.to_string().to_lowercase() == instance_id.value.to_lowercase()
                     })
-                    .map(|h| (instance_id, h))
+                    .and_then(|h| {
+                        carbide_uuid::machine::StableHostMachineId::try_from(h.machine_id)
+                            .ok()
+                            .map(|machine_id| (instance_id, machine_id))
+                    })
             })
             .collect::<Vec<_>>();
 
         let instances = mock_instances
             .into_iter()
-            .map(|(instance_id, mock_host)| forge::Instance {
+            .map(|(instance_id, machine_id)| forge::Instance {
                 id: Some(instance_id.clone()),
-                machine_id: Some(mock_host.machine_id),
+                machine_id: Some(machine_id),
                 ..Default::default()
             })
             .collect::<Vec<_>>();
@@ -120,9 +124,11 @@ impl Forge for MockApiServer {
             return Err(Status::invalid_argument("missing machine ID"));
         };
 
-        let Some(mock_host) = self.mock_hosts.iter().find(|mock_host| {
-            carbide_uuid::machine::MachineId::from(mock_host.machine_id) == machine_id
-        }) else {
+        let Some(mock_host) = self
+            .mock_hosts
+            .iter()
+            .find(|mock_host| mock_host.machine_id == machine_id)
+        else {
             return Err(Status::not_found("no machine with that ID"));
         };
 
@@ -145,7 +151,7 @@ impl Forge for MockApiServer {
             machine_ids: self
                 .mock_hosts
                 .iter()
-                .map(|mock_host| mock_host.machine_id.into())
+                .map(|mock_host| mock_host.machine_id)
                 .collect(),
         }))
     }
