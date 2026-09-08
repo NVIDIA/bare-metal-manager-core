@@ -147,7 +147,7 @@ type JwksConfig struct {
 	sync.RWMutex               // protects JWKS access
 	URL          string        // JWKS endpoint URL
 	Issuer       string        // expected "iss" claim value
-	Origin       string        // token origin type (e.g., "kas-legacy", "kas-ssa", "keycloak", "custom")
+	Origin       string        // token origin type (e.g., "kas-legacy", "kas-ssa", "keycloak", "custom", "kas")
 	LastUpdated  time.Time     // last JWKS update timestamp
 	jwks         *core.JWKS    // cached JWKS keys
 	JWKSTimeout  time.Duration // fetch timeout (default: 5s)
