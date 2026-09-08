@@ -39,7 +39,7 @@ use crate::machine::topology::MachineTopology;
 use crate::machine::{
     Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineConfig,
     MachineInterfaceSnapshot, MachineLastRebootRequested, MachineMaintenanceRequest, MachineStatus,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    ManagedHostState, ReprovisionRequest, ResetRequest, UpgradeDecision,
 };
 use crate::machine_boot_interface::{
     BootInterfaceSelection, BootInterfaceSelectionSource, BootInterfaceStatusObservation,
@@ -82,6 +82,7 @@ pub struct MachineSnapshotPgJson {
     pub failure_details: FailureDetails,
     pub reprovisioning_requested: Option<ReprovisionRequest>,
     pub host_reprovisioning_requested: Option<HostReprovisionRequest>,
+    pub reset_requested: Option<ResetRequest>,
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
     #[serde(default)]
     pub decommission_requested: bool,
@@ -378,6 +379,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             health_reports,
             reprovision_requested: value.reprovisioning_requested,
             host_reprovision_requested: value.host_reprovisioning_requested,
+            reset_requested: value.reset_requested,
             dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
             controller_state_outcome: value.controller_state_outcome,
             bios_password_set_time: value.bios_password_set_time,
