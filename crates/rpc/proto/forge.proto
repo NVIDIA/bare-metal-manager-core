@@ -1932,6 +1932,7 @@ message Vpc {
 
 message VpcCreationRequest {
   reserved 2;  // was: string name, replaced with metadata.name
+  // Must identify an existing tenant with a routing profile when creating an FNN VPC.
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
@@ -6157,7 +6158,7 @@ message UpdateTenantRequest {
 
   reserved 4;
   
-  // Updating will only be allowed if the tenant has no active VPCs
+  // Required when FNN is enabled. Updating the value is allowed only if the tenant has no active VPCs.
   optional string routing_profile_type = 5;
 }
 message UpdateTenantResponse {

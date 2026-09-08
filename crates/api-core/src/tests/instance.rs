@@ -5316,8 +5316,15 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
     let mh = create_managed_host_multi_dpu(&env, 2).await;
+
+    // Register the tenant required by both FNN VPCs used in this allocation scenario.
+    create_fixture_tenant(&env, FIXTURE_TENANT_ORG_ID)
+        .await
+        .unwrap();
 
     // Create two FNN VPCs and prefixes to exercise cross-VPC allocation.
     let first_vpc = env
@@ -5615,8 +5622,15 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
     let mh = create_managed_host(&env).await;
+
+    // Register the tenant required by both FNN VPCs used in this validation scenario.
+    create_fixture_tenant(&env, FIXTURE_TENANT_ORG_ID)
+        .await
+        .unwrap();
 
     // Create two FNN VPCs so the global multi-FNN check passes.
     let first_vpc = env

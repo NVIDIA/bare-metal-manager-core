@@ -46,24 +46,10 @@ pub(crate) async fn create(
     let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock if found so we can coordinate around the tenant record.
-    // If we're still allowing VPC creation for tenant org IDs that don't actually exist
-    // in the DB, we're limited with the coordinating we can do, but it also doesn't matter
-    // because those VPCs are going to default to external and force us to deal with the missing,
-    // tenant records.
+    // Missing tenants remain supported for non-FNN VPCs; FNN creation rejects them below after
+    // resolving the requested virtualization type.
     let tenant =
         db::tenant::find(&vpc_creation_request.tenant_organization_id, true, &mut txn).await?;
-
-    // A lot of tests seem to still allow tenant IDs for tenants that don't
-    // exist.  We should audit and see if there are still sites with missing tenants
-    // if we expect NICo-core to have knowledge of tenants.  Otherwise, this would just go away
-    // when we _remove_ any expectation of tenant knowledge from NICo-core, and the details we
-    // need from tenant would just come in from the VPC creation request.
-    if tenant.is_none() {
-        tracing::warn!(
-            tenant_organization_id = vpc_creation_request.tenant_organization_id.clone(),
-            "Database record for tenant ID in VPC creation request not found"
-        );
-    };
 
     if let Some(ref nsg_id) = vpc_creation_request.network_security_group_id {
         let id = nsg_id.parse::<NetworkSecurityGroupId>().map_err(|e| {
@@ -107,6 +93,23 @@ pub(crate) async fn create(
         None => DEFAULT_NETWORK_VIRTUALIZATION_TYPE,
         Some(v) => vpc_virtualization_type_try_from_rpc(v).map_err(CarbideError::from)?,
     };
+
+    // FNN routing policy requires tenant context for inheritance and authorization.
+    if requested_virtualization_type == VpcVirtualizationType::Fnn && tenant.is_none() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "tenant `{}` must exist before creating an FNN VPC",
+            vpc_creation_request.tenant_organization_id
+        ))
+        .into());
+    }
+
+    // Non-FNN VPC creation retains the legacy missing-tenant behavior.
+    if tenant.is_none() {
+        tracing::warn!(
+            tenant_organization_id = vpc_creation_request.tenant_organization_id.clone(),
+            "Database record for tenant ID in VPC creation request not found"
+        );
+    }
 
     if vpc_creation_request.routing_profile_type.is_some()
         || vpc_creation_request.routing_profile_overrides.is_some()
@@ -650,19 +653,10 @@ fn resolve_vpc_routing(
     let tenant_profile_type = tenant.and_then(|t| t.routing_profile_type.as_deref());
 
     match (requested_profile_type, tenant_profile_type) {
-        // No VPC routing profile requested and no tenant profile.
-        // Falling back to a default. With FNN disabled, assume
-        // internal (legacy/pre-FNN behavior); with FNN enabled,
-        // external must be assumed.
-        (None, None) if vpc_profile_overrides.is_none() => Ok(ResolvedVpcRouting {
-            profile_type: None,
-            internal: fnn_config.is_none(),
-        }),
-
-        // A requested profile type or inline profile needs tenant context
-        // to establish and authorize its named base profile.
+        // Every FNN VPC needs a tenant profile to establish its named routing policy and
+        // authorize any explicitly requested profile or inline overrides.
         (_, None) => Err(CarbideError::FailedPrecondition(format!(
-            "VPC routing profile type or overrides requested but no tenant or routing profile type found for organization id `{organization_id}`"
+            "tenant `{organization_id}` must have a routing profile before creating an FNN VPC"
         ))),
 
         // Tenant has a routing profile; resolve the request against it.
@@ -817,24 +811,24 @@ mod tests {
                 } => Yields((None, true)),
             }
 
-            "missing tenant context" {
-                // Without FNN or explicit routing properties, preserve the legacy internal
-                // allocation default even when no tenant record is available.
+            "missing tenant routing profile" {
+                // An FNN VPC cannot use the legacy internal default without a named tenant
+                // profile because downstream policy resolution requires that name.
                 RoutingResolutionInput {
                     network_virtualization_type: Fnn,
                     requested_profile_type: None,
                     routing_profile_overrides: None,
                     tenant: None,
                     fnn_config: None,
-                } => Yields((None, true)),
-                // Enabling FNN changes the no-profile allocation default to external.
+                } => FailsWith(FailedPrecondition),
+                // Enabling FNN cannot make missing tenant routing context resolvable.
                 RoutingResolutionInput {
                     network_virtualization_type: Fnn,
                     requested_profile_type: None,
                     routing_profile_overrides: None,
                     tenant: None,
                     fnn_config: Some(fnn_with_profiles(&[])),
-                } => Yields((None, false)),
+                } => FailsWith(FailedPrecondition),
                 // A named profile request needs tenant context to authorize its access tier.
                 RoutingResolutionInput {
                     network_virtualization_type: Fnn,
