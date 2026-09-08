@@ -37,7 +37,10 @@ spec:
         # Production-validated: State-controller iteration latency p95 >120s for 10m
         - alert: NicoStateHandlerLatency
           expr: |
-            histogram_quantile(0.95, sum(rate(carbide_machines_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
+            absent(carbide_machines_iteration_latency_milliseconds_count)
+            or absent(carbide_network_segments_iteration_latency_milliseconds_count)
+            or absent(carbide_ib_partitions_iteration_latency_milliseconds_count)
+            or histogram_quantile(0.95, sum(rate(carbide_machines_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
             or histogram_quantile(0.95, sum(rate(carbide_network_segments_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
             or histogram_quantile(0.95, sum(rate(carbide_ib_partitions_iteration_latency_milliseconds_bucket[5m])) by (le)) > 120000
           for: 10m
