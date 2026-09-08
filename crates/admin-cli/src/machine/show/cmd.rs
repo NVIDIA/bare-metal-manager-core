@@ -784,4 +784,45 @@ mod tests {
         assert!(json.contains("DDR4"));
         assert!(!json.contains("memory_device_groups"));
     }
+
+    #[test]
+    #[allow(deprecated)]
+    fn max_width_narrower_than_header_floors_at_header_length() {
+        let machines = forgerpc::MachineList {
+            machines: vec![forgerpc::Machine {
+                state: "a very long error message".to_string(),
+                ..Default::default()
+            }],
+        };
+        // "State" is 5 characters; requesting width 1 must not truncate
+        // values below what's already needed to fit the header, since the
+        // column can't render narrower than its header anyway.
+        let widths = ColumnWidths::new(&[crate::table_utils::MaxWidthSpec::Column(
+            "State".to_string(),
+            1,
+        )]);
+        let columns = ColumnSelection::default();
+
+        let table = convert_machines_to_nice_table(machines, Some(&widths), &columns);
+
+        assert!(
+            table.to_string().contains("State"),
+            "header should render in full"
+        );
+
+        let row = table.get_row(0).expect("one data row");
+        let state_idx = HEADERS.iter().position(|h| *h == "State").unwrap();
+        let vendor_idx = HEADERS.iter().position(|h| *h == "Vendor").unwrap();
+
+        assert_eq!(
+            row.get_cell(state_idx).unwrap().get_content(),
+            "A ...",
+            "populated value should truncate to the header's length (5), not the requested width (1)"
+        );
+        assert_eq!(
+            row.get_cell(vendor_idx).unwrap().get_content(),
+            "",
+            "a column with no data should render as an empty cell"
+        );
+    }
 }

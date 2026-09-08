@@ -56,12 +56,17 @@ pub(crate) struct MaxWidthArgs {
         long = "max-width",
         value_name = "[COLUMN=]WIDTH",
         help = "Limit displayed column width to WIDTH characters, truncating longer values \
-                with '...'. Repeatable. A bare WIDTH applies to every column; COLUMN=WIDTH \
-                limits just that column, where COLUMN must exactly match the column's \
-                displayed header text (case-insensitive), e.g. State=40. For a header \
-                containing spaces, quote the whole COLUMN=WIDTH argument, e.g. \
-                \"State Version=40\". An unmatched COLUMN is ignored with a warning listing \
-                the valid headers for this invocation."
+                with '...'. A column never narrows below its header's length, so WIDTH is \
+                an upper bound on values, not a guaranteed rendered width: a WIDTH shorter \
+                than the header still lets values fill the header's width for free, and \
+                WIDTH 0 means no limit (the same as not specifying that column at all; \
+                useful as COLUMN=0 to exempt one column from a blanket --max-width). \
+                Repeatable. A bare WIDTH applies to every column; COLUMN=WIDTH limits just \
+                that column, where COLUMN must exactly match the column's displayed header \
+                text (case-insensitive), e.g. State=40. For a header containing spaces, \
+                quote the whole COLUMN=WIDTH argument, e.g. \"State Version=40\". An \
+                unmatched COLUMN is ignored with a warning listing the valid headers for \
+                this invocation."
     )]
     pub(crate) max_width: Vec<MaxWidthSpec>,
 }
@@ -98,6 +103,12 @@ impl ColumnWidths {
     /// Truncate `value` per the width configured for `header`, if any.
     /// Multi-line cell values (joined with '\n', as some columns do) are
     /// truncated line-by-line so the '\n' structure survives.
+    ///
+    /// The column can never render narrower than its (untruncated) header,
+    /// so a requested width shorter than the header is floored at the
+    /// header's length rather than truncating values below that for no
+    /// space savings. `0` is left alone: it's the "no limit" sentinel
+    /// (see `truncate_line`), not a real width to floor against.
     pub(crate) fn truncate(&self, header: &str, value: &str) -> String {
         let width = self
             .per_column
@@ -106,11 +117,15 @@ impl ColumnWidths {
             .or(self.default);
 
         match width {
-            Some(width) => value
-                .split('\n')
-                .map(|line| truncate_line(line, width))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            Some(0) => value.to_string(),
+            Some(width) => {
+                let width = width.max(header.chars().count());
+                value
+                    .split('\n')
+                    .map(|line| truncate_line(line, width))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
             None => value.to_string(),
         }
     }
@@ -270,20 +285,19 @@ fn truncate_line(line: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
-    fn short_values_are_unaffected() {
+    fn short_and_long_values_within_a_bare_width() {
         let widths = ColumnWidths::new(&[MaxWidthSpec::All(10)]);
-        assert_eq!(widths.truncate("State", "short"), "short");
-    }
-
-    #[test]
-    fn long_values_are_truncated_with_ellipsis() {
-        let widths = ColumnWidths::new(&[MaxWidthSpec::All(10)]);
-        assert_eq!(
-            widths.truncate("State", "a very long error message"),
-            "a very ..."
+        value_scenarios!(
+            run = |value: &str| widths.truncate("State", value);
+            "10-char limit" {
+                "short" => "short".to_string(),
+                "a very long error message" => "a very ...".to_string(),
+            }
         );
     }
 
@@ -293,14 +307,56 @@ mod tests {
             MaxWidthSpec::All(10),
             MaxWidthSpec::Column("state".to_string(), 5),
         ]);
-        assert_eq!(widths.truncate("State", "abcdefgh"), "ab...");
-        assert_eq!(widths.truncate("Other", "abcdefgh"), "abcdefgh");
+        value_scenarios!(
+            run = |(header, value): (&str, &str)| widths.truncate(header, value);
+            "5-char column override vs. 10-char default" {
+                ("State", "abcdefgh") => "ab...".to_string(),
+                ("Other", "abcdefgh") => "abcdefgh".to_string(),
+            }
+        );
     }
 
     #[test]
     fn column_match_is_case_insensitive() {
+        // Width 4 is floored to "state".len() == 5 here (see
+        // `width_below_header_length_is_floored_at_header_length`), so this
+        // also covers that the floor uses the matched header, not the raw
+        // requested width.
         let widths = ColumnWidths::new(&[MaxWidthSpec::Column("STATE".to_string(), 4)]);
-        assert_eq!(widths.truncate("state", "abcdefgh"), "a...");
+        assert_eq!(widths.truncate("state", "abcdefgh"), "ab...");
+    }
+
+    #[test]
+    fn width_below_header_length_is_floored_at_header_length() {
+        // "State" is 5 characters; a requested width of 1 must not truncate
+        // values below what's already needed to fit the header, since the
+        // column can't render narrower than its header anyway.
+        let widths = ColumnWidths::new(&[MaxWidthSpec::Column("State".to_string(), 1)]);
+        assert_eq!(widths.truncate("State", "abcdefgh"), "ab...");
+    }
+
+    #[test]
+    fn zero_width_is_a_no_op() {
+        let widths = ColumnWidths::new(&[MaxWidthSpec::All(0)]);
+        assert_eq!(
+            widths.truncate("State", "a very long error message"),
+            "a very long error message"
+        );
+    }
+
+    #[test]
+    fn zero_width_column_override_exempts_column_from_default() {
+        let widths = ColumnWidths::new(&[
+            MaxWidthSpec::All(5),
+            MaxWidthSpec::Column("state".to_string(), 0),
+        ]);
+        value_scenarios!(
+            run = |(header, value): (&str, &str)| widths.truncate(header, value);
+            "column override of 0 exempts State; Other still floors to the 5-char default" {
+                ("State", "a very long error message") => "a very long error message".to_string(),
+                ("Other", "a very long error message") => "a ...".to_string(),
+            }
+        );
     }
 
     #[test]

@@ -635,3 +635,54 @@ pub(super) async fn show(
     )
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::table_utils::MaxWidthSpec;
+
+    #[test]
+    fn max_width_narrower_than_header_floors_at_header_length() {
+        let host = carbide_rpc_utils::ManagedHostOutput {
+            state: "a very long error message".to_string(),
+            ..Default::default()
+        };
+        // "State" is 5 characters; requesting width 1 must not truncate
+        // values below what's already needed to fit the header, since the
+        // column can't render narrower than its header anyway. Turning on
+        // `show_quarantine_reason` adds a column that's genuinely empty for
+        // a default host, giving an empty-cell case alongside the
+        // populated, truncated "State" cell.
+        let options = ManagedHostOutputOptions {
+            show_quarantine_reason: true,
+            ..Default::default()
+        };
+        let widths = ColumnWidths::new(&[MaxWidthSpec::Column("State".to_string(), 1)]);
+
+        let (table, _warnings) = convert_managed_hosts_to_nice_output(vec![host], options, &widths);
+
+        assert!(
+            table.to_string().contains("State"),
+            "header should render in full"
+        );
+
+        let headers = headers_for(&options);
+        let row = table.get_row(0).expect("one data row");
+        let state_idx = headers.iter().position(|h| *h == "State").unwrap();
+        let quarantine_idx = headers
+            .iter()
+            .position(|h| *h == "Quarantine reason")
+            .unwrap();
+
+        assert_eq!(
+            row.get_cell(state_idx).unwrap().get_content(),
+            "a\nve...",
+            "populated value should truncate to the header's length (5), not the requested width (1)"
+        );
+        assert_eq!(
+            row.get_cell(quarantine_idx).unwrap().get_content(),
+            "",
+            "a column with no data should render as an empty cell"
+        );
+    }
+}
