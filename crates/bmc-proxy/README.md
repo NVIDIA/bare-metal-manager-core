@@ -94,9 +94,9 @@ Path matching syntax:
 - `prefix*` matches one path component with the given prefix.
 - `*suffix` matches one path component with the given suffix.
 - `**` matches zero or more path components.
-- A single trailing `/` on the request path is not a component: `/redfish/v1/` matches
-  exactly like `/redfish/v1` (Redfish treats the trailing slash as insignificant, and some
-  clients request the service root that way).
+- A single trailing slash does not create another path component. For example,
+  `/redfish/v1/` matches `/redfish/v1`. Some clients include this slash when
+  requesting the Redfish service root.
 - A single `*` may appear by itself, at the beginning, or at the end of a path component.
   Valid: `/redfish/v1/Systems/*/SecureBoot/**`
   Valid: `/redfish/v1/Systems/system*/SecureBoot`

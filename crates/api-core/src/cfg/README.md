@@ -308,39 +308,49 @@ available for topology-specific flows.
 
 ### `BmcProxyConfig` — `bmc_proxy`
 
-Routes core's own BMC Redfish traffic through nico-bmc-proxy, which
-authenticates upstream itself; clients from the proxied pools carry no BMC
-credentials. This covers machine-lifecycle traffic and the credentialed
-exploration of endpoints whose stored root credential is established (the
-proxy resolves the same per-BMC key). It is not a "proxy-only" guarantee
-for those BMCs: every exploration cycle still opens with a direct anonymous
-service-root probe (vendor detection has no proxy path), the power-shelf
-vendor fallback authenticates directly, and component-manager compute-tray
-power control — the `core` compute-tray backend and standalone servers —
-authenticates with explicit per-endpoint credentials on the direct pool.
-Credential-subject operations — first-contact exploration and credential setup with
-factory/expected credentials, BMC session minting, password rotation, UEFI
-password management — always use the direct pools regardless of this
-section: the proxied pool rejects explicit credentials, so misrouting
-fails loudly. The proxy, unlike a BMC, presents a verifiable certificate:
-connections to it keep certificate checking on.
+Routes `nico-api` BMC Redfish traffic through `nico-bmc-proxy`. The proxy
+authenticates upstream itself, so clients from the proxied pools carry no BMC
+credentials.
 
-Three caveats. First, precedence: this static section is independent of the
-*dynamic* `site_explorer.bmc_proxy` dev redirect (`set bmc-proxy` CLI) — the
-proxied pool ignores the dynamic redirect, and the admin Redfish passthrough
-prefers this section when both are set; the dynamic redirect keeps applying to
-the direct pool's clients. Second, BMCs whose Redfish tree has no
-`SessionService`: the proxy reaches those with HTTP basic auth, which
-`GetBmcCredentials` only serves when `allow_bmc_basic_auth_fallback` is
-enabled — without it, such BMCs are unreachable through the proxied pool.
-Third, nico-bmc-proxy always dials the BMC's standard https port: a BMC whose
-recorded Redfish port is not 443 is unreachable through the proxied pool, and
-its operations fail loudly with a client-creation error naming the port
-rather than silently dropping it.
+The proxied pools handle:
+
+- Machine-lifecycle Redfish traffic.
+- Credentialed exploration for endpoints with established stored root
+  credentials. The proxy resolves the same per-BMC credential key.
+
+Some traffic remains on the direct pools:
+
+- Every exploration cycle starts with a direct anonymous service-root probe
+  because vendor detection has no proxy path.
+- The power-shelf vendor fallback authenticates directly.
+- Component-manager compute-tray power control—the `core` compute-tray
+  backend and standalone servers—uses explicit per-endpoint credentials.
+- Credential-subject operations remain direct: first-contact exploration,
+  credential setup with factory or expected credentials, BMC session minting,
+  password rotation, and UEFI password management.
+
+The proxied pool rejects explicit credentials, so a misrouted request returns
+an error. The proxy presents a verifiable certificate, and connections to it
+keep certificate verification enabled.
+
+Keep these constraints in mind:
+
+- **Precedence.** This static section is independent of the dynamic
+  `site_explorer.bmc_proxy` development redirect configured by the
+  `set bmc-proxy` CLI command. The proxied pool ignores the dynamic redirect,
+  and the admin Redfish passthrough uses this section when both are configured.
+  The dynamic redirect continues to apply to clients from the direct pools.
+- **Basic authentication.** For BMCs without a `SessionService`, the proxy
+  uses HTTP Basic authentication. `GetBmcCredentials` provides these
+  credentials only when `allow_bmc_basic_auth_fallback` is enabled.
+  Otherwise, the BMC is unreachable through the proxied pool.
+- **Port.** `nico-bmc-proxy` always connects to the BMC through the standard
+  HTTPS port, 443. A BMC recorded with another Redfish port returns a
+  client-creation error that identifies the unsupported port.
 
 | Field | Type | Default | Description |
 | ------- | ------ | --------- | ------------- |
-| `enabled` | `bool` | `false` | Master switch; `false` keeps all BMC traffic direct even when the rest of this section is filled in. |
+| `enabled` | `bool` | `false` | Master switch for routing through `nico-bmc-proxy`. When `false`, traffic uses the direct pools; the independent dynamic `site_explorer.bmc_proxy` redirect remains in effect. |
 | `address` | `String` | `""` | Proxy address as `host:port` or `host` (the port defaults to the BMC proxy's 1079). Required when `enabled` is true; startup fails on an enabled section with an empty `address`. |
 | `client_cert` | `String` | `/var/run/secrets/spiffe.io/tls.crt` | PEM client certificate presented to the proxy's mTLS listener. |
 | `client_key` | `String` | `/var/run/secrets/spiffe.io/tls.key` | PEM private key for `client_cert`. |
