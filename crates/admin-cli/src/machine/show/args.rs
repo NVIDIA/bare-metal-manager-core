@@ -88,6 +88,8 @@ pub(crate) struct Args {
 
     #[clap(
         default_value(None),
+        conflicts_with = "max_width",
+        conflicts_with = "columns",
         help = "The machine ID to query. Omit to show all machines."
     )]
     pub(crate) machine: Option<MachineId>,
