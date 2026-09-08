@@ -89,6 +89,9 @@ pub struct MachineSnapshotPgJson {
     pub bmc_credential_rotation_requested: bool,
     #[serde(default)]
     pub uefi_credential_rotation_requested: bool,
+    /// is there a forced NIC lockdown rotation requested for this host
+    #[serde(default)]
+    pub lockdown_ikm_credential_rotation_requested: bool,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -131,8 +134,6 @@ pub struct MachineSnapshotPgJson {
     pub power_options: Option<PowerOptions>,
     pub hw_sku_device_type: Option<String>,
     pub update_complete: bool,
-    #[serde(default)]
-    pub backend_firmware_object_job_id: Option<String>,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
     #[serde(default)]
@@ -365,7 +366,6 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
                 hw_sku: value.hw_sku_status,
                 hw_sku_device_type: value.hw_sku_device_type,
                 update_complete: value.update_complete,
-                backend_firmware_object_job_id: value.backend_firmware_object_job_id,
                 nvlink_info: value.nvlink_info,
                 infiniband_status_observation: value.infiniband_status_observation,
                 nvlink_status_observation: value.nvlink_status_observation,
@@ -393,6 +393,8 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             decommission_requested: value.decommission_requested,
             bmc_credential_rotation_requested: value.bmc_credential_rotation_requested,
             uefi_credential_rotation_requested: value.uefi_credential_rotation_requested,
+            lockdown_ikm_credential_rotation_requested: value
+                .lockdown_ikm_credential_rotation_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }

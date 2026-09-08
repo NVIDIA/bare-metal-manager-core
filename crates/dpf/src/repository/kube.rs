@@ -25,7 +25,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
-use kube::api::{ListParams, Patch, PatchParams, PostParams};
+use kube::api::{DeleteParams, ListParams, Patch, PatchParams, PostParams, Preconditions};
 use kube::runtime::controller::Action;
 use kube::runtime::{Controller, watcher};
 use kube::{Api, Client, Resource};
@@ -183,6 +183,19 @@ impl DpuRepository for KubeRepository {
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError> {
         let api: Api<DPU> = self.api(namespace);
         api.delete(name, &Default::default()).await?;
+        Ok(())
+    }
+
+    async fn delete_if_uid(&self, name: &str, namespace: &str, uid: &str) -> Result<(), DpfError> {
+        let api: Api<DPU> = self.api(namespace);
+        let params = DeleteParams {
+            preconditions: Some(Preconditions {
+                uid: Some(uid.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        api.delete(name, &params).await?;
         Ok(())
     }
 

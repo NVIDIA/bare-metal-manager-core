@@ -276,6 +276,20 @@ impl DpuRepository for InitializationMock {
         Ok(())
     }
 
+    async fn delete_if_uid(&self, name: &str, ns: &str, uid: &str) -> Result<(), DpfError> {
+        let current_uid = self
+            .dpus
+            .get(&ns_key(ns, name))
+            .map(|dpu| dpu.metadata.uid.clone())
+            .ok_or_else(|| DpfError::not_found("DPU", name))?;
+        if current_uid.as_deref() != Some(uid) {
+            return Err(DpfError::InvalidState(format!(
+                "DPU {name} no longer has UID {uid}"
+            )));
+        }
+        DpuRepository::delete(self, name, ns).await
+    }
+
     fn watch<F, Fut>(
         &self,
         _ns: &str,
@@ -482,6 +496,36 @@ impl DpfOperatorConfigRepository for InitializationMock {
     async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
+}
+
+/// A conditional delete must preserve a replacement DPU whose UID differs
+/// from the stale object observed by the migration reconciler.
+#[tokio::test]
+async fn conditional_dpu_delete_rejects_uid_mismatch() {
+    let mock = InitializationMock::default();
+    let dpu_name = "node-host-device-dpu";
+    let mut replacement = super::helpers::make_dpu(
+        TEST_NS,
+        dpu_name,
+        "device-dpu",
+        "node-host",
+        DpuStatusPhase::Ready,
+    );
+    replacement.metadata.uid = Some("replacement-uid".to_string());
+    mock.dpus.insert(resource_key(&replacement), replacement);
+
+    let error = DpuRepository::delete_if_uid(&mock, dpu_name, TEST_NS, "stale-uid")
+        .await
+        .expect_err("a stale UID must not delete the replacement DPU");
+
+    assert!(matches!(error, DpfError::InvalidState(_)));
+    assert!(
+        DpuRepository::get(&mock, dpu_name, TEST_NS)
+            .await
+            .unwrap()
+            .is_some(),
+        "the replacement DPU must remain after the rejected delete"
+    );
 }
 
 #[tokio::test]
@@ -957,10 +1001,15 @@ async fn scoped_bf3_gb200_bf4_and_astra_initialization_coexists() {
             .parameters
             .as_ref()
             .unwrap();
+        let expected_pf_total_sf = match deployment_type {
+            DpuDeploymentType::Bf3Gb200 => "PF_TOTAL_SF=128",
+            DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => "PF_TOTAL_SF=37",
+            DpuDeploymentType::Bf4Astra => unreachable!("Astra is checked separately"),
+        };
         assert!(
             nvconfig
                 .iter()
-                .any(|parameter| parameter == "PF_TOTAL_SF=37")
+                .any(|parameter| parameter == expected_pf_total_sf)
         );
         assert_eq!(
             nvconfig

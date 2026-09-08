@@ -20,7 +20,9 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use carbide_uuid::domain::DomainId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use carbide_uuid::machine::{
+    DpuMachineId, HostMachineId, InvalidMachineType, MachineId, MachineInterfaceId,
+};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -105,7 +107,10 @@ pub struct DpuInfo {
     pub observed_status: Option<DpuInfoStatusObservation>,
 }
 
-type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
+type DpuDeviceMappings = (
+    HashMap<DpuMachineId, String>,
+    HashMap<String, Vec<DpuMachineId>>,
+);
 
 pub fn get_display_ids(machines: &[Machine]) -> String {
     machines
@@ -247,11 +252,14 @@ pub enum NotAllocatableReason {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagedHostStateSnapshotError {
+    #[error(transparent)]
+    InvalidMachineType(#[from] InvalidMachineType),
+
     #[error("missing primary interface. machine id: {0}")]
-    PrimaryInterfaceMissing(MachineId),
+    PrimaryInterfaceMissing(HostMachineId),
 
     #[error("missing dpu with primary dpu id. machine id: {0}, DPU ID: {1}")]
-    MissingPrimaryDpu(MachineId, MachineId),
+    MissingPrimaryDpu(HostMachineId, DpuMachineId),
 }
 
 impl From<ManagedHostStateSnapshotError> for sqlx::Error {
@@ -665,7 +673,7 @@ impl ManagedHostStateSnapshot {
             .all(|dpu_machine_id| {
                 self.dpu_snapshots
                     .iter()
-                    .find(|dpu_snapshot| dpu_snapshot.id == dpu_machine_id)
+                    .find(|dpu_snapshot| dpu_snapshot.id == dpu_machine_id.into())
                     .is_some_and(|dpu_snapshot| {
                         dpu_snapshot.managed_host_network_config_version_synced(host_version)
                     })
@@ -736,10 +744,10 @@ impl ManagedHostStateSnapshot {
             let index = self
                 .dpu_snapshots
                 .iter()
-                .position(|x| x.id == primary_dpu_id)
+                .position(|x| x.id == primary_dpu_id.into())
                 .ok_or({
                     ManagedHostStateSnapshotError::MissingPrimaryDpu(
-                        self.host_snapshot.id,
+                        self.host_snapshot.host_machine_id()?,
                         primary_dpu_id,
                     )
                 })?;
@@ -754,7 +762,7 @@ impl ManagedHostStateSnapshot {
             // ExpectedMachine can declare a non-DPU host admin NIC as primary, and in that case no
             // DPU should be promoted ahead of PCI order.
             return Err(ManagedHostStateSnapshotError::PrimaryInterfaceMissing(
-                self.host_snapshot.id,
+                self.host_snapshot.host_machine_id()?,
             ));
         };
 
@@ -874,6 +882,10 @@ pub struct Machine {
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub uefi_credential_rotation_requested: bool,
 
+    /// Force the rotation of the NIC lockdown keys on this host.
+    /// Bypasses the site-config flag for NIC lockdown rotation.
+    pub lockdown_ikm_credential_rotation_requested: bool,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -968,6 +980,14 @@ impl Machine {
     /// was available when the Machine was discovered
     pub fn is_dpu(&self) -> bool {
         self.id.machine_type().is_dpu()
+    }
+
+    pub fn dpu_machine_id(&self) -> Result<DpuMachineId, InvalidMachineType> {
+        self.id.try_into()
+    }
+
+    pub fn host_machine_id(&self) -> Result<HostMachineId, InvalidMachineType> {
+        self.id.try_into()
     }
 
     pub fn bmc_vendor(&self) -> bmc_vendor::BMCVendor {
@@ -1080,7 +1100,7 @@ impl Machine {
     }
 
     /// Returns all associated DPU Machine IDs if this is Host Machine
-    pub fn associated_dpu_machine_ids(&self) -> Vec<MachineId> {
+    pub fn associated_dpu_machine_ids(&self) -> Vec<DpuMachineId> {
         if self.is_dpu() {
             return Vec::new();
         }
@@ -1089,7 +1109,7 @@ impl Machine {
             .interfaces
             .iter()
             .filter_map(|i| i.attached_dpu_machine_id)
-            .collect::<Vec<MachineId>>()
+            .collect::<Vec<DpuMachineId>>()
     }
 
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
@@ -1134,7 +1154,7 @@ impl Machine {
 
     pub fn get_device_locator_for_dpu_id(
         &self,
-        dpu_machine_id: &MachineId,
+        dpu_machine_id: &DpuMachineId,
     ) -> ModelResult<DeviceLocator> {
         let (id_to_device_map, device_to_id_map) = self.get_dpu_device_and_id_mappings()?;
 
@@ -1153,7 +1173,7 @@ impl Machine {
         )))
     }
 
-    pub fn primary_attached_dpu_machine_id(&self) -> Option<MachineId> {
+    pub fn primary_attached_dpu_machine_id(&self) -> Option<DpuMachineId> {
         self.status
             .interfaces
             .iter()
@@ -1177,8 +1197,8 @@ impl Machine {
                     self.id
                 )))?;
 
-        let mut id_to_device_map: HashMap<MachineId, String> = HashMap::default();
-        let mut device_to_id_map: HashMap<String, Vec<MachineId>> = HashMap::default();
+        let mut id_to_device_map: HashMap<DpuMachineId, String> = HashMap::default();
+        let mut device_to_id_map: HashMap<String, Vec<DpuMachineId>> = HashMap::default();
         // in order to ensure that the primary dpu is assigned a network config, it is configured first.
         // hardware_interfaces has the primary dpu as the first interface, self.status.interfaces may not.
         // iterate over hardware_interfaces and match it to self.status.interfaces using the mac address
@@ -1199,28 +1219,21 @@ impl Machine {
 
         Ok((id_to_device_map, device_to_id_map))
     }
-
-    /// Returns whether a Machine is marked as having updates in progress
-    ///
-    /// The marking is achieved by applying a special health override and health alert on the Machine
-    pub fn machine_updates_in_progress(&self) -> bool {
-        self.reprovision_requested.is_some()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DpuDiscoveringStates {
-    pub states: HashMap<MachineId, DpuDiscoveringState>,
+    pub states: HashMap<DpuMachineId, DpuDiscoveringState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DpuInitStates {
-    pub states: HashMap<MachineId, DpuInitState>,
+    pub states: HashMap<DpuMachineId, DpuInitState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DpuReprovisionStates {
-    pub states: HashMap<MachineId, ReprovisionState>,
+    pub states: HashMap<DpuMachineId, ReprovisionState>,
 }
 
 /// Possible Machine state-machine implementation
@@ -1373,8 +1386,14 @@ pub enum ManagedHostState {
     /// backoff/quarantine is the rotation engine's `device_credential_rotation`
     /// bookkeeping keyed by that DPU's BMC MAC.
     RotatingDpuUefi {
-        dpu_machine_id: MachineId,
+        dpu_machine_id: DpuMachineId,
     },
+
+    /// The host is rekeying its NIC lockdown keys to the staged
+    /// site-wide `lockdown_ikm` target. This host state drives the
+    /// cards through a tenant-free `RotateKeyUnlocking -> RotateKeyLocking`
+    /// cycle and waits for them to converge.
+    RotatingNicLockdown,
 
     /// State used to indicate the API is currently waiting on the
     /// machine to send attestation measurements, or waiting for
@@ -1418,6 +1437,8 @@ pub enum DecommissioningState {
     SuppressingOobDhcp,
     /// Power-cycles the host to force OOB rediscovery against the pre-cycle suppression.
     PowerCyclingHost,
+    /// Powers the host back on after the cycle so OOB rediscovery can proceed.
+    PoweringOnHost,
     /// Waiting for the pre-cycle OOB DHCP suppression to be acknowledged.
     WaitingForOobDhcpAcknowledgement,
     /// BMC DHCP is suppressed before the BMC factory reset.
@@ -1645,14 +1666,19 @@ impl ManagedHostState {
         Self::Maintenance { operation }
     }
 
-    pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
+    /// Returns the DPU reprovision states embedded in either host allocation mode.
+    pub fn dpu_reprovision_states(&self) -> Option<&DpuReprovisionStates> {
         match self {
-            ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
-            ManagedHostState::Assigned {
+            ManagedHostState::DPUReprovision { dpu_states }
+            | ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision { dpu_states },
-            } => dpu_states.states.get(dpu_id),
+            } => Some(dpu_states),
             _ => None,
         }
+    }
+
+    pub fn as_reprovision_state(&self, dpu_id: &DpuMachineId) -> Option<&ReprovisionState> {
+        self.dpu_reprovision_states()?.states.get(dpu_id)
     }
 
     pub fn suppress_dpu_alerts(&self) -> bool {
@@ -2742,6 +2768,7 @@ impl Display for DecommissioningState {
             DecommissioningState::DeconfiguringDpus { .. } => write!(f, "DeconfiguringDpus"),
             DecommissioningState::SuppressingOobDhcp => write!(f, "SuppressingOobDhcp"),
             DecommissioningState::PowerCyclingHost => write!(f, "PowerCyclingHost"),
+            DecommissioningState::PoweringOnHost => write!(f, "PoweringOnHost"),
             DecommissioningState::WaitingForOobDhcpAcknowledgement => {
                 write!(f, "WaitingForOobDhcpAcknowledgement")
             }
@@ -2844,6 +2871,7 @@ impl Display for ManagedHostState {
             ManagedHostState::RotatingDpuUefi { dpu_machine_id } => {
                 write!(f, "RotatingDpuUefi/{dpu_machine_id}")
             }
+            ManagedHostState::RotatingNicLockdown => write!(f, "RotatingNicLockdown"),
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2882,7 +2910,7 @@ impl Display for ManagedHostState {
 }
 
 impl ManagedHostState {
-    pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
+    pub fn dpu_state_string(&self, dpu_id: &DpuMachineId) -> String {
         match self {
             ManagedHostState::ConfigureAstra {
                 configure_astra_state,
@@ -2953,6 +2981,7 @@ impl ManagedHostState {
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
             ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
             ManagedHostState::RotatingDpuUefi { .. } => "RotatingDpuUefi".to_string(),
+            ManagedHostState::RotatingNicLockdown => "RotatingNicLockdown".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -2995,7 +3024,7 @@ pub struct MachineInterfaceSnapshot {
     /// [`MachineBootInterface`]; for the `primary_interface` row that pair is the
     /// host's boot device.
     pub boot_interface_id: Option<String>,
-    pub attached_dpu_machine_id: Option<MachineId>,
+    pub attached_dpu_machine_id: Option<DpuMachineId>,
     pub domain_id: Option<DomainId>,
     pub machine_id: Option<MachineId>,
     pub segment_id: NetworkSegmentId,
@@ -3139,6 +3168,9 @@ pub fn state_sla(
             DecommissioningState::PowerCyclingHost => {
                 StateSla::with_sla(slas::DECOMMISSIONING_POWER_CYCLING_HOST, time_in_state)
             }
+            DecommissioningState::PoweringOnHost => {
+                StateSla::with_sla(slas::DECOMMISSIONING_POWERING_ON_HOST, time_in_state)
+            }
             DecommissioningState::WaitingForOobDhcpAcknowledgement => StateSla::with_sla(
                 slas::DECOMMISSIONING_WAITING_FOR_OOB_DHCP_ACKNOWLEDGEMENT,
                 time_in_state,
@@ -3210,6 +3242,9 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingDpuUefi { .. } => {
             StateSla::with_sla(slas::ROTATING_DPU_UEFI, time_in_state)
+        }
+        ManagedHostState::RotatingNicLockdown => {
+            StateSla::with_sla(slas::ROTATING_NIC_LOCKDOWN, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
@@ -3889,6 +3924,8 @@ mod tests {
         };
         let dpu_id =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap()
+                .try_into()
                 .unwrap();
 
         assert_eq!(state.to_string(), "BootConfiguring/Failed");
@@ -4267,8 +4304,10 @@ mod tests {
     // both assertions ride along.
     #[test]
     fn test_json_deserialize_reprovisioning_states() {
-        let machine_id =
+        let machine_id: DpuMachineId =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap()
+                .try_into()
                 .unwrap();
         scenarios!(
             run = |s| {
@@ -4312,8 +4351,10 @@ mod tests {
     // variant; the parsed value (PartialEq) is the whole assertion.
     #[test]
     fn test_json_deserialize_managed_host_states() {
-        let machine_id =
+        let machine_id: DpuMachineId =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap()
+                .try_into()
                 .unwrap();
 
         scenarios!(
@@ -4594,11 +4635,15 @@ mod tests {
             aggregate_health: health_report::HealthReport,
         }
 
-        let machine_id =
+        let machine_id: DpuMachineId =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap()
+                .try_into()
                 .unwrap();
-        let other_dpu_id =
+        let other_dpu_id: DpuMachineId =
             MachineId::from_str("fm100dtjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+                .unwrap()
+                .try_into()
                 .unwrap();
         let validation_id = MachineValidationId::nil();
         let sla_config = slas::MachineSlaConfig::new(chrono::Duration::minutes(10));
@@ -4608,7 +4653,7 @@ mod tests {
                 failed_at: chrono::Utc::now(),
                 source: FailureSource::NoError,
             },
-            machine_id,
+            machine_id: machine_id.into(),
             retry_count: 1,
         };
         let excluded = || {
@@ -5054,6 +5099,47 @@ mod tests {
         assert!(
             !sla.time_in_state_above_sla,
             "a freshly entered RotatingBmc state is within its SLA"
+        );
+    }
+
+    #[test]
+    fn rotating_nic_lockdown_state_serde_display_and_sla() {
+        // The unit variant pins to the bare `state` tag with no payload; the
+        // `parse -> serialize -> reparse` run pins serializer symmetry and the
+        // stable Display label.
+        scenarios!(
+            run = |s| {
+                let parsed = serde_json::from_str::<ManagedHostState>(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip =
+                    serde_json::from_str::<ManagedHostState>(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed.clone(), roundtrip, parsed.to_string()))
+            };
+            "bare tag round-trips" {
+                r#"{"state":"rotatingniclockdown"}"# => Yields((
+                    ManagedHostState::RotatingNicLockdown,
+                    ManagedHostState::RotatingNicLockdown,
+                    "RotatingNicLockdown".to_string(),
+                )),
+            }
+        );
+
+        // It carries the dedicated rekey SLA (not a default), and a freshly
+        // entered state is within it.
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let sla = state_sla(
+            &machine_id,
+            &ManagedHostState::RotatingNicLockdown,
+            &ConfigVersion::initial(),
+            &health_report_with_alerts(vec![]),
+            &slas::MachineSlaConfig::default(),
+        );
+        assert_eq!(sla.sla, Some(slas::ROTATING_NIC_LOCKDOWN));
+        assert!(
+            !sla.time_in_state_above_sla,
+            "a freshly entered RotatingNicLockdown state is within its SLA"
         );
     }
 

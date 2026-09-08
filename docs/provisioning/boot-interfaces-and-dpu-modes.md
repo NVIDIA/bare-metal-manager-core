@@ -1,4 +1,4 @@
-# Boot Interfaces and DPU Policies <Badge intent="info">v2.0</Badge> <Badge intent="launch" minimal>New</Badge>
+# Boot Interfaces and DPU Policies <Badge intent="info">v2.0</Badge>
 
 This guide explains how NICo decides **which interface a host boots from**, how a host's **DPUs are managed**, and how operators configure both through the Expected Machines table. It is the deep companion to [Ingesting Hosts](ingesting-hosts.md): that page covers the end-to-end ingest flow and the basic `expected_machines.json`; this page covers the per-host and per-interface knobs (`dpu_policy`, `interfaces`), **what the defaults do when you set nothing**, and how a boot device is chosen and applied behind the scenes.
 
@@ -269,9 +269,9 @@ The admin CLI and web UI use the following display labels:
 | `ExpectedMachine` | `BOOT_INTERFACE_SELECTION_SOURCE_EXPECTED_MACHINE` | An `ExpectedMachine` declaration selected the interface. |
 | `Operator` | `BOOT_INTERFACE_SELECTION_SOURCE_OPERATOR` | An operator selected the interface through an administrative write. |
 | `RedfishUefiPci` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_UEFI_PCI` | Redfish UEFI PCI path ordering selected the interface. |
-| `RedfishChassisId` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_CHASSIS_ID` | Reserved for [selection from Redfish chassis identity](https://github.com/NVIDIA/infra-controller/issues/5080). |
+| `RedfishChassisId` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_CHASSIS_ID` | Reserved for [selection from Redfish chassis identity](https://github.com/dsx-ai-factory/infra-controller/issues/5080). |
 | `RedfishSerialNumber` | `BOOT_INTERFACE_SELECTION_SOURCE_REDFISH_SERIAL_NUMBER` | NICo selected the interface after ordering DPUs by their Redfish serial numbers. Comparison ignores case. A missing serial number is an empty key and sorts before a populated value; equal keys preserve discovery order. |
-| `ScoutReportPci` | `BOOT_INTERFACE_SELECTION_SOURCE_SCOUT_REPORT_PCI` | Reserved for [selection from host PCI data reported by Scout](https://github.com/NVIDIA/infra-controller/issues/5083). |
+| `ScoutReportPci` | `BOOT_INTERFACE_SELECTION_SOURCE_SCOUT_REPORT_PCI` | Reserved for [selection from host PCI data reported by Scout](https://github.com/dsx-ai-factory/infra-controller/issues/5083). |
 | `LegacyUnknown` | `BOOT_INTERFACE_SELECTION_SOURCE_LEGACY_UNKNOWN` | NICo cannot recover why the interface was selected, including migrated rows and compatibility baselines for an existing Ready or Assigned host. |
 
 `selection_updated_at` records when the selected MAC or its selection source last changed. Enriching the same MAC
