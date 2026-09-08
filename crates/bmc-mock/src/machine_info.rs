@@ -296,7 +296,27 @@ impl DpuMachineInfo {
     fn update_service_config(&self) -> UpdateServiceConfig {
         let mut config = match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().update_service_config(),
-            DpuType::Bluefield4 => self.bluefield4().update_service_config(),
+            DpuType::Bluefield4 => {
+                let mut config = self.bluefield4().update_service_config();
+                let fw = &self.settings.firmware_versions;
+                for (id, version) in [
+                    ("BMC_Firmware", &fw.bmc),
+                    ("DPU_UEFI", &fw.uefi),
+                    ("Bluefield_FW_ERoT", &fw.cec),
+                    ("DPU_NIC", &fw.nic),
+                ] {
+                    if let Some(version) = version {
+                        config.firmware_inventory.push(
+                            redfish::software_inventory::builder(
+                                &redfish::software_inventory::firmware_inventory_resource(id),
+                            )
+                            .version(version)
+                            .build(),
+                        );
+                    }
+                }
+                config
+            }
         };
         if let Some(bsp) = &self.settings.bsp_version {
             config.firmware_inventory.push(
