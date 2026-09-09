@@ -32,7 +32,7 @@ use crate::json::{JsonExt, JsonPatch, json_patch};
 use crate::redfish::Builder;
 use crate::{
     BootOptionKind, Callbacks, LogServices, MachineRouterOptions, MockPowerState,
-    POWER_CYCLE_DELAY, SetSystemPowerError, http, redfish,
+    POWER_CYCLE_DELAY, SetSystemPowerError, SystemPowerControl, http, redfish,
 };
 
 pub(super) fn collection() -> redfish::Collection<'static> {
@@ -237,6 +237,7 @@ struct BootSourceOverride {
 }
 
 pub(crate) struct SingleSystemState {
+    pub(crate) power_events: Mutex<Vec<(chrono::DateTime<chrono::Utc>, SystemPowerControl)>>,
     config: SingleSystemConfig,
     serial_console_ssh_port_override: Mutex<Option<u16>>,
     virtual_media: Option<redfish::virtual_media::VirtualMediaState>,
@@ -373,6 +374,7 @@ impl SingleSystemState {
         Self {
             config,
             virtual_media,
+            power_events: Mutex::new(Vec::new()),
             serial_console_ssh_port_override: Mutex::new(None),
             boot_order_override: Mutex::new(None),
             hpe_boot_order_override: Mutex::new(None),
@@ -856,7 +858,14 @@ async fn post_reset_system(
     // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
     // to be released.
     match callbacks.set_power_state(reset_type) {
-        Ok(_) => json!({}).into_ok_response(),
+        Ok(_) => {
+            system_state
+                .power_events
+                .lock()
+                .unwrap()
+                .push((chrono::Utc::now(), reset_type));
+            json!({}).into_ok_response()
+        }
         Err(SetSystemPowerError::BadRequest(_)) => StatusCode::BAD_REQUEST.into_response(),
         Err(SetSystemPowerError::CommandSendError(_)) => {
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
