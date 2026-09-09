@@ -2080,7 +2080,13 @@ async fn power_control_ingested_machine_ids(
     // stack (never the state machine, which has no non-rack path), so
     // power control works even when the configured backend is RMS.
     if !standalone_ids.is_empty() {
-        let core_backend = CoreComputeTrayManager::new(api.redfish_pool.clone());
+        // CoreComputeTrayManager authenticates with explicit per-endpoint
+        // credentials (RedfishAuth::Direct), which the proxied pool rejects
+        // by design -- keep it on the direct pool (the credential-ops handle,
+        // upcast to a plain pool) until it moves to credential-key auth.
+        let direct_pool: std::sync::Arc<dyn carbide_redfish::libredfish::RedfishClientPool> =
+            api.bmc_credential_ops.clone();
+        let core_backend = CoreComputeTrayManager::new(direct_pool);
         match dispatch_compute_tray_power_control(
             api,
             &core_backend,
@@ -2257,7 +2263,13 @@ pub(crate) async fn component_power_control(
                 // NICo-core's Redfish stack, which needs only the BMC IP and
                 // credentials — matching the ingested standalone path.
                 if !standalone_macs.is_empty() {
-                    let core_backend = CoreComputeTrayManager::new(api.redfish_pool.clone());
+                    // Same direct-pool requirement as the ingested
+                    // standalone path above: explicit per-endpoint
+                    // credentials cannot route through the proxied pool.
+                    let direct_pool: std::sync::Arc<
+                        dyn carbide_redfish::libredfish::RedfishClientPool,
+                    > = api.bmc_credential_ops.clone();
+                    let core_backend = CoreComputeTrayManager::new(direct_pool);
                     let (standalone_server_results, standalone_server_ips) =
                         dispatch_pre_ingestion_compute_power_control(
                             api,

@@ -58,6 +58,7 @@ Use `site_explorer.dpu_policy` instead.
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | `machines` | Retry count when IPMI errors during DPU reboot. |
 | `bmc_session_lockout_threshold` | `u32` | `3` | `security` | Consecutive BMC HTTP 401/403 responses before session-token login attempts stop for that BMC. |
 | `bmc_max_sessions_per_caller` | `usize` | `4` | `security` | Cap on outstanding Redfish sessions per calling service identity per BMC; a `GetBmcCredentials` mint past the cap revokes that caller's oldest sessions. Values below 1 are treated as 1. |
+| `bmc_proxy` | `Option<BmcProxyConfig>` | — | `security` | Routes this instance's ordinary BMC Redfish traffic — including established-endpoint credentialed exploration — through nico-bmc-proxy. Credential setup and rotation, session minting, exploration's anonymous vendor probes, and component-manager compute-tray power control (explicit per-endpoint credentials) always stay direct. |
 | `ib_fabrics` | `HashMap<String, IbFabricDefinition>` | `{}` | `hardware` | InfiniBand fabrics managed by the site. Currently only one fabric is supported. |
 | `initial_domain_name` | `Option<String>` | — | `machines` | Domain to create if none exist. Most sites use a single domain. |
 | `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | `machines` | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |
@@ -304,6 +305,78 @@ available for topology-specific flows.
 ---
 
 ## Sub-Structs
+
+### `BmcProxyConfig` — `bmc_proxy`
+
+Routes `nico-api` BMC Redfish traffic through `nico-bmc-proxy`. The proxy
+authenticates upstream itself, so clients from the proxied pools carry no BMC
+credentials.
+
+The proxied pools handle:
+
+- Machine-lifecycle Redfish traffic.
+- Credentialed exploration for endpoints with established stored root
+  credentials. The proxy resolves the same per-BMC credential key.
+
+Some traffic remains on the direct pools:
+
+- Every exploration cycle starts with a direct anonymous service-root probe
+  because vendor detection has no proxy path.
+- The power-shelf vendor fallback authenticates directly.
+- Component-manager compute-tray power control—the `core` compute-tray
+  backend and standalone servers—uses explicit per-endpoint credentials.
+- Credential-subject operations remain direct: first-contact exploration,
+  credential setup with factory or expected credentials, BMC session minting,
+  password rotation, and UEFI password management.
+
+The proxied pool rejects explicit credentials, so a misrouted request returns
+an error. The proxy presents a verifiable certificate, and connections to it
+keep certificate verification enabled.
+
+Keep these constraints in mind:
+
+- **Precedence.** This static section is independent of the dynamic
+  `site_explorer.bmc_proxy` development redirect configured by the
+  `set bmc-proxy` CLI command. The proxied pool ignores the dynamic redirect,
+  and the admin Redfish passthrough uses this section when both are configured.
+  The dynamic redirect continues to apply to clients from the direct pools.
+- **Basic authentication.** For BMCs without a `SessionService`, the proxy
+  uses HTTP Basic authentication. `GetBmcCredentials` provides these
+  credentials only when `allow_bmc_basic_auth_fallback` is enabled.
+  Otherwise, the BMC is unreachable through the proxied pool.
+- **Port.** `nico-bmc-proxy` always connects to the BMC through the standard
+  HTTPS port, 443. A BMC recorded with another Redfish port returns a
+  client-creation error that identifies the unsupported port.
+
+| Field | Type | Default | Description |
+| ------- | ------ | --------- | ------------- |
+| `enabled` | `bool` | `false` | Master switch for routing through `nico-bmc-proxy`. When `false`, traffic uses the direct pools; the independent dynamic `site_explorer.bmc_proxy` redirect remains in effect. |
+| `address` | `String` | `""` | Proxy address as `host:port` or `host` (the port defaults to the BMC proxy's 1079). Required when `enabled` is true; startup fails on an enabled section with an empty `address`. |
+| `client_cert` | `String` | `/var/run/secrets/spiffe.io/tls.crt` | PEM client certificate presented to the proxy's mTLS listener. |
+| `client_key` | `String` | `/var/run/secrets/spiffe.io/tls.key` | PEM private key for `client_cert`. |
+| `root_ca` | `String` | `/var/run/secrets/spiffe.io/ca.crt` | PEM bundle that verifies the proxy's server certificate. |
+
+#### Certificate lifecycle
+
+`client_cert`, `client_key`, and `root_ca` are read from disk, so certificate
+rotation is picked up without a restart:
+
+- The proxied Redfish pool and the admin passthrough client read the files at
+  startup, and an unreadable file fails startup. Each rebuilds its TLS client
+  from disk on the first request after a five-minute interval. A failed rebuild
+  keeps the previous client in service, increments
+  `carbide_api_bmc_proxy_client_reload_failures_total`, and defers the next
+  attempt until another five-minute interval has passed.
+- The nv-redfish proxied pool that site-explorer uses builds its client on
+  first use and rebuilds it at most once per five-minute interval, off the
+  request path. A failed rebuild keeps the previous client and logs a warning.
+  Until a first client exists, every request retries the build and returns the
+  read error.
+
+Rotate so that the outgoing certificate stays valid for at least five minutes
+after the new files are written, and alert on the reload-failure counter: a
+persistent failure means proxied BMC traffic stops when the stale certificate
+expires.
 
 ### `ApiAdmissionControlConfig`
 

@@ -18,7 +18,9 @@ Set bmc_proxy
 ## OPTIONS
 
 **--enabled** *\<ENABLED\>*  
-Enable site-explorer bmc_proxy\
+Enable the dynamic site_explorer.bmc_proxy redirect for development and
+integration environments. This setting is independent of static
+\[bmc_proxy\] routing through nico-bmc-proxy.\
 
 \
 *Possible values:*

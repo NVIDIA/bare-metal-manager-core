@@ -137,6 +137,62 @@ fn create_ipmi_tool(
     }
 }
 
+/// The Redfish pools `[bmc_proxy]` selects, built together so site-explorer's
+/// proxied handle is the general pool itself and can never be the direct
+/// pool by a call-site mistake.
+struct BmcProxyPools {
+    /// The pool for ordinary BMC traffic: nico-bmc-proxy when `[bmc_proxy]`
+    /// is enabled, otherwise the direct pool itself. Credential-lifecycle
+    /// work never uses this handle -- that is what the [`BmcCredentialOps`]
+    /// handle is for.
+    general: Arc<dyn RedfishClientPool>,
+    /// The pools site-explorer uses for established-endpoint traffic via
+    /// nico-bmc-proxy. `None` (section absent or disabled) leaves every
+    /// site-explorer operation on the direct pools, unchanged.
+    site_explorer: Option<carbide_site_explorer::ProxiedPools>,
+}
+
+fn create_bmc_proxy_pools(
+    carbide_config: &CarbideConfig,
+    credential_manager: Arc<dyn CredentialManager>,
+    direct_pool: &Arc<dyn RedfishClientPool>,
+) -> eyre::Result<BmcProxyPools> {
+    let Some(proxy_config) = enabled_bmc_proxy_config(carbide_config) else {
+        return Ok(BmcProxyPools {
+            general: direct_pool.clone(),
+            site_explorer: None,
+        });
+    };
+    let proxy = proxy_config
+        .proxy_target()
+        .map_err(|err| eyre::eyre!(err))?;
+    let proxied: Arc<dyn RedfishClientPool> = Arc::new(crate::bmc_proxy::ProxiedRedfishPool::new(
+        proxy_config,
+        credential_manager,
+    )?);
+    Ok(BmcProxyPools {
+        general: proxied.clone(),
+        site_explorer: Some(carbide_site_explorer::ProxiedPools {
+            redfish: proxied,
+            nv_redfish: carbide_redfish::nv_redfish::new_proxied_pool(
+                proxy,
+                proxy_config.client_cert.as_str(),
+                proxy_config.client_key.as_str(),
+                proxy_config.root_ca.as_str(),
+            ),
+        }),
+    })
+}
+
+fn enabled_bmc_proxy_config(
+    carbide_config: &CarbideConfig,
+) -> Option<&crate::cfg::file::BmcProxyConfig> {
+    carbide_config
+        .bmc_proxy
+        .as_ref()
+        .filter(|proxy_config| proxy_config.enabled)
+}
+
 fn create_redfish_pool(
     carbide_config: &CarbideConfig,
     credential_manager: Arc<dyn CredentialManager>,
@@ -210,6 +266,18 @@ pub(crate) async fn start_runtime(
 ) -> eyre::Result<SocketAddr> {
     let (shared_redfish_pool, bmc_credential_ops) =
         create_redfish_pool(&carbide_config, credential_manager.clone())?;
+    // Ordinary BMC traffic goes through nico-bmc-proxy when configured,
+    // including site-explorer's established-endpoint traffic.
+    // Credential-lifecycle work (credential setup, session minting, rotation)
+    // stays on the direct ops handle, which authenticates to BMCs itself.
+    let BmcProxyPools {
+        general: general_redfish_pool,
+        site_explorer: site_explorer_proxied_pools,
+    } = create_bmc_proxy_pools(
+        &carbide_config,
+        credential_manager.clone(),
+        &shared_redfish_pool,
+    )?;
     let shared_nv_redfish_pool =
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
@@ -402,6 +470,9 @@ pub(crate) async fn start_runtime(
     let bmc_client = Arc::new(AuthenticatedBmcClient::new(
         bmc_credential_ops.clone(),
         shared_nv_redfish_pool,
+        // Established-endpoint traffic goes through nico-bmc-proxy when
+        // enabled; credential setup stays on the direct handle above.
+        site_explorer_proxied_pools,
         ipmi_tool.clone(),
         credential_manager.clone(),
     ));
@@ -478,6 +549,10 @@ pub(crate) async fn start_runtime(
                 client as Arc<dyn component_manager::rms::RmsSwitchSystemImageStatusApi>
             }),
             Some(db_pool.clone()),
+            // The core compute-tray backend authenticates with explicit
+            // per-endpoint credentials (RedfishAuth::Direct), which the
+            // proxied pool rejects by design -- keep it on the direct pool
+            // until it moves to credential-key auth.
             Some(shared_redfish_pool.clone()),
         )
         .await
@@ -529,8 +604,12 @@ pub(crate) async fn start_runtime(
         endpoint_exploration_service: endpoint_exploration_service.clone(),
         eth_data,
         ib_fabric_manager,
-        redfish_pool: shared_redfish_pool,
+        redfish_pool: general_redfish_pool,
         bmc_credential_ops: bmc_credential_ops.clone(),
+        bmc_proxy_passthrough: enabled_bmc_proxy_config(&carbide_config)
+            .map(crate::bmc_proxy::PassthroughClient::new)
+            .transpose()?
+            .map(Arc::new),
         bmc_session_manager,
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
@@ -2976,6 +3055,103 @@ attributes = { attribute1 = "site", additional_attribute3 = "site" }
         assert_eq!(
             classify_config_validation_error(&error),
             ResolveFailure::Unexpected(error.to_string())
+        );
+    }
+
+    // --- [bmc_proxy] pool selection ---------------------------------------
+
+    fn selection_fixtures() -> (
+        CarbideConfig,
+        Arc<dyn CredentialManager>,
+        Arc<dyn RedfishClientPool>,
+    ) {
+        let config = crate::test_support::default_config::get();
+        let credential_manager: Arc<dyn CredentialManager> =
+            Arc::new(carbide_secrets::test_support::credentials::TestCredentialManager::default());
+        let (direct, _ops) = create_redfish_pool(&config, credential_manager.clone())
+            .expect("direct pool builds from the default test config");
+        (config, credential_manager, direct)
+    }
+
+    /// With `[bmc_proxy]` absent or disabled, the general pool IS the direct
+    /// pool -- the identical `Arc` -- and site-explorer gets no proxied
+    /// pools, so disabled mode cannot change behavior.
+    #[test]
+    fn pools_are_direct_unless_bmc_proxy_is_enabled() {
+        let (mut config, credential_manager, direct) = selection_fixtures();
+
+        assert!(
+            config.bmc_proxy.is_none(),
+            "default test config has no section"
+        );
+        let pools = create_bmc_proxy_pools(&config, credential_manager.clone(), &direct)
+            .expect("absent section selects pools");
+        assert!(
+            Arc::ptr_eq(&pools.general, &direct),
+            "an absent [bmc_proxy] must alias the direct pool"
+        );
+        assert!(
+            pools.site_explorer.is_none(),
+            "an absent [bmc_proxy] must leave site-explorer direct"
+        );
+
+        config.bmc_proxy = Some(
+            serde_json::from_value(serde_json::json!({ "enabled": false }))
+                .expect("a disabled section parses without a url"),
+        );
+        let pools = create_bmc_proxy_pools(&config, credential_manager, &direct)
+            .expect("disabled section selects pools");
+        assert!(
+            Arc::ptr_eq(&pools.general, &direct),
+            "a disabled [bmc_proxy] must alias the direct pool"
+        );
+        assert!(
+            pools.site_explorer.is_none(),
+            "a disabled [bmc_proxy] must leave site-explorer direct"
+        );
+    }
+
+    /// With `[bmc_proxy]` enabled, the general pool is a distinct proxied
+    /// pool built from the configured certificates, and site-explorer's
+    /// proxied Redfish handle is that same pool -- never the direct one,
+    /// which is left for credential-lifecycle work.
+    #[test]
+    fn pools_are_proxied_when_bmc_proxy_is_enabled() {
+        let (mut config, credential_manager, direct) = selection_fixtures();
+        let dir = tempfile::tempdir().expect("tempdir");
+        config.bmc_proxy = Some(crate::bmc_proxy::test_config_with_generated_pems(&dir));
+
+        let pools = create_bmc_proxy_pools(&config, credential_manager, &direct)
+            .expect("an enabled section with readable certs builds the proxied pools");
+        assert!(
+            !Arc::ptr_eq(&pools.general, &direct),
+            "an enabled [bmc_proxy] must select a distinct proxied pool"
+        );
+        let site_explorer = pools
+            .site_explorer
+            .expect("an enabled [bmc_proxy] must build site-explorer's proxied pools");
+        assert!(
+            Arc::ptr_eq(&site_explorer.redfish, &pools.general),
+            "site-explorer's proxied Redfish handle must be the general (proxied) pool"
+        );
+    }
+
+    /// An enabled section without a url is a startup error, never a pool
+    /// that silently dials BMCs directly.
+    #[test]
+    fn enabled_bmc_proxy_without_url_fails_startup() {
+        let (mut config, credential_manager, direct) = selection_fixtures();
+        config.bmc_proxy = Some(
+            serde_json::from_value(serde_json::json!({ "enabled": true }))
+                .expect("the section parses; the empty default address is rejected later"),
+        );
+
+        let Err(err) = create_bmc_proxy_pools(&config, credential_manager, &direct) else {
+            panic!("an enabled section with no address must fail startup");
+        };
+        assert!(
+            err.to_string().contains("required"),
+            "the error should name the missing address, got: {err}"
         );
     }
 }
