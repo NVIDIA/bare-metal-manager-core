@@ -87,7 +87,7 @@ use model::machine::{
     PowerState, ReadyBootConfigPostLockAction, ReadyBootConfigState, ReprovisionState, RetryInfo,
     SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
     SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
-    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
+    UnlockHostState, ValidationState, get_display_ids,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerHandlingOutcome;
@@ -4820,20 +4820,13 @@ impl DpuMachineStateHandler {
                     ));
                 }
 
-                if dpf_based_dpu_provisioning_possible(state, self.dpf_sdk.is_some(), false) {
-                    let mut txn = ctx.services.db_pool.begin().await?;
-                    db::machine::mark_machine_ingestion_done_with_dpf(
-                        &mut txn,
-                        &state.host_snapshot.id,
-                    )
-                    .await?;
-
+                if state.host_snapshot.config.dpf.used_for_ingestion {
                     let next_state = DpuInitState::DpfStates {
                         state: model::machine::DpfState::Provisioning,
                     }
                     .next_state_with_all_dpus_updated(&state.managed_state)?;
 
-                    return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
+                    return Ok(StateHandlerOutcome::transition(next_state));
                 }
 
                 for dpu_snapshot in &state.dpu_snapshots {

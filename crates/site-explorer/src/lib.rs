@@ -523,6 +523,7 @@ impl SiteExplorer {
         rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
+        dpf_enabled_at_site: bool,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -547,6 +548,7 @@ impl SiteExplorer {
                 rack_profiles,
                 rms_client.clone(),
                 credential_manager,
+                dpf_enabled_at_site,
             ),
             switch_creator: SwitchCreator::new(
                 database_connection.clone(),

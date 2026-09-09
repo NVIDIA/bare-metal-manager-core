@@ -1867,22 +1867,13 @@ impl NextStateBFBSupport<DpuDiscoveringState> for DpuDiscoveringState {
     fn next_substate_based_on_bfb_support(
         enable_secure_boot: bool,
         state: &ManagedHostStateSnapshot,
-        dpf_enabled_at_site: bool,
+        _dpf_enabled_at_site: bool,
     ) -> DpuDiscoveringState {
-        // DPF should be given priority over secure boot.
-        // DPF does not support Secure boot.
-        let is_dpf_based_provisioning_possible =
-            dpf_based_dpu_provisioning_possible(state, dpf_enabled_at_site, false);
-
-        // Secure boot will be handled by DPF itself.
-        if is_dpf_based_provisioning_possible {
+        if state.host_snapshot.config.dpf.used_for_ingestion {
             return DpuDiscoveringState::RebootAllDPUS;
         }
 
-        if !is_dpf_based_provisioning_possible
-            && enable_secure_boot
-            && bfb_install_support(&state.dpu_snapshots)
-        {
+        if enable_secure_boot && bfb_install_support(&state.dpu_snapshots) {
             // Move with a redfish install path
             DpuDiscoveringState::EnableSecureBoot {
                 count: 0,
@@ -4212,7 +4203,6 @@ mod tests {
     #[derive(Clone, Copy)]
     struct DpuProvisioningRouteInput {
         dpf: DpfProvisioningInput,
-        dpf_available: bool,
         enable_secure_boot: bool,
     }
 
@@ -4227,7 +4217,6 @@ mod tests {
                             used_for_ingestion: true,
                             ..dpf_input(&[BF3_SUPPORTED])
                         },
-                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4238,10 +4227,9 @@ mod tests {
                     ),
                 },
                 Check {
-                    scenario: "unavailable DPF uses secure boot fallback",
+                    scenario: "DPF-enabled site uses secure boot fallback when the host was not selected",
                     input: DpuProvisioningRouteInput {
                         dpf: dpf_input(&[BF3_SUPPORTED]),
-                        dpf_available: false,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4261,7 +4249,6 @@ mod tests {
                             dpf_enabled_at_site: false,
                             ..dpf_input(&[BF3_SUPPORTED])
                         },
-                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4281,7 +4268,6 @@ mod tests {
                             dpf_enabled_at_site: false,
                             ..dpf_input(&[BF3_SUPPORTED])
                         },
-                        dpf_available: true,
                         enable_secure_boot: false,
                     },
                     expect: (
@@ -4302,7 +4288,6 @@ mod tests {
                             dpus: &[BF3_SUPPORTED, BF3_UNSUPPORTED_BFB],
                             ..dpf_input(&[])
                         },
-                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4316,17 +4301,19 @@ mod tests {
                     ),
                 },
                 Check {
-                    scenario: "legacy subset only blocks the reprovision DPF route",
+                    scenario: "unselected host only uses the legacy initial-ingestion route",
                     input: DpuProvisioningRouteInput {
                         dpf: DpfProvisioningInput {
                             dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
                             ..dpf_input(&[])
                         },
-                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
-                        DpuDiscoveringState::RebootAllDPUS,
+                        DpuDiscoveringState::EnableSecureBoot {
+                            count: 0,
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        },
                         ReprovisionState::InstallDpuOs {
                             substate: InstallDpuOsState::InstallingBFB,
                         },
@@ -4336,7 +4323,6 @@ mod tests {
                     scenario: "BF2 falls back to Redfish BFB installation",
                     input: DpuProvisioningRouteInput {
                         dpf: dpf_input(&[BF2_SUPPORTED]),
-                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4353,7 +4339,6 @@ mod tests {
                     scenario: "an empty DPU set cannot select aggregate routes",
                     input: DpuProvisioningRouteInput {
                         dpf: dpf_input(&[]),
-                        dpf_available: true,
                         enable_secure_boot: true,
                     },
                     expect: (
@@ -4373,7 +4358,7 @@ mod tests {
                     DpuDiscoveringState::next_substate_based_on_bfb_support(
                         input.enable_secure_boot,
                         &state,
-                        input.dpf.dpf_enabled_at_site && input.dpf_available,
+                        input.dpf.dpf_enabled_at_site,
                     ),
                     ReprovisionState::next_substate_based_on_bfb_support(
                         input.enable_secure_boot,
