@@ -162,11 +162,6 @@ impl RedfishClient {
                 // while it is still initializing; `Some(_)` means a vendor we don't
                 // recognize yet. See NVBug 6036327.
                 let observed = service_root.vendor_string();
-                tracing::info!(
-                    %bmc_ip_address,
-                    observed_vendor = ?observed,
-                    "BMC ServiceRoot did not report a recognized vendor"
-                );
                 Err(EndpointExplorationError::MissingVendor { observed })
             }
         }
