@@ -105,6 +105,11 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = CarbideCliResult<T>>,
 {
+    // Never let a caller-supplied 0 reach the loop below: `1..=0` is empty, which would fall
+    // through to the `unreachable!` -- a real panic path for a network-retry helper, not just
+    // a formality, since this is `pub(crate)` and every current call site's `8` is a caller
+    // choice, not an enforced invariant.
+    let max_attempts = max_attempts.max(1);
     let mut total_backoff = Duration::ZERO;
     for attempt_number in 1..=max_attempts {
         match attempt().await {

@@ -215,13 +215,17 @@ impl ApiClient {
     /// source `version` already exposes. A zero/unset cap means the server
     /// enforces no limit, so we fall back to `page_size` -- `chunks(0)` panics.
     pub(crate) async fn effective_chunk_size(&self, page_size: usize) -> CarbideCliResult<usize> {
-        let cap = self
-            .0
-            .version(true)
-            .await?
-            .runtime_config
-            .unwrap_or_default()
-            .max_find_by_ids as usize;
+        // Every `*_by_ids` paged fetch calls this first to size its chunks, so a
+        // `RESOURCE_EXHAUSTED` rejection here needs the same retry protection as the
+        // paged fetches themselves -- otherwise it's a single unretried call sitting
+        // in front of code that's supposed to be retry-safe end-to-end.
+        let version = retry_on_admission_exhaustion(
+            MAX_PAGED_FETCH_ATTEMPTS,
+            MAX_PAGED_FETCH_BACKOFF,
+            || async { self.0.version(true).await.map_err(CarbideCliError::from) },
+        )
+        .await?;
+        let cap = version.runtime_config.unwrap_or_default().max_find_by_ids as usize;
         Ok(cap_chunk_size(page_size, cap))
     }
 
