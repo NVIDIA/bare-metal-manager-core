@@ -23,11 +23,12 @@ use axum::extract::{Json, Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::json;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
 use crate::middleware_router::StateRefreshHandled;
-use crate::{http, redfish};
+use crate::{http, redfish, refresh_backend_state};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeviceConfig {
@@ -46,6 +47,7 @@ struct Media {
 struct DeviceState {
     config: DeviceConfig,
     media: Mutex<Media>,
+    update: AsyncMutex<()>,
 }
 
 pub(crate) struct VirtualMediaState {
@@ -63,6 +65,7 @@ impl VirtualMediaState {
                         write_protected: true,
                         ..Default::default()
                     }),
+                    update: AsyncMutex::new(()),
                 })
                 .collect(),
         }
@@ -199,6 +202,7 @@ async fn insert_media(
             write_protected,
         },
     )
+    .await
 }
 
 async fn eject_media(
@@ -221,9 +225,11 @@ async fn eject_media(
             ..Default::default()
         },
     )
+    .await
 }
 
-fn update_media(state: &BmcState, device: &DeviceState, desired: Media) -> Response {
+async fn update_media(state: &BmcState, device: &DeviceState, desired: Media) -> Response {
+    let _update = device.update.lock().await;
     let previous = {
         let mut media = device.media.lock().expect("mutex poisoned");
         std::mem::replace(&mut *media, desired)
@@ -232,10 +238,15 @@ fn update_media(state: &BmcState, device: &DeviceState, desired: Media) -> Respo
     let Some(callbacks) = state.callbacks.as_ref() else {
         return http::ok_no_content();
     };
-    if let Err(error) = callbacks.state_refresh_indication() {
+    if let Err(error) = refresh_backend_state(callbacks.clone()).await {
         *device.media.lock().expect("mutex poisoned") = previous;
-        let rollback_error = callbacks.state_refresh_indication().err();
-        tracing::error!(error, rollback_error, "could not apply virtual media state",);
+        let rollback_error = refresh_backend_state(callbacks.clone()).await.err();
+        tracing::error!(
+            device_id = %device.config.id,
+            error = %error,
+            rollback_error,
+            "could not apply virtual media state",
+        );
         return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
@@ -276,7 +287,8 @@ impl DeviceState {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
@@ -319,9 +331,14 @@ mod tests {
 
     fn test_router_for(hardware_type: HardwareType) -> (Router, Arc<RecordingCallbacks>) {
         let callbacks = Arc::new(RecordingCallbacks::default());
-        let router = machine_router(
+        let router = router_for_callbacks(hardware_type, callbacks.clone());
+        (router, callbacks)
+    }
+
+    fn router_for_callbacks(hardware_type: HardwareType, callbacks: Arc<dyn Callbacks>) -> Router {
+        machine_router(
             &host_info(hardware_type),
-            callbacks.clone(),
+            callbacks,
             "test-host-id".to_string(),
             false,
             MachineRouterOptions {
@@ -340,8 +357,7 @@ mod tests {
                 ]),
             },
         )
-        .0;
-        (router, callbacks)
+        .0
     }
 
     #[tokio::test]
@@ -459,6 +475,85 @@ mod tests {
         assert_eq!(body.unwrap()["Inserted"], false);
 
         assert_eq!(callbacks.refresh_count.load(Ordering::Relaxed), 3);
+    }
+
+    #[derive(Debug)]
+    struct FailingFirstRefresh {
+        refresh_count: AtomicUsize,
+        first_started: AtomicBool,
+        release_first: AtomicBool,
+    }
+
+    impl Callbacks for FailingFirstRefresh {
+        fn get_power_state(&self) -> MockPowerState {
+            MockPowerState::Off
+        }
+
+        fn send_power_command(
+            &self,
+            _reset_type: SystemPowerControl,
+        ) -> Result<(), SetSystemPowerError> {
+            Ok(())
+        }
+
+        fn state_refresh_indication(&self) -> Result<(), String> {
+            let refresh = self.refresh_count.fetch_add(1, Ordering::SeqCst);
+            if refresh != 0 {
+                return Ok(());
+            }
+            self.first_started.store(true, Ordering::SeqCst);
+            while !self.release_first.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Err("injected reconciliation failure".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_update_does_not_overwrite_a_concurrent_media_change() {
+        let callbacks = Arc::new(FailingFirstRefresh {
+            refresh_count: AtomicUsize::new(0),
+            first_started: AtomicBool::new(false),
+            release_first: AtomicBool::new(false),
+        });
+        let router = router_for_callbacks(HardwareType::DellPowerEdgeR750, callbacks.clone());
+        let media = "/redfish/v1/Systems/System.Embedded.1/VirtualMedia/Cd";
+        let first_router = router.clone();
+        let first = tokio::spawn(async move {
+            request(
+                &first_router,
+                Method::POST,
+                &format!("{media}/Actions/VirtualMedia.InsertMedia"),
+                Some(json!({"Image": "/tmp/first.iso"})),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !callbacks.first_started.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first reconciliation did not start");
+
+        let second_router = router.clone();
+        let second = tokio::spawn(async move {
+            request(
+                &second_router,
+                Method::POST,
+                &format!("{media}/Actions/VirtualMedia.InsertMedia"),
+                Some(json!({"Image": "/tmp/second.iso"})),
+            )
+            .await
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        callbacks.release_first.store(true, Ordering::SeqCst);
+
+        assert_eq!(first.await.unwrap().0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(second.await.unwrap().0, StatusCode::NO_CONTENT);
+        let (_, body) = request(&router, Method::GET, media, None).await;
+        assert_eq!(body.unwrap()["Image"], "/tmp/second.iso");
+        assert_eq!(callbacks.refresh_count.load(Ordering::SeqCst), 3);
     }
 
     #[tokio::test]

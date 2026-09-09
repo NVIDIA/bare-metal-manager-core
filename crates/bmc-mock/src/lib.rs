@@ -16,6 +16,7 @@
  */
 use std::borrow::Cow;
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -224,7 +225,20 @@ pub trait Callbacks: std::fmt::Debug + Send + Sync {
         self.send_power_command(reset_type)
     }
 
+    /// Reconciles the mock's current desired state with its external backend.
+    ///
+    /// Returns an error when the desired state cannot be read or applied. When
+    /// a successful mutating request triggers reconciliation, request handlers
+    /// return HTTP 500 if this method fails. Implementations that perform
+    /// external I/O must bound every attempt.
     fn state_refresh_indication(&self) -> Result<(), String>;
+}
+
+/// Runs potentially blocking backend reconciliation away from Tokio workers.
+pub(crate) async fn refresh_backend_state(callbacks: Arc<dyn Callbacks>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || callbacks.state_refresh_indication())
+        .await
+        .map_err(|error| format!("backend state reconciliation task failed: {error}"))?
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {

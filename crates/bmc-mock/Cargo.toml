@@ -60,6 +60,7 @@ tower-http = { features = ["normalize-path"], workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter"], workspace = true }
 url = { workspace = true }
+wait-timeout = { workspace = true }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }

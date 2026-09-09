@@ -25,9 +25,9 @@ use axum::routing::any;
 use carbide_axum_utils::router::call_router_with_new_request;
 use tracing::instrument;
 
-use crate::Callbacks;
 use crate::availability::BmcAvailabilityState;
 use crate::injection::InjectionStore;
+use crate::{Callbacks, refresh_backend_state};
 
 #[derive(Clone)]
 pub(crate) struct StateRefreshHandled;
@@ -91,12 +91,12 @@ async fn process(State(mut state): State<Middleware>, request: Request<Body>) ->
     if !is_safe
         && response.status().is_success()
         && response.extensions().get::<StateRefreshHandled>().is_none()
-        && let Err(error) = state.callbacks.state_refresh_indication()
+        && let Err(error) = refresh_backend_state(Arc::clone(&state.callbacks)).await
     {
         tracing::error!(
             method = %method,
             path,
-            error,
+            error = %error,
             "could not reconcile backend state after BMC mock request",
         );
         return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -116,5 +116,58 @@ struct Middleware {
 impl Middleware {
     async fn call_inner_router(&mut self, request: Request<Body>) -> axum::response::Response {
         call_router_with_new_request(&mut self.inner, request).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use super::*;
+    use crate::{MockPowerState, SetSystemPowerError, SystemPowerControl};
+
+    #[derive(Debug)]
+    struct BlockingRefresh {
+        started: Arc<AtomicBool>,
+        finished: Arc<AtomicBool>,
+    }
+
+    impl Callbacks for BlockingRefresh {
+        fn get_power_state(&self) -> MockPowerState {
+            MockPowerState::Off
+        }
+
+        fn send_power_command(
+            &self,
+            _reset_type: SystemPowerControl,
+        ) -> Result<(), SetSystemPowerError> {
+            Ok(())
+        }
+
+        fn state_refresh_indication(&self) -> Result<(), String> {
+            self.started.store(true, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(100));
+            self.finished.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn backend_refresh_does_not_block_the_async_executor() {
+        let started = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let callbacks: Arc<dyn Callbacks> = Arc::new(BlockingRefresh {
+            started: Arc::clone(&started),
+            finished: Arc::clone(&finished),
+        });
+
+        let refresh = tokio::spawn(refresh_backend_state(callbacks));
+        tokio::task::yield_now().await;
+
+        assert!(!finished.load(Ordering::SeqCst));
+        refresh.await.unwrap().unwrap();
+        assert!(started.load(Ordering::SeqCst));
+        assert!(finished.load(Ordering::SeqCst));
     }
 }

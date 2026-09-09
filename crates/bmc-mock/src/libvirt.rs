@@ -18,12 +18,14 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::Duration;
 
 use quick_xml::events::{BytesEnd, BytesStart, Event};
 use quick_xml::{Reader, Writer};
 use url::Url;
+use wait_timeout::ChildExt;
 
 use crate::redfish::computer_system::{SingleSystemState, SystemState};
 use crate::{BmcState, Callbacks, MockPowerState, SetSystemPowerError, SystemPowerControl};
@@ -37,6 +39,11 @@ enum VirtualMediaError {
 }
 
 type VirtualMediaResult = Result<(), VirtualMediaError>;
+
+/// Maximum wall-clock time for one local `virsh` attempt. Libvirt control
+/// commands are expected to return promptly; bounding each attempt at 30
+/// seconds prevents a stuck daemon from pinning a reconciliation worker.
+const VIRSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -70,6 +77,11 @@ impl LibvirtCallbacks {
         }
     }
 
+    /// Binds this backend to one BMC state instance, provisions each configured
+    /// persistent CD-ROM with a `ua-bmc-mock-vmedia-*` ownership alias (and its
+    /// live counterpart when the domain is active), then reconciles the desired
+    /// state before returning. A second binding or any provisioning or
+    /// reconciliation failure returns an error.
     pub fn bind_state(&self, state: &BmcState) -> Result<(), String> {
         let controlled_system = state
             .system_state
@@ -89,17 +101,70 @@ impl LibvirtCallbacks {
     }
 
     fn virsh_output(&self, arguments: &[&str]) -> Result<Output, String> {
-        Command::new(&self.config.virsh_path)
+        self.virsh_output_with_timeout(arguments, VIRSH_COMMAND_TIMEOUT)
+    }
+
+    fn virsh_output_with_timeout(
+        &self,
+        arguments: &[&str],
+        timeout: Duration,
+    ) -> Result<Output, String> {
+        let stdout_file = tempfile::NamedTempFile::new()
+            .map_err(|error| format!("could not create temporary virsh stdout file: {error}"))?;
+        let stderr_file = tempfile::NamedTempFile::new()
+            .map_err(|error| format!("could not create temporary virsh stderr file: {error}"))?;
+        let stdout = stdout_file
+            .reopen()
+            .map_err(|error| format!("could not open temporary virsh stdout file: {error}"))?;
+        let stderr = stderr_file
+            .reopen()
+            .map_err(|error| format!("could not open temporary virsh stderr file: {error}"))?;
+        let mut child = Command::new(&self.config.virsh_path)
             .arg("--connect")
             .arg(&self.config.uri)
             .args(arguments)
-            .output()
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
             .map_err(|error| {
                 format!(
                     "could not execute {}: {error}",
                     self.config.virsh_path.display()
                 )
-            })
+            })?;
+        let Some(status) = child.wait_timeout(timeout).map_err(|error| {
+            format!(
+                "could not wait for {}: {error}",
+                self.config.virsh_path.display()
+            )
+        })?
+        else {
+            child.kill().map_err(|error| {
+                format!(
+                    "{} timed out after {timeout:?} and could not be stopped: {error}",
+                    self.config.virsh_path.display()
+                )
+            })?;
+            child.wait().map_err(|error| {
+                format!(
+                    "could not reap timed-out {} process: {error}",
+                    self.config.virsh_path.display()
+                )
+            })?;
+            return Err(format!(
+                "{} timed out after {timeout:?}",
+                self.config.virsh_path.display()
+            ));
+        };
+        let stdout = std::fs::read(stdout_file.path())
+            .map_err(|error| format!("could not read virsh stdout: {error}"))?;
+        let stderr = std::fs::read(stderr_file.path())
+            .map_err(|error| format!("could not read virsh stderr: {error}"))?;
+        Ok(Output {
+            status,
+            stdout,
+            stderr,
+        })
     }
 
     fn virsh(&self, arguments: &[&str]) -> Result<Output, String> {
@@ -213,19 +278,42 @@ impl LibvirtCallbacks {
     fn ensure_virtual_media_device(&self, device_id: &str) -> VirtualMediaResult {
         let target = self.target_for_device(device_id)?;
         let xml = self.domain_xml(true)?;
-        match virtual_media_target_ownership(&xml, device_id, target)
+        let persistent_owned = match virtual_media_target_ownership(&xml, device_id, target)
             .map_err(VirtualMediaError::Command)?
         {
-            TargetOwnership::Owned => return Ok(()),
+            TargetOwnership::Owned => true,
             TargetOwnership::Foreign { device, bus, alias } => {
                 return Err(VirtualMediaError::Command(format!(
-                    "refusing to claim libvirt target {target}: it is already used by an unowned device (device={}, bus={}, alias={})",
+                    "refusing to claim libvirt target {target} in persistent configuration: it is already used by an unowned device (device={}, bus={}, alias={})",
                     device.as_deref().unwrap_or("unknown"),
                     bus.as_deref().unwrap_or("unknown"),
                     alias.as_deref().unwrap_or("none"),
                 )));
             }
-            TargetOwnership::Missing => {}
+            TargetOwnership::Missing => false,
+        };
+        let active = self.domain_is_active()?;
+        let live_owned = if active {
+            let xml = self.domain_xml(false)?;
+            match virtual_media_target_ownership(&xml, device_id, target)
+                .map_err(VirtualMediaError::Command)?
+            {
+                TargetOwnership::Owned => true,
+                TargetOwnership::Foreign { device, bus, alias } => {
+                    return Err(VirtualMediaError::Command(format!(
+                        "refusing to claim libvirt target {target} in live configuration: it is already used by an unowned device (device={}, bus={}, alias={})",
+                        device.as_deref().unwrap_or("unknown"),
+                        bus.as_deref().unwrap_or("unknown"),
+                        alias.as_deref().unwrap_or("none"),
+                    )));
+                }
+                TargetOwnership::Missing => false,
+            }
+        } else {
+            false
+        };
+        if persistent_owned && (!active || live_owned) {
+            return Ok(());
         }
 
         let xml = empty_virtual_media_xml(device_id, target)?;
@@ -235,14 +323,21 @@ impl LibvirtCallbacks {
         file.write_all(xml.as_bytes()).map_err(|error| {
             VirtualMediaError::Command(format!("could not write temporary device XML: {error}"))
         })?;
-        self.virsh(&[
+        let file_path = file.path().to_string_lossy();
+        let mut arguments = vec![
             "attach-device",
-            &self.config.domain,
-            file.path().to_string_lossy().as_ref(),
-            "--config",
-        ])
-        .map(drop)
-        .map_err(VirtualMediaError::Command)
+            self.config.domain.as_str(),
+            file_path.as_ref(),
+        ];
+        if active && !live_owned {
+            arguments.push("--live");
+        }
+        if !persistent_owned {
+            arguments.push("--config");
+        }
+        self.virsh(&arguments)
+            .map(drop)
+            .map_err(VirtualMediaError::Command)
     }
 
     fn domain_is_active(&self) -> Result<bool, VirtualMediaError> {
@@ -842,6 +937,73 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provisions_a_missing_cdrom_in_live_and_persistent_domains() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let virsh_path = directory.path().join("virsh");
+        let log_path = directory.path().join("virsh.log");
+        fs::write(
+            &virsh_path,
+            format!(
+                r#"#!/bin/sh
+printf '%s\n' "$*" >> '{}'
+case "$3" in
+  domstate) printf 'running\n' ;;
+  dumpxml) printf '<domain><devices/></domain>\n' ;;
+esac
+"#,
+                log_path.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&virsh_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let callbacks = LibvirtCallbacks::new(Config {
+            virsh_path,
+            uri: "qemu:///system".to_string(),
+            domain: "dsx-node".to_string(),
+            virtual_media_targets: BTreeMap::from([("Cd".to_string(), "sdb".to_string())]),
+        });
+
+        callbacks.ensure_virtual_media_device("Cd").unwrap();
+
+        let log = fs::read_to_string(log_path).unwrap();
+        let attach = log
+            .lines()
+            .find(|line| line.contains(" attach-device "))
+            .expect("attach-device was not invoked");
+        assert!(attach.ends_with("--live --config"), "{attach}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminates_a_virsh_command_after_its_deadline() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::Instant;
+
+        let directory = tempfile::tempdir().unwrap();
+        let virsh_path = directory.path().join("virsh");
+        fs::write(&virsh_path, "#!/bin/sh\nexec sleep 1\n").unwrap();
+        fs::set_permissions(&virsh_path, fs::Permissions::from_mode(0o755)).unwrap();
+        let callbacks = LibvirtCallbacks::new(Config {
+            virsh_path,
+            uri: "qemu:///system".to_string(),
+            domain: "dsx-node".to_string(),
+            virtual_media_targets: BTreeMap::new(),
+        });
+
+        let started = Instant::now();
+        let error = callbacks
+            .virsh_output_with_timeout(&["domstate", "dsx-node"], Duration::from_millis(20))
+            .unwrap_err();
+
+        assert!(error.contains("timed out after 20ms"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     fn test_router(callbacks: Arc<LibvirtCallbacks>) -> (Router, BmcState) {
