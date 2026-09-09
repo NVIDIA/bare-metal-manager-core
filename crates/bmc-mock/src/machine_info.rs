@@ -109,21 +109,49 @@ pub struct DpuMachineInfo {
     pub settings: DpuSettings,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Optional firmware inventory overrides for a generated BlueField DPU.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DpuFirmwareVersions {
+    /// DPU BMC firmware version.
     pub bmc: Option<String>,
+    /// DPU UEFI firmware version.
     pub uefi: Option<String>,
+    /// DPU BSP version.
+    #[serde(default)]
+    pub bsp: Option<String>,
+    /// DPU CEC firmware version.
     pub cec: Option<String>,
+    /// DPU NIC firmware version.
     pub nic: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum DpuFirmwareComponent {
+    Bmc,
+    Uefi,
+    Bsp,
+    Cec,
+    Nic,
+}
+
+impl DpuFirmwareVersions {
+    fn configured(&self) -> impl Iterator<Item = (DpuFirmwareComponent, &str)> {
+        [
+            (DpuFirmwareComponent::Bmc, self.bmc.as_deref()),
+            (DpuFirmwareComponent::Uefi, self.uefi.as_deref()),
+            (DpuFirmwareComponent::Bsp, self.bsp.as_deref()),
+            (DpuFirmwareComponent::Cec, self.cec.as_deref()),
+            (DpuFirmwareComponent::Nic, self.nic.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(component, version)| version.map(|version| (component, version)))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DpuSettings {
     pub nic_mode: bool,
     pub firmware_versions: DpuFirmwareVersions,
-    /// Optional BSP version exposed as DPU_BSP firmware inventory; omitted by default.
-    #[serde(default)]
-    pub bsp_version: Option<String>,
     #[serde(default = "default_true")]
     pub exposes_oob_eth: bool,
 }
@@ -132,9 +160,25 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Clone, Copy)]
 enum DpuType {
     Bluefield3,
     Bluefield4,
+}
+
+impl DpuType {
+    fn firmware_inventory_id(self, component: DpuFirmwareComponent) -> Option<&'static str> {
+        match self {
+            Self::Bluefield3 => Some(match component {
+                DpuFirmwareComponent::Bmc => "BMC_Firmware",
+                DpuFirmwareComponent::Uefi => "DPU_UEFI",
+                DpuFirmwareComponent::Bsp => "DPU_BSP",
+                DpuFirmwareComponent::Cec => "Bluefield_FW_ERoT",
+                DpuFirmwareComponent::Nic => "DPU_NIC",
+            }),
+            Self::Bluefield4 => None,
+        }
+    }
 }
 
 impl Default for DpuSettings {
@@ -142,7 +186,6 @@ impl Default for DpuSettings {
         Self {
             nic_mode: false,
             firmware_versions: Default::default(),
-            bsp_version: None,
             exposes_oob_eth: true,
         }
     }
@@ -296,38 +339,33 @@ impl DpuMachineInfo {
     fn update_service_config(&self) -> UpdateServiceConfig {
         let mut config = match self.dpu_type() {
             DpuType::Bluefield3 => self.bluefield3().update_service_config(),
-            DpuType::Bluefield4 => {
-                let mut config = self.bluefield4().update_service_config();
-                let fw = &self.settings.firmware_versions;
-                for (id, version) in [
-                    ("BMC_Firmware", &fw.bmc),
-                    ("DPU_UEFI", &fw.uefi),
-                    ("Bluefield_FW_ERoT", &fw.cec),
-                    ("DPU_NIC", &fw.nic),
-                ] {
-                    if let Some(version) = version {
-                        config.firmware_inventory.push(
-                            redfish::software_inventory::builder(
-                                &redfish::software_inventory::firmware_inventory_resource(id),
-                            )
-                            .version(version)
-                            .build(),
-                        );
-                    }
-                }
-                config
-            }
+            DpuType::Bluefield4 => self.bluefield4().update_service_config(),
         };
-        if let Some(bsp) = &self.settings.bsp_version {
+        self.append_configured_firmware_inventory(&mut config);
+        config
+    }
+
+    fn append_configured_firmware_inventory(&self, config: &mut UpdateServiceConfig) {
+        let dpu_type = self.dpu_type();
+        for (component, version) in self.settings.firmware_versions.configured() {
+            let Some(id) = dpu_type.firmware_inventory_id(component) else {
+                continue;
+            };
+            if config
+                .firmware_inventory
+                .iter()
+                .any(|existing| existing.id == id)
+            {
+                continue;
+            }
             config.firmware_inventory.push(
                 redfish::software_inventory::builder(
-                    &redfish::software_inventory::firmware_inventory_resource("DPU_BSP"),
+                    &redfish::software_inventory::firmware_inventory_resource(id),
                 )
-                .version(bsp)
+                .version(version)
                 .build(),
             );
         }
-        config
     }
 
     fn oem_state(&self) -> redfish::oem::State {
@@ -635,27 +673,10 @@ impl HostMachineInfo {
             config.apply_host_firmware_versions(fw);
         }
 
-        // Generated host and DPU endpoints model two BMC views of the same
-        // BlueField. When explicit DPU versions are configured, expose that
-        // inventory through the host endpoint as well so both views agree.
-        if let Some(dpu) = self.primary_dpu().filter(|dpu| {
-            let fw = &dpu.settings.firmware_versions;
-            fw.bmc.is_some()
-                || fw.uefi.is_some()
-                || dpu.settings.bsp_version.is_some()
-                || fw.cec.is_some()
-                || fw.nic.is_some()
-        }) {
-            for inventory in dpu.update_service_config().firmware_inventory {
-                let inventory_id = inventory.id.as_ref();
-                if !config
-                    .firmware_inventory
-                    .iter()
-                    .any(|existing| existing.id.as_ref() == inventory_id)
-                {
-                    config.firmware_inventory.push(inventory);
-                }
-            }
+        // Host inventory owns any colliding ID; only explicitly configured DPU
+        // entries are appended, rather than the DPU's complete baseline inventory.
+        if let Some(dpu) = self.primary_dpu() {
+            dpu.append_configured_firmware_inventory(&mut config);
         }
 
         // Populate the ordered pending_upgrades map so UpdateServiceState knows
@@ -1268,6 +1289,20 @@ mod tests {
     use super::*;
     use crate::mac_address_pool::{Config, PoolConfig};
 
+    fn bf3_dpu(
+        pool: &mut MacAddressPool,
+        firmware_versions: DpuFirmwareVersions,
+    ) -> DpuMachineInfo {
+        DpuMachineInfo::new(
+            HardwareType::DellPowerEdgeR750,
+            pool,
+            DpuSettings {
+                firmware_versions,
+                ..DpuSettings::default()
+            },
+        )
+    }
+
     fn gb300_host_info(hw_type: HardwareType, pool: &mut MacAddressPool) -> HostMachineInfo {
         let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
             .expect("valid hardware MAC pool");
@@ -1321,5 +1356,85 @@ mod tests {
             assert!(host.switch_serial_number.is_some(), "{hardware_type}");
             assert_eq!(host.non_dpu_mac_address, None, "{hardware_type}");
         }
+    }
+
+    #[test]
+    fn configured_bf3_firmware_uses_the_expected_inventory_ids() {
+        let pool_config =
+            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+        let mut pool = MacAddressPool::new(Config {
+            ranges: None,
+            pool: Some(pool_config),
+        });
+        let dpu = bf3_dpu(
+            &mut pool,
+            DpuFirmwareVersions {
+                bmc: Some("bmc-version".to_string()),
+                uefi: Some("uefi-version".to_string()),
+                bsp: Some("bsp-version".to_string()),
+                cec: Some("cec-version".to_string()),
+                nic: Some("nic-version".to_string()),
+            },
+        );
+        let config = dpu.update_service_config();
+
+        for (id, expected) in [
+            ("BMC_Firmware", "bmc-version"),
+            ("DPU_UEFI", "uefi-version"),
+            ("DPU_BSP", "bsp-version"),
+            ("Bluefield_FW_ERoT", "cec-version"),
+            ("DPU_NIC", "nic-version"),
+        ] {
+            let inventory = config
+                .firmware_inventory
+                .iter()
+                .find(|inventory| inventory.id == id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(inventory.to_json()["Version"].as_str(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn host_adds_only_explicit_primary_dpu_firmware() {
+        let pool_config =
+            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+        let mut pool = MacAddressPool::new(Config {
+            ranges: None,
+            pool: Some(pool_config),
+        });
+        let dpu = bf3_dpu(
+            &mut pool,
+            DpuFirmwareVersions {
+                bsp: Some("bsp-version".to_string()),
+                ..DpuFirmwareVersions::default()
+            },
+        );
+        let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
+            .expect("valid hardware MAC pool");
+        let host = HostMachineInfo::new(
+            HardwareType::DellPowerEdgeR750,
+            vec![dpu],
+            &mut pool,
+            hw_mac_addr_pool,
+        );
+        let config = host.update_service_config();
+        let mut ids = config
+            .firmware_inventory
+            .iter()
+            .map(|inventory| inventory.id.as_ref())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+
+        assert_eq!(ids, ["DPU_BSP", "HostBIOS_0", "HostBMC_0"]);
+        assert_eq!(
+            config
+                .firmware_inventory
+                .iter()
+                .find(|inventory| inventory.id == "DPU_BSP")
+                .expect("DPU_BSP must be present")
+                .to_json()["Version"]
+                .as_str(),
+            Some("bsp-version"),
+        );
     }
 }
