@@ -475,6 +475,58 @@ WHERE name = $2 AND value = $3
     Ok(())
 }
 
+/// Release every entry in `pool` allocated to the exact owner and owner type.
+///
+/// The entries are freed atomically and their allocation timestamps are
+/// cleared. If the owner has no matching allocations, this succeeds with a
+/// count of zero.
+pub async fn release_all_owned<T>(
+    pool: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    owner_type: OwnerType,
+    owner_id: &str,
+) -> Result<u64, DatabaseError>
+where
+    T: ToString + FromStr + Send + Sync + 'static,
+    <T as FromStr>::Err: std::error::Error,
+{
+    let allocated_state = ResourcePoolEntryState::Allocated {
+        owner: owner_id.to_string(),
+        owner_type: owner_type.to_string(),
+    };
+    let query = "
+UPDATE resource_pool SET
+  allocated = NULL,
+  state = $1
+WHERE name = $2 AND state = $3
+";
+    let result = sqlx::query(query)
+        .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
+        .bind(pool.name())
+        .bind(sqlx::types::Json(allocated_state))
+        .execute(txn)
+        .await;
+    let result = match result {
+        Ok(result) => result,
+        Err(source) => {
+            let event_error = source.to_string();
+            let error = DatabaseError::query(query, source);
+            emit(ResourcePoolReleaseFailed {
+                operation: ResourcePoolOperation::Release,
+                failure: ResourcePoolFailure::Database,
+                failure_policy: ResourcePoolFailurePolicy::Required,
+                allocation_mode: ResourcePoolAllocationMode::NotApplicable,
+                value_type: pool.value_type.into(),
+                error: event_error,
+                pool: pool.name.clone(),
+                value: format!("all values owned by {owner_type} `{owner_id}`"),
+            });
+            return Err(error);
+        }
+    };
+    Ok(result.rows_affected())
+}
+
 pub async fn stats<'c, E>(executor: E, name: &str) -> Result<ResourcePoolStats, DatabaseError>
 where
     E: sqlx::Executor<'c, Database = Postgres>,
@@ -2061,6 +2113,70 @@ mod tests {
             ResourcePoolDatabaseError::Database(ref boxed)
                 if matches!(boxed.as_ref(), DatabaseError::FailedPrecondition(_))
         ));
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn release_all_owned_frees_only_the_matching_owner(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let pool_handle =
+            ResourcePool::<i64>::new("test-owner-release-pool".to_string(), ValueType::Integer);
+        populate(&pool_handle, &mut txn, vec![1, 2, 3], true).await?;
+
+        for _ in 0..2 {
+            allocate(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-1", None).await?;
+        }
+        allocate(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-2", None).await?;
+        let other_owner_state = ResourcePoolEntryState::Allocated {
+            owner: "vpc-2".to_string(),
+            owner_type: OwnerType::Vpc.to_string(),
+        };
+        let other_owner_allocated_at =
+            sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(
+                "SELECT allocated FROM resource_pool WHERE name = $1 AND state = $2",
+            )
+            .bind(pool_handle.name())
+            .bind(sqlx::types::Json(&other_owner_state))
+            .fetch_one(txn.as_mut())
+            .await?
+            .expect("allocated entry has an allocation timestamp");
+
+        let released = release_all_owned(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-1").await?;
+        assert_eq!(released, 2);
+
+        let entries: Vec<(
+            sqlx::types::Json<ResourcePoolEntryState>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        )> = sqlx::query_as("SELECT state, allocated FROM resource_pool WHERE name = $1")
+            .bind(pool_handle.name())
+            .fetch_all(txn.as_mut())
+            .await?;
+        assert_eq!(entries.len(), 3);
+        let released_entry_count = entries
+            .iter()
+            .filter(|(state, allocated_at)| {
+                state.0 == ResourcePoolEntryState::Free && allocated_at.is_none()
+            })
+            .count();
+        assert_eq!(released_entry_count, 2);
+        let other_owner_entries = entries
+            .iter()
+            .filter(|(state, _)| state.0 == other_owner_state)
+            .collect::<Vec<_>>();
+        assert_eq!(other_owner_entries.len(), 1);
+        assert_eq!(
+            other_owner_entries[0].1.as_ref(),
+            Some(&other_owner_allocated_at)
+        );
+
+        assert_eq!(
+            release_all_owned(&pool_handle, &mut txn, OwnerType::Vpc, "vpc-1").await?,
+            0
+        );
 
         txn.rollback().await?;
         Ok(())

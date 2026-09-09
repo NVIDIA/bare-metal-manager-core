@@ -457,6 +457,7 @@ mod tests {
             default_nvlink_logical_partition_id: None,
             routing_profile_overrides: None,
             power_resource_group: power_resource_group.map(str::to_string),
+            release_inactive_vni: None,
         }
     }
 
