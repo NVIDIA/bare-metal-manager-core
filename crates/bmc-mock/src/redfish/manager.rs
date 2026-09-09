@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, atomic};
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::{get, post};
@@ -221,6 +221,14 @@ pub(crate) fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
         .route(
             &redfish::log_service::manager_collection(MGR_ID).odata_id,
             get(get_log_services),
+        )
+        .route(
+            "/redfish/v1/Managers/{manager_id}/LogServices/IEL",
+            get(get_hpe_event_log),
+        )
+        .route(
+            "/redfish/v1/Managers/{manager_id}/LogServices/IEL/Entries",
+            get(get_hpe_event_log_entries),
         )
 }
 
@@ -656,10 +664,175 @@ async fn post_reset_manager(
     json!({}).into_ok_response()
 }
 
-async fn get_log_services() -> Response {
-    not_implemented()
+async fn get_log_services(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    let Some(manager) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
+    if !matches!(manager.config.oem, Some(Oem::Hpe)) {
+        return not_implemented();
+    }
+    redfish::log_service::manager_collection(&manager_id)
+        .with_members(&[json!({
+            "@odata.id": format!("/redfish/v1/Managers/{manager_id}/LogServices/IEL")
+        })])
+        .into_ok_response()
+}
+
+async fn get_hpe_event_log(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    if !state
+        .manager
+        .find(&manager_id)
+        .is_some_and(|manager| matches!(manager.config.oem, Some(Oem::Hpe)))
+    {
+        return http::not_found();
+    }
+    let path = format!("/redfish/v1/Managers/{manager_id}/LogServices/IEL");
+    json!({
+        "@odata.id": path,
+        "@odata.type": "#LogService.v1_2_0.LogService",
+        "Id": "IEL",
+        "Name": "Integrated Event Log",
+        "Entries": {"@odata.id": format!("{path}/Entries")}
+    })
+    .into_ok_response()
+}
+
+async fn get_hpe_event_log_entries(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let from = match query.get("$filter") {
+        None => None,
+        Some(filter) => match filter
+            .strip_prefix("Created ge '")
+            .and_then(|value| value.strip_suffix('\''))
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        {
+            Some(value) => Some(value),
+            None => {
+                return json!("Expected Created ge '<RFC3339 timestamp>' filter")
+                    .into_response(StatusCode::BAD_REQUEST);
+            }
+        },
+    };
+    if !state
+        .manager
+        .find(&manager_id)
+        .is_some_and(|manager| matches!(manager.config.oem, Some(Oem::Hpe)))
+    {
+        return http::not_found();
+    }
+    let Some(system) = state.system_state.controlled_system() else {
+        return http::not_found();
+    };
+    let collection = redfish::Collection {
+        odata_id: Cow::Owned(format!(
+            "/redfish/v1/Managers/{manager_id}/LogServices/IEL/Entries"
+        )),
+        odata_type: Cow::Borrowed("#LogEntryCollection.LogEntryCollection"),
+        name: Cow::Borrowed("Integrated Event Log Entries"),
+    };
+    let entries = system
+        .power_events
+        .lock()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .filter(|(_, (created, _))| from.is_none_or(|from| *created >= from))
+        .map(|(index, (created, action))| {
+            redfish::log_service::event_entry(&collection, &index.to_string())
+                .message(&format!(
+                    "System power command {action:?} accepted by backend."
+                ))
+                .severity("OK")
+                .created(&created.to_rfc3339())
+                .build()
+        })
+        .collect::<Vec<_>>();
+    collection
+        .with_members(&entries)
+        .patch(json!({"Description": "Accepted system power commands"}))
+        .into_ok_response()
 }
 
 fn not_implemented() -> Response {
     json!("").into_response(StatusCode::NOT_IMPLEMENTED)
+}
+
+#[cfg(test)]
+mod power_event_tests {
+    use super::*;
+    use crate::test_support::{NoopCallbacks, host_info};
+    use crate::{HardwareType, MachineRouterOptions, machine_router};
+    use axum::body::{Body, to_bytes};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn hpe_event_log_records_only_accepted_power_requests() {
+        let (router, _) = machine_router(
+            &host_info(HardwareType::HpeProliantDl380aGen11),
+            Arc::new(NoopCallbacks),
+            "test-host".to_string(),
+            false,
+            MachineRouterOptions::default(),
+        );
+        let before = Utc::now();
+        for (action, expected) in [
+            ("Invalid", StatusCode::BAD_REQUEST),
+            ("ForceRestart", StatusCode::OK),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/redfish/v1/Systems/1/Actions/ComputerSystem.Reset")
+                        .header("content-type", "application/json")
+                        .body(Body::from(json!({"ResetType": action}).to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/redfish/v1/Managers/1/LogServices/IEL/Entries")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let value: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(value["Members@odata.count"], 1);
+        assert_eq!(value["Description"], "Accepted system power commands");
+        assert_eq!(
+            value["Members"][0]["Message"],
+            "System power command ForceRestart accepted by backend."
+        );
+        let created =
+            DateTime::parse_from_rfc3339(value["Members"][0]["Created"].as_str().unwrap()).unwrap();
+        assert!(created >= before && created <= Utc::now());
+        let response = router.oneshot(Request::builder()
+            .uri("/redfish/v1/Managers/1/LogServices/IEL/Entries?%24filter=Created%20ge%20%272999-01-01T00:00:00Z%27")
+            .body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let value: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        assert_eq!(value["Members@odata.count"], 0);
+    }
 }
