@@ -141,9 +141,9 @@ and NIC values retain the profile inventory; omitting BSP leaves it absent. An e
 DPU reports the configured versions. A generated host also adds the primary DPU's
 explicitly configured versions without replacing colliding host inventory IDs.
 
-The current inventory mapping supports BlueField-3 profiles. Overrides on an unmapped
-profile are rejected. The profile must resolve to at least one DPU; set --dpu-count to
-a positive value for variable-count profiles. Explicit internal mode also requires
+The inventory mapping supports generated BlueField-3 and BlueField-4 profiles. The
+profile must resolve to at least one DPU; set --dpu-count to a positive value for
+variable-count profiles. Explicit internal mode also requires
 --machine-role and --state-backend=internal. The libvirt shorthand uses
 --hardware-profile with --libvirt-domain and implies the host role and libvirt state
 backend. Firmware overrides cannot be combined with --targz or --ip-router.

@@ -169,14 +169,13 @@ enum DpuType {
 impl DpuType {
     fn firmware_inventory_id(self, component: DpuFirmwareComponent) -> Option<&'static str> {
         match self {
-            Self::Bluefield3 => Some(match component {
+            Self::Bluefield3 | Self::Bluefield4 => Some(match component {
                 DpuFirmwareComponent::Bmc => "BMC_Firmware",
                 DpuFirmwareComponent::Uefi => "DPU_UEFI",
                 DpuFirmwareComponent::Bsp => "DPU_BSP",
                 DpuFirmwareComponent::Cec => "Bluefield_FW_ERoT",
                 DpuFirmwareComponent::Nic => "DPU_NIC",
             }),
-            Self::Bluefield4 => None,
         }
     }
 }
@@ -1289,12 +1288,13 @@ mod tests {
     use super::*;
     use crate::mac_address_pool::{Config, PoolConfig};
 
-    fn bf3_dpu(
+    fn dpu(
+        hw_type: HardwareType,
         pool: &mut MacAddressPool,
         firmware_versions: DpuFirmwareVersions,
     ) -> DpuMachineInfo {
         DpuMachineInfo::new(
-            HardwareType::DellPowerEdgeR750,
+            hw_type,
             pool,
             DpuSettings {
                 firmware_versions,
@@ -1359,38 +1359,49 @@ mod tests {
     }
 
     #[test]
-    fn configured_bf3_firmware_uses_the_expected_inventory_ids() {
-        let pool_config =
-            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
-        let mut pool = MacAddressPool::new(Config {
-            ranges: None,
-            pool: Some(pool_config),
-        });
-        let dpu = bf3_dpu(
-            &mut pool,
-            DpuFirmwareVersions {
-                bmc: Some("bmc-version".to_string()),
-                uefi: Some("uefi-version".to_string()),
-                bsp: Some("bsp-version".to_string()),
-                cec: Some("cec-version".to_string()),
-                nic: Some("nic-version".to_string()),
-            },
-        );
-        let config = dpu.update_service_config();
-
-        for (id, expected) in [
-            ("BMC_Firmware", "bmc-version"),
-            ("DPU_UEFI", "uefi-version"),
-            ("DPU_BSP", "bsp-version"),
-            ("Bluefield_FW_ERoT", "cec-version"),
-            ("DPU_NIC", "nic-version"),
+    fn configured_dpu_firmware_uses_the_expected_inventory_ids() {
+        for hardware_type in [
+            HardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR760Bf4,
+            HardwareType::NvidiaDgxVr,
         ] {
-            let inventory = config
-                .firmware_inventory
-                .iter()
-                .find(|inventory| inventory.id == id)
-                .unwrap_or_else(|| panic!("missing {id}"));
-            assert_eq!(inventory.to_json()["Version"].as_str(), Some(expected));
+            let pool_config =
+                PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+            let mut pool = MacAddressPool::new(Config {
+                ranges: None,
+                pool: Some(pool_config),
+            });
+            let dpu = dpu(
+                hardware_type,
+                &mut pool,
+                DpuFirmwareVersions {
+                    bmc: Some("bmc-version".to_string()),
+                    uefi: Some("uefi-version".to_string()),
+                    bsp: Some("bsp-version".to_string()),
+                    cec: Some("cec-version".to_string()),
+                    nic: Some("nic-version".to_string()),
+                },
+            );
+            let config = dpu.update_service_config();
+
+            for (id, expected) in [
+                ("BMC_Firmware", "bmc-version"),
+                ("DPU_UEFI", "uefi-version"),
+                ("DPU_BSP", "bsp-version"),
+                ("Bluefield_FW_ERoT", "cec-version"),
+                ("DPU_NIC", "nic-version"),
+            ] {
+                let inventory = config
+                    .firmware_inventory
+                    .iter()
+                    .find(|inventory| inventory.id == id)
+                    .unwrap_or_else(|| panic!("missing {id} for {hardware_type}"));
+                assert_eq!(
+                    inventory.to_json()["Version"].as_str(),
+                    Some(expected),
+                    "{hardware_type}",
+                );
+            }
         }
     }
 
@@ -1402,7 +1413,8 @@ mod tests {
             ranges: None,
             pool: Some(pool_config),
         });
-        let dpu = bf3_dpu(
+        let dpu = dpu(
+            HardwareType::DellPowerEdgeR750,
             &mut pool,
             DpuFirmwareVersions {
                 bsp: Some("bsp-version".to_string()),

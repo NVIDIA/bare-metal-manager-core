@@ -289,22 +289,11 @@ fn generated_mock_config(args: &command_line::Args) -> Result<GeneratedMockConfi
         (None, requested) => requested.unwrap_or(0),
     };
     let dpu_index = args.dpu_index.unwrap_or(0);
-    if !args.dpu_firmware.is_empty() {
-        if matches!(
-            hardware_type,
-            HardwareType::DellPowerEdgeR760Bf4 | HardwareType::NvidiaDgxVr
-        ) {
-            return Err(
-                "DPU firmware options are not supported for BlueField-4 hardware profiles"
-                    .to_string(),
-            );
-        }
-        if dpu_count == 0 {
-            return Err(
-                "DPU firmware options require at least one generated DPU; set --dpu-count to a positive value"
-                    .to_string(),
-            );
-        }
+    if !args.dpu_firmware.is_empty() && dpu_count == 0 {
+        return Err(
+            "DPU firmware options require at least one generated DPU; set --dpu-count to a positive value"
+                .to_string(),
+        );
     }
     match machine_role {
         MachineRole::Host if args.dpu_index.is_some() => {
@@ -554,43 +543,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_dpu_firmware_overrides() {
-        let cases: &[(&str, &[&str], &str)] = &[
-            (
-                "variable-count profile without a DPU",
-                &[
-                    "bmc-mock",
-                    "--machine-role",
-                    "host",
-                    "--state-backend",
-                    "internal",
-                    "--hardware-profile",
-                    "dell_poweredge_r750",
-                    "--dpu-bmc-firmware",
-                    "bmc-version",
-                ],
-                "DPU firmware options require at least one generated DPU; set --dpu-count to a positive value",
-            ),
-            (
-                "BlueField-4 profile",
-                &[
-                    "bmc-mock",
-                    "--machine-role",
-                    "dpu",
-                    "--state-backend",
-                    "internal",
-                    "--hardware-profile",
-                    "dell_poweredge_r760_bf4",
-                    "--dpu-bmc-firmware",
-                    "bmc-version",
-                ],
-                "DPU firmware options are not supported for BlueField-4 hardware profiles",
-            ),
-        ];
+    fn rejects_dpu_firmware_overrides_without_generated_dpus() {
+        let error = config(&[
+            "bmc-mock",
+            "--machine-role",
+            "host",
+            "--state-backend",
+            "internal",
+            "--hardware-profile",
+            "dell_poweredge_r750",
+            "--dpu-bmc-firmware",
+            "bmc-version",
+        ])
+        .unwrap_err();
 
-        for (scenario, arguments, expected) in cases {
-            assert_eq!(config(arguments).unwrap_err(), *expected, "{scenario}");
-        }
+        assert_eq!(
+            error,
+            "DPU firmware options require at least one generated DPU; set --dpu-count to a positive value",
+        );
     }
 
     #[test]
@@ -675,6 +645,55 @@ mod tests {
                 Some(expected.to_string()),
                 "{id}",
             );
+        }
+    }
+
+    #[test]
+    fn configured_dpu_firmware_reaches_generated_bf4_endpoints() {
+        for (hardware_profile, machine_role) in [
+            ("dell_poweredge_r760_bf4", "host"),
+            ("dell_poweredge_r760_bf4", "dpu"),
+            ("nvidia_dgx_vr", "host"),
+            ("nvidia_dgx_vr", "dpu"),
+        ] {
+            let config = config(&[
+                "bmc-mock",
+                "--machine-role",
+                machine_role,
+                "--state-backend",
+                "internal",
+                "--hardware-profile",
+                hardware_profile,
+                "--dpu-bmc-firmware",
+                "bmc-version",
+                "--dpu-uefi-firmware",
+                "uefi-version",
+                "--dpu-bsp-firmware",
+                "bsp-version",
+                "--dpu-cec-firmware",
+                "cec-version",
+                "--dpu-nic-firmware",
+                "nic-version",
+            ])
+            .unwrap();
+            let (_, state) = generated_mock(config);
+
+            for (id, expected) in [
+                ("BMC_Firmware", "bmc-version"),
+                ("DPU_UEFI", "uefi-version"),
+                ("DPU_BSP", "bsp-version"),
+                ("Bluefield_FW_ERoT", "cec-version"),
+                ("DPU_NIC", "nic-version"),
+            ] {
+                assert_eq!(
+                    state
+                        .update_service_state
+                        .find_firmware_inventory(id)
+                        .and_then(|inventory| inventory["Version"].as_str().map(str::to_owned)),
+                    Some(expected.to_string()),
+                    "{hardware_profile} {machine_role} {id}",
+                );
+            }
         }
     }
 }
