@@ -1901,11 +1901,12 @@ impl NvueGnmiConfig {
             for (metric_index, metric) in subscription.metrics.iter().enumerate() {
                 let metric_type = metric.metric_type.as_str();
                 let unit = metric.output.unit();
+                let output_kind = metric.output.kind();
                 let exported_name = format!("{metric_type}_{unit}");
 
-                if let Some((previous_type, previous_unit)) =
-                    exported_metrics.insert(exported_name.clone(), (metric_type, unit))
-                    && (previous_type, previous_unit) != (metric_type, unit)
+                if let Some(previous) =
+                    exported_metrics.insert(exported_name.clone(), (metric_type, unit, output_kind))
+                    && previous != (metric_type, unit, output_kind)
                 {
                     return Err(format!(
                         "collectors.nvue.gnmi.additional_subscriptions[{index}].metrics[{metric_index}] renders the same metric name {exported_name:?} as another extended metric"
@@ -2279,6 +2280,10 @@ impl Default for NvueGnmiMetricOutput {
 }
 
 impl NvueGnmiMetricOutput {
+    fn kind(&self) -> std::mem::Discriminant<Self> {
+        std::mem::discriminant(self)
+    }
+
     fn unit(&self) -> &str {
         match self {
             Self::Gauge { unit } => unit,
@@ -4897,6 +4902,7 @@ metrics = [
             DuplicateMetricPath,
             MissingResponseKeyElement,
             MetricNameCollision,
+            OutputKindCollision,
             ReservedMetricLabel,
             UnboundedInfoValues,
             MetricOutsideRequestPaths,
@@ -4952,6 +4958,11 @@ metrics = [
             Case {
                 scenario: "different metric fields render the same exported name",
                 invalid: InvalidCase::MetricNameCollision,
+                expected: "renders the same metric name",
+            },
+            Case {
+                scenario: "different output kinds render the same exported name",
+                invalid: InvalidCase::OutputKindCollision,
                 expected: "renders the same metric name",
             },
             Case {
@@ -5043,6 +5054,22 @@ metrics = [
 
                     metric.output = NvueGnmiMetricOutput::Gauge {
                         unit: "value_count".to_string(),
+                    };
+
+                    gnmi.additional_subscriptions[0].metrics.push(metric);
+                }
+                InvalidCase::OutputKindCollision => {
+                    gnmi.additional_subscriptions[0].metrics[0].output =
+                        NvueGnmiMetricOutput::Gauge {
+                            unit: "state".to_string(),
+                        };
+
+                    let mut metric = gnmi.additional_subscriptions[0].metrics[0].clone();
+
+                    metric.path.push("other".to_string());
+
+                    metric.output = NvueGnmiMetricOutput::StateSet {
+                        states: vec!["healthy".to_string()],
                     };
 
                     gnmi.additional_subscriptions[0].metrics.push(metric);
