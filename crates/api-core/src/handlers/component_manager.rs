@@ -120,8 +120,9 @@ fn error_result(id: &str, error: String) -> rpc::ComponentResult {
     )
 }
 
-fn status_result(id: &str, status: Status) -> rpc::ComponentResult {
-    let component_status = match status.code() {
+/// Map a gRPC `Status` code onto the caller-facing per-component status code.
+fn component_status_code_for(code: Code) -> rpc::ComponentManagerStatusCode {
+    match code {
         Code::InvalidArgument | Code::FailedPrecondition | Code::OutOfRange => {
             rpc::ComponentManagerStatusCode::InvalidArgument
         }
@@ -131,8 +132,15 @@ fn status_result(id: &str, status: Status) -> rpc::ComponentResult {
             rpc::ComponentManagerStatusCode::Unavailable
         }
         _ => rpc::ComponentManagerStatusCode::InternalError,
-    };
-    make_result(id, component_status, Some(status.message().to_string()))
+    }
+}
+
+fn status_result(id: &str, status: Status) -> rpc::ComponentResult {
+    make_result(
+        id,
+        component_status_code_for(status.code()),
+        Some(status.message().to_string()),
+    )
 }
 
 fn not_found_component_result(id: &str, message: impl Into<String>) -> rpc::ComponentResult {
@@ -1394,6 +1402,17 @@ fn mac_result(
     }
 }
 
+/// Per-MAC result carrying a gRPC `Status`, echoing the MAC so the caller can
+/// correlate the failure with its input. Used to report a subset-level failure
+/// against the MACs it pertains to instead of aborting the whole batch.
+fn mac_status_result(mac: &MacAddress, status: &Status) -> rpc::ComponentResult {
+    mac_result(
+        mac,
+        component_status_code_for(status.code()),
+        Some(status.message().to_string()),
+    )
+}
+
 /// Result for a `--mac-address` value that could not be parsed as a MAC. The
 /// raw text is echoed so the caller can correlate it with its input.
 fn invalid_mac_result(raw: &str) -> rpc::ComponentResult {
@@ -2365,32 +2384,58 @@ pub(crate) async fn component_power_control(
             // through the configured backend: a row-less device has no persisted
             // state for the state controller to reconcile, so
             // --bypass-state-controller only governs ingested targets.
+            // Dispatching the uningested subset must not discard parse-error
+            // results already collected above, nor block the independent
+            // ingested subset below. Report a dispatch failure per-MAC against
+            // the uningested targets instead of aborting the whole batch.
             if !resolution.uningested.is_empty() {
-                let (pre_results, pre_ips) = dispatch_pre_ingestion_switch_power_control(
+                match dispatch_pre_ingestion_switch_power_control(
                     api,
                     cm.nv_switch.as_ref(),
                     &resolution.uningested,
                     action,
                 )
-                .await?;
-                results.extend(pre_results);
-                ips.extend(pre_ips);
+                .await
+                {
+                    Ok((pre_results, pre_ips)) => {
+                        results.extend(pre_results);
+                        ips.extend(pre_ips);
+                    }
+                    Err(status) => results.extend(
+                        resolution
+                            .uningested
+                            .iter()
+                            .map(|mac| mac_status_result(mac, &status)),
+                    ),
+                }
             }
 
             // Ingested MACs: reuse the switch-id path verbatim (state-controller
             // routing matches an id target), then echo the caller's MAC onto
-            // each result.
+            // each result. The pre-ingestion dispatch above has already committed
+            // power actions, so a failure resolving the ingested subset must not
+            // discard those results; report it per-MAC instead.
             if !resolution.ingested.is_empty() {
-                let (ingested_results, ingested_ips) = power_control_switch_ids(
+                match power_control_switch_ids(
                     api,
                     cm,
                     &resolution.ingested_ids(),
                     action,
                     bypass_state_controller,
                 )
-                .await?;
-                results.extend(resolution.echo_mac_by_component_id(ingested_results));
-                ips.extend(ingested_ips);
+                .await
+                {
+                    Ok((ingested_results, ingested_ips)) => {
+                        results.extend(resolution.echo_mac_by_component_id(ingested_results));
+                        ips.extend(ingested_ips);
+                    }
+                    Err(status) => results.extend(
+                        resolution
+                            .ingested
+                            .values()
+                            .map(|mac| mac_status_result(mac, &status)),
+                    ),
+                }
             }
 
             (results, ips)
@@ -3110,21 +3155,36 @@ async fn update_switch_firmware_by_mac(
     let mut results = resolution.errors.clone();
 
     if !resolution.uningested.is_empty() {
-        results.extend(
-            dispatch_pre_ingestion_switch_firmware(
-                api,
-                &resolution.uningested,
-                components,
-                target_version,
-                access_token,
-                force_update,
-            )
-            .await?,
-        );
+        // Dispatching the uningested subset must not discard parse-error results
+        // already collected above, nor block the independent ingested subset
+        // below. Report a dispatch failure per-MAC against the uningested
+        // targets instead of aborting the whole batch.
+        match dispatch_pre_ingestion_switch_firmware(
+            api,
+            &resolution.uningested,
+            components,
+            target_version,
+            access_token,
+            force_update,
+        )
+        .await
+        {
+            Ok(dispatched) => results.extend(dispatched),
+            Err(status) => results.extend(
+                resolution
+                    .uningested
+                    .iter()
+                    .map(|mac| mac_status_result(mac, &status)),
+            ),
+        }
     }
 
     if !resolution.ingested.is_empty() {
-        let ingested = update_switch_firmware_by_ids(
+        // The pre-ingestion dispatch above has already queued backend jobs, so
+        // a failure resolving the ingested subset (e.g. an ingested switch with
+        // no rack) must not discard those results. Report it per-MAC against the
+        // ingested targets instead of aborting after submission.
+        match update_switch_firmware_by_ids(
             api,
             &resolution.ingested_ids(),
             components,
@@ -3133,8 +3193,16 @@ async fn update_switch_firmware_by_mac(
             force_update,
             bypass_state_controller,
         )
-        .await?;
-        results.extend(resolution.echo_mac_by_component_id(ingested));
+        .await
+        {
+            Ok(ingested) => results.extend(resolution.echo_mac_by_component_id(ingested)),
+            Err(status) => results.extend(
+                resolution
+                    .ingested
+                    .values()
+                    .map(|mac| mac_status_result(mac, &status)),
+            ),
+        }
     }
 
     Ok(results)
@@ -5893,6 +5961,25 @@ mod tests {
             rpc::ComponentManagerStatusCode::NotFound as i32,
         );
         assert!(unsupported.error.contains("firmware status"));
+    }
+
+    #[test]
+    fn mac_status_result_echoes_mac_and_maps_status_code() {
+        let mac: MacAddress = "AA:BB:CC:DD:EE:12".parse().unwrap();
+
+        // A rack-precondition failure from the ingested subset maps to a
+        // caller-facing invalid-argument result rather than aborting the batch.
+        let result = mac_status_result(
+            &mac,
+            &Status::failed_precondition("switch is not associated with a rack"),
+        );
+        assert_eq!(result.component_id, None);
+        assert_eq!(result.mac_address, Some(mac.to_string()));
+        assert_eq!(
+            result.status,
+            rpc::ComponentManagerStatusCode::InvalidArgument as i32,
+        );
+        assert_eq!(result.error, "switch is not associated with a rack");
     }
 
     #[test]
