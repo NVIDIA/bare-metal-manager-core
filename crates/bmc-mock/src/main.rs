@@ -457,10 +457,10 @@ impl Callbacks for ChannelCallbacks {
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
     }
 
-    fn state_refresh_indication(&self) {
-        let _ = self
-            .command_channel
-            .send(BmcCommand::StateRefreshIndication);
+    fn state_refresh_indication(&self) -> Result<(), String> {
+        self.command_channel
+            .send(BmcCommand::StateRefreshIndication)
+            .map_err(|error| error.to_string())
     }
 }
 

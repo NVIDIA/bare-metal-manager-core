@@ -20,12 +20,13 @@ use std::sync::Mutex;
 
 use axum::Router;
 use axum::extract::{Json, Path, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::json;
 
 use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch};
+use crate::middleware_router::StateRefreshHandled;
 use crate::{http, redfish};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -189,12 +190,15 @@ async fn insert_media(
         None => true,
         Some(_) => return http::bad_request("WriteProtected must be a boolean"),
     };
-    *device.media.lock().expect("mutex poisoned") = Media {
-        image: Some(image.to_string()),
-        inserted: true,
-        write_protected,
-    };
-    http::ok_no_content()
+    update_media(
+        &state,
+        device,
+        Media {
+            image: Some(image.to_string()),
+            inserted: true,
+            write_protected,
+        },
+    )
 }
 
 async fn eject_media(
@@ -209,11 +213,35 @@ async fn eject_media(
     else {
         return http::not_found();
     };
-    *device.media.lock().expect("mutex poisoned") = Media {
-        write_protected: true,
-        ..Default::default()
+    update_media(
+        &state,
+        device,
+        Media {
+            write_protected: true,
+            ..Default::default()
+        },
+    )
+}
+
+fn update_media(state: &BmcState, device: &DeviceState, desired: Media) -> Response {
+    let previous = {
+        let mut media = device.media.lock().expect("mutex poisoned");
+        std::mem::replace(&mut *media, desired)
     };
-    http::ok_no_content()
+
+    let Some(callbacks) = state.callbacks.as_ref() else {
+        return http::ok_no_content();
+    };
+    if let Err(error) = callbacks.state_refresh_indication() {
+        *device.media.lock().expect("mutex poisoned") = previous;
+        let rollback_error = callbacks.state_refresh_indication().err();
+        tracing::error!(error, rollback_error, "could not apply virtual media state",);
+        return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    let mut response = http::ok_no_content();
+    response.extensions_mut().insert(StateRefreshHandled);
+    response
 }
 
 impl DeviceState {
@@ -279,8 +307,9 @@ mod tests {
             Ok(())
         }
 
-        fn state_refresh_indication(&self) {
+        fn state_refresh_indication(&self) -> Result<(), String> {
             self.refresh_count.fetch_add(1, Ordering::Relaxed);
+            Ok(())
         }
     }
 

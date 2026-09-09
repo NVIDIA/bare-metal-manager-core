@@ -29,6 +29,9 @@ use crate::Callbacks;
 use crate::availability::BmcAvailabilityState;
 use crate::injection::InjectionStore;
 
+#[derive(Clone)]
+pub(crate) struct StateRefreshHandled;
+
 pub(super) fn append(
     mat_host_id: String,
     router: Router,
@@ -85,8 +88,18 @@ async fn process(State(mut state): State<Middleware>, request: Request<Body>) ->
             "BMC mock request returned unsuccessful response"
         );
     }
-    if !is_safe && response.status().is_success() {
-        state.callbacks.state_refresh_indication();
+    if !is_safe
+        && response.status().is_success()
+        && response.extensions().get::<StateRefreshHandled>().is_none()
+        && let Err(error) = state.callbacks.state_refresh_indication()
+    {
+        tracing::error!(
+            method = %method,
+            path,
+            error,
+            "could not reconcile backend state after BMC mock request",
+        );
+        return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     response
 }

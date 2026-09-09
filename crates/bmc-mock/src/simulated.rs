@@ -68,7 +68,9 @@ impl Callbacks for SimulatedCallbacks {
         Ok(())
     }
 
-    fn state_refresh_indication(&self) {}
+    fn state_refresh_indication(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

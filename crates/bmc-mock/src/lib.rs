@@ -224,7 +224,7 @@ pub trait Callbacks: std::fmt::Debug + Send + Sync {
         self.send_power_command(reset_type)
     }
 
-    fn state_refresh_indication(&self);
+    fn state_refresh_indication(&self) -> Result<(), String>;
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {

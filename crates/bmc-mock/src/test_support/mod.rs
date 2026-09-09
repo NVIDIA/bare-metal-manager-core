@@ -52,7 +52,9 @@ impl Callbacks for NoopCallbacks {
         Ok(())
     }
 
-    fn state_refresh_indication(&self) {}
+    fn state_refresh_indication(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
@@ -674,7 +676,9 @@ mod test {
                 self.0.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }
-            fn state_refresh_indication(&self) {}
+            fn state_refresh_indication(&self) -> Result<(), String> {
+                Ok(())
+            }
         }
 
         let callbacks = Arc::new(PowerCommandCounter::default());

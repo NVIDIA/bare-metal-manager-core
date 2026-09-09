@@ -70,16 +70,22 @@ impl LibvirtCallbacks {
         }
     }
 
-    pub fn bind_state(&self, state: &BmcState) -> Result<(), &'static str> {
+    pub fn bind_state(&self, state: &BmcState) -> Result<(), String> {
         let controlled_system = state
             .system_state
             .controlled_system()
-            .ok_or("libvirt backend has no controlled ComputerSystem")?;
+            .ok_or_else(|| "libvirt backend has no controlled ComputerSystem".to_string())?;
         self.system_state
             .set(Arc::downgrade(&state.system_state))
-            .map_err(|_| "libvirt backend state is already bound")?;
-        *self.applied_state.lock().unwrap() = AppliedState::from(controlled_system);
-        Ok(())
+            .map_err(|_| "libvirt backend state is already bound".to_string())?;
+
+        let desired = AppliedState::from(controlled_system);
+        for device_id in desired.virtual_media.keys() {
+            self.ensure_virtual_media_device(device_id)
+                .map_err(|error| error.to_string())?;
+        }
+        *self.applied_state.lock().unwrap() = AppliedState::default();
+        self.reconcile_state(desired)
     }
 
     fn virsh_output(&self, arguments: &[&str]) -> Result<Output, String> {
@@ -165,27 +171,94 @@ impl LibvirtCallbacks {
             })
     }
 
-    fn target_is_attached(&self, target: &str) -> Result<bool, VirtualMediaError> {
-        let output = self
-            .virsh(&["domblklist", "--details", &self.config.domain])
-            .map_err(VirtualMediaError::Command)?;
-        let output = String::from_utf8(output.stdout).map_err(|error| {
-            VirtualMediaError::Command(format!("virsh domblklist returned invalid UTF-8: {error}"))
-        })?;
-        Ok(output.lines().any(|line| {
-            line.split_whitespace()
-                .nth(2)
-                .is_some_and(|value| value == target)
-        }))
+    fn domain_xml(&self, inactive: bool) -> Result<String, VirtualMediaError> {
+        let arguments = if inactive {
+            vec!["dumpxml", "--inactive", self.config.domain.as_str()]
+        } else {
+            vec!["dumpxml", self.config.domain.as_str()]
+        };
+        let output = self.virsh(&arguments).map_err(VirtualMediaError::Command)?;
+        String::from_utf8(output.stdout).map_err(|error| {
+            VirtualMediaError::Command(format!("virsh dumpxml returned invalid UTF-8: {error}"))
+        })
     }
 
-    fn detach_target(&self, target: &str) -> VirtualMediaResult {
-        if !self.target_is_attached(target)? {
-            return Ok(());
+    fn require_owned_target(
+        &self,
+        device_id: &str,
+        target: &str,
+        inactive: bool,
+    ) -> VirtualMediaResult {
+        let xml = self.domain_xml(inactive)?;
+        match virtual_media_target_ownership(&xml, device_id, target)
+            .map_err(VirtualMediaError::Command)?
+        {
+            TargetOwnership::Owned => Ok(()),
+            TargetOwnership::Missing => Err(VirtualMediaError::Command(format!(
+                "libvirt domain {} has no {} virtual-media CD-ROM at target {target}",
+                self.config.domain,
+                if inactive { "persistent" } else { "live" },
+            ))),
+            TargetOwnership::Foreign { device, bus, alias } => {
+                Err(VirtualMediaError::Command(format!(
+                    "libvirt target {target} is already used by an unowned device (device={}, bus={}, alias={})",
+                    device.as_deref().unwrap_or("unknown"),
+                    bus.as_deref().unwrap_or("unknown"),
+                    alias.as_deref().unwrap_or("none"),
+                )))
+            }
         }
-        self.virsh(&["detach-disk", &self.config.domain, target, "--persistent"])
-            .map(drop)
-            .map_err(VirtualMediaError::Command)
+    }
+
+    fn ensure_virtual_media_device(&self, device_id: &str) -> VirtualMediaResult {
+        let target = self.target_for_device(device_id)?;
+        let xml = self.domain_xml(true)?;
+        match virtual_media_target_ownership(&xml, device_id, target)
+            .map_err(VirtualMediaError::Command)?
+        {
+            TargetOwnership::Owned => return Ok(()),
+            TargetOwnership::Foreign { device, bus, alias } => {
+                return Err(VirtualMediaError::Command(format!(
+                    "refusing to claim libvirt target {target}: it is already used by an unowned device (device={}, bus={}, alias={})",
+                    device.as_deref().unwrap_or("unknown"),
+                    bus.as_deref().unwrap_or("unknown"),
+                    alias.as_deref().unwrap_or("none"),
+                )));
+            }
+            TargetOwnership::Missing => {}
+        }
+
+        let xml = empty_virtual_media_xml(device_id, target)?;
+        let mut file = tempfile::NamedTempFile::new().map_err(|error| {
+            VirtualMediaError::Command(format!("could not create temporary device XML: {error}"))
+        })?;
+        file.write_all(xml.as_bytes()).map_err(|error| {
+            VirtualMediaError::Command(format!("could not write temporary device XML: {error}"))
+        })?;
+        self.virsh(&[
+            "attach-device",
+            &self.config.domain,
+            file.path().to_string_lossy().as_ref(),
+            "--config",
+        ])
+        .map(drop)
+        .map_err(VirtualMediaError::Command)
+    }
+
+    fn domain_is_active(&self) -> Result<bool, VirtualMediaError> {
+        let output = self
+            .virsh(&["domstate", &self.config.domain])
+            .map_err(VirtualMediaError::Command)?;
+        let state = String::from_utf8(output.stdout).map_err(|error| {
+            VirtualMediaError::Command(format!("virsh domstate returned invalid UTF-8: {error}"))
+        })?;
+        match state.trim() {
+            "running" | "idle" | "blocked" | "paused" | "in shutdown" | "pmsuspended" => Ok(true),
+            "shut off" | "crashed" => Ok(false),
+            state => Err(VirtualMediaError::Command(format!(
+                "virsh domstate returned an unknown domain state: {state}"
+            ))),
+        }
     }
 
     fn set_boot_source_override(
@@ -223,27 +296,42 @@ impl LibvirtCallbacks {
         write_protected: bool,
     ) -> VirtualMediaResult {
         let target = self.target_for_device(device_id)?;
-        self.detach_target(target)?;
         let xml = virtual_media_xml(device_id, target, image, write_protected)?;
+        self.update_virtual_media(device_id, target, &xml)
+    }
+
+    fn update_virtual_media(&self, device_id: &str, target: &str, xml: &str) -> VirtualMediaResult {
+        self.require_owned_target(device_id, target, true)?;
+        let active = self.domain_is_active()?;
+        if active {
+            self.require_owned_target(device_id, target, false)?;
+        }
+
         let mut file = tempfile::NamedTempFile::new().map_err(|error| {
             VirtualMediaError::Command(format!("could not create temporary device XML: {error}"))
         })?;
         file.write_all(xml.as_bytes()).map_err(|error| {
             VirtualMediaError::Command(format!("could not write temporary device XML: {error}"))
         })?;
-        self.virsh(&[
-            "attach-device",
-            &self.config.domain,
-            file.path().to_string_lossy().as_ref(),
-            "--persistent",
-        ])
-        .map(drop)
-        .map_err(VirtualMediaError::Command)
+        let file_path = file.path().to_string_lossy();
+        let mut arguments = vec![
+            "update-device",
+            self.config.domain.as_str(),
+            file_path.as_ref(),
+        ];
+        if active {
+            arguments.push("--live");
+        }
+        arguments.push("--config");
+        self.virsh(&arguments)
+            .map(drop)
+            .map_err(VirtualMediaError::Command)
     }
 
     fn eject_virtual_media(&self, device_id: &str) -> VirtualMediaResult {
         let target = self.target_for_device(device_id)?;
-        self.detach_target(target)
+        let xml = empty_virtual_media_xml(device_id, target)?;
+        self.update_virtual_media(device_id, target, &xml)
     }
 
     fn apply_virtual_media(&self, state: &serde_json::Value) -> VirtualMediaResult {
@@ -286,8 +374,13 @@ impl LibvirtCallbacks {
             if applied.virtual_media.get(&device_id) == Some(&desired_device) {
                 continue;
             }
-            self.apply_virtual_media(&desired_device)
-                .map_err(|error| error.to_string())?;
+            if let Err(error) = self.apply_virtual_media(&desired_device) {
+                // The command may have failed after changing one libvirt view. Forget the
+                // cached value so a caller restoring its previous Redfish state forces a
+                // compensating update instead of treating the old state as already applied.
+                applied.virtual_media.remove(&device_id);
+                return Err(error.to_string());
+            }
             applied.virtual_media.insert(device_id, desired_device);
         }
         Ok(())
@@ -359,28 +452,14 @@ impl Callbacks for LibvirtCallbacks {
         }
     }
 
-    fn state_refresh_indication(&self) {
+    fn state_refresh_indication(&self) -> Result<(), String> {
         let Some(system_state) = self.system_state.get().and_then(Weak::upgrade) else {
-            tracing::error!(
-                domain = %self.config.domain,
-                "libvirt backend is not bound to BMC mock state",
-            );
-            return;
+            return Err("libvirt backend is not bound to BMC mock state".to_string());
         };
         let Some(controlled_system) = system_state.controlled_system() else {
-            tracing::error!(
-                domain = %self.config.domain,
-                "BMC mock state has no controlled ComputerSystem",
-            );
-            return;
+            return Err("BMC mock state has no controlled ComputerSystem".to_string());
         };
-        if let Err(error) = self.reconcile_state(AppliedState::from(controlled_system)) {
-            tracing::error!(
-                domain = %self.config.domain,
-                error = %error,
-                "could not reconcile libvirt domain with BMC mock state",
-            );
-        }
+        self.reconcile_state(AppliedState::from(controlled_system))
     }
 }
 
@@ -418,6 +497,98 @@ fn set_boot_order_xml(xml: &str, devices: &[&str]) -> Result<String, String> {
     }
     String::from_utf8(writer.into_inner())
         .map_err(|error| format!("generated libvirt domain XML is invalid UTF-8: {error}"))
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum TargetOwnership {
+    Missing,
+    Owned,
+    Foreign {
+        device: Option<String>,
+        bus: Option<String>,
+        alias: Option<String>,
+    },
+}
+
+fn xml_attribute(element: &BytesStart<'_>, name: &[u8]) -> Result<Option<String>, String> {
+    for attribute in element.attributes() {
+        let attribute = attribute
+            .map_err(|error| format!("could not parse libvirt domain XML attribute: {error}"))?;
+        if attribute.key.as_ref() == name {
+            return String::from_utf8(attribute.value.into_owned())
+                .map(Some)
+                .map_err(|error| {
+                    format!("libvirt domain XML attribute is invalid UTF-8: {error}")
+                });
+        }
+    }
+    Ok(None)
+}
+
+fn virtual_media_target_ownership(
+    xml: &str,
+    device_id: &str,
+    target: &str,
+) -> Result<TargetOwnership, String> {
+    let expected_alias = format!("ua-bmc-mock-vmedia-{device_id}");
+    let mut reader = Reader::from_str(xml);
+    let mut inside_disk = false;
+    let mut disk_device = None;
+    let mut disk_target = None;
+    let mut disk_bus = None;
+    let mut disk_alias = None;
+    let mut ownership = TargetOwnership::Missing;
+
+    loop {
+        let event = reader
+            .read_event()
+            .map_err(|error| format!("could not parse libvirt domain XML: {error}"))?;
+        match event {
+            Event::Start(element) if element.name().as_ref() == b"disk" => {
+                inside_disk = true;
+                disk_device = xml_attribute(&element, b"device")?;
+                disk_target = None;
+                disk_bus = None;
+                disk_alias = None;
+            }
+            Event::Start(element) | Event::Empty(element)
+                if inside_disk && element.name().as_ref() == b"target" =>
+            {
+                disk_target = xml_attribute(&element, b"dev")?;
+                disk_bus = xml_attribute(&element, b"bus")?;
+            }
+            Event::Start(element) | Event::Empty(element)
+                if inside_disk && element.name().as_ref() == b"alias" =>
+            {
+                disk_alias = xml_attribute(&element, b"name")?;
+            }
+            Event::End(element) if element.name().as_ref() == b"disk" => {
+                if disk_target.as_deref() == Some(target) {
+                    if ownership != TargetOwnership::Missing {
+                        return Err(format!(
+                            "libvirt domain has more than one disk at target {target}"
+                        ));
+                    }
+                    ownership = if disk_device.as_deref() == Some("cdrom")
+                        && disk_bus.as_deref() == Some("sata")
+                        && disk_alias.as_deref() == Some(expected_alias.as_str())
+                    {
+                        TargetOwnership::Owned
+                    } else {
+                        TargetOwnership::Foreign {
+                            device: disk_device.take(),
+                            bus: disk_bus.take(),
+                            alias: disk_alias.take(),
+                        }
+                    };
+                }
+                inside_disk = false;
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(ownership)
 }
 
 enum MediaSource {
@@ -539,6 +710,38 @@ fn virtual_media_xml(
     })
 }
 
+fn empty_virtual_media_xml(device_id: &str, target: &str) -> Result<String, VirtualMediaError> {
+    let mut writer = Writer::new(Vec::new());
+    let mut disk = BytesStart::new("disk");
+    disk.push_attribute(("type", "file"));
+    disk.push_attribute(("device", "cdrom"));
+    writer.write_event(Event::Start(disk)).unwrap();
+
+    let mut driver = BytesStart::new("driver");
+    driver.push_attribute(("name", "qemu"));
+    driver.push_attribute(("type", "raw"));
+    writer.write_event(Event::Empty(driver)).unwrap();
+
+    let mut target_element = BytesStart::new("target");
+    target_element.push_attribute(("dev", target));
+    target_element.push_attribute(("bus", "sata"));
+    writer.write_event(Event::Empty(target_element)).unwrap();
+    writer
+        .write_event(Event::Empty(BytesStart::new("readonly")))
+        .unwrap();
+    let mut alias = BytesStart::new("alias");
+    let alias_name = format!("ua-bmc-mock-vmedia-{device_id}");
+    alias.push_attribute(("name", alias_name.as_str()));
+    writer.write_event(Event::Empty(alias)).unwrap();
+    writer
+        .write_event(Event::End(BytesEnd::new("disk")))
+        .unwrap();
+
+    String::from_utf8(writer.into_inner()).map_err(|error| {
+        VirtualMediaError::Command(format!("generated device XML is invalid UTF-8: {error}"))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -608,30 +811,129 @@ mod tests {
         assert!(!actual.contains("<readonly/>"));
     }
 
+    #[test]
+    fn classifies_virtual_media_target_ownership() {
+        let cases = [
+            (
+                "missing",
+                "<domain><devices/></domain>",
+                TargetOwnership::Missing,
+            ),
+            (
+                "owned",
+                "<domain><devices><disk device='cdrom'><target dev='sdc' bus='sata'/><alias name='ua-bmc-mock-vmedia-ConfigCd'/></disk></devices></domain>",
+                TargetOwnership::Owned,
+            ),
+            (
+                "foreign",
+                "<domain><devices><disk device='disk'><target dev='sdc' bus='scsi'/><alias name='ua-data'/></disk></devices></domain>",
+                TargetOwnership::Foreign {
+                    device: Some("disk".to_string()),
+                    bus: Some("scsi".to_string()),
+                    alias: Some("ua-data".to_string()),
+                },
+            ),
+        ];
+
+        for (name, xml, expected) in cases {
+            assert_eq!(
+                virtual_media_target_ownership(xml, "ConfigCd", "sdc").unwrap(),
+                expected,
+                "{name}"
+            );
+        }
+    }
+
+    fn test_router(callbacks: Arc<LibvirtCallbacks>) -> (Router, BmcState) {
+        machine_router(
+            &host_info(HardwareType::DellPowerEdgeR750),
+            callbacks,
+            "test-host-id".to_string(),
+            false,
+            MachineRouterOptions {
+                bmc_reset_duration: None,
+                virtual_media_devices: Some(vec![VirtualMediaDeviceConfig {
+                    id: Cow::Borrowed("Cd"),
+                    name: Cow::Borrowed("Operating System Virtual CD"),
+                    media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
+                }]),
+            },
+        )
+    }
+
     #[cfg(unix)]
     #[tokio::test]
-    async fn state_refresh_drives_the_configured_domain() {
+    async fn updates_an_owned_cdrom_in_place_for_live_and_persistent_state() {
         use std::os::unix::fs::PermissionsExt;
 
         let directory = tempfile::tempdir().unwrap();
         let virsh_path = directory.path().join("virsh");
         let log_path = directory.path().join("virsh.log");
+        let persistent_xml_path = directory.path().join("persistent.xml");
+        let live_xml_path = directory.path().join("live.xml");
         let defined_xml_path = directory.path().join("defined.xml");
-        let attached_xml_path = directory.path().join("attached.xml");
+        let inserted_xml_path = directory.path().join("inserted.xml");
+        fs::write(
+            &persistent_xml_path,
+            "<domain><os><type>hvm</type><boot dev='hd'/></os><devices/></domain>",
+        )
+        .unwrap();
         let script = format!(
             r#"#!/bin/sh
 printf '%s\n' "$*" >> '{}'
 case "$3" in
-  domstate) printf 'shut off\n' ;;
-  dumpxml) printf '<domain><os><type>hvm</type><boot dev="hd"/></os><devices/></domain>\n' ;;
-  domblklist) printf 'Type Device Target Source\nnetwork cdrom sdb http://example/old.iso\n' ;;
-  define) cp "$4" '{}' ;;
-  attach-device) cp "$5" '{}' ;;
+  domstate)
+    if [ -f '{}' ]; then printf 'running\n'; else printf 'shut off\n'; fi
+    ;;
+  dumpxml)
+    if [ "$4" = "--inactive" ]; then cat '{}'; else cat '{}'; fi
+    ;;
+  attach-device)
+    {{
+      printf '<domain><os><type>hvm</type><boot dev="hd"/></os><devices>'
+      cat "$5"
+      printf '</devices></domain>\n'
+    }} > '{}.new'
+    mv '{}.new' '{}'
+    ;;
+  update-device)
+    if grep -q '<source' "$5"; then cp "$5" '{}'; fi
+    {{
+      printf '<domain><os><type>hvm</type><boot dev="hd"/></os><devices>'
+      cat "$5"
+      printf '</devices></domain>\n'
+    }} > '{}.new'
+    mv '{}.new' '{}'
+    case "$*" in *--live*) cp '{}' '{}' ;; esac
+    ;;
+  define)
+    cp "$4" '{}'
+    cp "$4" '{}'
+    ;;
+  start)
+    touch '{}'
+    cp '{}' '{}'
+    ;;
 esac
 "#,
             log_path.display(),
+            directory.path().join("running").display(),
+            persistent_xml_path.display(),
+            live_xml_path.display(),
+            persistent_xml_path.display(),
+            persistent_xml_path.display(),
+            persistent_xml_path.display(),
+            inserted_xml_path.display(),
+            persistent_xml_path.display(),
+            persistent_xml_path.display(),
+            persistent_xml_path.display(),
+            persistent_xml_path.display(),
+            live_xml_path.display(),
             defined_xml_path.display(),
-            attached_xml_path.display(),
+            persistent_xml_path.display(),
+            directory.path().join("running").display(),
+            persistent_xml_path.display(),
+            live_xml_path.display(),
         );
         fs::write(&virsh_path, script).unwrap();
         let mut permissions = fs::metadata(&virsh_path).unwrap().permissions();
@@ -644,20 +946,7 @@ esac
             domain: "dsx-node".to_string(),
             virtual_media_targets: BTreeMap::from([("Cd".to_string(), "sdb".to_string())]),
         }));
-        let (router, state) = machine_router(
-            &host_info(HardwareType::DellPowerEdgeR750),
-            callbacks.clone(),
-            "test-host-id".to_string(),
-            false,
-            MachineRouterOptions {
-                bmc_reset_duration: None,
-                virtual_media_devices: Some(vec![VirtualMediaDeviceConfig {
-                    id: Cow::Borrowed("Cd"),
-                    name: Cow::Borrowed("Operating System Virtual CD"),
-                    media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
-                }]),
-            },
-        );
+        let (router, state) = test_router(callbacks.clone());
         callbacks.bind_state(&state).unwrap();
         let system = "/redfish/v1/Systems/System.Embedded.1";
 
@@ -719,13 +1008,117 @@ esac
         let log = fs::read_to_string(log_path).unwrap();
         assert!(log.contains("--connect qemu:///system dumpxml --inactive dsx-node"));
         assert!(log.contains("--connect qemu:///system start dsx-node"));
-        assert!(log.contains("--connect qemu:///system detach-disk dsx-node sdb --persistent"));
         assert!(log.contains("--connect qemu:///system attach-device dsx-node"));
-        let attached_xml = fs::read_to_string(attached_xml_path).unwrap();
-        assert!(attached_xml.contains("protocol=\"http\""));
-        assert!(attached_xml.contains("dev=\"sdb\""));
+        assert!(log.contains("--config"));
+        assert!(log.contains("--live --config"));
+        assert!(log.contains("--connect qemu:///system update-device dsx-node"));
+        assert!(!log.contains("detach-disk"));
+        let inserted_xml = fs::read_to_string(inserted_xml_path).unwrap();
+        assert!(inserted_xml.contains("protocol=\"http\""));
+        assert!(inserted_xml.contains("dev=\"sdb\""));
+        assert!(inserted_xml.contains("alias name=\"ua-bmc-mock-vmedia-Cd\""));
         let defined_xml = fs::read_to_string(defined_xml_path).unwrap();
         assert!(defined_xml.contains("<boot dev=\"hd\"/>"));
         assert!(!defined_xml.contains("<boot dev=\"cdrom\"/>"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_to_claim_a_foreign_disk_at_the_configured_target() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let virsh_path = directory.path().join("virsh");
+        let log_path = directory.path().join("virsh.log");
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\n' "$*" >> '{}'
+case "$3" in
+  dumpxml) printf '<domain><devices><disk device="disk"><target dev="sdb" bus="scsi"/><alias name="ua-data"/></disk></devices></domain>\n' ;;
+esac
+"#,
+            log_path.display(),
+        );
+        fs::write(&virsh_path, script).unwrap();
+        let mut permissions = fs::metadata(&virsh_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&virsh_path, permissions).unwrap();
+
+        let callbacks = Arc::new(LibvirtCallbacks::new(Config {
+            virsh_path,
+            uri: "qemu:///system".to_string(),
+            domain: "dsx-node".to_string(),
+            virtual_media_targets: BTreeMap::from([("Cd".to_string(), "sdb".to_string())]),
+        }));
+        let (_, state) = test_router(callbacks.clone());
+
+        let error = callbacks.bind_state(&state).unwrap_err();
+        assert!(error.contains("refusing to claim libvirt target sdb"));
+        let log = fs::read_to_string(log_path).unwrap();
+        assert!(!log.contains("detach-disk"));
+        assert!(!log.contains("update-device"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_media_update_returns_an_error_and_restores_redfish_state() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use http_body_util::BodyExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let virsh_path = directory.path().join("virsh");
+        let xml_path = directory.path().join("domain.xml");
+        fs::write(
+            &xml_path,
+            "<domain><devices><disk type='file' device='cdrom'><driver name='qemu' type='raw'/><target dev='sdb' bus='sata'/><readonly/><alias name='ua-bmc-mock-vmedia-Cd'/></disk></devices></domain>",
+        )
+        .unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+case "$3" in
+  domstate) printf 'shut off\n' ;;
+  dumpxml) cat '{}' ;;
+  update-device)
+    if grep -q '<source' "$5"; then printf 'injected update failure\n' >&2; exit 1; fi
+    cp "$5" '{}'
+    ;;
+esac
+"#,
+            xml_path.display(),
+            xml_path.display(),
+        );
+        fs::write(&virsh_path, script).unwrap();
+        let mut permissions = fs::metadata(&virsh_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&virsh_path, permissions).unwrap();
+
+        let callbacks = Arc::new(LibvirtCallbacks::new(Config {
+            virsh_path,
+            uri: "qemu:///system".to_string(),
+            domain: "dsx-node".to_string(),
+            virtual_media_targets: BTreeMap::from([("Cd".to_string(), "sdb".to_string())]),
+        }));
+        let (router, state) = test_router(callbacks.clone());
+        callbacks.bind_state(&state).unwrap();
+        let media = "/redfish/v1/Systems/System.Embedded.1/VirtualMedia/Cd";
+
+        let status = request(
+            &router,
+            Method::POST,
+            &format!("{media}/Actions/VirtualMedia.InsertMedia"),
+            json!({"Image": "/tmp/config.iso"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+
+        let response = router
+            .oneshot(Request::builder().uri(media).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["Inserted"], false);
+        assert_eq!(body["Image"], serde_json::Value::Null);
     }
 }
