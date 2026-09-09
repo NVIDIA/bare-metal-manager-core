@@ -356,6 +356,28 @@ Keep these constraints in mind:
 | `client_key` | `String` | `/var/run/secrets/spiffe.io/tls.key` | PEM private key for `client_cert`. |
 | `root_ca` | `String` | `/var/run/secrets/spiffe.io/ca.crt` | PEM bundle that verifies the proxy's server certificate. |
 
+#### Certificate lifecycle
+
+`client_cert`, `client_key`, and `root_ca` are read from disk, so certificate
+rotation is picked up without a restart:
+
+- The proxied Redfish pool and the admin passthrough client read the files at
+  startup, and an unreadable file fails startup. Each rebuilds its TLS client
+  from disk on the first request after a five-minute interval. A failed rebuild
+  keeps the previous client in service, increments
+  `carbide_api_bmc_proxy_client_reload_failures_total`, and defers the next
+  attempt until another five-minute interval has passed.
+- The nv-redfish proxied pool that site-explorer uses builds its client on
+  first use and rebuilds it at most once per five-minute interval, off the
+  request path. A failed rebuild keeps the previous client and logs a warning.
+  Until a first client exists, every request retries the build and returns the
+  read error.
+
+Rotate so that the outgoing certificate stays valid for at least five minutes
+after the new files are written, and alert on the reload-failure counter: a
+persistent failure means proxied BMC traffic stops when the stale certificate
+expires.
+
 ### `ApiAdmissionControlConfig`
 
 Admission control places each authenticated client in its own bounded FIFO and
