@@ -111,22 +111,6 @@ use self::metrics::{
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 
-/// Return whether an expected interface is explicitly a non-Redfish DPU OS
-/// endpoint.
-///
-/// Host is the compatibility default for existing interface declarations, so
-/// those entries remain scannable even when they look like data interfaces.
-/// DPU BMC interfaces remain scannable too. A top-level BMC MAC is an
-/// ExpectedMachine identity, so it wins over a historical DPU OS declaration
-/// that reused the same address on any row.
-fn should_skip_expected_interface_redfish_scan(
-    interface: &ExpectedInterface,
-    expected_host_bmc_macs: &HashSet<MacAddress>,
-) -> bool {
-    !expected_host_bmc_macs.contains(&interface.mac_address)
-        && interface.role == model::expected_machine::ExpectedInterfaceRole::DpuOs
-}
-
 /// Return whether a HostInband row can be treated as a Redfish endpoint.
 ///
 /// Host data interfaces also DHCP on HostInband, so only BMC rows are normally
@@ -2549,20 +2533,46 @@ impl SiteExplorer {
             .iter()
             .map(|machine| machine.bmc_mac_address)
             .collect::<HashSet<_>>();
+        let expected_bmc_macs = expected_machines
+            .iter()
+            .map(|machine| machine.bmc_mac_address)
+            .chain(
+                expected_switches
+                    .iter()
+                    .map(|switch| switch.bmc_mac_address),
+            )
+            .chain(
+                expected_power_shelves
+                    .iter()
+                    .map(|power_shelf| power_shelf.bmc_mac_address),
+            )
+            .collect::<HashSet<_>>();
         let expected_non_redfish_interface_macs = expected_machines
             .iter()
             .flat_map(|machine| &machine.data.interfaces)
             .filter(|interface| {
-                should_skip_expected_interface_redfish_scan(interface, &expected_host_bmc_macs)
+                // A DpuOs interface terminates on the DPU operating system,
+                // not its management controller. Redfish is exposed through
+                // the separate DpuBmc interface.
+                interface.role == model::expected_machine::ExpectedInterfaceRole::DpuOs
             })
             .map(|interface| interface.mac_address)
+            .chain(
+                expected_switches
+                    .iter()
+                    .flat_map(|switch| &switch.nvos_mac_addresses)
+                    .copied(),
+            )
+            // An explicit BMC identity wins if legacy data assigns the same
+            // MAC address to both a BMC and an OS interface.
+            .filter(|mac_address| !expected_bmc_macs.contains(mac_address))
             .collect::<HashSet<_>>();
 
         // Tenant and Admin segments are never Redfish discovery networks. The
-        // Underlay may contain DPU OS data interfaces, so keep explicit DPU OS
-        // MACs out of the scan unless that MAC is an ExpectedMachine BMC
-        // identity. Host remains the compatibility default for legacy entries,
-        // and DPU BMC interfaces remain eligible.
+        // Underlay may contain DPU OS and switch NVOS data interfaces, so keep
+        // their explicit MACs out of the scan unless a MAC is also an expected
+        // BMC identity. Host remains the compatibility default for legacy
+        // ExpectedMachine entries, and DPU BMC interfaces remain eligible.
         //
         // Load interfaces after allocation reconciliation so this iteration
         // also sees newly-created fixed reservations.
@@ -2579,13 +2589,11 @@ impl SiteExplorer {
         let scannable_interfaces: Vec<MachineInterfaceSnapshot> = interfaces
             .into_iter()
             .filter(|iface| {
-                let is_bmc = iface.interface_type == InterfaceType::Bmc;
                 // On Underlay an unadopted interface is a BMC to explore, and adopted BMCs
                 // stay visible too.
                 let underlay = underlay_segments.contains(&iface.segment_id)
-                    && (is_bmc
-                        || (iface.machine_id.is_none()
-                            && !expected_non_redfish_interface_macs.contains(&iface.mac_address)));
+                    && !expected_non_redfish_interface_macs.contains(&iface.mac_address)
+                    && (iface.interface_type == InterfaceType::Bmc || iface.machine_id.is_none());
                 // Host data interfaces also DHCP on HostInband. Only scan BMC
                 // rows plus an anonymous row at an ExpectedMachine BMC identity,
                 // which covers historical rows that were left typed as Data.
@@ -4769,7 +4777,6 @@ mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
-    use model::expected_machine::ExpectedInterfaceRole;
     use model::site_explorer::{
         ComputerSystem, Inventory, NetworkAdapter, PreingestionState, Service,
     };
@@ -4913,57 +4920,6 @@ mod tests {
                 },
             ],
             rms_location_value,
-        );
-    }
-
-    /// Only an explicit DPU OS role suppresses Redfish scanning.
-    ///
-    /// Host remains eligible because it is the default for legacy entries
-    /// that did not declare an interface role. The ExpectedMachine BMC key
-    /// takes precedence over a historical conflicting DPU OS declaration.
-    #[test]
-    fn expected_interface_role_controls_redfish_scan_classification() {
-        let host_bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
-        let other_mac_address = "AA:BB:CC:DD:EE:FE".parse().unwrap();
-        let expected_host_bmc_macs = HashSet::from([host_bmc_mac_address]);
-        check_values(
-            [
-                Check {
-                    scenario: "legacy host entry",
-                    input: (ExpectedInterfaceRole::Host, other_mac_address),
-                    expect: false,
-                },
-                Check {
-                    scenario: "DPU OS interface",
-                    input: (ExpectedInterfaceRole::DpuOs, other_mac_address),
-                    expect: true,
-                },
-                Check {
-                    scenario: "DPU BMC interface",
-                    input: (ExpectedInterfaceRole::DpuBmc, other_mac_address),
-                    expect: false,
-                },
-                Check {
-                    scenario: "Host BMC interface",
-                    input: (ExpectedInterfaceRole::HostBmc, host_bmc_mac_address),
-                    expect: false,
-                },
-                Check {
-                    scenario: "historical DPU OS declaration at any ExpectedMachine BMC identity",
-                    input: (ExpectedInterfaceRole::DpuOs, host_bmc_mac_address),
-                    expect: false,
-                },
-            ],
-            |(role, mac_address)| {
-                should_skip_expected_interface_redfish_scan(
-                    &ExpectedInterface {
-                        mac_address,
-                        role,
-                        ..Default::default()
-                    },
-                    &expected_host_bmc_macs,
-                )
-            },
         );
     }
 
