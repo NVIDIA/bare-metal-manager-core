@@ -1031,12 +1031,12 @@ var (
 	SpxAttachmentType_name = map[int32]string{
 		0: "Physical",
 		1: "Virtual",
-		2: "Ovn",
+		2: "Ovs",
 	}
 	SpxAttachmentType_value = map[string]int32{
 		"Physical": 0,
 		"Virtual":  1,
-		"Ovn":      2,
+		"Ovs":      2,
 	}
 )
 
