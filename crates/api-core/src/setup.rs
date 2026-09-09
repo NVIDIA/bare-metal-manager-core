@@ -697,6 +697,8 @@ async fn initialize_dpf_sdk(
     // Reject unsafe global ServiceInterfaces even when DPF is disabled so a dormant Astra
     // configuration cannot become unsafe merely by enabling DPF later.
     carbide_config.dpf.validate_service_interface_scoping()?;
+    // Reject incompatible service-VPC topology even when DPF is disabled.
+    carbide_config.validate_service_vpc_slots()?;
 
     if !carbide_config.dpf.enabled {
         tracing::warn!(
@@ -733,25 +735,10 @@ async fn initialize_dpf_sdk(
 
     let astra_interfaces = carbide_dpf::sdk::build_dpu_interfaces_vec();
 
-    // SDK construction writes the shared BMC Secret, so capacity validation must remain on the
-    // pure configuration path and finish before Kubernetes repository construction.
-    let service_vpc_interfaces = crate::dpf_services::service_vpc_interfaces(
-        &effective_interfaces,
-        carbide_config.dpu_config.service_vpc_slot_count,
-    )
-    .map_err(|error| eyre::eyre!("invalid DPF HBN interface configuration: {error}"))?;
-    let additional_managed_sf = carbide_config
-        .dpu_config
-        .service_vpc_slot_count
-        .checked_add(carbide_config.dpu_config.additional_managed_sf)
-        .ok_or_else(|| eyre::eyre!("dpu_config managed SF count exceeds u32"))?;
-    carbide_dpf::calculate_pf_total_sf(
-        &effective_interfaces,
-        intercept_bridging.as_ref(),
-        carbide_config.dpf.pf_total_sf_reserved,
-        additional_managed_sf,
-    )
-    .map_err(|error| eyre::eyre!("invalid DPF SF configuration: {error}"))?;
+    let service_vpc_slots =
+        carbide_dpf::ServiceVpcSlots::new(carbide_config.dpu_config.service_vpc_slot_count)
+            .map_err(|error| eyre::eyre!("invalid DPF service-VPC configuration: {error}"))?;
+    let additional_managed_sf = carbide_config.dpu_config.additional_managed_sf;
 
     let repo = carbide_dpf::KubeRepository::new()
         .await
@@ -762,8 +749,6 @@ async fn initialize_dpf_sdk(
     if !carbide_config.dpf.deployment_scoped_service_interfaces {
         reject_unscoped_initialization_with_scoped_interfaces(&repo).await?;
     }
-
-    let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
 
     carbide_config
         .dpf
@@ -781,17 +766,6 @@ async fn initialize_dpf_sdk(
     // Soon v2 flag will be removed and will become only mode for dpf handling.
     let deployment_type_labels = build_deployment_type_labels(carbide_config);
 
-    let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
-        .with_labeler(
-            CarbideDPFLabeler::new(carbide_config.dpf.deployments.bf3.node_label_key.clone())
-                .with_deployment_type_labels(deployment_type_labels),
-        )
-        .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
-        .with_join_set(join_set)
-        .build_without_resources()
-        .await
-        .map_err(|err| eyre::eyre!("failed to initialize DPF SDK: {err}"))?;
-
     // Builds the SDK init config for one DPUDeployment. BF4 uses a single
     // `BlueFieldSoftware` source (the CR itself carries the PSID→PLDM mapping);
     // config validation guarantees exactly one PSID entry.
@@ -808,60 +782,66 @@ async fn initialize_dpf_sdk(
                 | DpuDeploymentType::Bf3Gb200
                 | DpuDeploymentType::Bf4Generic => &effective_interfaces,
             };
-            let (service_vpc_interfaces, additional_managed_sf) = match deployment_type {
-                DpuDeploymentType::Bf4Astra => (&[][..], 0),
+            let (service_vpc_slots, additional_managed_sf) = match deployment_type {
+                DpuDeploymentType::Bf4Astra => (carbide_dpf::ServiceVpcSlots::default(), 0),
                 DpuDeploymentType::Bf3
                 | DpuDeploymentType::Bf3Gb200
-                | DpuDeploymentType::Bf4Generic => {
-                    (service_vpc_interfaces.as_slice(), additional_managed_sf)
-                }
+                | DpuDeploymentType::Bf4Generic => (service_vpc_slots, additional_managed_sf),
             };
-            carbide_dpf::InitDpfResourcesConfig {
-                bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
-                bluefield_software,
-                flavor_name: deployment.flavor_name.clone(),
-                deployment_name: deployment.deployment_name.clone(),
-                deployment_scoped_service_interfaces: carbide_config
-                    .dpf
-                    .deployment_scoped_service_interfaces,
-                services: crate::dpf_services::mandatory_services(
+            let mut builder = carbide_dpf::InitDpfResourcesConfigBuilder::default()
+                .bfb_url(deployment.bfb_url.clone().unwrap_or_default())
+                .flavor_name(deployment.flavor_name.clone())
+                .deployment_name(deployment.deployment_name.clone())
+                .deployment_scoped_service_interfaces(
+                    carbide_config.dpf.deployment_scoped_service_interfaces,
+                )
+                .services(crate::dpf_services::mandatory_services(
                     &services,
                     &carbide_config.dpf.dpu_agent_bootstrap_ca,
                     interfaces,
-                    service_vpc_interfaces,
+                    service_vpc_slots,
                     &carbide_config.node_auth,
-                ),
-                num_of_vfs: carbide_config.dpu_config.num_of_vfs,
-                pf_total_sf_reserved: carbide_config.dpf.pf_total_sf_reserved,
-                additional_managed_sf,
-                intercept_bridging: match deployment_type {
-                    DpuDeploymentType::Bf4Astra => None,
-                    DpuDeploymentType::Bf3
-                    | DpuDeploymentType::Bf3Gb200
-                    | DpuDeploymentType::Bf4Generic => intercept_bridging.clone(),
-                },
-                interfaces: interfaces.clone(),
-                proxy: carbide_config.dpf.proxy.clone(),
-                extra_bfcfg_parameters: carbide_config
-                    .dpf
-                    .resolved_bfcfg_parameters_for(deployment),
-                deployment_type,
+                ))
+                .num_of_vfs(carbide_config.dpu_config.num_of_vfs)
+                .pf_total_sf_reserved(carbide_config.dpf.pf_total_sf_reserved)
+                .additional_managed_sf(additional_managed_sf)
+                .service_vpc_slots(service_vpc_slots)
+                .interfaces(interfaces.clone())
+                .extra_bfcfg_parameters(
+                    carbide_config.dpf.resolved_bfcfg_parameters_for(deployment),
+                )
+                .deployment_type(deployment_type);
+            if let Some(bluefield_software) = bluefield_software {
+                builder = builder.bluefield_software(bluefield_software);
             }
+            if let Some(intercept_bridging) = match deployment_type {
+                DpuDeploymentType::Bf4Astra => None,
+                DpuDeploymentType::Bf3
+                | DpuDeploymentType::Bf3Gb200
+                | DpuDeploymentType::Bf4Generic => intercept_bridging.clone(),
+            } {
+                builder = builder.intercept_bridging(intercept_bridging);
+            }
+            if let Some(proxy) = carbide_config.dpf.proxy.clone() {
+                builder = builder.proxy(proxy);
+            }
+            builder.build().map_err(|err| {
+                eyre::eyre!(
+                    "invalid {} DPF initialization configuration: {err}",
+                    deployment.deployment_name
+                )
+            })
         };
 
     let bf3 = &carbide_config.dpf.deployments.bf3;
-    sdk.create_initialization_objects(&make_init_config(bf3, DpuDeploymentType::Bf3, None))
-        .await
-        .map_err(|err| eyre::eyre!("failed to initialize bf3 DPF deployment: {err}"))?;
-
     let bf3_gb200 = bf3.bf3_gb200();
-    sdk.create_initialization_objects(&make_init_config(
-        &bf3_gb200,
-        DpuDeploymentType::Bf3Gb200,
-        None,
-    ))
-    .await
-    .map_err(|err| eyre::eyre!("failed to initialize bf3 GB200 DPF deployment: {err}"))?;
+    let mut init_configs = vec![
+        ("bf3", make_init_config(bf3, DpuDeploymentType::Bf3, None)?),
+        (
+            "bf3 GB200",
+            make_init_config(&bf3_gb200, DpuDeploymentType::Bf3Gb200, None)?,
+        ),
+    ];
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
         // Validation guarantees `bluefield_software` is set with exactly one PSID
@@ -877,13 +857,10 @@ async fn initialize_dpf_sdk(
             os_iso: bfs.os_iso.clone(),
             pldm_fw_bundle: Some(pldm_url.clone()),
         };
-        sdk.create_initialization_objects(&make_init_config(
-            bf4,
-            DpuDeploymentType::Bf4Generic,
-            Some(params),
-        ))
-        .await
-        .map_err(|err| eyre::eyre!("failed to initialize bf4_generic DPF deployment: {err}"))?;
+        init_configs.push((
+            "bf4_generic",
+            make_init_config(bf4, DpuDeploymentType::Bf4Generic, Some(params))?,
+        ));
     }
 
     if let Some(bf4_astra) = &carbide_config.dpf.deployments.bf4_astra {
@@ -899,13 +876,29 @@ async fn initialize_dpf_sdk(
             os_iso: bfs.os_iso.clone(),
             pldm_fw_bundle: Some(pldm_url.clone()),
         };
-        sdk.create_initialization_objects(&make_init_config(
-            bf4_astra,
-            DpuDeploymentType::Bf4Astra,
-            Some(params),
-        ))
+        init_configs.push((
+            "bf4_astra",
+            make_init_config(bf4_astra, DpuDeploymentType::Bf4Astra, Some(params))?,
+        ));
+    }
+
+    // Build every validated configuration before SDK construction writes the shared BMC Secret.
+    let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
+    let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+        .with_labeler(
+            CarbideDPFLabeler::new(carbide_config.dpf.deployments.bf3.node_label_key.clone())
+                .with_deployment_type_labels(deployment_type_labels),
+        )
+        .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+        .with_join_set(join_set)
+        .build_without_resources()
         .await
-        .map_err(|err| eyre::eyre!("failed to initialize bf4_astra DPF deployment: {err}"))?;
+        .map_err(|err| eyre::eyre!("failed to initialize DPF SDK: {err}"))?;
+
+    for (name, config) in init_configs {
+        sdk.create_initialization_objects(&config)
+            .await
+            .map_err(|err| eyre::eyre!("failed to initialize {name} DPF deployment: {err}"))?;
     }
 
     Ok(Some(Arc::new(DpfSdkOps::new(

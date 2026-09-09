@@ -3180,6 +3180,14 @@ impl CarbideConfig {
         Ok(())
     }
 
+    pub(crate) fn validate_service_vpc_slots(&self) -> eyre::Result<()> {
+        eyre::ensure!(
+            self.dpu_config.service_vpc_slot_count == 0 || self.site_global_vpc_vni.is_none(),
+            "dpu_config.service_vpc_slot_count requires site_global_vpc_vni to be unset because service VPCs require distinct HBN VRFs"
+        );
+        Ok(())
+    }
+
     /// validate_supernic_firmware_profiles checks that each profile's inner
     /// part_number and psid match the HashMap keys they are nested under.
     /// Logs a warning for any mismatches (the inner values are authoritative
@@ -5570,6 +5578,26 @@ path = "credentials.yaml"
             url: BAD_URL.to_string(),
         }];
         assert!(config.validate_web_ui_sidebar_tools().is_err());
+    }
+
+    #[test]
+    fn validate_service_vpc_slots_rejects_site_global_vpc_vni() {
+        let mut config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .extract()
+            .unwrap();
+
+        config.dpu_config.service_vpc_slot_count = 1;
+        assert!(config.validate_service_vpc_slots().is_ok());
+
+        config.site_global_vpc_vni = Some(6_000);
+        assert!(
+            config
+                .validate_service_vpc_slots()
+                .unwrap_err()
+                .to_string()
+                .contains("requires site_global_vpc_vni to be unset")
+        );
     }
 
     #[test]

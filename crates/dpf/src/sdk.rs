@@ -98,8 +98,7 @@ use crate::repository::{
     DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceRepository,
     DpuServiceTemplateRepository, K8sConfigRepository,
 };
-#[cfg(test)]
-use crate::types::DEFAULT_PF_TOTAL_SF_RESERVED;
+use crate::service_vpc_slot::MAX_HBN_SERVICE_INTERFACES;
 use crate::types::{
     BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME,
     DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_DHCP_AGENT_PF_TOTAL_SF, DPU_AGENT_SERVICE_NAME,
@@ -111,12 +110,13 @@ use crate::types::{
     MAX_BLUEFIELD_VFS_PER_PF, OTEL_COLLECTOR_SERVICE_NAME, PF_TOTAL_SF_BF4_ASTRA_FUDGE,
     ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
+#[cfg(test)]
+use crate::types::{DEFAULT_PF_TOTAL_SF_RESERVED, InitDpfResourcesConfigBuilder};
 use crate::watcher::DpuWatcherBuilder;
 
 const SECRET_NAME: &str = "bmc-shared-password";
 const BFB_NAME_PREFIX: &str = "bf-bundle";
 const BLUEFIELD_SOFTWARE_NAME_PREFIX: &str = "bf-software";
-const MAX_HBN_SERVICE_INTERFACES: usize = 32;
 /// Label set by DPF on deployment-owned resources and propagated to the corresponding
 /// DPU-cluster Node. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
@@ -715,6 +715,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
             .intercept_bridging
             .as_ref()
             .map(|_| resolved.interfaces.as_ref()),
+        config.service_vpc_slots,
         &config.extra_bfcfg_parameters,
     )?;
     let name = flavor.unique_name(&config.flavor_name)?;
@@ -1620,6 +1621,14 @@ struct ResolvedInitialization<'a> {
     pf_total_sf: u32,
 }
 
+/// Validates initialization configuration without exposing its resolved SDK state.
+pub(crate) fn validate_initialization_config(
+    config: &InitDpfResourcesConfig,
+) -> Result<(), DpfError> {
+    resolve_initialization_inventory(config)?;
+    Ok(())
+}
+
 /// Resolves initialization interfaces and validates their SF capacity without writing resources.
 fn resolve_initialization_inventory<'a>(
     config: &'a InitDpfResourcesConfig,
@@ -1644,6 +1653,13 @@ fn resolve_initialization_inventory<'a>(
     {
         return Err(DpfError::ConfigError(
             "BF4 Astra does not support additional managed SFs".to_string(),
+        ));
+    }
+    if matches!(config.deployment_type, DpuDeploymentType::Bf4Astra)
+        && !config.service_vpc_slots.is_empty()
+    {
+        return Err(DpfError::ConfigError(
+            "BF4 Astra does not support service-VPC slots".to_string(),
         ));
     }
 
@@ -1720,6 +1736,11 @@ fn resolve_initialization_inventory<'a>(
     } else {
         Cow::Borrowed(config.interfaces.as_slice())
     };
+
+    let mut interfaces = interfaces;
+    config
+        .service_vpc_slots
+        .apply(&config.services, interfaces.to_mut())?;
 
     let pf_total_sf = match config.deployment_type {
         DpuDeploymentType::Bf4Astra => calculate_astra_pf_total_sf(interfaces.as_ref())?,
@@ -2063,7 +2084,12 @@ async fn create_flavor_services_and_deployment<
             })?;
     }
 
+    // Reducing the service-VPC slot count intentionally does not prune higher-index templates here.
+    // Deleting a DPUServiceInterface removes live per-DPU interfaces; operators must prune
+    // obsolete slot CRs only after every DPU has stopped using them.
+    //
     // Patch CRs require their peer bridge, so preserve flavor creation before interface templates.
+    // DPF may keep patch interfaces Pending until the deployment reprovisions onto that flavor.
     apply_service_interface_templates_with_scope(
         repo,
         namespace,
@@ -4027,11 +4053,10 @@ mod tests {
     }
 
     /// Provides BF3 initialization inputs for flavor persistence and conflict tests.
-    fn flavor_test_config(proxy: Option<DpfProxyDetails>) -> InitDpfResourcesConfig {
-        InitDpfResourcesConfig {
-            proxy,
-            ..Default::default()
-        }
+    fn flavor_test_config() -> InitDpfResourcesConfig {
+        InitDpfResourcesConfigBuilder::default()
+            .build()
+            .expect("default flavor test configuration must be valid")
     }
 
     /// Verifies static inventory filtering pins minimum, default, and maximum counts.
@@ -4258,15 +4283,13 @@ mod tests {
     #[test]
     fn initialization_rejects_mismatched_topology_vf_count() {
         // The shared configured topology is validated for the default population of 16 VFs.
-        let config = InitDpfResourcesConfig {
-            num_of_vfs: 8,
-            intercept_bridging: Some(configured_topology()),
-            ..Default::default()
-        };
+        let config = InitDpfResourcesConfigBuilder::default()
+            .num_of_vfs(8)
+            .intercept_bridging(configured_topology());
 
         // Pure preflight must reject the mismatch before any repository write is possible.
         assert!(matches!(
-            resolve_initialization_inventory(&config),
+            config.build(),
             Err(DpfError::ConfigError(message))
                 if message.contains("validated for num_of_vfs=16")
                     && message.contains("requested num_of_vfs=8")
@@ -4280,16 +4303,14 @@ mod tests {
         let mut interfaces =
             build_effective_dpu_interfaces(crate::DEFAULT_DPU_NUM_OF_VFS, Some(&topology));
         interfaces[1].name = "unexpected".to_string();
-        let config = InitDpfResourcesConfig {
-            intercept_bridging: Some(topology),
+        let config = InitDpfResourcesConfigBuilder::default()
+            .intercept_bridging(topology)
             // A non-empty custom inventory previously bypassed projection and could diverge from
             // the Patch-backed HBN endpoints used to generate the DHCP ACL.
-            interfaces,
-            ..Default::default()
-        };
+            .interfaces(interfaces);
 
         assert!(matches!(
-            resolve_initialization_inventory(&config),
+            config.build(),
             Err(DpfError::ConfigError(message))
                 if message.contains("first differing interface: received unexpected, expected p1")
                     && message.contains("received 4 interfaces, expected 4")
@@ -4302,30 +4323,28 @@ mod tests {
         let topology = configured_topology();
         let interfaces =
             build_effective_dpu_interfaces(crate::DEFAULT_DPU_NUM_OF_VFS, Some(&topology));
-        let config = InitDpfResourcesConfig {
-            intercept_bridging: Some(topology),
-            interfaces: interfaces.clone(),
-            ..Default::default()
-        };
-
-        let resolved = resolve_initialization_inventory(&config)
+        let config = InitDpfResourcesConfigBuilder::default()
+            .intercept_bridging(topology)
+            .interfaces(interfaces.clone())
+            .build()
             .expect("canonical custom topology projection must be accepted");
-        assert_eq!(resolved.interfaces.as_ref(), interfaces.as_slice());
+
+        assert_eq!(config.interfaces, interfaces);
     }
 
     /// Verifies explicit Astra inventories are augmented without changing non-Astra callers.
     #[test]
     fn initialization_augments_explicit_astra_interface_projection_only() {
         let base_interfaces = build_dpu_interfaces_vec();
-        let astra_config = InitDpfResourcesConfig {
-            deployment_scoped_service_interfaces: true,
-            deployment_type: DpuDeploymentType::Bf4Astra,
-            interfaces: base_interfaces.clone(),
-            ..Default::default()
-        };
-
-        let astra_resolved = resolve_initialization_inventory(&astra_config)
+        let astra_config = InitDpfResourcesConfigBuilder::default()
+            .deployment_scoped_service_interfaces(true)
+            .deployment_type(DpuDeploymentType::Bf4Astra)
+            .interfaces(base_interfaces.clone())
+            .build()
             .expect("explicit Astra inventory must be accepted");
+        let astra_resolved = resolve_initialization_inventory(&astra_config)
+            .expect("explicit Astra inventory must resolve");
+
         assert_eq!(
             &astra_resolved.interfaces.as_ref()[..base_interfaces.len()],
             base_interfaces.as_slice()
@@ -4347,13 +4366,11 @@ mod tests {
                 .any(|interface| interface.name == "p-br-xplane-r3swpln1-to-br-sfc")
         );
 
-        let bf3_config = InitDpfResourcesConfig {
-            interfaces: base_interfaces.clone(),
-            ..Default::default()
-        };
-        let bf3_resolved = resolve_initialization_inventory(&bf3_config)
+        let bf3_config = InitDpfResourcesConfigBuilder::default()
+            .interfaces(base_interfaces.clone())
+            .build()
             .expect("explicit BF3 inventory must be accepted unchanged");
-        assert_eq!(bf3_resolved.interfaces.as_ref(), base_interfaces.as_slice());
+        assert_eq!(bf3_config.interfaces, base_interfaces);
     }
 
     /// Astra's NICo-owned patch names cannot be rebound by a direct SDK caller.
@@ -4367,15 +4384,13 @@ mod tests {
             vf_id: 0,
             chained_svc_if: None,
         });
-        let config = InitDpfResourcesConfig {
-            deployment_scoped_service_interfaces: true,
-            deployment_type: DpuDeploymentType::Bf4Astra,
-            interfaces,
-            ..Default::default()
-        };
+        let config = InitDpfResourcesConfigBuilder::default()
+            .deployment_scoped_service_interfaces(true)
+            .deployment_type(DpuDeploymentType::Bf4Astra)
+            .interfaces(interfaces);
 
         assert!(matches!(
-            resolve_initialization_inventory(&config),
+            config.build(),
             Err(DpfError::ConfigError(message))
                 if message.contains("p-brcx-r0swpln0-to-br-sfc")
                     && message.contains("reserved")
@@ -4386,17 +4401,17 @@ mod tests {
     /// headroom; the BF3/generic reserve must not change the Astra flavor.
     #[test]
     fn astra_pf_total_sf_ignores_site_reserve() {
-        let config = InitDpfResourcesConfig {
-            deployment_scoped_service_interfaces: true,
-            deployment_type: DpuDeploymentType::Bf4Astra,
+        let config = InitDpfResourcesConfigBuilder::default()
+            .deployment_scoped_service_interfaces(true)
+            .deployment_type(DpuDeploymentType::Bf4Astra)
             // A value that would overflow if Astra incorrectly treated this as additional SF
             // capacity proves the reserve is not part of Astra's calculation.
-            pf_total_sf_reserved: u32::MAX,
-            ..Default::default()
-        };
-
-        let resolved = resolve_initialization_inventory(&config)
+            .pf_total_sf_reserved(u32::MAX)
+            .build()
             .expect("Astra capacity must not consume the BF3/generic SF reserve");
+        let resolved =
+            resolve_initialization_inventory(&config).expect("Astra initialization must resolve");
+
         let astra_interfaces = build_astra_dpu_interfaces_vec();
         let managed_endpoints = astra_interfaces
             .iter()
@@ -4412,14 +4427,12 @@ mod tests {
     #[test]
     fn initialization_rejects_hardware_vf_count_above_platform_limit() {
         // Direct SDK callers do not pass through api-core configuration deserialization.
-        let config = InitDpfResourcesConfig {
-            num_of_vfs: MAX_BLUEFIELD_VFS_PER_PF + 1,
-            ..Default::default()
-        };
+        let config =
+            InitDpfResourcesConfigBuilder::default().num_of_vfs(MAX_BLUEFIELD_VFS_PER_PF + 1);
 
         // Pure preflight runs before the SDK writes its shared BMC Secret.
         assert!(matches!(
-            resolve_initialization_inventory(&config),
+            config.build(),
             Err(DpfError::ConfigError(message)) if message.contains("num_of_vfs must be <= 126")
         ));
     }
@@ -6572,7 +6585,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_fresh() {
         let mock = SdkMock::new();
-        let config = flavor_test_config(None);
+        let config = flavor_test_config();
         let resolved = resolve_initialization_inventory(&config).unwrap();
         let name = create_dpu_flavor(&mock, TEST_NAMESPACE, &config, &resolved)
             .await
@@ -6599,11 +6612,14 @@ mod tests {
     #[tokio::test]
     async fn test_create_dpu_flavor_fresh_with_proxy() {
         let mock = SdkMock::new();
-        let proxy = Some(DpfProxyDetails {
+        let proxy = DpfProxyDetails {
             https_proxy: "http://proxy.corp:3128".to_string(),
             no_proxy: vec!["10.0.0.0/8".to_string()],
-        });
-        let config = flavor_test_config(proxy);
+        };
+        let config = InitDpfResourcesConfigBuilder::default()
+            .proxy(proxy)
+            .build()
+            .expect("proxy flavor test configuration must be valid");
         let resolved = resolve_initialization_inventory(&config).unwrap();
         let name_with_proxy = create_dpu_flavor(&mock, TEST_NAMESPACE, &config, &resolved)
             .await
@@ -6651,7 +6667,7 @@ mod tests {
         }
 
         let mock = AlwaysConflictsMock::default();
-        let config = flavor_test_config(None);
+        let config = flavor_test_config();
         let resolved = resolve_initialization_inventory(&config).unwrap();
         let err = create_dpu_flavor(&mock, TEST_NAMESPACE, &config, &resolved)
             .await
@@ -6679,7 +6695,7 @@ mod tests {
             .unwrap()
             .insert(SdkMock::key(&terminating_flavor), terminating_flavor);
 
-        let config = flavor_test_config(None);
+        let config = flavor_test_config();
         let resolved = resolve_initialization_inventory(&config).unwrap();
         let err = create_dpu_flavor(&mock, TEST_NAMESPACE, &config, &resolved)
             .await
@@ -6707,7 +6723,7 @@ mod tests {
             .insert(SdkMock::key(&flavor), flavor);
 
         let expected_name = flavor_name.clone();
-        let config = flavor_test_config(None);
+        let config = flavor_test_config();
         let resolved = resolve_initialization_inventory(&config).unwrap();
         let returned = create_dpu_flavor(&mock, TEST_NAMESPACE, &config, &resolved)
             .await
