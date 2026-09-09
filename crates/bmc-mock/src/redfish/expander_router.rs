@@ -254,7 +254,9 @@ mod tests {
         fn send_power_command(&self, _: SystemPowerControl) -> Result<(), SetSystemPowerError> {
             Ok(())
         }
-        fn state_refresh_indication(&self) {}
+        fn state_refresh_indication(&self) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     fn test_host_mock() -> Router {

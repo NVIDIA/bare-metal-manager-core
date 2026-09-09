@@ -592,7 +592,9 @@ mod tests {
             Ok(())
         }
 
-        fn state_refresh_indication(&self) {}
+        fn state_refresh_indication(&self) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     #[test]

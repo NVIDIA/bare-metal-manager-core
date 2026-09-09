@@ -350,45 +350,48 @@ fn generated_mock(config: GeneratedMockConfig) -> (Router, BmcState) {
         config.dpu_index,
         config.instance_index,
     );
-    let result = if config.machine_role == MachineRole::Host
-        && config.state_backend == StateBackend::Libvirt
-    {
-        bmc_mock::machine_router(
-            &machine_info,
-            callbacks,
-            String::default(),
-            false,
-            MachineRouterOptions {
-                bmc_reset_duration: None,
-                virtual_media_devices: Some(vec![
-                    VirtualMediaDeviceConfig {
-                        id: Cow::Borrowed("Cd"),
-                        name: Cow::Borrowed("Operating System Virtual CD"),
-                        media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
-                    },
-                    VirtualMediaDeviceConfig {
-                        id: Cow::Borrowed("ConfigCd"),
-                        name: Cow::Borrowed("Configuration Virtual CD"),
-                        media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
-                    },
-                ]),
-            },
-        )
-    } else {
-        bmc_mock::machine_router(
-            &machine_info,
-            callbacks,
-            String::default(),
-            false,
-            MachineRouterOptions::default(),
-        )
-    };
+    let result = bmc_mock::machine_router(
+        &machine_info,
+        callbacks,
+        String::default(),
+        false,
+        MachineRouterOptions {
+            bmc_reset_duration: None,
+            virtual_media_devices: generated_virtual_media_devices(
+                config.machine_role,
+                config.state_backend,
+            ),
+        },
+    );
     if let Some(callbacks) = libvirt_callbacks {
         callbacks
             .bind_state(&result.1)
             .expect("libvirt backend must bind to generated BMC state");
     }
     result
+}
+
+fn generated_virtual_media_devices(
+    machine_role: MachineRole,
+    state_backend: StateBackend,
+) -> Option<Vec<VirtualMediaDeviceConfig>> {
+    if state_backend != StateBackend::Libvirt {
+        return None;
+    }
+    let mut devices = Vec::new();
+    if machine_role == MachineRole::Host {
+        devices.push(VirtualMediaDeviceConfig {
+            id: Cow::Borrowed("Cd"),
+            name: Cow::Borrowed("Operating System Virtual CD"),
+            media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
+        });
+    }
+    devices.push(VirtualMediaDeviceConfig {
+        id: Cow::Borrowed("ConfigCd"),
+        name: Cow::Borrowed("Configuration Virtual CD"),
+        media_types: vec![Cow::Borrowed("CD"), Cow::Borrowed("DVD")],
+    });
+    Some(devices)
 }
 
 fn generated_machine_info(
@@ -454,10 +457,10 @@ impl Callbacks for ChannelCallbacks {
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
     }
 
-    fn state_refresh_indication(&self) {
-        let _ = self
-            .command_channel
-            .send(BmcCommand::StateRefreshIndication);
+    fn state_refresh_indication(&self) -> Result<(), String> {
+        self.command_channel
+            .send(BmcCommand::StateRefreshIndication)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -479,6 +482,33 @@ mod tests {
         assert_eq!(config.state_backend, StateBackend::Internal);
         assert!(matches!(config.hardware_type, HardwareType::WiwynnGB200Nvl));
         assert!(config.use_channel_callbacks);
+    }
+
+    #[test]
+    fn generated_virtual_media_matches_role_and_backend() {
+        for (role, backend, expected) in [
+            (
+                MachineRole::Dpu,
+                StateBackend::Libvirt,
+                Some(vec!["ConfigCd"]),
+            ),
+            (
+                MachineRole::Host,
+                StateBackend::Libvirt,
+                Some(vec!["Cd", "ConfigCd"]),
+            ),
+            (MachineRole::Dpu, StateBackend::Internal, None),
+            (MachineRole::Host, StateBackend::Internal, None),
+        ] {
+            let devices = generated_virtual_media_devices(role, backend);
+            let ids = devices.as_ref().map(|devices| {
+                devices
+                    .iter()
+                    .map(|device| device.id.as_ref())
+                    .collect::<Vec<_>>()
+            });
+            assert_eq!(ids, expected, "role {role:?}, backend {backend:?}");
+        }
     }
 
     #[test]
