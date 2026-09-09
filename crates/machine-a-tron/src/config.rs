@@ -417,6 +417,9 @@ pub struct DpuFirmwareVersions {
     pub cec: Option<String>,
     pub uefi: Option<String>,
     pub nic: Option<String>,
+    /// DPU BSP version.
+    #[serde(default)]
+    pub bsp: Option<String>,
 }
 
 /// BMC-mock has its own version of this data structure to avoid cyclic dependencies
@@ -427,6 +430,7 @@ impl From<DpuFirmwareVersions> for bmc_mock::DpuFirmwareVersions {
             cec: value.cec,
             uefi: value.uefi,
             nic: value.nic,
+            bsp: value.bsp,
         }
     }
 }
@@ -457,6 +461,7 @@ impl DpuFirmwareVersions {
             cec: self.cec.or_else(|| bf3_firmware_map.get("cec").cloned()),
             uefi: self.uefi.or_else(|| bf3_firmware_map.get("uefi").cloned()),
             nic: self.nic.or_else(|| bf3_firmware_map.get("nic").cloned()),
+            bsp: self.bsp,
         }
     }
 }
