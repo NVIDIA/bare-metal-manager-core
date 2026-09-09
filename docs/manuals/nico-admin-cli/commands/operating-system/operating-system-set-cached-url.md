@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system set-cached-url`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **set-cached-url**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **set-cached-url***
 
 ## NAME
 
@@ -16,6 +16,10 @@ on OS artifacts.
 
 Set or clear cached_url on OS artifacts.
 
+For cache strategies, readiness behavior, and the complete templated
+iPXE workflow, see
+[Templated iPXE Operating Systems](../../../../configuration/templated-ipxe-operating-systems.md).
+
 ## OPTIONS
 
 **--set** *\<NAME=URL\>*  
@@ -25,7 +29,7 @@ be repeated.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -54,4 +58,4 @@ nico-admin-cli operating-system set-cached-url 12345678-1234-5678-90ab-cdef01234
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

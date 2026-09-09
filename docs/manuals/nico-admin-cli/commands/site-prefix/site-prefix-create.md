@@ -1,6 +1,6 @@
 # `nico-admin-cli site-prefix create`
 
-_[Network commands](../../network.md) › [site-prefix](./site-prefix.md) › **create**_
+*[Network commands](../../network.md) › [site-prefix](./site-prefix.md) › **create***
 
 ## NAME
 
@@ -41,19 +41,19 @@ Use this SitePrefix ID instead of generating one locally
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field  
+Sort output by specified field\
 
-  
+\
 *Possible values:*
 
-> -   primary-id: Sort by the primary id
->
-> -   state: Sort by state
+- primary-id: Sort by the primary ID
+
+- state: Sort by state
 
 **-h**, **--help**  
 Print help (see a summary with -h)
@@ -68,4 +68,4 @@ nico-admin-cli site-prefix create --tenant-organization-id fds34511233a --site-p
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

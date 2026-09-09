@@ -1,6 +1,6 @@
 # `nico-admin-cli nvlink-nmxc-endpoints update`
 
-_[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **update**_
+*[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **update***
 
 ## NAME
 
@@ -24,7 +24,7 @@ Change the endpoint URL for a chassis serial
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli nvlink-nmxc-endpoints update --chassis-serial 1234567890123 --end
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli vpc-peering create`
 
-_[Network commands](../../network.md) › [vpc-peering](./vpc-peering.md) › **create**_
+*[Network commands](../../network.md) › [vpc-peering](./vpc-peering.md) › **create***
 
 ## NAME
 
@@ -23,7 +23,7 @@ Optional desired ID for the VPC peering
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -55,4 +55,4 @@ nico-admin-cli vpc-peering create 12345678-1234-5678-90ab-cdef01234567 abcdef01-
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

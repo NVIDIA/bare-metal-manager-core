@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-rack update`
 
-_[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **update**_
+*[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **update***
 
 ## NAME
 
@@ -37,7 +37,7 @@ labels key and value must be separated by a : character
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -66,4 +66,4 @@ nico-admin-cli expected-rack update 12345678-1234-5678-90ab-cdef01234567 --rack-
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

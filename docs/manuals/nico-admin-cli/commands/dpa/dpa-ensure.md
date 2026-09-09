@@ -1,6 +1,6 @@
 # `nico-admin-cli dpa ensure`
 
-_[Hardware commands](../../hardware.md) › [dpa](./dpa.md) › **ensure**_
+*[Hardware commands](../../hardware.md) › [dpa](./dpa.md) › **ensure***
 
 ## NAME
 
@@ -10,7 +10,7 @@ nico-admin-cli-dpa-ensure - Create/ensure a DPA interface
 
 **nico-admin-cli dpa ensure** \[**--extended**\] \[**--sort-by**\]
 \[**-h**\|**--help**\] \<*MACHINE_ID*\> \<*MAC_ADDR*\> \<*DEVICE_TYPE*\>
-\<*PCI_NAME*\> \[*DEVICE_DESCRIPTION*\]
+\<*PCI_NAME*\> \<*INTERFACE_TYPE*\> \[*DEVICE_DESCRIPTION*\]
 
 ## DESCRIPTION
 
@@ -21,7 +21,7 @@ Create/ensure a DPA interface
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -50,6 +50,16 @@ Device type (e.g. BlueField3)
 \<*PCI_NAME*\>  
 PCI name (e.g. 5e:00.0)
 
+\<*INTERFACE_TYPE*\>  
+Interface type (e.g. SVPC or ASTRA)\
+
+\
+*Possible values:*
+
+- svpc
+
+- astra
+
 \[*DEVICE_DESCRIPTION*\]  
 Device description (e.g. NVIDIA BlueField-3 B3140L E-Series FHHL
 SuperNIC)
@@ -63,4 +73,4 @@ nico-admin-cli dpa ensure 12345678-1234-5678-90ab-cdef01234567 00:11:22:33:44:55
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

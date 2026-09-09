@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer explore`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **explore**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **explore***
 
 ## NAME
 
@@ -26,7 +26,7 @@ The MAC address the BMC sent DHCP from
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -55,4 +55,4 @@ nico-admin-cli site-explorer explore 192.0.2.10 --mac 00:11:22:33:44:55
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

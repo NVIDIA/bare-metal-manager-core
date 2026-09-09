@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx lockdown`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › **lockdown**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › **lockdown***
 
 ## NAME
 
@@ -20,7 +20,7 @@ Device lockdown operations
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -55,4 +55,4 @@ nico-admin-cli mlx lockdown status 12345678-1234-5678-90ab-cdef01234567 0000:01:
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

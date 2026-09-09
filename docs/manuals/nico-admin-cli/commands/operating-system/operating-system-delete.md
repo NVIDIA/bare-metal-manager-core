@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system delete`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **delete***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Delete an operating system definition.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli operating-system delete 12345678-1234-5678-90ab-cdef01234567
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

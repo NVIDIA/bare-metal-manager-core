@@ -1,6 +1,6 @@
 # `nico-admin-cli rms power-state`
 
-_[Hardware commands](../../hardware.md) › [rms](./rms.md) › **power-state**_
+*[Hardware commands](../../hardware.md) › [rms](./rms.md) › **power-state***
 
 ## NAME
 
@@ -33,7 +33,7 @@ Client key path
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -64,4 +64,4 @@ nico-admin-cli rms power-state rack-1 node-1
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

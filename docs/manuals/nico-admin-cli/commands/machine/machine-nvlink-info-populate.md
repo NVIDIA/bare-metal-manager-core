@@ -1,6 +1,6 @@
 # `nico-admin-cli machine nvlink-info populate`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [nvlink-info](./machine-nvlink-info.md) › **populate**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [nvlink-info](./machine-nvlink-info.md) › **populate***
 
 ## NAME
 
@@ -25,7 +25,7 @@ Update the database with the nvlink_info
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -47,4 +47,4 @@ Machine ID to populate
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

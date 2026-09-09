@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-interfaces delete`
 
-_[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **delete***
 
 ## NAME
 
@@ -8,19 +8,27 @@ nico-admin-cli-machine-interfaces-delete - Delete Machine interface.
 
 ## SYNOPSIS
 
-**nico-admin-cli machine-interfaces delete** \[**--extended**\]
-\[**--sort-by**\] \[**-h**\|**--help**\] \<*INTERFACE_ID*\>
+**nico-admin-cli machine-interfaces delete** \[**--mac-address**\]
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
+\[*INTERFACE_ID*\]
 
 ## DESCRIPTION
 
-Delete Machine interface.
+Delete a machine interface.
+
+Exactly one deletion selector must be specified: INTERFACE_ID or
+--mac-address. Providing both selectors is rejected.
 
 ## OPTIONS
+
+**--mac-address** *\<MAC_ADDRESS\>*  
+Delete every interface carrying this MAC address instead of selecting by
+ID.
 
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -37,16 +45,16 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*INTERFACE_ID*\>  
-The interface ID to delete. Redeploy kea after deleting machine
-interfaces.
+\[*INTERFACE_ID*\]  
+The interface ID to delete.
 
 ## Examples
 
 ```sh
 nico-admin-cli machine-interfaces delete 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli machine-interfaces delete --mac-address 00:11:22:33:44:55
 ```
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

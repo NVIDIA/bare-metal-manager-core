@@ -1,6 +1,6 @@
 # `nico-admin-cli machine network`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **network**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **network***
 
 ## NAME
 
@@ -20,7 +20,7 @@ Networking information
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -53,4 +53,4 @@ nico-admin-cli machine network config --machine-id 12345678-1234-5678-90ab-cdef0
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

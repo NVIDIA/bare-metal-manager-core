@@ -1,6 +1,6 @@
 # `nico-admin-cli network-segment show`
 
-_[Network commands](../../network.md) › [network-segment](./network-segment.md) › **show**_
+*[Network commands](../../network.md) › [network-segment](./network-segment.md) › **show***
 
 ## NAME
 
@@ -28,7 +28,7 @@ The VPC name to query
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -58,4 +58,4 @@ nico-admin-cli network-segment show --tenant-org-id fds34511233a
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

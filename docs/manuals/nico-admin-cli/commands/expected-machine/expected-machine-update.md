@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-machine update`
 
-_[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **update**_
+*[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **update***
 
 ## NAME
 
@@ -36,7 +36,7 @@ Path to JSON file containing the expected machine data
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -61,4 +61,4 @@ nico-admin-cli expected-machine update --filename ./machine.json
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-interfaces assign-address`
 
-_[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **assign-address**_
+*[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **assign-address***
 
 ## NAME
 
@@ -22,7 +22,7 @@ Assign a static address to a machine interface
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -53,4 +53,4 @@ nico-admin-cli machine-interfaces assign-address 12345678-1234-5678-90ab-cdef012
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

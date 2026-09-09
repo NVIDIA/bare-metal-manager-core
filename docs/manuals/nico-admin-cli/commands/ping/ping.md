@@ -1,6 +1,6 @@
 # `nico-admin-cli ping`
 
-_[Admin commands](../../admin.md) › **ping**_
+*[Admin commands](../../admin.md) › **ping***
 
 ## NAME
 
@@ -26,7 +26,7 @@ with dot as a decimal separator.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -52,4 +52,4 @@ nico-admin-cli ping --interval 0.5
 
 ---
 
-**See also:** [Admin commands](../../admin.md) · [CLI reference index](../../README.md)
+**See also:** [Admin commands](../../admin.md) · [CLI reference index](../../index.md)

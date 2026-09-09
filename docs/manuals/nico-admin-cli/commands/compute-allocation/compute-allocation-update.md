@@ -1,6 +1,6 @@
 # `nico-admin-cli compute-allocation update`
 
-_[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **update**_
+*[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **update***
 
 ## NAME
 
@@ -51,7 +51,7 @@ match the value of this parameter
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -78,4 +78,4 @@ nico-admin-cli compute-allocation update --id 12345678-1234-5678-90ab-cdef012345
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

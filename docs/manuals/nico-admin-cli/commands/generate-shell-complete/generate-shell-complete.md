@@ -1,6 +1,6 @@
 # `nico-admin-cli generate-shell-complete`
 
-_[Admin commands](../../admin.md) › **generate-shell-complete**_
+*[Admin commands](../../admin.md) › **generate-shell-complete***
 
 ## NAME
 
@@ -23,7 +23,7 @@ Generate shell autocomplete. Source the output of this command: \`source
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli generate-shell-complete fish > ~/.config/fish/completions/nico-ad
 
 ---
 
-**See also:** [Admin commands](../../admin.md) · [CLI reference index](../../README.md)
+**See also:** [Admin commands](../../admin.md) · [CLI reference index](../../index.md)

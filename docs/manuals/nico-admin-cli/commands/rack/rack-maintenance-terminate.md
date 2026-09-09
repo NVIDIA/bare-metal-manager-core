@@ -1,6 +1,6 @@
 # `nico-admin-cli rack maintenance terminate`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **terminate**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **terminate***
 
 ## NAME
 
@@ -29,7 +29,7 @@ Rack ID whose active maintenance should be terminated
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -54,4 +54,4 @@ nico-admin-cli rack maintenance terminate --rack rack-42-us-west
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

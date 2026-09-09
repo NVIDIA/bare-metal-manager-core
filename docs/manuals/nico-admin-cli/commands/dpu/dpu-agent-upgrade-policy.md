@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu agent-upgrade-policy`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **agent-upgrade-policy**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **agent-upgrade-policy***
 
 ## NAME
 
@@ -31,7 +31,7 @@ Get or set forge-dpu-agent upgrade policy
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli dpu agent-upgrade-policy --set off
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

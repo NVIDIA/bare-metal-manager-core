@@ -1,6 +1,6 @@
 # `nico-admin-cli switch health-report add`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **add**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **add***
 
 ## NAME
 
@@ -63,7 +63,7 @@ Print the template that is going to be send to carbide
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -92,4 +92,4 @@ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 --t
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

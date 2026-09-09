@@ -1,6 +1,6 @@
 # `nico-admin-cli rack maintenance start`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **start**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **start***
 
 ## NAME
 
@@ -41,7 +41,7 @@ configure-nmx-cluster, power-sequence (omit for all)
 Raw SOT JSON for firmware-upgrade activity (prefer --sot-json-file)
 
 **--sot-json-file** *\<PATH\>*  
-SOT JSON file for RMS ApplyFirmwareObjectFromJSON
+SOT JSON file for RMS ApplyFirmwareObject
 
 **--access-token** *\<ACCESS_TOKEN\>*  
 Artifact access token for RMS SOT JSON downloads; omit or pass empty for
@@ -57,7 +57,7 @@ components)
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -84,4 +84,4 @@ nico-admin-cli rack maintenance start --rack 12345678-1234-5678-90ab-cdef0123456
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

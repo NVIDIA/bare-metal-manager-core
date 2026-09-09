@@ -1,6 +1,6 @@
 # `nico-admin-cli machine health-report remove`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [health-report](./machine-health-report.md) › **remove**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [health-report](./machine-health-report.md) › **remove***
 
 ## NAME
 
@@ -22,7 +22,7 @@ Remove a health report entry
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -40,9 +40,8 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*MACHINE_ID*\>  
-
 \<*REPORT_SOURCE*\>
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

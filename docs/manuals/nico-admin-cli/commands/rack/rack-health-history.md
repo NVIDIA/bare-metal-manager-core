@@ -1,6 +1,6 @@
 # `nico-admin-cli rack health-history`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **health-history**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › **health-history***
 
 ## NAME
 
@@ -20,7 +20,7 @@ Show rack health history
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -48,4 +48,4 @@ nico-admin-cli rack health-history ipp6-b03-gb-nvl-124-mini2
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

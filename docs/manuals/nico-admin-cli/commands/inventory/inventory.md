@@ -1,6 +1,6 @@
 # `nico-admin-cli inventory`
 
-_[Hardware commands](../../hardware.md) › **inventory**_
+*[Hardware commands](../../hardware.md) › **inventory***
 
 ## NAME
 
@@ -23,7 +23,7 @@ Write to file
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -49,4 +49,4 @@ nico-admin-cli inventory --filename ./inventory.ini
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

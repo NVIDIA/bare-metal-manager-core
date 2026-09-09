@@ -1,6 +1,6 @@
 # `nico-admin-cli boot-interface show`
 
-_[Hardware commands](../../hardware.md) › [boot-interface](./boot-interface.md) › **show**_
+*[Hardware commands](../../hardware.md) › [boot-interface](./boot-interface.md) › **show***
 
 ## NAME
 
@@ -27,14 +27,14 @@ Read-only.
 
 ## OPTIONS
 
-**--extended**\
+**--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
-**--sort-by** *\<SORT_BY\>* \[default: primary-id\]\
+**--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
 Sort output by specified field\
 
 \
@@ -44,10 +44,10 @@ Sort output by specified field\
 
 - state: Sort by state
 
-**-h**, **--help**\
+**-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*MACHINE*\>\
+\<*MACHINE*\>  
 The machine ID for which to gather boot interfaces
 
 ## Examples
@@ -60,4 +60,4 @@ nico-admin-cli --format yaml boot-interface show 12345678-1234-5678-90ab-cdef012
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

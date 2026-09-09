@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group show-attachments`
 
-_[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **show-attachments**_
+*[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **show-attachments***
 
 ## NAME
 
@@ -29,7 +29,7 @@ a parent object)
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -55,4 +55,4 @@ nico-admin-cli network-security-group show-attachments --id 12345678-1234-5678-9
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf service-sync`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **service-sync**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **service-sync***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Release DPF maintenance holds blocking a DPUService rollout
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -56,4 +56,4 @@ nico-admin-cli dpf service-sync release --instance-id 12345678-1234-5678-90ab-cd
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

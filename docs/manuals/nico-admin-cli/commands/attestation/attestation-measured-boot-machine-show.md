@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation measured-boot machine show`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [machine](./attestation-measured-boot-machine.md) › **show**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [machine](./attestation-measured-boot-machine.md) › **show***
 
 ## NAME
 
@@ -22,7 +22,7 @@ Get all info about a machine.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -51,4 +51,4 @@ nico-admin-cli attestation measured-boot machine show 12345678-1234-5678-90ab-cd
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

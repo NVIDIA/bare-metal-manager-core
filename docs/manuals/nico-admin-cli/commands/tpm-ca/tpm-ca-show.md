@@ -1,6 +1,6 @@
 # `nico-admin-cli tpm-ca show`
 
-_[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **show**_
+*[Hardware commands](../../hardware.md) › [tpm-ca](./tpm-ca.md) › **show***
 
 ## NAME
 
@@ -20,7 +20,7 @@ Show all TPM CA certificates
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -39,4 +39,4 @@ Print help (see a summary with -h)
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

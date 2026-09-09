@@ -1,6 +1,6 @@
 # `nico-admin-cli extension-service create`
 
-_[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **create**_
+*[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **create***
 
 ## NAME
 
@@ -60,7 +60,7 @@ JSON array containing a defined set of extension observability configs
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -88,4 +88,4 @@ nico-admin-cli extension-service create --name my-service --type kubernetes-pod 
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host power-options update`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **update**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **update***
 
 ## NAME
 
@@ -31,7 +31,7 @@ Desired Power State\
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli managed-host power-options update 12345678-1234-5678-90ab-cdef012
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

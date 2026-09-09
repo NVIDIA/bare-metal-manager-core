@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu reprovision clear`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **clear**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **clear***
 
 ## NAME
 
@@ -26,7 +26,7 @@ machine id if all DPUs should be cleared.
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -52,4 +52,4 @@ nico-admin-cli dpu reprovision clear --id abcdef01-2345-6789-abcd-ef0123456789
 
 ---
 
-**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)
+**See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../index.md)

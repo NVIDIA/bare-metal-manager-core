@@ -1,6 +1,6 @@
 # `nico-admin-cli spx-partition show`
 
-_[Network commands](../../network.md) › [spx-partition](./spx-partition.md) › **show**_
+*[Network commands](../../network.md) › [spx-partition](./spx-partition.md) › **show***
 
 ## NAME
 
@@ -28,7 +28,7 @@ The SPX Partition name to query
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -59,4 +59,4 @@ nico-admin-cli spx-partition show --name my-partition
 
 ---
 
-**See also:** [Network commands](../../network.md) · [CLI reference index](../../README.md)
+**See also:** [Network commands](../../network.md) · [CLI reference index](../../index.md)

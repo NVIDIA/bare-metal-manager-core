@@ -1,6 +1,6 @@
 # `nico-admin-cli instance update-nv-link-config`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-nv-link-config**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-nv-link-config***
 
 ## NAME
 
@@ -26,7 +26,7 @@ NVLink configuration in JSON format
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
+This is used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
@@ -51,4 +51,4 @@ nico-admin-cli instance update-nv-link-config --instance 12345678-1234-5678-90ab
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)
