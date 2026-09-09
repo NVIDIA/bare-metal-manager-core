@@ -450,6 +450,7 @@ product_family = "gb200"
 [rack_profiles.NVL72.firmware_object]
 url = "https://firmware.example.com/objects/nvl72.json"
 fetch_timeout = "30s"
+access_token_credential = "nvl72-artifacts"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"
@@ -466,5 +467,14 @@ count = 8
 
 The `url` field identifies the document location. The optional `fetch_timeout`
 field accepts duration strings such as `30s` and `60s` and defaults to `30s`.
-Use seconds for this request timeout, although the parser accepts other
-duration units such as milliseconds (`ms`), minutes (`m`), and hours (`h`).
+The optional `access_token_credential` field is a non-empty name created with
+[`nico-admin-cli credential firmware-access-token set`](../../manuals/nico-admin-cli/commands/credential/credential-firmware-access-token-set.md)
+or the credential CRUD gRPC API. The rack profile stores the name, not the
+token. NICo resolves the token when each expected compute tray reaches
+pre-ingestion and when the rack state machine applies the profile after rack
+discovery. Both paths forward the token and unchanged SOT to RMS. Omit the field
+when the SOT artifacts do not require authentication. RMS interprets the SOT and
+skips or performs the update based on its inventory. Configuring
+`firmware_object` enables per-compute-tray pre-ingestion submission. Switch
+firmware remains part of the rack state machine's firmware phase after rack
+discovery.

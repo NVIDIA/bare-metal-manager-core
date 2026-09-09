@@ -1047,11 +1047,9 @@ images when a machine in the model joins. See
 ### Rack profile firmware object: `[rack_profiles.<name>]`
 
 A rack profile can define a `firmware_object` block for one firmware-object JSON
-document. NICo uses the document as the default firmware input during rack
-ingestion. The block contains a `url` and an optional `fetch_timeout`, which
-accepts duration strings such as `30s` and `60s` and defaults to `30s`. Use
-seconds for this request timeout, although the parser accepts other duration
-units such as milliseconds (`ms`), minutes (`m`), and hours (`h`).
+document for expected compute pre-ingestion and later rack maintenance. See the
+canonical [`rack_profiles` configuration reference](../../../crates/api-core/src/cfg/README.md#component-manager-rms-node-descriptors)
+for fields, defaults, credential behavior, and update scope.
 
 ---
 

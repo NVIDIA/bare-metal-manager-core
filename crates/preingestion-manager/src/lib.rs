@@ -33,6 +33,7 @@ use carbide_firmware::{
     resolve_files_firmware_artifact,
 };
 use carbide_instrument::emit;
+use carbide_rack::firmware_object::FirmwareObjectFetcher;
 use carbide_redfish::libredfish::conv::IntoLibredfish;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_secrets::credentials::{
@@ -40,6 +41,14 @@ use carbide_secrets::credentials::{
 };
 use carbide_utils::periodic_timer::PeriodicTimer;
 use chrono::{DateTime, Utc};
+use component_manager::component_manager::ComponentManager;
+use component_manager::compute_tray_manager::{
+    Backend as ComputeTrayBackend, ComputeTrayEndpoint, ComputeTrayVendor,
+};
+use component_manager::error::ComponentManagerError;
+use component_manager::types::{
+    FirmwareUpdateOptions, PreIngestionRackFirmwareContext, PreIngestionRackFirmwareStatus,
+};
 pub use config::PreingestionManagerConfig;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, WithTransaction};
@@ -47,7 +56,10 @@ use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
+use model::component_manager::FirmwareState;
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
+use model::machine_interface::InterfaceType;
+use model::rack_type::{RackFirmwareObjectConfig, RackProfileConfig};
 use model::site_explorer::{
     BlueFieldOperatingMode, ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase,
     PowerDrainState, PreingestionState, TimeSyncResetPhase,
@@ -111,6 +123,34 @@ struct PreingestionManagerStatic {
     bfb_copy_state: Arc<BfbCopyManager>,
     bfb_copy_limiter: Arc<Semaphore>,
     ntp_servers: Vec<Ipv4Addr>,
+    rack_firmware: Option<RackFirmwareDependencies>,
+}
+
+/// Dependencies used only by rack compute-tray firmware pre-ingestion.
+#[derive(Clone)]
+pub struct RackFirmwareDependencies {
+    rack_profiles: RackProfileConfig,
+    component_manager: Option<Arc<ComponentManager>>,
+    firmware_object_fetcher: Arc<dyn FirmwareObjectFetcher>,
+}
+
+impl RackFirmwareDependencies {
+    /// Creates the dependencies for profile-selected rack compute-tray firmware work.
+    ///
+    /// `component_manager` may be absent when NICo starts without a configured
+    /// backend. A compute tray whose profile requests firmware then fails pre-ingestion
+    /// with an explicit configuration error instead of using Redfish.
+    pub fn new(
+        rack_profiles: RackProfileConfig,
+        component_manager: Option<Arc<ComponentManager>>,
+        firmware_object_fetcher: Arc<dyn FirmwareObjectFetcher>,
+    ) -> Self {
+        Self {
+            rack_profiles,
+            component_manager,
+            firmware_object_fetcher,
+        }
+    }
 }
 
 impl PreingestionManager {
@@ -151,11 +191,18 @@ impl PreingestionManager {
                 bfb_copy_state: Default::default(),
                 bfb_copy_limiter: Arc::new(Semaphore::new(config.max_concurrent_bfb_copies)),
                 ntp_servers,
+                rack_firmware: None,
                 config,
             }),
             metric_holder,
             database_connection,
         }
+    }
+
+    /// Enables rack-profile firmware-object handling before compute-tray ingestion.
+    pub fn with_rack_firmware(mut self, dependencies: RackFirmwareDependencies) -> Self {
+        Arc::make_mut(&mut self.static_info).rack_firmware = Some(dependencies);
+        self
     }
 
     pub fn start(
@@ -298,6 +345,48 @@ struct EndpointResult {
     delayed_upgrade: bool,
 }
 
+/// Result of deciding whether an endpoint uses rack compute firmware handling.
+enum RackFirmwareRoute {
+    /// The endpoint is not an expected rack compute tray and may use the
+    /// standalone firmware workflow.
+    NotConfigured,
+
+    /// The endpoint belongs to the rack workflow but needs no RMS submission.
+    NoUpdate { alias_addresses: Vec<IpAddr> },
+
+    /// The endpoint belongs to a rack profile with a firmware object.
+    Target(RackFirmwareTarget),
+
+    /// The endpoint belongs to the rack workflow but its configuration is
+    /// incomplete or invalid.
+    Failed {
+        alias_addresses: Vec<IpAddr>,
+        reason: String,
+    },
+}
+
+/// Immutable target data used from route selection through RMS submission.
+struct RackFirmwareTarget {
+    firmware_object: RackFirmwareObjectConfig,
+    bmc_mac: mac_address::MacAddress,
+    rack_id: carbide_uuid::rack::RackId,
+    rack_profile_id: carbide_uuid::rack::RackProfileId,
+    workflow_address: IpAddr,
+    alias_addresses: Vec<IpAddr>,
+}
+
+/// Outcome of preparing a prerequisite before the external RMS submission.
+enum RackFirmwarePreparation<T> {
+    /// Preparation succeeded and submission may continue.
+    Ready(T),
+
+    /// A transient dependency failure leaves the endpoint eligible for retry.
+    Retry(String),
+
+    /// A configuration failure moves the endpoint to terminal failure.
+    Failed(String),
+}
+
 async fn one_endpoint(
     db: &PgPool,
     endpoint: &ExploredEndpoint,
@@ -408,6 +497,18 @@ async fn one_endpoint(
                 .await?;
             false
         }
+        PreingestionState::RackFirmwareSubmitting => {
+            static_info
+                .resume_rack_firmware_submission(db, endpoint)
+                .await?;
+
+            false
+        }
+        PreingestionState::RackFirmwareUpdateWait => {
+            static_info.wait_for_rack_firmware(db, endpoint).await?;
+
+            false
+        }
         PreingestionState::UpgradeFirmwareWait {
             task_id,
             final_version,
@@ -512,6 +613,613 @@ async fn one_endpoint(
 }
 
 impl PreingestionManagerStatic {
+    /// Handles rack compute firmware before the standalone firmware workflow.
+    ///
+    /// Returns `true` when rack routing owns the endpoint, including no-op,
+    /// retry, and failure outcomes. A `false` result allows the caller to run
+    /// the standalone firmware catalog and Redfish workflow.
+    async fn start_rack_firmware(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> PreingestionManagerResult<bool> {
+        let Some(dependencies) = self.rack_firmware.as_ref() else {
+            return Ok(false);
+        };
+
+        let target = match self
+            .resolve_rack_firmware_route(db, endpoint, dependencies)
+            .await?
+        {
+            RackFirmwareRoute::NotConfigured => return Ok(false),
+            RackFirmwareRoute::NoUpdate { alias_addresses } => {
+                self.complete_rack_firmware(db, &alias_addresses, false)
+                    .await?;
+
+                return Ok(true);
+            }
+            RackFirmwareRoute::Target(target) => target,
+            RackFirmwareRoute::Failed {
+                alias_addresses,
+                reason,
+            } => {
+                self.fail_rack_firmware(db, &alias_addresses, reason)
+                    .await?;
+
+                return Ok(true);
+            }
+        };
+
+        if endpoint.address != target.workflow_address {
+            return Ok(true);
+        }
+
+        let Some(manager) = dependencies.component_manager.as_ref() else {
+            self.fail_rack_firmware(
+                db,
+                &target.alias_addresses,
+                "Component Manager is not configured for rack firmware updates".into(),
+            )
+            .await?;
+
+            return Ok(true);
+        };
+
+        let device = self
+            .build_rack_firmware_endpoint(endpoint, target.bmc_mac, manager)
+            .await;
+
+        let Some(device) = self
+            .finish_rack_firmware_preparation(db, &target.alias_addresses, device)
+            .await?
+        else {
+            return Ok(true);
+        };
+
+        let request = self
+            .load_rack_firmware_object(dependencies, &target.firmware_object)
+            .await;
+
+        let Some((config_json, access_token)) = self
+            .finish_rack_firmware_preparation(db, &target.alias_addresses, request)
+            .await?
+        else {
+            return Ok(true);
+        };
+
+        let workflow_address = target.workflow_address;
+
+        let claimed = db
+            .with_txn(|txn| {
+                db::explored_endpoints::claim_preingestion_rack_firmware_submitting(
+                    workflow_address,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+
+        if !claimed {
+            return Ok(true);
+        }
+
+        let context = PreIngestionRackFirmwareContext {
+            rack_id: target.rack_id.clone(),
+            rack_profile_id: target.rack_profile_id.clone(),
+        };
+
+        let options = FirmwareUpdateOptions {
+            access_token,
+            force_update: false,
+        };
+
+        let submission = manager
+            .compute_tray
+            .queue_pre_ingestion_firmware_object_update(&device, &context, &config_json, &options)
+            .await;
+
+        let job_id = match submission {
+            Ok(job_id) => job_id,
+            Err(error) => {
+                self.handle_rack_firmware_submission_error(db, &target, error)
+                    .await?;
+
+                return Ok(true);
+            }
+        };
+
+        db.with_txn(|txn| {
+            async move {
+                db::explored_endpoints::save_backend_firmware_object_job_id_by_ip(
+                    txn.as_mut(),
+                    workflow_address,
+                    &job_id,
+                )
+                .await?;
+
+                db::explored_endpoints::set_preingestion_rack_firmware_wait(workflow_address, txn)
+                    .await
+            }
+            .boxed()
+        })
+        .await??;
+
+        Ok(true)
+    }
+
+    async fn finish_rack_firmware_preparation<T>(
+        &self,
+        db: &PgPool,
+        addresses: &[IpAddr],
+        preparation: RackFirmwarePreparation<T>,
+    ) -> PreingestionManagerResult<Option<T>> {
+        match preparation {
+            RackFirmwarePreparation::Ready(value) => Ok(Some(value)),
+            RackFirmwarePreparation::Retry(reason) => {
+                tracing::warn!(
+                    bmc_ip_addresses = ?addresses,
+                    reason,
+                    "Rack firmware prerequisites are not ready"
+                );
+
+                Ok(None)
+            }
+            RackFirmwarePreparation::Failed(reason) => {
+                self.fail_rack_firmware(db, addresses, reason).await?;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn load_rack_firmware_object(
+        &self,
+        dependencies: &RackFirmwareDependencies,
+        firmware_object: &RackFirmwareObjectConfig,
+    ) -> RackFirmwarePreparation<(String, Option<String>)> {
+        let access_token = match firmware_object.access_token_credential.as_ref() {
+            None => None,
+            Some(name) => {
+                let Some(reader) = self.credential_reader.as_ref() else {
+                    return RackFirmwarePreparation::Failed(
+                        "credential reader is not configured for firmware artifact access tokens"
+                            .into(),
+                    );
+                };
+
+                let key = CredentialKey::FirmwareArtifactAccessToken { name: name.clone() };
+
+                match reader.get_credentials(&key).await {
+                    Ok(Some(Credentials::UsernamePassword { password, .. })) => Some(password),
+                    Ok(None) => {
+                        return RackFirmwarePreparation::Retry(format!(
+                            "firmware artifact access-token credential {name} was not found"
+                        ));
+                    }
+                    Err(error) => {
+                        return RackFirmwarePreparation::Retry(format!(
+                            "failed to read firmware artifact access-token credential {name}: {error}"
+                        ));
+                    }
+                }
+            }
+        };
+
+        match dependencies
+            .firmware_object_fetcher
+            .fetch(firmware_object.url.as_str(), firmware_object.fetch_timeout)
+            .await
+        {
+            Ok(config_json) => RackFirmwarePreparation::Ready((config_json, access_token)),
+            Err(reason) => RackFirmwarePreparation::Retry(reason),
+        }
+    }
+
+    async fn build_rack_firmware_endpoint(
+        &self,
+        endpoint: &ExploredEndpoint,
+        bmc_mac: mac_address::MacAddress,
+        manager: &ComponentManager,
+    ) -> RackFirmwarePreparation<ComputeTrayEndpoint> {
+        let Some(reader) = self.credential_reader.as_ref() else {
+            return RackFirmwarePreparation::Failed(
+                "credential reader is not configured for rack firmware updates".into(),
+            );
+        };
+
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot {
+                bmc_mac_address: bmc_mac,
+            },
+        };
+
+        let credentials = match reader.get_credentials(&key).await {
+            Ok(Some(credentials)) => credentials,
+            Ok(None) => {
+                return RackFirmwarePreparation::Retry(format!(
+                    "BMC credentials were not found for {bmc_mac}"
+                ));
+            }
+            Err(error) => {
+                return RackFirmwarePreparation::Retry(format!(
+                    "failed to read BMC credentials for {bmc_mac}: {error}"
+                ));
+            }
+        };
+
+        if manager.compute_tray.backend() != ComputeTrayBackend::Rms {
+            return RackFirmwarePreparation::Failed(
+                "rack compute pre-ingestion firmware requires the RMS compute-tray backend".into(),
+            );
+        }
+
+        RackFirmwarePreparation::Ready(ComputeTrayEndpoint {
+            vendor: ComputeTrayVendor::from(
+                endpoint
+                    .report
+                    .vendor
+                    .unwrap_or(bmc_vendor::BMCVendor::Unknown),
+            ),
+            bmc_ip: endpoint.address,
+            bmc_mac,
+            bmc_credentials: credentials,
+        })
+    }
+
+    async fn handle_rack_firmware_submission_error(
+        &self,
+        db: &PgPool,
+        target: &RackFirmwareTarget,
+        error: ComponentManagerError,
+    ) -> PreingestionManagerResult<()> {
+        // Rejection before dispatch proves that RMS did not create a job, so
+        // returning to a schedulable state cannot duplicate an update.
+        if matches!(&error, ComponentManagerError::RejectedBeforeDispatch(_)) {
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_recheck_versions(
+                    target.workflow_address,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+
+            tracing::warn!(
+                bmc_mac_address = %target.bmc_mac,
+                error = %error,
+                "RMS rejected rack firmware before dispatch; will retry"
+            );
+
+            return Ok(());
+        }
+
+        // Transport and malformed-response failures may occur after RMS accepts
+        // the request. Fail closed because resubmission could duplicate work.
+        self.fail_rack_firmware(
+            db,
+            &target.alias_addresses,
+            format!("rack firmware submission outcome is unknown: {error}"),
+        )
+        .await
+    }
+
+    async fn resolve_rack_firmware_route(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        dependencies: &RackFirmwareDependencies,
+    ) -> Result<RackFirmwareRoute, DatabaseError> {
+        let Some((bmc_mac, alias_addresses, workflow_address, already_ingested)) =
+            self.rack_firmware_aliases(db, endpoint).await?
+        else {
+            return Ok(RackFirmwareRoute::NotConfigured);
+        };
+
+        let mut conn = db.acquire().await.map_err(|error| {
+            DatabaseError::new("acquire rack firmware database connection", error)
+        })?;
+
+        let Some(identity) =
+            db::expected_machine::find_rms_identities_by_bmc_macs(conn.as_mut(), &[bmc_mac])
+                .await?
+                .pop()
+        else {
+            return Ok(RackFirmwareRoute::NotConfigured);
+        };
+
+        let rack_id = identity.rack_id;
+
+        if already_ingested {
+            return Ok(RackFirmwareRoute::NoUpdate { alias_addresses });
+        }
+
+        let Some(rack_profile_id) = identity.rack_profile_id else {
+            return Ok(RackFirmwareRoute::Failed {
+                alias_addresses,
+                reason: format!(
+                    "rack {rack_id} has no rack profile for expected compute BMC MAC {bmc_mac}"
+                ),
+            });
+        };
+
+        let Some(profile) = dependencies.rack_profiles.get(rack_profile_id.as_str()) else {
+            return Ok(RackFirmwareRoute::Failed {
+                alias_addresses,
+                reason: format!("rack profile {rack_profile_id} was not found for rack {rack_id}"),
+            });
+        };
+
+        // Presence of a firmware object is the rack-profile opt-in for compute
+        // pre-ingestion. RMS, not NICo, decides whether the tray needs updates.
+        let Some(firmware_object) = profile.firmware_object.clone() else {
+            return Ok(RackFirmwareRoute::NoUpdate { alias_addresses });
+        };
+
+        Ok(RackFirmwareRoute::Target(RackFirmwareTarget {
+            firmware_object,
+            bmc_mac,
+            rack_id,
+            rack_profile_id,
+            workflow_address,
+            alias_addresses,
+        }))
+    }
+
+    /// Selects one workflow owner for every BMC IP alias of a physical tray.
+    ///
+    /// An active owner remains canonical across retries. Otherwise the lowest
+    /// schedulable address claims the operation, preventing duplicate RMS jobs
+    /// when site explorer reports more than one address for the same BMC MAC.
+    async fn rack_firmware_aliases(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> Result<Option<(mac_address::MacAddress, Vec<IpAddr>, IpAddr, bool)>, DatabaseError> {
+        let Some(interface) = db::machine_interface::find_by_ip(db, endpoint.address).await? else {
+            return Ok(None);
+        };
+
+        if interface.interface_type != InterfaceType::Bmc {
+            return Ok(None);
+        }
+
+        let mut addresses = interface.addresses;
+        addresses.push(endpoint.address);
+        addresses.sort_unstable();
+        addresses.dedup();
+
+        let candidates = db::explored_endpoints::find_by_ips(db, addresses).await?;
+
+        let active = candidates
+            .iter()
+            .filter(|candidate| {
+                matches!(
+                    candidate.preingestion_state,
+                    PreingestionState::RackFirmwareSubmitting
+                        | PreingestionState::RackFirmwareUpdateWait
+                )
+            })
+            .map(|candidate| candidate.address)
+            .min();
+
+        // Keep ownership aligned with the states accepted by the atomic claim.
+        let schedulable = candidates
+            .iter()
+            .filter(|candidate| {
+                !candidate.waiting_for_explorer_refresh
+                    && candidate.report.last_exploration_error.is_none()
+                    && matches!(
+                        candidate.preingestion_state,
+                        PreingestionState::SetNtpServers { .. }
+                            | PreingestionState::TimeSyncReset { .. }
+                            | PreingestionState::RecheckVersions
+                            | PreingestionState::RecheckVersionsAfterFailure { .. }
+                    )
+            })
+            .map(|candidate| candidate.address)
+            .min();
+
+        let workflow_address = active.or(schedulable).unwrap_or(endpoint.address);
+
+        let mut alias_addresses = candidates
+            .into_iter()
+            .filter(|candidate| {
+                !matches!(
+                    candidate.preingestion_state,
+                    PreingestionState::Failed { .. }
+                )
+            })
+            .map(|candidate| candidate.address)
+            .collect::<Vec<_>>();
+
+        alias_addresses.sort_unstable();
+        alias_addresses.dedup();
+
+        Ok(Some((
+            interface.mac_address,
+            alias_addresses,
+            workflow_address,
+            interface.machine_id.is_some() || interface.switch_id.is_some(),
+        )))
+    }
+
+    async fn resume_rack_firmware_submission(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> PreingestionManagerResult<()> {
+        let Some((_, aliases, _, _)) = self.rack_firmware_aliases(db, endpoint).await? else {
+            return self
+                .fail_rack_firmware(
+                    db,
+                    &[endpoint.address],
+                    "BMC identity is missing for an interrupted RMS firmware submission".into(),
+                )
+                .await;
+        };
+
+        self.fail_rack_firmware(
+            db,
+            &aliases,
+            "RMS firmware submission outcome is unknown after restart; automatic resubmission is disabled"
+                .into(),
+        )
+        .await
+    }
+
+    async fn wait_for_rack_firmware(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> PreingestionManagerResult<()> {
+        let Some((_, aliases, _, _)) = self.rack_firmware_aliases(db, endpoint).await? else {
+            return self
+                .fail_rack_firmware(
+                    db,
+                    &[endpoint.address],
+                    "BMC identity is missing while polling an RMS firmware job".into(),
+                )
+                .await;
+        };
+
+        let job_id =
+            db::explored_endpoints::get_backend_firmware_object_job_id_by_ip(db, endpoint.address)
+                .await?;
+
+        let Some(job_id) = job_id.filter(|job_id| !job_id.is_empty()) else {
+            return self
+                .fail_rack_firmware(
+                    db,
+                    &aliases,
+                    "RMS firmware job is missing while the rack compute tray is waiting".into(),
+                )
+                .await;
+        };
+
+        let Some(dependencies) = self.rack_firmware.as_ref() else {
+            return self
+                .fail_rack_firmware(
+                    db,
+                    &aliases,
+                    "rack firmware dependencies are not configured".into(),
+                )
+                .await;
+        };
+
+        let Some(manager) = dependencies.component_manager.as_ref() else {
+            return self
+                .fail_rack_firmware(
+                    db,
+                    &aliases,
+                    "Component Manager is not configured for rack firmware updates".into(),
+                )
+                .await;
+        };
+
+        let status = manager
+            .compute_tray
+            .get_pre_ingestion_firmware_object_status(&job_id)
+            .await;
+
+        let status = match status {
+            Ok(status) => status,
+            Err(error) => {
+                tracing::warn!(%job_id, error = %error, "RMS firmware job status is unavailable; will retry");
+                return Ok(());
+            }
+        };
+
+        let PreIngestionRackFirmwareStatus { state, error } = status;
+
+        match state {
+            FirmwareState::Queued | FirmwareState::InProgress | FirmwareState::Verifying => {
+                tracing::debug!(%job_id, "Rack firmware job is still running");
+            }
+            FirmwareState::Completed => {
+                // Firmware may change the BMC inventory used for ingestion, so
+                // require a fresh explorer report after RMS finishes.
+                self.complete_rack_firmware(db, &aliases, true).await?
+            }
+            FirmwareState::Unknown => {
+                tracing::warn!(
+                    %job_id,
+                    error = error.as_deref().unwrap_or("status unavailable"),
+                    "RMS firmware job status is unavailable; will retry"
+                );
+            }
+            FirmwareState::Failed | FirmwareState::Cancelled => {
+                self.fail_rack_firmware(
+                    db,
+                    &aliases,
+                    error.unwrap_or_else(|| {
+                        format!("RMS firmware job {job_id} ended in state {state:?}")
+                    }),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn complete_rack_firmware(
+        &self,
+        db: &PgPool,
+        addresses: &[IpAddr],
+        inventory_changed: bool,
+    ) -> PreingestionManagerResult<()> {
+        db.with_txn(|txn| {
+            async move {
+                for address in addresses {
+                    db::explored_endpoints::set_preingestion_rack_firmware_complete(*address, txn)
+                        .await?;
+
+                    if inventory_changed {
+                        db::explored_endpoints::set_waiting_for_explorer_refresh(*address, txn)
+                            .await?;
+                    }
+                }
+
+                Ok::<(), DatabaseError>(())
+            }
+            .boxed()
+        })
+        .await??;
+
+        Ok(())
+    }
+
+    async fn fail_rack_firmware(
+        &self,
+        db: &PgPool,
+        addresses: &[IpAddr],
+        reason: String,
+    ) -> PreingestionManagerResult<()> {
+        tracing::error!(
+            bmc_ip_addresses = ?addresses,
+            reason,
+            "Rack firmware pre-ingestion failed"
+        );
+
+        db.with_txn(|txn| {
+            async move {
+                for address in addresses {
+                    db::explored_endpoints::set_preingestion_rack_firmware_failed(
+                        *address,
+                        reason.clone(),
+                        txn,
+                    )
+                    .await?;
+                }
+
+                Ok::<(), DatabaseError>(())
+            }
+            .boxed()
+        })
+        .await??;
+
+        Ok(())
+    }
+
     async fn firmware_config_snapshot(
         &self,
         db: &PgPool,
@@ -542,6 +1250,10 @@ impl PreingestionManagerStatic {
         db: &PgPool,
         endpoint: &ExploredEndpoint,
     ) -> PreingestionManagerResult<bool> {
+        if self.start_rack_firmware(db, endpoint).await? {
+            return Ok(false);
+        }
+
         // First, we need to check if it's appropriate to upgrade at this point or wait until later.
         let fw_info = match self.find_fw_info_for_host(db, endpoint).await? {
             None => {
@@ -616,6 +1328,10 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         repeat: bool,
     ) -> PreingestionManagerResult<bool> {
+        if self.start_rack_firmware(db, endpoint).await? {
+            return Ok(false);
+        }
+
         if endpoint.waiting_for_explorer_refresh {
             tracing::debug!(
                 bmc_ip_address = %endpoint.address,

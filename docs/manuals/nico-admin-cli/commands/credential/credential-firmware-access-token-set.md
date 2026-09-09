@@ -23,7 +23,8 @@ Set or rotate a firmware artifact access token
 Non-secret credential name
 
 **--token-file** *\<TOKEN_FILE\>*  
-File containing the token, or - to read standard input
+File containing the token, or - to read standard input; whitespace and
+line endings are preserved
 
 **--extended**  
 Extended result output.
@@ -48,6 +49,7 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
+printf '%s' 'example-token' > ./firmware-token.txt
 nico-admin-cli credential firmware-access-token set --name repository-a --token-file ./firmware-token.txt
 cat ./firmware-token.txt | nico-admin-cli credential firmware-access-token set --name repository-a --token-file -
 ```

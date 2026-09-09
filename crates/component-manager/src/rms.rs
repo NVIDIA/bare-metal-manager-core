@@ -63,7 +63,9 @@ use crate::power_shelf_manager::{
     PowerShelfFirmwareUpdateStatus, PowerShelfFirmwareVersions, PowerShelfManager,
     PowerShelfPowerStateResult,
 };
-use crate::types::FirmwareUpdateOptions;
+use crate::types::{
+    FirmwareUpdateOptions, PreIngestionRackFirmwareContext, PreIngestionRackFirmwareStatus,
+};
 use crate::{NvosUpdateManager, NvosUpdateRequest};
 
 /// Common RMS identity needed to address a device in RMS.
@@ -3212,6 +3214,72 @@ async fn rms_get_configure_switch_certificate_job_status(
 }
 
 impl RmsBackend {
+    async fn dispatch_firmware_object(
+        &self,
+        request: rms::ApplyFirmwareObjectRequest,
+        node_id: &str,
+    ) -> Result<(bool, Option<String>, Option<String>), ComponentManagerError> {
+        let response = red::instrumented(
+            "rms",
+            "apply_firmware_object",
+            self.client.apply_firmware_object(request),
+        )
+        .await
+        .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+        Ok(summarize_firmware_object_apply_response(response, node_id))
+    }
+
+    async fn submit_pre_ingestion_firmware_object(
+        &self,
+        node: rms::NodeInfo,
+        resolved: &ResolvedRmsNode<'_>,
+        bmc_mac: MacAddress,
+        config_json: &str,
+        options: &FirmwareUpdateOptions,
+    ) -> Result<String, ComponentManagerError> {
+        let request = apply_firmware_object_request(node, resolved, config_json, options, &[])
+            .map_err(|error| ComponentManagerError::RejectedBeforeDispatch(error.to_string()))?;
+
+        let (accepted, error, job_id) = self
+            .dispatch_firmware_object(request, &resolved.identity.node_id)
+            .await
+            .map_err(|error| {
+                ComponentManagerError::OperationOutcomeUnknown(format!(
+                    "RMS firmware submission for {bmc_mac} returned no definitive outcome: {error}"
+                ))
+            })?;
+
+        if !accepted {
+            return Err(ComponentManagerError::RejectedBeforeDispatch(
+                error.unwrap_or_else(|| {
+                    format!("RMS rejected the firmware-object update for {bmc_mac}")
+                }),
+            ));
+        }
+
+        let Some(job_id) = job_id.filter(|job_id| !job_id.trim().is_empty()) else {
+            return Err(ComponentManagerError::OperationOutcomeUnknown(format!(
+                "RMS accepted the firmware-object update for {bmc_mac} without a job ID"
+            )));
+        };
+
+        Ok(job_id)
+    }
+
+    async fn pre_ingestion_firmware_status(&self, job_id: &str) -> PreIngestionRackFirmwareStatus {
+        let tracked_job = RmsTrackedFirmwareJob::FirmwareObject(job_id.to_owned());
+
+        let (state, error) = query_tracked_firmware_job_status(
+            self.client.as_ref(),
+            self.switch_system_image_client.as_deref(),
+            &tracked_job,
+        )
+        .await;
+
+        PreIngestionRackFirmwareStatus { state, error }
+    }
+
     /// Resolve RMS identities for pre-ingestion (row-less) compute trays from
     /// the expected inventory, keyed by BMC MAC.
     ///
@@ -3302,17 +3370,11 @@ impl RmsBackend {
             }
         };
 
-        match red::instrumented(
-            "rms",
-            "apply_firmware_object",
-            self.client.apply_firmware_object(request),
-        )
-        .await
+        match self
+            .dispatch_firmware_object(request, &resolved.identity.node_id)
+            .await
         {
-            Ok(response) => {
-                let (success, error, job_id) =
-                    summarize_firmware_object_apply_response(response, &resolved.identity.node_id);
-
+            Ok((success, error, job_id)) => {
                 if success {
                     if let Some(ref job_id) = job_id {
                         // Track both in memory and in the DB keyed by BMC MAC so
@@ -3547,6 +3609,47 @@ impl ComputeTrayManager for RmsBackend {
         }
 
         Ok(results)
+    }
+
+    #[instrument(skip(self, endpoint, context, config_json, options), fields(backend = "rms", force_update = options.force_update))]
+    async fn queue_pre_ingestion_firmware_object_update(
+        &self,
+        endpoint: &ComputeTrayEndpoint,
+        context: &PreIngestionRackFirmwareContext,
+        config_json: &str,
+        options: &FirmwareUpdateOptions,
+    ) -> Result<String, ComponentManagerError> {
+        let identity = ComputeTrayRmsIdentity {
+            identity: RmsIdentity {
+                node_id: endpoint.bmc_mac.to_string(),
+                rack_id: context.rack_id.to_string(),
+                rack_profile_id: Some(context.rack_profile_id.clone()),
+            },
+            bmc_mac: endpoint.bmc_mac,
+        };
+
+        let resolved = self
+            .resolve_compute_node(&identity)
+            .map_err(ComponentManagerError::RejectedBeforeDispatch)?;
+
+        let node = build_compute_tray_node_info(endpoint, &resolved, endpoint.bmc_mac);
+
+        self.submit_pre_ingestion_firmware_object(
+            node,
+            &resolved,
+            endpoint.bmc_mac,
+            config_json,
+            options,
+        )
+        .await
+    }
+
+    #[instrument(skip(self, job_id), fields(backend = "rms"))]
+    async fn get_pre_ingestion_firmware_object_status(
+        &self,
+        job_id: &str,
+    ) -> Result<PreIngestionRackFirmwareStatus, ComponentManagerError> {
+        Ok(self.pre_ingestion_firmware_status(job_id).await)
     }
 
     #[instrument(skip(self), fields(backend = "rms"))]
@@ -4775,6 +4878,75 @@ mod tests {
         assert!(!success);
         assert_eq!(error.as_deref(), Some("RMS firmware update failed"));
         assert_eq!(job_id.as_deref(), Some("job-1"));
+    }
+
+    #[tokio::test]
+    async fn pre_ingestion_firmware_submission_rejects_invalid_rms_outcomes() {
+        let mock = Arc::new(MockRmsApi::new());
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://localhost/nico-test")
+            .expect("test database URL should parse");
+
+        let backend = RmsBackend::new(
+            mock.clone(),
+            Some(mock.clone()),
+            pool,
+            Arc::new(rack_profile_config()),
+            true,
+        );
+
+        let endpoint = make_ct_endpoint(CT_IP_1, CT_MAC_1);
+        let node_id = endpoint.bmc_mac.to_string();
+
+        let context = PreIngestionRackFirmwareContext {
+            rack_id: RackId::from("rack-1"),
+            rack_profile_id: RackProfileId::new(TEST_RACK_PROFILE_ID),
+        };
+
+        let mut rejected_with_job =
+            MockRmsApi::firmware_object_apply_fail(&node_id, "firmware object was rejected");
+
+        rejected_with_job.jobs.push(rms::NodeFirmwareJobInfo {
+            node_id: node_id.clone(),
+            job_id: "rejected-job".to_owned(),
+        });
+
+        let cases = [
+            ("rejected response with job ID", rejected_with_job, false),
+            (
+                "accepted response with blank job ID",
+                MockRmsApi::firmware_object_apply_ok(&node_id, " \n\t"),
+                true,
+            ),
+        ];
+
+        for (name, response, outcome_unknown) in cases {
+            mock.enqueue_apply_firmware_object(Ok(response)).await;
+
+            let result = ComputeTrayManager::queue_pre_ingestion_firmware_object_update(
+                &backend,
+                &endpoint,
+                &context,
+                r#"{"Id":"fw-json"}"#,
+                &firmware_update_options(),
+            )
+            .await;
+
+            let error = result.expect_err(name);
+
+            if outcome_unknown {
+                assert!(
+                    matches!(error, ComponentManagerError::OperationOutcomeUnknown(_)),
+                    "{name}: {error}"
+                );
+            } else {
+                assert!(
+                    matches!(error, ComponentManagerError::RejectedBeforeDispatch(_)),
+                    "{name}: {error}"
+                );
+            }
+        }
     }
 
     #[tokio::test]

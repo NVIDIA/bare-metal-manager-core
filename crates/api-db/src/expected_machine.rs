@@ -114,7 +114,10 @@ pub async fn find_rms_identities_by_bmc_macs(
         SELECT
             em.bmc_mac_address AS bmc_mac_address,
             em.rack_id AS rack_id,
-            COALESCE(r.rack_profile_id, er.rack_profile_id) AS rack_profile_id
+            CASE
+                WHEN r.id IS NOT NULL THEN r.rack_profile_id
+                ELSE er.rack_profile_id
+            END AS rack_profile_id
         FROM expected_machines em
         LEFT JOIN racks r ON r.id = em.rack_id
         LEFT JOIN expected_racks er ON er.rack_id = em.rack_id

@@ -1419,6 +1419,8 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
         "https://firmware.example.invalid/sot/single-rack-ingestion.json";
 
     const CONFIG_JSON: &str = r#"{"Id":"single-rack-ingestion"}"#;
+    const TOKEN_NAME: &str = "single-rack-artifacts";
+    const ACCESS_TOKEN: &str = "artifact-token";
 
     let firmware_object_fetcher = Arc::new(StaticFirmwareObjectFetcher {
         response: Mutex::new(Err("temporary SOT host failure".to_string())),
@@ -1456,6 +1458,7 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
         .firmware_object = Some(RackFirmwareObjectConfig {
         url: url::Url::parse(FIRMWARE_OBJECT_URL).unwrap(),
         fetch_timeout: std::time::Duration::from_secs(17),
+        access_token_credential: Some(TOKEN_NAME.to_string()),
     });
 
     let env = create_test_env_with_overrides(
@@ -1471,12 +1474,14 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
     let (rack_id, host) = create_single_compute_rack(&env, &pool).await?;
     let machine_id = host.host_snapshot.id.to_string();
     let switch_id = attach_switch_with_nvos_credentials(&env, &rack_id).await?;
+
     set_switch_state(
         pool.acquire().await?.as_mut(),
         &switch_id,
         model::switch::SwitchControllerState::Ready,
     )
     .await;
+
     let switch_id = switch_id.to_string();
 
     env.rms_sim
@@ -1522,6 +1527,7 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
     let ingestion_outcome = handler
         .handle_object_state(&rack_id, &mut rack, &RackState::Discovering, &mut ctx)
         .await?;
+
     let StateHandlerOutcome::Transition {
         next_state: firmware_state,
         ..
@@ -1529,6 +1535,7 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
     else {
         panic!("ready ingestion inventory should transition to firmware maintenance");
     };
+
     assert!(matches!(
         firmware_state,
         RackState::Maintenance {
@@ -1543,9 +1550,44 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
         .await
     {
         Err(error) => error,
+        Ok(_) => panic!("missing artifact token should keep the state retryable"),
+    };
+
+    assert!(
+        error.to_string().contains(
+            "firmware artifact access-token credential single-rack-artifacts was not found"
+        )
+    );
+
+    assert!(
+        firmware_object_fetcher
+            .requested_urls
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+
+    env.api
+        .credential_manager
+        .set_credentials(
+            &CredentialKey::FirmwareArtifactAccessToken {
+                name: TOKEN_NAME.to_string(),
+            },
+            &Credentials::new("", ACCESS_TOKEN),
+        )
+        .await
+        .expect("firmware artifact access token setup should succeed");
+
+    let error = match handler
+        .handle_object_state(&rack_id, &mut rack, &firmware_state, &mut ctx)
+        .await
+    {
+        Err(error) => error,
         Ok(_) => panic!("SOT fetch failure should keep the state retryable"),
     };
+
     assert!(error.to_string().contains("temporary SOT host failure"));
+
     assert!(
         env.rms_sim
             .submitted_apply_firmware_object_requests()
@@ -1562,11 +1604,13 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
         Err(error) => error,
         Ok(_) => panic!("non-object SOT JSON should be rejected"),
     };
+
     assert!(
         error
             .to_string()
             .contains("configured SOT firmware object is not a JSON object")
     );
+
     assert!(
         env.rms_sim
             .submitted_apply_firmware_object_requests()
@@ -1633,11 +1677,7 @@ async fn test_ingestion_transitions_to_firmware_upgrade_and_submits_rack_profile
         std::collections::HashSet::from([machine_id.as_str(), switch_id.as_str()])
     );
 
-    assert_eq!(
-        requests[0].access_token.as_deref(),
-        Some(carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN)
-    );
-
+    assert_eq!(requests[0].access_token.as_deref(), Some(ACCESS_TOKEN));
     assert!(requests[0].component_filters.is_empty());
     assert!(!requests[0].force_update);
 
@@ -1776,7 +1816,9 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
         requested_urls: Mutex::new(Vec::new()),
         requested_timeouts: Mutex::new(Vec::new()),
     });
+
     let mut config = config_with_rack_profiles();
+
     config
         .rack_profiles
         .rack_profiles
@@ -1785,6 +1827,7 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
         .firmware_object = Some(RackFirmwareObjectConfig {
         url: url::Url::parse("https://firmware.example.invalid/sot/nvl72.json").unwrap(),
         fetch_timeout: std::time::Duration::from_secs(11),
+        access_token_credential: None,
     });
 
     let env = create_test_env_with_overrides(
@@ -1889,6 +1932,7 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
     assert_eq!(requests[0].firmware_type, "prod");
     assert!(requests[0].force_update);
     assert_eq!(requests[0].nodes.as_ref().unwrap().nodes.len(), 1);
+
     assert!(
         firmware_object_fetcher
             .requested_urls

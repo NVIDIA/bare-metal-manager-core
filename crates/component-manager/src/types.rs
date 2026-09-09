@@ -1,14 +1,46 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use carbide_uuid::rack::{RackId, RackProfileId};
 use mac_address::MacAddress;
+use model::component_manager::FirmwareState;
 
 use crate::error::ComponentManagerError;
 
+/// Options shared by firmware-object update operations.
+///
+/// Debug output redacts `access_token` so diagnostic formatting cannot expose
+/// the credential value.
 #[derive(Clone, Default)]
 pub struct FirmwareUpdateOptions {
+    /// Optional artifact access token forwarded to the backend unchanged.
     pub access_token: Option<String>,
+
+    /// Whether to request a forced update from the backend.
     pub force_update: bool,
+}
+
+/// Rack identity fixed for one pre-ingestion compute-tray firmware operation.
+///
+/// The explicit identity supplies the rack context that is unavailable from a
+/// machine row before ingestion.
+#[derive(Clone, Debug)]
+pub struct PreIngestionRackFirmwareContext {
+    /// Rack containing the expected compute tray.
+    pub rack_id: RackId,
+
+    /// Rack profile selected for the operation.
+    pub rack_profile_id: RackProfileId,
+}
+
+/// Backend status for one BMC-MAC-keyed pre-ingestion firmware job.
+#[derive(Clone, Debug)]
+pub struct PreIngestionRackFirmwareStatus {
+    /// Current RMS firmware job state.
+    pub state: FirmwareState,
+
+    /// Backend diagnostic for unknown or terminal states.
+    pub error: Option<String>,
 }
 
 impl std::fmt::Debug for FirmwareUpdateOptions {

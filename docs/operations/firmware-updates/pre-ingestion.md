@@ -1,20 +1,62 @@
 # Pre-ingestion Firmware Updates
 
-Pre-ingestion firmware updates run against a discovered host BMC before NICo
-creates the managed host. Their purpose is to update firmware that is too old
-for the normal ingestion and management workflow.
+Pre-ingestion firmware updates run against a discovered BMC before NICo creates
+the managed compute object. Standalone hosts use NICo's firmware catalog and
+Redfish workflow. Expected rack compute trays can instead use a rack-profile SOT
+that RMS evaluates and applies.
 
-This path is driven by the pre-ingestion manager. It does not use Machine
+Both paths are driven by the pre-ingestion manager. Neither path uses Machine
 Update Manager, host update windows, `explicit_start_needed`, or per-host
-automatic-update overrides. A machine ID might not exist yet, so the only
-automatic-update switch used by this path is `firmware_global.autoupdate`.
+automatic-update overrides. `firmware_global.autoupdate` applies only to the
+standalone host path. Configuring a rack-profile `firmware_object` enables rack
+compute SOT submission.
 
-This page covers host firmware selected from the
+## Rack compute SOT workflow
+
+An endpoint uses the rack compute workflow when its BMC MAC matches an expected
+machine with a rack ID, the expected rack selects a known profile, and the
+profile is available in NICo configuration. When the rack already exists, its
+live profile selection takes precedence over the expected-rack profile. A rack
+compute tray without `firmware_object` skips RMS firmware work and proceeds with
+ingestion. A configured `firmware_object` is submitted automatically. Expected
+switches do not use the pre-ingestion SOT workflow.
+
+NICo fetches the SOT within the configured timeout and size limit, resolves the
+optional named artifact access token, and calls the configured RMS backend
+through Component Manager. The request targets one tray and uses its BMC MAC as
+the RMS node ID. NICo sends the SOT unchanged and does not parse versions. RMS
+reads the SOT and hardware inventory: a matching tray is a no-op, while a
+mismatch starts the required update.
+
+The per-compute-tray request does not replace the rack state machine's automatic
+firmware phase. After rack discovery completes, the rack state machine applies
+the same profile SOT to the ingested compute and switch inventory and resolves
+the same named artifact token.
+
+NICo selects one canonical BMC endpoint for all current aliases and atomically
+claims that endpoint before the RMS call. After RMS accepts the request, NICo
+stores the job handle and wait state together on the endpoint. NICo prefers the
+tray child job and uses the RMS parent job when no child handle is returned. A
+restart resumes a persisted wait state. A restart from the submitting state
+fails closed because the external call may have succeeded without returning a
+recoverable job handle. RMS completion marks the current BMC aliases complete
+and requires a fresh explorer report before ingestion proceeds, except for
+aliases already in `Failed`; those aliases retain their existing failure for
+operator review. RMS failure marks the other current aliases failed.
+
+The canonical explored endpoint owns the submission and RMS job handle. If that
+endpoint is deleted or replaced while the operation is active, NICo cannot
+recover the job automatically. Reconcile the RMS operation before allowing a
+new endpoint to submit the SOT.
+
+## Standalone host workflow
+
+The standalone host path selects firmware from the
 [host firmware catalog](configuration.md#host-firmware-catalog). DPU BFB
 recovery also runs in the pre-ingestion state machine, but installs a DPU boot
 image to recover the DPU; it is not a host firmware-catalog workflow.
 
-## When this path applies
+### When the host path applies
 
 A host firmware update starts during pre-ingestion when all of the following
 are true:
@@ -39,7 +81,7 @@ below the threshold, but it does not install firmware or block ingestion. It
 marks pre-ingestion complete. The host model and machine ID allowlists used by
 managed-host updates are not consulted here.
 
-## Trigger and target
+### Host trigger and target
 
 `preingest_upgrade_when_below` decides whether firmware work starts; it does not
 specify the version NICo installs. NICo selects an installable entry from
@@ -66,7 +108,7 @@ For example:
   meet their minimums. After ingestion, both can still be treated as drifted
   from their steady-state targets.
 
-## Update sequence
+### Host update sequence
 
 ```mermaid
 flowchart TD
@@ -124,11 +166,13 @@ state:
 nico-admin-cli -a <core-api-url> site-explorer get-report endpoint <bmc-ip>
 ```
 
-The states most relevant to host firmware are:
+The states most relevant to pre-ingestion firmware are:
 
 | State | Meaning |
 |---|---|
 | `InitialBMCReset`, `SetNtpServers`, `TimeSyncReset` | NICo is preparing the BMC and obtaining reliable inventory before comparing versions. |
+| `RackFirmwareSubmitting` | NICo has durably claimed one rack compute tray and is submitting its SOT to RMS. |
+| `RackFirmwareUpdateWait` | RMS accepted the compute-tray operation and NICo is polling its returned job handle. |
 | `UpgradeFirmwareWait` | The firmware was uploaded and NICo is polling the Redfish task. |
 | `ScriptRunning` | The configured firmware upgrade script is running. |
 | `ResetForNewFirmware` | Installation completed and NICo is performing activation resets or power drains. |
@@ -146,7 +190,7 @@ The following metrics provide site-wide visibility:
 |---|---|
 | `carbide_preingestion_total` | Endpoints currently being evaluated by the full pre-ingestion state machine. |
 | `carbide_preingestion_waiting_download` | Endpoints whose firmware work was deferred because no upload slot was available. |
-| `carbide_preingestion_waiting_installation` | Endpoints waiting for a Redfish firmware task to complete. |
+| `carbide_preingestion_waiting_installation` | Endpoints waiting for a Redfish task or RMS compute-tray firmware job to complete. |
 | `carbide_preingestion_firmware_upload_total` | Upload attempts by method and outcome. |
 | `carbide_preingestion_firmware_upgrade_tasks_total` | Completed and failed Redfish tasks by component and final task state. |
 | `carbide_preingestion_power_control_total` | Host, BMC, and chassis power operations by operation and outcome. |
@@ -170,6 +214,13 @@ nico-admin-cli -a <core-api-url> site-explorer clear-error <bmc-ip>
 
 The command resets only a terminal `Failed` pre-ingestion state; it does not
 interrupt an update that is still progressing.
+
+Before RMS submission, a missing artifact token or BMC credential and an SOT
+retrieval error leave the current state unchanged for a later manager iteration.
+After submission, unknown mutation outcomes and terminal RMS job results move
+all current BMC aliases for that tray to `Failed`. Reconcile an unknown RMS
+submission before clearing its error because the next pre-ingestion iteration
+may submit the SOT again.
 
 An upgrade script interrupted by a NICo restart is not resumed automatically
 and can remain in `ScriptRunning`. After confirming that the script and firmware

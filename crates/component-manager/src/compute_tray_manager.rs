@@ -9,7 +9,9 @@ use mac_address::MacAddress;
 use model::component_manager::{ComputeTrayComponent, FirmwareState, PowerAction};
 
 use crate::error::ComponentManagerError;
-use crate::types::FirmwareUpdateOptions;
+use crate::types::{
+    FirmwareUpdateOptions, PreIngestionRackFirmwareContext, PreIngestionRackFirmwareStatus,
+};
 
 /// Physical network identifiers for a compute tray, used to register with and
 /// operate against the backend service (CTM).
@@ -122,6 +124,38 @@ pub trait ComputeTrayManager: Send + Sync + Debug + 'static {
         components: &[ComputeTrayComponent],
         options: &FirmwareUpdateOptions,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError>;
+
+    /// Submits one BMC-only firmware object before compute-tray ingestion.
+    ///
+    /// The endpoint BMC MAC is the backend node ID. The SOT JSON is forwarded
+    /// unchanged, and the returned job ID must remain usable for later status
+    /// polling. Backends without this workflow return `Unsupported`.
+    async fn queue_pre_ingestion_firmware_object_update(
+        &self,
+        _endpoint: &ComputeTrayEndpoint,
+        _context: &PreIngestionRackFirmwareContext,
+        _config_json: &str,
+        _options: &FirmwareUpdateOptions,
+    ) -> Result<String, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "pre-ingestion compute firmware-object updates are not supported by the {} backend",
+            self.name()
+        )))
+    }
+
+    /// Polls a pre-ingestion firmware-object job by its durable backend ID.
+    ///
+    /// Polling does not require BMC credentials. Backends without this workflow
+    /// return `Unsupported`.
+    async fn get_pre_ingestion_firmware_object_status(
+        &self,
+        _job_id: &str,
+    ) -> Result<PreIngestionRackFirmwareStatus, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "pre-ingestion compute firmware-object status is not supported by the {} backend",
+            self.name()
+        )))
+    }
 
     async fn get_firmware_status(
         &self,

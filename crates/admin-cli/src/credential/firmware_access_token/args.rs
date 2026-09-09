@@ -20,6 +20,9 @@ pub(crate) enum Args {
 #[command(after_long_help = "\
 EXAMPLES:
 
+Create a token file without a trailing newline:
+    $ printf '%s' 'example-token' > ./firmware-token.txt
+
 Set a token from a file:
     $ nico-admin-cli credential firmware-access-token set --name repository-a --token-file ./firmware-token.txt
 
@@ -37,7 +40,7 @@ pub(crate) struct SetArgs {
 
     #[arg(
         long,
-        help = "File containing the token, or '-' to read standard input"
+        help = "File containing the token, or '-' to read standard input; whitespace and line endings are preserved"
     )]
     pub(super) token_file: PathBuf,
 }

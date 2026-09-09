@@ -1782,18 +1782,20 @@ async fn initialize_and_start_controllers<'a>(
 
     let default_redirect_policy = reqwest::redirect::Policy::default();
 
-    let firmware_object_fetcher = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
-            let initial_origin = attempt.previous().first().map(reqwest::Url::origin);
+    let firmware_object_fetcher = Arc::new(
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                let initial_origin = attempt.previous().first().map(reqwest::Url::origin);
 
-            if initial_origin == Some(attempt.url().origin()) {
-                default_redirect_policy.redirect(attempt)
-            } else {
-                attempt.error("firmware-object redirect changed the configured origin")
-            }
-        }))
-        .build()
-        .wrap_err("failed to build the firmware-object HTTP client")?;
+                if initial_origin == Some(attempt.url().origin()) {
+                    default_redirect_policy.redirect(attempt)
+                } else {
+                    attempt.error("firmware-object redirect changed the configured origin")
+                }
+            }))
+            .build()
+            .wrap_err("failed to build the firmware-object HTTP client")?,
+    );
 
     StateController::<RackStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
@@ -1815,7 +1817,7 @@ async fn initialize_and_start_controllers<'a>(
                 nmx_cluster_switch_mtls_services: carbide_config
                     .rack_state_controller
                     .effective_nmx_cluster_switch_mtls_services_as_i32(),
-                firmware_object_fetcher: Arc::new(firmware_object_fetcher),
+                firmware_object_fetcher: firmware_object_fetcher.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1980,6 +1982,11 @@ async fn initialize_and_start_controllers<'a>(
         work_lock_manager_handle.clone(),
         carbide_config.ntp_servers.clone(),
     )
+    .with_rack_firmware(carbide_preingestion_manager::RackFirmwareDependencies::new(
+        carbide_config.rack_profiles.clone(),
+        component_manager.clone().map(Arc::new),
+        firmware_object_fetcher,
+    ))
     .start(join_set, cancel_token.clone())?;
 
     MeasuredBootMetricsCollector::new(

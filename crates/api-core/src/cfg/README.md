@@ -220,6 +220,7 @@ rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 [rack_profiles.NVL72.firmware_object]
 url = "https://firmware.example.com/objects/nvl72.json"
 fetch_timeout = "30s"
+access_token_credential = "nvl72-artifacts"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"
@@ -233,6 +234,16 @@ count = 9
 vendor = "LiteOn"
 count = 8
 ```
+
+The optional `firmware_object` block applies to each expected compute tray
+during pre-ingestion and to the complete rack during rack maintenance. `url` is
+required and `fetch_timeout` defaults to `30s`. `access_token_credential` is an
+optional, non-empty name of a firmware artifact access-token credential. NICo
+reads the credential when each operation starts and forwards its secret value
+to RMS; the rack profile stores only the name. Omission preserves RMS no-auth
+behavior. RMS interprets the SOT and decides whether the target needs an update.
+Configuring `firmware_object` enables the compute pre-ingestion request. Switch
+firmware remains part of rack maintenance.
 
 Example: GB300 rack with Lenovo compute trays and Delta power shelves:
 
