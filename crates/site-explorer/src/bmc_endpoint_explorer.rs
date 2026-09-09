@@ -533,6 +533,81 @@ impl BmcEndpointExplorer {
         Ok(credentials)
     }
 
+    async fn resolve_redfish_vendor(
+        &self,
+        bmc_ip_address: SocketAddr,
+        bmc_mac_address: MacAddress,
+        expected: Option<&ExpectedEntity>,
+    ) -> Result<RedfishVendor, EndpointExplorationError> {
+        let service_root_error = match self
+            .bmc_client
+            .redfish_client
+            .get_redfish_vendor(bmc_ip_address)
+            .await
+        {
+            Ok(vendor) => return Ok(vendor),
+            Err(error) => error,
+        };
+
+        // Lite-On and Delta power shelves omit ServiceRoot vendor details, so
+        // their Chassis manufacturer is the authoritative fallback. Other
+        // endpoint kinds should not need this workaround.
+        let Some(ExpectedEntity::PowerShelf(expected_power_shelf)) = expected else {
+            tracing::error!(
+                %bmc_ip_address,
+                error = %service_root_error,
+                "Failed to probe Redfish service root endpoint"
+            );
+            return Err(service_root_error);
+        };
+
+        let (username, password) = match self
+            .bmc_client
+            .get_bmc_root_credentials(bmc_mac_address)
+            .await
+        {
+            Ok(Credentials::UsernamePassword { username, password }) => (username, password),
+            Err(_) => (
+                expected_power_shelf.bmc_username.clone(),
+                expected_power_shelf.bmc_password.clone(),
+            ),
+        };
+
+        let chassis_vendor = match self
+            .bmc_client
+            .redfish_client
+            .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
+            .await
+        {
+            Ok(vendor) => vendor,
+            Err(fallback_error) => {
+                tracing::error!(
+                    %bmc_ip_address,
+                    error = %service_root_error,
+                    fallback_error = %fallback_error,
+                    "Failed to probe Redfish service root endpoint"
+                );
+                return Err(service_root_error);
+            }
+        };
+
+        let chassis_vendor_lc = chassis_vendor.to_lowercase();
+        let vendor = if chassis_vendor_lc.contains("lite-on") {
+            RedfishVendor::LiteOnPowerShelf
+        } else if chassis_vendor_lc.contains("delta") {
+            RedfishVendor::DeltaPowerShelf
+        } else {
+            tracing::error!(
+                %bmc_ip_address,
+                error = %service_root_error,
+                observed_chassis_vendor = %chassis_vendor,
+                "Failed to probe Redfish service root endpoint"
+            );
+            return Err(service_root_error);
+        };
+        Ok(vendor)
+    }
+
     // Handle switch NVOS admin credentials setup
     // Store NVOS admin credentials in vault for the switch if they exist in expected_switch
     pub async fn set_sitewide_switch_nvos_admin_credentials(
@@ -631,71 +706,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
 
         let bmc_mac_address = interface.mac_address;
-        let vendor = match self
-            .bmc_client
-            .redfish_client
-            .get_redfish_vendor(bmc_ip_address)
-            .await
-        {
-            Ok(vendor) => vendor,
-            Err(e) => {
-                tracing::error!(
-                    %bmc_ip_address,
-                    error = %e,
-                    "Failed to probe Redfish service root endpoint"
-                );
-
-                // Lite-On power shelf BMCs don't expose Vendor details in the
-                // service root, so we fall back to probing the Chassis endpoint.
-                // Only attempt this for power shelf endpoints — machines and
-                // switches should never need this workaround.
-                //
-                // In the future, if we want to expand this to other kinds of trays we can
-                // expand the pattern matching logic below.
-                let Some(ExpectedEntity::PowerShelf(eps)) = expected else {
-                    return Err(e);
-                };
-
-                let (username, password) = match self
-                    .bmc_client
-                    .get_bmc_root_credentials(bmc_mac_address)
-                    .await
-                {
-                    Ok(Credentials::UsernamePassword { username, password }) => {
-                        (username, password)
-                    }
-                    Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
-                };
-
-                // Lite-On and Delta power shelf BMCs don't expose vendor
-                // details in the service root, so we fall back to checking the
-                // Manufacturer field across all Chassis entries.
-                let vendor = match self
-                    .bmc_client
-                    .redfish_client
-                    .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
-                    .await
-                {
-                    Ok(v) => v,
-                    Err(chassis_err) => {
-                        tracing::error!(
-                            %bmc_ip_address,
-                            error = %chassis_err,
-                            "Failed to probe vendor from chassis"
-                        );
-                        return Err(e);
-                    }
-                };
-                let vendor_lc = vendor.to_lowercase();
-                if vendor_lc.contains("lite-on") {
-                    RedfishVendor::LiteOnPowerShelf
-                } else if vendor_lc.contains("delta") {
-                    RedfishVendor::DeltaPowerShelf
-                } else {
-                    return Err(e);
-                }
-            }
-        };
+        let vendor = self
+            .resolve_redfish_vendor(bmc_ip_address, bmc_mac_address, expected)
+            .await?;
 
         tracing::debug!(
             target: "carbide_diagnostics::bmc_redfish_supported",
@@ -1802,7 +1815,9 @@ mod tests {
     use axum::Router;
     use bmc_mock::{CombinedServer, ListenerOrAddress};
     use carbide_instrument::Outcome;
-    use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
+    use carbide_instrument::testing::{
+        CapturedLog, MetricsCapture, capture_logs, capture_logs_async,
+    };
     use carbide_redfish::libredfish::test_support::{
         RedfishSim, RedfishSimAuthAttempt, RedfishSimBootInterfaceRef,
     };
@@ -1814,10 +1829,91 @@ mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases_async, value_scenarios};
     use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+    use model::expected_power_shelf::ExpectedPowerShelf;
     use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
+    use model::metadata::Metadata;
     use model::site_explorer::MachineSetupStatus;
 
     use super::*;
+
+    fn explorer_with_redfish_sim(sim: Arc<RedfishSim>) -> BmcEndpointExplorer {
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let bmc_client = Arc::new(AuthenticatedBmcClient::new(
+            sim,
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+            carbide_ipmi::test_support(),
+            Arc::new(TestCredentialManager::default()),
+        ));
+        BmcEndpointExplorer::new(
+            bmc_client,
+            Arc::new(AtomicBool::new(false)),
+            SiteExplorerExploreMode::NvRedfish,
+            None,
+        )
+    }
+
+    #[tokio::test]
+    async fn successful_power_shelf_vendor_fallback_does_not_log_service_root_failure() {
+        let sim = Arc::new(RedfishSim::default());
+        sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
+        sim.set_chassis_manufacturer(Some("LITE-ON TECHNOLOGY CORP.".to_string()));
+        let explorer = explorer_with_redfish_sim(sim);
+        let bmc_ip_address: SocketAddr = "127.0.0.1:443".parse().unwrap();
+        let bmc_mac_address = "02:00:00:00:00:01".parse().unwrap();
+        let expected = ExpectedEntity::PowerShelf(ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address,
+            bmc_username: "root".to_string(),
+            bmc_password: "factory_password".to_string(),
+            serial_number: "test-power-shelf".to_string(),
+            bmc_ip_address: Some(bmc_ip_address.ip()),
+            metadata: Metadata::default(),
+            rack_id: None,
+            bmc_retain_credentials: None,
+        });
+
+        let (result, logs) = capture_logs_async(explorer.resolve_redfish_vendor(
+            bmc_ip_address,
+            bmc_mac_address,
+            Some(&expected),
+        ))
+        .await;
+
+        assert_eq!(result.unwrap(), RedfishVendor::LiteOnPowerShelf);
+        assert!(logs.iter().all(|log| {
+            log.message != "Failed to probe Redfish service root endpoint"
+                && log.message != "BMC ServiceRoot did not report a recognized vendor"
+        }));
+    }
+
+    #[tokio::test]
+    async fn terminal_service_root_failure_is_logged_once() {
+        let sim = Arc::new(RedfishSim::default());
+        sim.set_service_root_vendor(Some("Unrecognized Vendor".to_string()));
+        let explorer = explorer_with_redfish_sim(sim);
+        let bmc_ip_address: SocketAddr = "127.0.0.1:443".parse().unwrap();
+        let bmc_mac_address = "02:00:00:00:00:01".parse().unwrap();
+
+        let (result, logs) = capture_logs_async(explorer.resolve_redfish_vendor(
+            bmc_ip_address,
+            bmc_mac_address,
+            None,
+        ))
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(EndpointExplorationError::MissingVendor {
+                observed: Some(observed)
+            }) if observed == "Unrecognized Vendor"
+        ));
+        let failures = logs
+            .iter()
+            .filter(|log| log.message == "Failed to probe Redfish service root endpoint")
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].level, tracing::Level::ERROR);
+    }
 
     fn report_with_evaluated_target(
         evaluated_boot_interface: Option<MachineBootInterfaceTarget>,
