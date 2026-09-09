@@ -512,6 +512,10 @@ impl SiteExplorer {
     const SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE: usize = 500;
 
     #[allow(clippy::too_many_arguments)]
+    /// Creates a site explorer.
+    ///
+    /// When `dpf_enabled_at_site` is true, eligible hosts are marked for DPF-managed ingestion.
+    /// Otherwise, hosts use the non-DPF ingestion path.
     pub fn new(
         database_connection: sqlx::PgPool,
         explorer_config: SiteExplorerConfig,
@@ -523,6 +527,7 @@ impl SiteExplorer {
         rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
+        dpf_enabled_at_site: bool,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -547,6 +552,7 @@ impl SiteExplorer {
                 rack_profiles,
                 rms_client.clone(),
                 credential_manager,
+                dpf_enabled_at_site,
             ),
             switch_creator: SwitchCreator::new(
                 database_connection.clone(),

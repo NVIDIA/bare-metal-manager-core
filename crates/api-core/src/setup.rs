@@ -1950,6 +1950,7 @@ async fn initialize_and_start_controllers<'a>(
         carbide_config.rack_profiles.clone(),
         rms_client.clone(),
         credential_manager.clone(),
+        dpf_sdk.is_some(),
     )
     .start(join_set, cancel_token.clone())?;
 
