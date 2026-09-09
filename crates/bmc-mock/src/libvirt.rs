@@ -260,8 +260,7 @@ impl LibvirtCallbacks {
             (_, None) => return Ok(()),
         };
         self.set_boot_devices(devices)?;
-        *self.restore_boot_after_power_on.lock().unwrap() =
-            enabled == Some("Once") && target != Some("Hdd");
+        *self.restore_boot_after_power_on.lock().unwrap() = enabled == Some("Once");
         Ok(())
     }
 
@@ -681,6 +680,11 @@ esac
                 "<boot dev=\"network\"/><boot dev=\"hd\"/>",
                 BootOptionKind::Network,
             ),
+            (
+                ["HD.BootOption.Boot9999", "HD.BootOption.Boot0001"],
+                "<boot dev=\"hd\"/>",
+                BootOptionKind::Disk,
+            ),
         ] {
             let status = request(
                 &router,
@@ -937,6 +941,41 @@ esac
         )
         .await;
         assert_eq!(status, StatusCode::OK);
+        let active_xml = fs::read_to_string(&active_xml_path).unwrap();
+        assert!(active_xml.contains("<boot dev=\"cdrom\"/><boot dev=\"hd\"/>"));
+        let defined_xml = fs::read_to_string(&defined_xml_path).unwrap();
+        assert!(defined_xml.contains("<boot dev=\"network\"/><boot dev=\"hd\"/>"));
+        assert!(!defined_xml.contains("<boot dev=\"cdrom\"/>"));
+
+        // Disk can also be a one-shot override when the persistent selection
+        // is network-first. The guest starts disk-first, but the saved domain
+        // must be restored for the next cold start.
+        let status = request(
+            &router,
+            Method::PATCH,
+            system,
+            json!({
+                "Boot": {
+                    "BootSourceOverrideEnabled": "Once",
+                    "BootSourceOverrideTarget": "Hdd",
+                }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let status = request(
+            &router,
+            Method::POST,
+            &format!("{system}/Actions/ComputerSystem.Reset"),
+            json!({"ResetType": "PowerCycle"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let active_xml = fs::read_to_string(&active_xml_path).unwrap();
+        assert!(active_xml.contains("<boot dev=\"hd\"/>"));
+        assert!(!active_xml.contains("<boot dev=\"network\"/>"));
+        let defined_xml = fs::read_to_string(&defined_xml_path).unwrap();
+        assert!(defined_xml.contains("<boot dev=\"network\"/><boot dev=\"hd\"/>"));
         let status = request(
             &router,
             Method::POST,

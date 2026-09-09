@@ -530,31 +530,33 @@ impl SingleSystemState {
         }
     }
 
-    /// Resolve the leading HPE OEM boot entry, then standard BootOrder, then
-    /// the profile default. Unknown entries fall through to the next source.
-    /// Returns None when no boot option is configured; callers leave domain
-    /// configuration unchanged in that case. Temporary overrides are excluded.
+    /// Resolve the first configured HPE OEM boot entry, then standard
+    /// BootOrder, then the profile default. Unknown or unconfigured HPE entries
+    /// are skipped. Returns None when no boot option is configured; callers
+    /// leave domain configuration unchanged in that case. Temporary overrides
+    /// are excluded.
     pub(crate) fn resolve_persistent_boot_selection(&self) -> Option<BootOptionKind> {
         self.hpe_boot_order_override
             .lock()
             .unwrap()
             .as_ref()
-            .and_then(|order| order.first())
-            .and_then(|entry| {
-                let (kind, reference) = entry
-                    .strip_prefix("HD.BootOption.")
-                    .map(|reference| (BootOptionKind::Disk, reference))
-                    .or_else(|| {
-                        entry
-                            .strip_prefix("NIC.BootOption.")
-                            .map(|reference| (BootOptionKind::Network, reference))
-                    })?;
-                self.config
-                    .boot_options
-                    .iter()
-                    .flatten()
-                    .find(|option| option.kind == kind && option.boot_reference() == reference)
-                    .map(|option| option.kind)
+            .and_then(|order| {
+                order.iter().find_map(|entry| {
+                    let (kind, reference) = entry
+                        .strip_prefix("HD.BootOption.")
+                        .map(|reference| (BootOptionKind::Disk, reference))
+                        .or_else(|| {
+                            entry
+                                .strip_prefix("NIC.BootOption.")
+                                .map(|reference| (BootOptionKind::Network, reference))
+                        })?;
+                    self.config
+                        .boot_options
+                        .iter()
+                        .flatten()
+                        .find(|option| option.kind == kind && option.boot_reference() == reference)
+                        .map(|option| option.kind)
+                })
             })
             .or_else(|| {
                 self.boot_order_override().and_then(|overrides| {
