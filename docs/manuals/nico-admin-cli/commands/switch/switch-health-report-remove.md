@@ -1,6 +1,6 @@
 # `nico-admin-cli switch health-report remove`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **remove**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **remove***
 
 ## NAME
 

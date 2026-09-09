@@ -1,6 +1,6 @@
 # `nico-admin-cli instance update-nv-link-config`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-nv-link-config**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-nv-link-config***
 
 ## NAME
 

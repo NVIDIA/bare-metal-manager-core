@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx profile compare`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [profile](./mlx-profile.md) › **compare**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [profile](./mlx-profile.md) › **compare***
 
 ## NAME
 

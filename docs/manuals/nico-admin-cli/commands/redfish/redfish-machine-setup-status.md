@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish machine-setup-status`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **machine-setup-status**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **machine-setup-status***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish local-storage`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **local-storage**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **local-storage***
 
 ## NAME
 

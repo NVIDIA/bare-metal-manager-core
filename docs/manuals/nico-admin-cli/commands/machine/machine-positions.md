@@ -1,6 +1,6 @@
 # `nico-admin-cli machine positions`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **positions**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **positions***
 
 ## NAME
 

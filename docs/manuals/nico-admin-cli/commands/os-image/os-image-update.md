@@ -1,6 +1,6 @@
 # `nico-admin-cli os-image update`
 
-_[Tenant commands](../../tenant.md) › [os-image](./os-image.md) › **update**_
+*[Tenant commands](../../tenant.md) › [os-image](./os-image.md) › **update***
 
 ## NAME
 

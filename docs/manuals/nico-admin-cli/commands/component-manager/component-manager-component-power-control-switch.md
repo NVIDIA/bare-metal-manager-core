@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager component-power-control switch`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [component-power-control](./component-manager-component-power-control.md) › **switch**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [component-power-control](./component-manager-component-power-control.md) › **switch***
 
 ## NAME
 

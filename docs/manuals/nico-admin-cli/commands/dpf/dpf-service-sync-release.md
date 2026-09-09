@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf service-sync release`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › [service-sync](./dpf-service-sync.md) › **release**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › [service-sync](./dpf-service-sync.md) › **release***
 
 ## NAME
 

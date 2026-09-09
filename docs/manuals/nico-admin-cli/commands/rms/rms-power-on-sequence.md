@@ -1,6 +1,6 @@
 # `nico-admin-cli rms power-on-sequence`
 
-_[Hardware commands](../../hardware.md) › [rms](./rms.md) › **power-on-sequence**_
+*[Hardware commands](../../hardware.md) › [rms](./rms.md) › **power-on-sequence***
 
 ## NAME
 

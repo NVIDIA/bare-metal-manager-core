@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish`
 
-_[Hardware commands](../../hardware.md) › **redfish**_
+*[Hardware commands](../../hardware.md) › **redfish***
 
 ## NAME
 
@@ -117,7 +117,7 @@ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypasswo
 | [`get-base-mac-address`](./redfish-get-base-mac-address.md) | Get Base Mac Address (DPU only) |
 | [`clear-nvram`](./redfish-clear-nvram.md) | Clear Nvram (Viking only) |
 | [`set-bios`](./redfish-set-bios.md) | Set BIOS options |
-| [`reset-bios`](./redfish-reset-bios.md) | Reset BIOS settings to factory defaults |
+| [`reset-bios`](./redfish-reset-bios.md) | Reset BIOS settings to factory defaults. Returns once the BMC accepts the reset request. A system restart is required for the settings to take effect |
 | [`get-nic-mode`](./redfish-get-nic-mode.md) | Get DPU mode |
 | [`is-infinite-boot-enabled`](./redfish-is-infinite-boot-enabled.md) | Is infinite boot enable |
 | [`enable-infinite-boot`](./redfish-enable-infinite-boot.md) | Enable infinite boot |

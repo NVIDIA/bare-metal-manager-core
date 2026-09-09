@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish decommission-controller`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **decommission-controller**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **decommission-controller***
 
 ## NAME
 

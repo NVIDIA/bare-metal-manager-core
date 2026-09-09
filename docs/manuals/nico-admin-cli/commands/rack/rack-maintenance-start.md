@@ -1,6 +1,6 @@
 # `nico-admin-cli rack maintenance start`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **start**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › [maintenance](./rack-maintenance.md) › **start***
 
 ## NAME
 
@@ -41,7 +41,7 @@ configure-nmx-cluster, power-sequence (omit for all)
 Raw SOT JSON for firmware-upgrade activity (prefer --sot-json-file)
 
 **--sot-json-file** *\<PATH\>*  
-SOT JSON file for RMS ApplyFirmwareObjectFromJSON
+SOT JSON file for RMS ApplyFirmwareObject
 
 **--access-token** *\<ACCESS_TOKEN\>*  
 Artifact access token for RMS SOT JSON downloads; omit or pass empty for

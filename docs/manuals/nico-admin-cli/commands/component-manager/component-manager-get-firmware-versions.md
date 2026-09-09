@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager get-firmware-versions`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **get-firmware-versions**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › **get-firmware-versions***
 
 ## NAME
 

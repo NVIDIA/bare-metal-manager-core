@@ -1,6 +1,6 @@
 # `nico-admin-cli sku verify`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **verify**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **verify***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish update-firmware-multipart`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **update-firmware-multipart**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **update-firmware-multipart***
 
 ## NAME
 

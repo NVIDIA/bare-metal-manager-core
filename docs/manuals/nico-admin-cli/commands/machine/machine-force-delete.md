@@ -1,6 +1,6 @@
 # `nico-admin-cli machine force-delete`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **force-delete**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **force-delete***
 
 ## NAME
 
@@ -25,13 +25,13 @@ Force delete a machine
 ## OPTIONS
 
 **--machine** *\<MACHINE\>*  
-UUID, IPv4, MAC or hostnmame of the host or DPU machine to delete
+UUID, IPv4, MAC or hostname of the host or DPU machine to delete
 
 **-d**, **--delete-interfaces**  
-Delete interfaces. Redeploy kea after deleting machine interfaces.
+Delete interfaces.
 
 **-b**, **--delete-bmc-interfaces**  
-Delete BMC interfaces. Redeploy kea after deleting machine interfaces.
+Delete BMC interfaces.
 
 **-c**, **--delete-bmc-credentials**  
 Delete BMC credentials. Only applicable if site explorer has configured

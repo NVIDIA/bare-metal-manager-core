@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-machine delete`
 
-_[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **delete***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx lockdown status`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [lockdown](./mlx-lockdown.md) › **status**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [lockdown](./mlx-lockdown.md) › **status***
 
 ## NAME
 

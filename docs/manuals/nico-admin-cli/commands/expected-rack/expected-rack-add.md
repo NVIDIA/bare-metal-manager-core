@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-rack add`
 
-_[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **add**_
+*[Tenant commands](../../tenant.md) › [expected-rack](./expected-rack.md) › **add***
 
 ## NAME
 

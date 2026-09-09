@@ -1,6 +1,6 @@
 # `nico-admin-cli extension-service`
 
-_[Tenant commands](../../tenant.md) › **extension-service**_
+*[Tenant commands](../../tenant.md) › **extension-service***
 
 ## NAME
 

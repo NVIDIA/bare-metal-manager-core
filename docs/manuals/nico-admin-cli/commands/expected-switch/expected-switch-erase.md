@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-switch erase`
 
-_[Tenant commands](../../tenant.md) › [expected-switch](./expected-switch.md) › **erase**_
+*[Tenant commands](../../tenant.md) › [expected-switch](./expected-switch.md) › **erase***
 
 ## NAME
 

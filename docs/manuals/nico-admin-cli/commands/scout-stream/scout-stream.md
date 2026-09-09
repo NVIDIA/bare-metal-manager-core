@@ -1,6 +1,6 @@
 # `nico-admin-cli scout-stream`
 
-_[Hardware commands](../../hardware.md) › **scout-stream**_
+*[Hardware commands](../../hardware.md) › **scout-stream***
 
 ## NAME
 

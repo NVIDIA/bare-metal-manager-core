@@ -1,6 +1,6 @@
 # `nico-admin-cli sku generate`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **generate**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **generate***
 
 ## NAME
 

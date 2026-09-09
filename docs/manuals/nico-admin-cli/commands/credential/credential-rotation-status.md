@@ -1,6 +1,6 @@
 # `nico-admin-cli credential rotation-status`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **rotation-status**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **rotation-status***
 
 ## NAME
 
@@ -20,9 +20,9 @@ Show convergence status of a site-wide credential rotation
 ## OPTIONS
 
 **--type**=*\<CREDENTIAL_TYPE\>*  
-Credential family to report on  
+Credential family to report on\
 
-  
+\
 *Possible values:*
 
 - bmc
@@ -48,9 +48,9 @@ probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field  
+Sort output by specified field\
 
-  
+\
 *Possible values:*
 
 - primary-id: Sort by the primary ID

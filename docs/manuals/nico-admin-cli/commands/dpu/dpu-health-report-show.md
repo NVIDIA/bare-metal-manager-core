@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu health-report show`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [health-report](./dpu-health-report.md) › **show**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [health-report](./dpu-health-report.md) › **show***
 
 ## NAME
 

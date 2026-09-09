@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system`
 
-_[Tenant commands](../../tenant.md) › **operating-system**_
+*[Tenant commands](../../tenant.md) › **operating-system***
 
 ## NAME
 

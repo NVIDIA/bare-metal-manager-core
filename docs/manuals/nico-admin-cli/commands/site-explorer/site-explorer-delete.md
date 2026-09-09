@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer delete`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **delete***
 
 ## NAME
 

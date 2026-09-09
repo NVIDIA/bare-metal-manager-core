@@ -1,6 +1,6 @@
 # `nico-admin-cli credential add-dpu-factory-default`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-dpu-factory-default**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-dpu-factory-default***
 
 ## NAME
 

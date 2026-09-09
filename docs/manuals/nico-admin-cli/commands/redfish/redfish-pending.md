@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish pending`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **pending**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **pending***
 
 ## NAME
 

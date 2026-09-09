@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu-remediation revoke`
 
-_[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **revoke**_
+*[Hardware commands](../../hardware.md) › [dpu-remediation](./dpu-remediation.md) › **revoke***
 
 ## NAME
 

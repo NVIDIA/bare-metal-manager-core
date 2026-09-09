@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine create-bmc-user`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **create-bmc-user**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **create-bmc-user***
 
 ## NAME
 

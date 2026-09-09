@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group update`
 
-_[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **update**_
+*[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **update***
 
 ## NAME
 

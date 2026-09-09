@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group attach`
 
-_[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **attach**_
+*[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **attach***
 
 ## NAME
 

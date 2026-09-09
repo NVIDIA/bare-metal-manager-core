@@ -1,6 +1,6 @@
 # `nico-admin-cli generate-shell-complete fish`
 
-_[Admin commands](../../admin.md) › [generate-shell-complete](./generate-shell-complete.md) › **fish**_
+*[Admin commands](../../admin.md) › [generate-shell-complete](./generate-shell-complete.md) › **fish***
 
 ## NAME
 

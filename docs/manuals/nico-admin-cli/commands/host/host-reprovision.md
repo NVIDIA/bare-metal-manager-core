@@ -1,6 +1,6 @@
 # `nico-admin-cli host reprovision`
 
-_[Hardware commands](../../hardware.md) › [host](./host.md) › **reprovision**_
+*[Hardware commands](../../hardware.md) › [host](./host.md) › **reprovision***
 
 ## NAME
 

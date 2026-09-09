@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf decommission`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **decommission**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **decommission***
 
 ## NAME
 

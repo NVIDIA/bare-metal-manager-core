@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish boot-once-uefi-http`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-once-uefi-http**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-once-uefi-http***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host maintenance`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **maintenance**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **maintenance***
 
 ## NAME
 

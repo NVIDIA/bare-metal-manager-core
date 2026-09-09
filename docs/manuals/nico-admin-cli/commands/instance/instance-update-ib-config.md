@@ -1,6 +1,6 @@
 # `nico-admin-cli instance update-ib-config`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-ib-config**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-ib-config***
 
 ## NAME
 

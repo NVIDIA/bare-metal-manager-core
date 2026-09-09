@@ -1,6 +1,6 @@
 # `nico-admin-cli instance update-spx-config`
 
-_[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-spx-config**_
+*[Tenant commands](../../tenant.md) › [instance](./instance.md) › **update-spx-config***
 
 ## NAME
 

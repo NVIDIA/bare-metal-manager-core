@@ -1,6 +1,6 @@
 # `nico-admin-cli credential delete-ufm`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **delete-ufm**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **delete-ufm***
 
 ## NAME
 

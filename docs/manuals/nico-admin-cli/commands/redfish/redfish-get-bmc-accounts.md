@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-bmc-accounts`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-bmc-accounts**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-bmc-accounts***
 
 ## NAME
 

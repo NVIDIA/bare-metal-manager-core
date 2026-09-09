@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-power-shelf`
 
-_[Tenant commands](../../tenant.md) › **expected-power-shelf**_
+*[Tenant commands](../../tenant.md) › **expected-power-shelf***
 
 ## NAME
 

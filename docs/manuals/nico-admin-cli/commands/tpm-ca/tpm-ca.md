@@ -1,6 +1,6 @@
 # `nico-admin-cli tpm-ca`
 
-_[Hardware commands](../../hardware.md) › **tpm-ca**_
+*[Hardware commands](../../hardware.md) › **tpm-ca***
 
 ## NAME
 

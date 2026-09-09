@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf health-history`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **health-history**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **health-history***
 
 ## NAME
 

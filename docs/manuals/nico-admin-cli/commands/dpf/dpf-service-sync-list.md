@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf service-sync list`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › [service-sync](./dpf-service-sync.md) › **list**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › [service-sync](./dpf-service-sync.md) › **list***
 
 ## NAME
 
@@ -19,7 +19,7 @@ List machines DPF is waiting on before a DPUService rollout
 ## OPTIONS
 
 **--machine-id** *\<MACHINE_ID\>*  
-Show this host's recorded history instead of the outstanding worklist
+Show recorded history for this host instead of the outstanding worklist
 
 **--extended**  
 Extended result output.

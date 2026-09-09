@@ -1,6 +1,6 @@
 # `nico-admin-cli ssh`
 
-_[Admin commands](../../admin.md) › **ssh**_
+*[Admin commands](../../admin.md) › **ssh***
 
 ## NAME
 

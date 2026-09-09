@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish serial-enable`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **serial-enable**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **serial-enable***
 
 ## NAME
 

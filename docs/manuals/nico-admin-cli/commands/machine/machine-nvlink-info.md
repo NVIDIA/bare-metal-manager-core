@@ -1,6 +1,6 @@
 # `nico-admin-cli machine nvlink-info`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **nvlink-info**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **nvlink-info***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish power-metrics`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **power-metrics**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **power-metrics***
 
 ## NAME
 

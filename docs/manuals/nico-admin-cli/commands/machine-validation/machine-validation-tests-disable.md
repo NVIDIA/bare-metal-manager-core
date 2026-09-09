@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-validation tests disable`
 
-_[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [tests](./machine-validation-tests.md) › **disable**_
+*[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [tests](./machine-validation-tests.md) › **disable***
 
 ## NAME
 

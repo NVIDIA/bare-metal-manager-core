@@ -1,6 +1,6 @@
 # `nico-admin-cli nvlink-nmxc-endpoints delete`
 
-_[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **delete***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-switch update`
 
-_[Tenant commands](../../tenant.md) › [expected-switch](./expected-switch.md) › **update**_
+*[Tenant commands](../../tenant.md) › [expected-switch](./expected-switch.md) › **update***
 
 ## NAME
 

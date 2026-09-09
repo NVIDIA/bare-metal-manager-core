@@ -1,6 +1,6 @@
 # `nico-admin-cli logical-partition show`
 
-_[Network commands](../../network.md) › [logical-partition](./logical-partition.md) › **show**_
+*[Network commands](../../network.md) › [logical-partition](./logical-partition.md) › **show***
 
 ## NAME
 

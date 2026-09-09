@@ -1,6 +1,6 @@
 # `nico-admin-cli bmc-machine admin-power-control`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **admin-power-control**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **admin-power-control***
 
 ## NAME
 

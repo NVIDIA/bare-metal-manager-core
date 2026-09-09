@@ -1,6 +1,6 @@
 # `nico-admin-cli set tracing-enabled`
 
-_[Hardware commands](../../hardware.md) › [set](./set.md) › **tracing-enabled**_
+*[Hardware commands](../../hardware.md) › [set](./set.md) › **tracing-enabled***
 
 ## NAME
 

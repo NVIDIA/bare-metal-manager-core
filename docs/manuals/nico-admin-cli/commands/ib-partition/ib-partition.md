@@ -1,6 +1,6 @@
 # `nico-admin-cli ib-partition`
 
-_[Network commands](../../network.md) › **ib-partition**_
+*[Network commands](../../network.md) › **ib-partition***
 
 ## NAME
 

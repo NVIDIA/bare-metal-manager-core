@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host start-updates`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **start-updates**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **start-updates***
 
 ## NAME
 

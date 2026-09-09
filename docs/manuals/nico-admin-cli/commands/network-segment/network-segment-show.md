@@ -1,6 +1,6 @@
 # `nico-admin-cli network-segment show`
 
-_[Network commands](../../network.md) › [network-segment](./network-segment.md) › **show**_
+*[Network commands](../../network.md) › [network-segment](./network-segment.md) › **show***
 
 ## NAME
 

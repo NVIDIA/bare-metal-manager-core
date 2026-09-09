@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx profile`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › **profile**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › **profile***
 
 ## NAME
 

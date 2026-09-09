@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish tpm-reset`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **tpm-reset**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **tpm-reset***
 
 ## NAME
 

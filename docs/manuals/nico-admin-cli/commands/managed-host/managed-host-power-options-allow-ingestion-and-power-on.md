@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host power-options allow-ingestion-and-power-on`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **allow-ingestion-and-power-on**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **allow-ingestion-and-power-on***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli ssh show-obmc-log`
 
-_[Admin commands](../../admin.md) › [ssh](./ssh.md) › **show-obmc-log**_
+*[Admin commands](../../admin.md) › [ssh](./ssh.md) › **show-obmc-log***
 
 ## NAME
 

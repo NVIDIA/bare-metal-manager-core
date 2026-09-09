@@ -1,6 +1,6 @@
 # `nico-admin-cli ip find`
 
-_[Network commands](../../network.md) › [ip](./ip.md) › **find**_
+*[Network commands](../../network.md) › [ip](./ip.md) › **find***
 
 ## NAME
 

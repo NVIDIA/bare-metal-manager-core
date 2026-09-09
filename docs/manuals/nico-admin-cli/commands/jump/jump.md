@@ -1,6 +1,6 @@
 # `nico-admin-cli jump`
 
-_[Admin commands](../../admin.md) › **jump**_
+*[Admin commands](../../admin.md) › **jump***
 
 ## NAME
 

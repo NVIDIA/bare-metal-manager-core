@@ -1,6 +1,6 @@
 # `nico-admin-cli sku`
 
-_[Hardware commands](../../hardware.md) › **sku**_
+*[Hardware commands](../../hardware.md) › **sku***
 
 ## NAME
 

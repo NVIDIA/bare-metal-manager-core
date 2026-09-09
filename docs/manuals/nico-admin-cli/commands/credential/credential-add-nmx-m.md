@@ -1,6 +1,6 @@
 # `nico-admin-cli credential add-nmx-m`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-nmx-m**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-nmx-m***
 
 ## NAME
 

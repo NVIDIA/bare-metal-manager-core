@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf metadata add-label`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **add-label**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [metadata](./power-shelf-metadata.md) › **add-label***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-system-ethernet-interfaces`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-system-ethernet-interfaces**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-system-ethernet-interfaces***
 
 ## NAME
 

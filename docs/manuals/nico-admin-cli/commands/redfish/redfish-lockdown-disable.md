@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish lockdown-disable`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **lockdown-disable**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **lockdown-disable***
 
 ## NAME
 

@@ -1,10 +1,11 @@
 # `nico-admin-cli bmc-machine probe-vendor`
 
-_[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **probe-vendor**_
+*[Hardware commands](../../hardware.md) › [bmc-machine](./bmc-machine.md) › **probe-vendor***
 
 ## NAME
 
-nico-admin-cli-bmc-machine-probe-vendor - Resolve a BMC's Redfish vendor
+nico-admin-cli-bmc-machine-probe-vendor - Resolve the Redfish vendor for
+a BMC
 
 ## SYNOPSIS
 
@@ -14,7 +15,7 @@ nico-admin-cli-bmc-machine-probe-vendor - Resolve a BMC's Redfish vendor
 
 ## DESCRIPTION
 
-Resolve a BMC's Redfish vendor
+Resolve the Redfish vendor for a BMC
 
 ## OPTIONS
 

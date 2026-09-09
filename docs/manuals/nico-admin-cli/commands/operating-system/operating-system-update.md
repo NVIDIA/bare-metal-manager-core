@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system update`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **update**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **update***
 
 ## NAME
 
@@ -39,7 +39,9 @@ Set whether this OS definition is active.\
 - false
 
 **--allow-override** *\<ALLOW_OVERRIDE\>*  
-Set whether users can override OS parameters.\
+Set whether instance requests can override the raw iPXE boot script
+stored by this OS definition. Applies only when the definition stores a
+raw iPXE script; does not affect templated definitions or user data.\
 
 \
 *Possible values:*
@@ -49,13 +51,12 @@ Set whether users can override OS parameters.\
 - false
 
 **--phone-home-enabled** *\<PHONE_HOME_ENABLED\>*  
-Set whether the instance is held in a provisioning state until the booted OS
-calls back ("phones home") to NICo's metadata service, instead of being
-reported ready as soon as provisioning finishes. NICo injects the cloud-init
-`phone_home` block into your user-data for you, so your `userData` must be
-valid cloud-init YAML when this is enabled. Refer to
-[Phone-home](../../../../configuration/tenant_management.md#phone-home) for
-what it injects, the endpoint, and usage guidance.\
+Set whether instances using this OS definition wait for a guest
+phone-home callback before reporting ready. If the callback never
+arrives, the instance remains in a provisioning state. REST workflows
+inject the cloud-init phone_home block and require valid cloud-init
+YAML; callers using Core directly must arrange the callback. See
+[Phone-home](../../../../configuration/tenant_management.md#phone-home).\
 
 \
 *Possible values:*
@@ -110,4 +111,4 @@ nico-admin-cli operating-system update 12345678-1234-5678-90ab-cdef01234567 --ip
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)

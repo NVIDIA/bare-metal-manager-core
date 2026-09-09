@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf health-report add`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **add**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **add***
 
 ## NAME
 

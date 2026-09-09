@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf delete`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › **delete***
 
 ## NAME
 

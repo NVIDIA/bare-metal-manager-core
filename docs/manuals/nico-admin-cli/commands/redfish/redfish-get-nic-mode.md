@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-nic-mode`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-nic-mode**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-nic-mode***
 
 ## NAME
 

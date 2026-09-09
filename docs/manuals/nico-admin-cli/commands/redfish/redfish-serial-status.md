@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish serial-status`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **serial-status**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **serial-status***
 
 ## NAME
 

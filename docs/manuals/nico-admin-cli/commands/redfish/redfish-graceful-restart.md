@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish graceful-restart`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **graceful-restart**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **graceful-restart***
 
 ## NAME
 

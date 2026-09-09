@@ -1,6 +1,6 @@
 # `nico-admin-cli rack health-history`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **health-history**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › **health-history***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish ac-power-cycle`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **ac-power-cycle**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **ac-power-cycle***
 
 ## NAME
 

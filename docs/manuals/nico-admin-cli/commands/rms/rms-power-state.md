@@ -1,6 +1,6 @@
 # `nico-admin-cli rms power-state`
 
-_[Hardware commands](../../hardware.md) › [rms](./rms.md) › **power-state**_
+*[Hardware commands](../../hardware.md) › [rms](./rms.md) › **power-state***
 
 ## NAME
 

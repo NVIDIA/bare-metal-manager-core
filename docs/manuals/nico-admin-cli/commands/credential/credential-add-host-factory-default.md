@@ -1,6 +1,6 @@
 # `nico-admin-cli credential add-host-factory-default`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-host-factory-default**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-host-factory-default***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli dpa show`
 
-_[Hardware commands](../../hardware.md) › [dpa](./dpa.md) › **show**_
+*[Hardware commands](../../hardware.md) › [dpa](./dpa.md) › **show***
 
 ## NAME
 

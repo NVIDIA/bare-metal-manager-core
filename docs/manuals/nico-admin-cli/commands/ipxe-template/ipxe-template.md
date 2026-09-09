@@ -1,6 +1,6 @@
 # `nico-admin-cli ipxe-template`
 
-_[Tenant commands](../../tenant.md) › **ipxe-template**_
+*[Tenant commands](../../tenant.md) › **ipxe-template***
 
 ## NAME
 

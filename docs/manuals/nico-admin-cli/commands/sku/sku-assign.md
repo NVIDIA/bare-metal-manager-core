@@ -1,6 +1,6 @@
 # `nico-admin-cli sku assign`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **assign**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **assign***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli instance-type disassociate`
 
-_[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **disassociate**_
+*[Tenant commands](../../tenant.md) › [instance-type](./instance-type.md) › **disassociate***
 
 ## NAME
 
@@ -44,7 +44,7 @@ Machine Id
 ## Examples
 
 ```sh
-nico-admin-cli instance-type disassociate 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli instance-type disassociate fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
 ```
 
 ---

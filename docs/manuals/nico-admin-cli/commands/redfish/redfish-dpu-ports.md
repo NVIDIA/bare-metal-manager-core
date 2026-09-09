@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish dpu ports`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › [dpu](./redfish-dpu.md) › **ports**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › [dpu](./redfish-dpu.md) › **ports***
 
 ## NAME
 

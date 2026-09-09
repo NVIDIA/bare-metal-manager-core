@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager get-firmware-update-status switch`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-update-status](./component-manager-get-firmware-update-status.md) › **switch**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-update-status](./component-manager-get-firmware-update-status.md) › **switch***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli set bmc-proxy`
 
-_[Hardware commands](../../hardware.md) › [set](./set.md) › **bmc-proxy**_
+*[Hardware commands](../../hardware.md) › [set](./set.md) › **bmc-proxy***
 
 ## NAME
 

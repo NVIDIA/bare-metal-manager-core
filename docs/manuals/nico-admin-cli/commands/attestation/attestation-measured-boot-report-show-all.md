@@ -1,6 +1,6 @@
 # `nico-admin-cli attestation measured-boot report show all`
 
-_[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [report](./attestation-measured-boot-report.md) › [show](./attestation-measured-boot-report-show.md) › **all**_
+*[Hardware commands](../../hardware.md) › [attestation](./attestation.md) › [measured-boot](./attestation-measured-boot.md) › [report](./attestation-measured-boot-report.md) › [show](./attestation-measured-boot-report-show.md) › **all***
 
 ## NAME
 

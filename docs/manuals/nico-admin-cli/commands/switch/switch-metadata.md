@@ -1,6 +1,6 @@
 # `nico-admin-cli switch metadata`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › **metadata**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › **metadata***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf snapshot`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **snapshot**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **snapshot***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish boot-pxe`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-pxe**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **boot-pxe***
 
 ## NAME
 

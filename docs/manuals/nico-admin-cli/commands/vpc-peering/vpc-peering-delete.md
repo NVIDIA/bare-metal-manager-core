@@ -1,6 +1,6 @@
 # `nico-admin-cli vpc-peering delete`
 
-_[Network commands](../../network.md) › [vpc-peering](./vpc-peering.md) › **delete**_
+*[Network commands](../../network.md) › [vpc-peering](./vpc-peering.md) › **delete***
 
 ## NAME
 

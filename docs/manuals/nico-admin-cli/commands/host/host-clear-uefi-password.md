@@ -1,6 +1,6 @@
 # `nico-admin-cli host clear-uefi-password`
 
-_[Hardware commands](../../hardware.md) › [host](./host.md) › **clear-uefi-password**_
+*[Hardware commands](../../hardware.md) › [host](./host.md) › **clear-uefi-password***
 
 ## NAME
 
@@ -18,7 +18,7 @@ Clear Host UEFI password
 ## OPTIONS
 
 **-q**, **--query** *\<QUERY\>*  
-ID, IPv4, MAC or hostnmame of the machine to query
+ID, IPv4, MAC or hostname of the machine to query
 
 **--extended**  
 Extended result output.

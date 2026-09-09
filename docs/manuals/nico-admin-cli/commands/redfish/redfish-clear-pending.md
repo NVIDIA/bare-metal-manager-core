@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish clear-pending`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **clear-pending**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **clear-pending***
 
 ## NAME
 

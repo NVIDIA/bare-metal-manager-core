@@ -1,6 +1,6 @@
 # `nico-admin-cli domain`
 
-_[Network commands](../../network.md) › **domain**_
+*[Network commands](../../network.md) › **domain***
 
 ## NAME
 

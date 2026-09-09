@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-secure-boot`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-secure-boot**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-secure-boot***
 
 ## NAME
 

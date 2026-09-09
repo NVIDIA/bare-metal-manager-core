@@ -1,6 +1,6 @@
 # `nico-admin-cli nvlink-nmxc-endpoints create`
 
-_[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **create**_
+*[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **create***
 
 ## NAME
 
@@ -21,7 +21,7 @@ Insert a mapping for a chassis serial
 
 **--chassis-serial** *\<SERIAL\>*  
 **--endpoint** *\<ENDPOINT\>*  
-NMX-C gRPC base URL (e.g. https://host:50051)
+NMX-C gRPC base URL (e.g. [https://host:50051](https://host:50051))
 
 **--extended**  
 Extended result output.

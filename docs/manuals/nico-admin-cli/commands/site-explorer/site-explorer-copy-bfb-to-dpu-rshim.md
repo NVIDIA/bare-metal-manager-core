@@ -1,6 +1,6 @@
 # `nico-admin-cli site-explorer copy-bfb-to-dpu-rshim`
 
-_[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **copy-bfb-to-dpu-rshim**_
+*[Tenant commands](../../tenant.md) › [site-explorer](./site-explorer.md) › **copy-bfb-to-dpu-rshim***
 
 ## NAME
 

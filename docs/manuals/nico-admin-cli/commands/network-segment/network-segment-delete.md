@@ -1,6 +1,6 @@
 # `nico-admin-cli network-segment delete`
 
-_[Network commands](../../network.md) › [network-segment](./network-segment.md) › **delete**_
+*[Network commands](../../network.md) › [network-segment](./network-segment.md) › **delete***
 
 ## NAME
 

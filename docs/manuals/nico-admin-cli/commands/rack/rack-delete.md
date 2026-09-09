@@ -1,6 +1,6 @@
 # `nico-admin-cli rack delete`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [rack](./rack.md) › **delete***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish create-bmc-user`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **create-bmc-user**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **create-bmc-user***
 
 ## NAME
 

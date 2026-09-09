@@ -1,6 +1,6 @@
 # `nico-admin-cli sku update-metadata`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **update-metadata**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **update-metadata***
 
 ## NAME
 

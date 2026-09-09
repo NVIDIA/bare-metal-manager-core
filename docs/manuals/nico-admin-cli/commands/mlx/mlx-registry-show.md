@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx registry show`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [registry](./mlx-registry.md) › **show**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [registry](./mlx-registry.md) › **show***
 
 ## NAME
 

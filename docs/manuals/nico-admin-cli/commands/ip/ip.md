@@ -1,6 +1,6 @@
 # `nico-admin-cli ip`
 
-_[Network commands](../../network.md) › **ip**_
+*[Network commands](../../network.md) › **ip***
 
 ## NAME
 

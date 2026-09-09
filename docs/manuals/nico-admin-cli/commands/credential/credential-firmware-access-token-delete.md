@@ -1,6 +1,6 @@
 # `nico-admin-cli credential firmware-access-token delete`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › [firmware-access-token](./credential-firmware-access-token.md) › **delete**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › [firmware-access-token](./credential-firmware-access-token.md) › **delete***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli expected-machine show`
 
-_[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **show**_
+*[Tenant commands](../../tenant.md) › [expected-machine](./expected-machine.md) › **show***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli extension-service delete`
 
-_[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **delete***
 
 ## NAME
 

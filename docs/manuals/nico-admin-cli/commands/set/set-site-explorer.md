@@ -1,6 +1,6 @@
 # `nico-admin-cli set site-explorer`
 
-_[Hardware commands](../../hardware.md) › [set](./set.md) › **site-explorer**_
+*[Hardware commands](../../hardware.md) › [set](./set.md) › **site-explorer***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli extension-service create`
 
-_[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **create**_
+*[Tenant commands](../../tenant.md) › [extension-service](./extension-service.md) › **create***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli spx-partition`
 
-_[Network commands](../../network.md) › **spx-partition**_
+*[Network commands](../../network.md) › **spx-partition***
 
 ## NAME
 

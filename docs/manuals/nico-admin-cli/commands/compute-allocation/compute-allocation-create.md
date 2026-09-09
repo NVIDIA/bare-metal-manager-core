@@ -1,6 +1,6 @@
 # `nico-admin-cli compute-allocation create`
 
-_[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **create**_
+*[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **create***
 
 ## NAME
 

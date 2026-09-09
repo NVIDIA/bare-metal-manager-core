@@ -1,6 +1,6 @@
 # `nico-admin-cli machine health-report remove`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › [health-report](./machine-health-report.md) › **remove**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › [health-report](./machine-health-report.md) › **remove***
 
 ## NAME
 
@@ -40,7 +40,6 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*MACHINE_ID*\>  
-
 \<*REPORT_SOURCE*\>
 
 ---

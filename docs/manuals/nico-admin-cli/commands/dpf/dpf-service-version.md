@@ -1,6 +1,6 @@
 # `nico-admin-cli dpf service-version`
 
-_[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **service-version**_
+*[Hardware commands](../../hardware.md) › [dpf](./dpf.md) › **service-version***
 
 ## NAME
 

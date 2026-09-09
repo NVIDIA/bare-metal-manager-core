@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host show`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **show**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › **show***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli credential bgp`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **bgp**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **bgp***
 
 ## NAME
 

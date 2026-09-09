@@ -1,6 +1,6 @@
 # `nico-admin-cli switch health-report print-empty-template`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **print-empty-template**_
+*[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **print-empty-template***
 
 ## NAME
 

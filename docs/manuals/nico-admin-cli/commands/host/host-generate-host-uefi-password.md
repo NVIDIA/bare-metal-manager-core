@@ -1,6 +1,6 @@
 # `nico-admin-cli host generate-host-uefi-password`
 
-_[Hardware commands](../../hardware.md) › [host](./host.md) › **generate-host-uefi-password**_
+*[Hardware commands](../../hardware.md) › [host](./host.md) › **generate-host-uefi-password***
 
 ## NAME
 

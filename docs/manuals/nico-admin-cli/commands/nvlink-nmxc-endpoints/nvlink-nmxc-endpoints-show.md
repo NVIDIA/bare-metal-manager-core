@@ -1,6 +1,6 @@
 # `nico-admin-cli nvlink-nmxc-endpoints show`
 
-_[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **show**_
+*[Hardware commands](../../hardware.md) › [nvlink-nmxc-endpoints](./nvlink-nmxc-endpoints.md) › **show***
 
 ## NAME
 

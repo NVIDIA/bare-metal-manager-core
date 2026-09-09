@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager component-power-control compute-tray`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [component-power-control](./component-manager-component-power-control.md) › **compute-tray**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [component-power-control](./component-manager-component-power-control.md) › **compute-tray***
 
 ## NAME
 
@@ -10,7 +10,7 @@ Target compute trays
 ## SYNOPSIS
 
 **nico-admin-cli component-manager component-power-control
-compute-tray** \<**--machine-id**\|**--mac-address**\>
+compute-tray** \[**--machine-id**\] \[**--mac-address**\]
 \[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION

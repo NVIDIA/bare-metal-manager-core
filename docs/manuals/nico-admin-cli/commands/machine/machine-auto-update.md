@@ -1,6 +1,6 @@
 # `nico-admin-cli machine auto-update`
 
-_[Hardware commands](../../hardware.md) › [machine](./machine.md) › **auto-update**_
+*[Hardware commands](../../hardware.md) › [machine](./machine.md) › **auto-update***
 
 ## NAME
 

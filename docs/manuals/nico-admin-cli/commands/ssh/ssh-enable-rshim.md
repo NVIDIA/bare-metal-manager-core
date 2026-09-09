@@ -1,6 +1,6 @@
 # `nico-admin-cli ssh enable-rshim`
 
-_[Admin commands](../../admin.md) › [ssh](./ssh.md) › **enable-rshim**_
+*[Admin commands](../../admin.md) › [ssh](./ssh.md) › **enable-rshim***
 
 ## NAME
 

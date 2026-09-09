@@ -1,6 +1,6 @@
 # `nico-admin-cli resource-pool grow`
 
-_[Network commands](../../network.md) › [resource-pool](./resource-pool.md) › **grow**_
+*[Network commands](../../network.md) › [resource-pool](./resource-pool.md) › **grow***
 
 ## NAME
 

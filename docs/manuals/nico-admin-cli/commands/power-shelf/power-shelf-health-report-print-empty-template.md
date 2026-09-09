@@ -1,6 +1,6 @@
 # `nico-admin-cli power-shelf health-report print-empty-template`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **print-empty-template**_
+*[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **print-empty-template***
 
 ## NAME
 

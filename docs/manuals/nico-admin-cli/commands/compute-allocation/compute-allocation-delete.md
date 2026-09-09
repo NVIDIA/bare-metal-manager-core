@@ -1,6 +1,6 @@
 # `nico-admin-cli compute-allocation delete`
 
-_[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [compute-allocation](./compute-allocation.md) › **delete***
 
 ## NAME
 

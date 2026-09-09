@@ -1,6 +1,6 @@
 # `nico-admin-cli nvl-domain health-report print-empty-template`
 
-_[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › [health-report](./nvl-domain-health-report.md) › **print-empty-template**_
+*[Network commands](../../network.md) › [nvl-domain](./nvl-domain.md) › [health-report](./nvl-domain-health-report.md) › **print-empty-template***
 
 ## NAME
 

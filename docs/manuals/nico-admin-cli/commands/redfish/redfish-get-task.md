@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-task`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-task**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-task***
 
 ## NAME
 

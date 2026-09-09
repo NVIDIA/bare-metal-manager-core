@@ -1,6 +1,6 @@
 # `nico-admin-cli rms inventory`
 
-_[Hardware commands](../../hardware.md) › [rms](./rms.md) › **inventory**_
+*[Hardware commands](../../hardware.md) › [rms](./rms.md) › **inventory***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu reprovision clear`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **clear**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › [reprovision](./dpu-reprovision.md) › **clear***
 
 ## NAME
 

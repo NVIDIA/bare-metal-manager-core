@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish clear-nvram`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **clear-nvram**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **clear-nvram***
 
 ## NAME
 

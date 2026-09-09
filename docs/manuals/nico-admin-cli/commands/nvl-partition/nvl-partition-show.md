@@ -1,6 +1,6 @@
 # `nico-admin-cli nvl-partition show`
 
-_[Hardware commands](../../hardware.md) › [nvl-partition](./nvl-partition.md) › **show**_
+*[Hardware commands](../../hardware.md) › [nvl-partition](./nvl-partition.md) › **show***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli network-device show`
 
-_[Network commands](../../network.md) › [network-device](./network-device.md) › **show**_
+*[Network commands](../../network.md) › [network-device](./network-device.md) › **show***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli managed-host power-options get-machine-ingestion-state`
 
-_[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **get-machine-ingestion-state**_
+*[Hardware commands](../../hardware.md) › [managed-host](./managed-host.md) › [power-options](./managed-host-power-options.md) › **get-machine-ingestion-state***
 
 ## NAME
 

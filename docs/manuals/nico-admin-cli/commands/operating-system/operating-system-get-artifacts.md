@@ -1,6 +1,6 @@
 # `nico-admin-cli operating-system get-artifacts`
 
-_[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **get-artifacts**_
+*[Tenant commands](../../tenant.md) › [operating-system](./operating-system.md) › **get-artifacts***
 
 ## NAME
 

@@ -1,6 +1,6 @@
 # `nico-admin-cli component-manager get-firmware-versions compute-tray`
 
-_[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-versions](./component-manager-get-firmware-versions.md) › **compute-tray**_
+*[Hardware commands](../../hardware.md) › [component-manager](./component-manager.md) › [get-firmware-versions](./component-manager-get-firmware-versions.md) › **compute-tray***
 
 ## NAME
 
@@ -10,7 +10,7 @@ Target compute trays
 ## SYNOPSIS
 
 **nico-admin-cli component-manager get-firmware-versions compute-tray**
-\<**--machine-id**\|**--mac-address**\> \[**--extended**\]
+\[**--machine-id**\] \[**--mac-address**\] \[**--extended**\]
 \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION

@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish change-uefi-password`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **change-uefi-password**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **change-uefi-password***
 
 ## NAME
 

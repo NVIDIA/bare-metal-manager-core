@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish force-restart`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **force-restart**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **force-restart***
 
 ## NAME
 

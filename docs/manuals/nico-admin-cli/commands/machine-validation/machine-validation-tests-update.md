@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-validation tests update`
 
-_[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [tests](./machine-validation-tests.md) › **update**_
+*[Hardware commands](../../hardware.md) › [machine-validation](./machine-validation.md) › [tests](./machine-validation-tests.md) › **update***
 
 ## NAME
 
@@ -34,7 +34,7 @@ Version to be verify
 List of contexts
 
 **--img-name** *\<IMG_NAME\>*  
-Container image name
+Container image name (must include @sha256:\<digest\>)
 
 **--execute-in-host** *\<EXECUTE_IN_HOST\>*  
 Run command using chroot in case of container\

@@ -1,6 +1,6 @@
 # `nico-admin-cli sku replace`
 
-_[Hardware commands](../../hardware.md) › [sku](./sku.md) › **replace**_
+*[Hardware commands](../../hardware.md) › [sku](./sku.md) › **replace***
 
 ## NAME
 

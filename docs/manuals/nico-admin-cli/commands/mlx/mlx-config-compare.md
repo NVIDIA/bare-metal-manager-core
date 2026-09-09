@@ -1,6 +1,6 @@
 # `nico-admin-cli mlx config compare`
 
-_[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [config](./mlx-config.md) › **compare**_
+*[Hardware commands](../../hardware.md) › [mlx](./mlx.md) › [config](./mlx-config.md) › **compare***
 
 ## NAME
 
@@ -46,7 +46,6 @@ Carbide Machine ID
 Device ID is the PCI or mst path on the target machine
 
 \<*REGISTRY_NAME*\>  
-
 \[*ASSIGNMENTS*\]
 
 ---

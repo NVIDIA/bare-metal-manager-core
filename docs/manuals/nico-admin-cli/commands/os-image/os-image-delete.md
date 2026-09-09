@@ -1,6 +1,6 @@
 # `nico-admin-cli os-image delete`
 
-_[Tenant commands](../../tenant.md) › [os-image](./os-image.md) › **delete**_
+*[Tenant commands](../../tenant.md) › [os-image](./os-image.md) › **delete***
 
 ## NAME
 

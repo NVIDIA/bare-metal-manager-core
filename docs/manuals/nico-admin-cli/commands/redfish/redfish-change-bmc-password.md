@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish change-bmc-password`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **change-bmc-password**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **change-bmc-password***
 
 ## NAME
 

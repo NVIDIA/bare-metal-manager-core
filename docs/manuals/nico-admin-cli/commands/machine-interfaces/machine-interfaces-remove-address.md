@@ -1,6 +1,6 @@
 # `nico-admin-cli machine-interfaces remove-address`
 
-_[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **remove-address**_
+*[Hardware commands](../../hardware.md) › [machine-interfaces](./machine-interfaces.md) › **remove-address***
 
 ## NAME
 

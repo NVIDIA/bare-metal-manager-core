@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish dpu firmware`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › [dpu](./redfish-dpu.md) › **firmware**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › [dpu](./redfish-dpu.md) › **firmware***
 
 ## NAME
 

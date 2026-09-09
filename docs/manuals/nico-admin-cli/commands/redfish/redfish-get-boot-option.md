@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-boot-option`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-boot-option**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-boot-option***
 
 ## NAME
 

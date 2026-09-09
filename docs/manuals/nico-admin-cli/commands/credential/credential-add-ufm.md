@@ -1,6 +1,6 @@
 # `nico-admin-cli credential add-ufm`
 
-_[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-ufm**_
+*[Hardware commands](../../hardware.md) › [credential](./credential.md) › **add-ufm***
 
 ## NAME
 

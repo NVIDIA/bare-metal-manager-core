@@ -1,6 +1,6 @@
 # `nico-admin-cli browse`
 
-_[Hardware commands](../../hardware.md) › **browse**_
+*[Hardware commands](../../hardware.md) › **browse***
 
 ## NAME
 

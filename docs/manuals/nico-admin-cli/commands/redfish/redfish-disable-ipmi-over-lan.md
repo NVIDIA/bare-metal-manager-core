@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish disable-ipmi-over-lan`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **disable-ipmi-over-lan**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **disable-ipmi-over-lan***
 
 ## NAME
 

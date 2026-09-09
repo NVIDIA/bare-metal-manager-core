@@ -1,6 +1,6 @@
 # `nico-admin-cli set`
 
-_[Hardware commands](../../hardware.md) › **set**_
+*[Hardware commands](../../hardware.md) › **set***
 
 ## NAME
 

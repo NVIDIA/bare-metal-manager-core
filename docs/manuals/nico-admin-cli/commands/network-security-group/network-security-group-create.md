@@ -1,6 +1,6 @@
 # `nico-admin-cli network-security-group create`
 
-_[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **create**_
+*[Network commands](../../network.md) › [network-security-group](./network-security-group.md) › **create***
 
 ## NAME
 

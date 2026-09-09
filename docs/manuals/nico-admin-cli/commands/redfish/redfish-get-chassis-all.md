@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish get-chassis-all`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-chassis-all**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-chassis-all***
 
 ## NAME
 

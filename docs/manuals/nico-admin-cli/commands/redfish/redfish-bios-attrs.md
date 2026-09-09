@@ -1,6 +1,6 @@
 # `nico-admin-cli redfish bios-attrs`
 
-_[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bios-attrs**_
+*[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **bios-attrs***
 
 ## NAME
 

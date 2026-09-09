@@ -1,6 +1,6 @@
 # `nico-admin-cli credential`
 
-_[Hardware commands](../../hardware.md) › **credential**_
+*[Hardware commands](../../hardware.md) › **credential***
 
 ## NAME
 
@@ -25,9 +25,9 @@ probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field  
+Sort output by specified field\
 
-  
+\
 *Possible values:*
 
 - primary-id: Sort by the primary ID
@@ -57,8 +57,8 @@ Print help (see a summary with -h)
 | [`firmware-access-token`](./credential-firmware-access-token.md) | Manage firmware artifact access tokens |
 | [`rotate`](./credential-rotate.md) | Stage a site-wide credential rotation (auto-generate or explicit password) |
 | [`rotation-status`](./credential-rotation-status.md) | Show convergence status of a site-wide credential rotation |
-| [`force-bmc`](./credential-force-bmc.md) | Force-converge a single BMC's credentials now (operator escape hatch) |
-| [`force-uefi`](./credential-force-uefi.md) | Force-converge a single machine's UEFI credential now (operator escape hatch) |
+| [`force-bmc`](./credential-force-bmc.md) | Force-converge credentials for a single BMC now (operator escape hatch) |
+| [`force-uefi`](./credential-force-uefi.md) | Force-converge the UEFI credential for a single machine now (operator escape hatch) |
 
 ---
 

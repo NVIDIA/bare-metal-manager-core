@@ -1,6 +1,6 @@
 # `nico-admin-cli dpu status`
 
-_[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **status**_
+*[Hardware commands](../../hardware.md) › [dpu](./dpu.md) › **status***
 
 ## NAME
 
