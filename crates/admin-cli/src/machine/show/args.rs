@@ -90,7 +90,8 @@ pub(crate) struct Args {
         default_value(None),
         conflicts_with = "max_width",
         conflicts_with = "columns",
-        help = "The machine ID to query. Omit to show all machines."
+        help = "The machine ID to query. Omit to show all machines. Cannot be combined with \
+                --max-width or --columns."
     )]
     pub(crate) machine: Option<MachineId>,
 

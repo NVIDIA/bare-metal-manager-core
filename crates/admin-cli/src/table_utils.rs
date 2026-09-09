@@ -59,6 +59,9 @@ pub(crate) struct MaxWidthArgs {
                 with an ellipsis ('...'). A column never narrows below its header's length, so WIDTH is \
                 an upper bound on values, not a guaranteed rendered width: a WIDTH shorter \
                 than the header still lets values fill the header's width for free, and \
+                the ellipsis is only added when that effective width (WIDTH, or the header's \
+                length if longer) exceeds 3 characters; at 3 or fewer there's no room for one, \
+                so the value is truncated without it. \
                 WIDTH 0 means no limit (the same as not specifying that column at all; \
                 useful as COLUMN=0 to exempt one column from a blanket --max-width). \
                 Repeatable. A bare WIDTH applies to every column; COLUMN=WIDTH limits just \
@@ -238,11 +241,17 @@ impl ColumnSelection {
     /// listing the headers that are actually valid for this invocation, or
     /// `None` if every requested column matched.
     pub(crate) fn describe_unmatched_columns(&self, headers: &[&str]) -> Option<String> {
+        // The blank health-flag header ("") is always present in `headers`,
+        // but `ordered_headers` never selects it by name (it's pinned
+        // unconditionally instead). Treating an empty request as "known"
+        // here would silently swallow a stray blank entry (e.g. from
+        // `--columns "id,,state"`) that contributed nothing to the
+        // selection, so it's always unmatched regardless of `headers`.
         let known: HashSet<String> = headers.iter().map(|h| h.to_lowercase()).collect();
         let mut unmatched: Vec<&str> = self
             .requested
             .iter()
-            .filter(|c| !known.contains(&c.to_lowercase()))
+            .filter(|c| c.is_empty() || !known.contains(&c.to_lowercase()))
             .map(|c| c.as_str())
             .collect();
         if unmatched.is_empty() {
@@ -465,6 +474,28 @@ mod tests {
     fn empty_selection_never_warns() {
         let selection = ColumnSelection::new(&[]);
         assert!(selection.describe_unmatched_columns(&["State"]).is_none());
+    }
+
+    #[test]
+    fn stray_empty_entry_in_requested_columns_warns() {
+        // A stray blank entry (e.g. from a trailing/consecutive comma in
+        // `--columns`) must not be silently treated as matching the blank
+        // health-flag header, which is always present in `headers` but is
+        // never selectable by name.
+        value_scenarios!(
+            run = |columns: &[&str]| {
+                let requested: Vec<String> = columns.iter().map(|c| c.to_string()).collect();
+                ColumnSelection::new(&requested)
+                    .describe_unmatched_columns(&["", "Id", "State"])
+                    .is_some()
+            };
+            "warns only when a requested entry fails to match a real header" {
+                [].as_slice() => false,
+                ["Id", "State"].as_slice() => false,
+                ["Id", ""].as_slice() => true,
+                ["Id", "", "State"].as_slice() => true,
+            }
+        );
     }
 
     #[test]
